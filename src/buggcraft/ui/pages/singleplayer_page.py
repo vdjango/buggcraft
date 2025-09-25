@@ -68,7 +68,7 @@ class SinglePlayerPage(BasePage):
         """启动游戏"""
         if not self.parent.user.minecraft_username:
             self.launch_btn.set_texts(f"请先设置角色", self.launcher.version)
-            self.parent.user_panel.login_status.setText("<font color='#F44800'>请先设置游戏角色</font>")
+            # self.parent.user_panel.login_status.setText("<font color='#F44800'>请先设置游戏角色</font>")
             return
         
         if not self.current_client:

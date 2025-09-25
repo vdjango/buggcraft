@@ -35,8 +35,7 @@ class UserPanel(QWidget):
         self.current_login_mode = "正版登录"  # 当前登录模式：正版登录/离线登录
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         self.backgroundColor = self.background_color
-        self.is_offline_logged_in = False  # 离线登录状态标志       
-        self.offline_username = ""  
+        self.is_offline_logged_in = False  # 离线登录状态标志
         self.offline_avatar_path = ""   
 
         self.signals = MinecraftSignals()
@@ -423,7 +422,7 @@ class UserPanel(QWidget):
                     logger.error(f"离线登录头像文件不存在: {offline_avatar_path}")
                 
                 #   离线登录用户名
-                self.username_label.setText(self.offline_username)
+                self.username_label.setText(self.auth.minecraft_username)
                 
                 # 显示离线登录状态标签，并更新文本 
                 # self.offline_status_label.setText("离线登录")
@@ -688,7 +687,7 @@ class UserPanel(QWidget):
         
         # 设置离线登录状态
         self.is_offline_logged_in = True
-        self.offline_username = username 
+        self.auth.minecraft_username = username 
         
         # 保存离线登录状态到配置文件
         self.save_offline_login_state(username)
@@ -878,8 +877,8 @@ class UserPanel(QWidget):
         # 根据当前登录模式判断是否已登录
         is_logged_in = False
         if self.current_login_mode == "离线登录":
-            is_logged_in = self.is_offline_logged_in and self.offline_username
-        else:  
+            is_logged_in = self.is_offline_logged_in and self.auth.minecraft_username
+        else:
             is_logged_in = self.auth.minecraft_username
         
         if is_logged_in:
@@ -1090,7 +1089,7 @@ class UserPanel(QWidget):
             
             if is_logged_in and username:
                 self.is_offline_logged_in = True
-                self.offline_username = username   
+                self.auth.minecraft_username = username   
                 self.offline_avatar_path = avatar_path   
                 return True, username, avatar_path
             else:
@@ -1108,7 +1107,7 @@ class UserPanel(QWidget):
             self.settings_manager.set_setting("offline_login.avatar_path", "")
             self.settings_manager.save_settings()
             self.is_offline_logged_in = False
-            self.offline_username = ""  
+            self.auth.minecraft_username = ""  
             self.offline_avatar_path = ""   
             logger.info("离线登录状态已清除")
         except Exception as e:
@@ -1122,7 +1121,7 @@ class UserPanel(QWidget):
             if is_logged_in and username:
                 # 设置离线登录状态属性
                 self.is_offline_logged_in = True
-                self.offline_username = username   
+                self.auth.minecraft_username = username   
                 self.offline_avatar_path = avatar_path  
                 
             else:
