@@ -163,18 +163,18 @@ class MinecraftLauncher(QMainWindow):
     
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""
-        def handle_status(code):
-            if code == 0:
-                self.user_panel.login_status.setText("<font color='#4CAF50'>游戏已正常退出</font>")
+        # def handle_status(code):
+        #     if code == 0:
+        #         self.user_panel.login_status.setText("<font color='#4CAF50'>游戏已正常退出</font>")
             
-            # 5秒后恢复状态
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(1000, lambda: {
-                self.user_panel.login_status.setText("<font color='#4CAF50'>准备就绪</font>")
-            })
+        #     # 5秒后恢复状态
+        #     from PySide6.QtCore import QTimer
+        #     QTimer.singleShot(1000, lambda: {
+        #         self.user_panel.login_status.setText("<font color='#4CAF50'>准备就绪</font>")
+        #     })
 
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
-        QTimer.singleShot(5000, lambda: handle_status(exit_code))
+        # QTimer.singleShot(5000, lambda: handle_status(exit_code))
         # 恢复启动器
         self.visibility_manager.restore_if_needed()
     
