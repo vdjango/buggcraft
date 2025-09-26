@@ -47,17 +47,7 @@ class LoginWaitDialog(QDialog):
         header_layout.setContentsMargins(25, 15, 25, 15)
 
         title_layout = QHBoxLayout()
-        self.title_icon = QLabel()
-        self.title_icon.setPixmap(QPixmap(os.path.abspath(
-            os.path.join(self.resource_path, 'images', 'login', 'start-logging.png')
-        )).scaled(
-            20, 23,
-            Qt.IgnoreAspectRatio,
-            Qt.SmoothTransformation
-        ))
-        self.title_icon.setStyleSheet(f"background-color: transparent;")
-        self.title_icon.setAlignment(Qt.AlignCenter)
-
+        
         # 添加Minecraft图标
         self.minecraft_icon = QLabel()
         minecraft_icon_path = os.path.abspath(os.path.join(self.resource_path, 'images', 'user', 'logo_minecraft.png'))
@@ -77,8 +67,6 @@ class LoginWaitDialog(QDialog):
             font-size: 21px;
             font-weight: bold;
         """)
-        title_layout.addWidget(self.title_icon)
-        title_layout.addSpacing(15)
         title_layout.addWidget(self.minecraft_icon)
         title_layout.addSpacing(10)
         title_layout.addWidget(self.title_label)
