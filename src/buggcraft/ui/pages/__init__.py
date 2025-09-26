@@ -1,11 +1,12 @@
 # 页面模块
-from .singleplayer_page import SinglePlayerPage
+from .started_game import StartGamePage
 from .multiplayer_page import MultiplayerPage
 from .download_page import DownloadPage
 from .settings_page import SettingsPage
 from .more_page import MorePage
 
 __all__ = [
+    'StartGamePage',
     'SinglePlayerPage',
     'MultiplayerPage',
     'DownloadPage',
