@@ -3,10 +3,10 @@
 import os
 import logging
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QHBoxLayout, QFrame
+    QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
 from PySide6.QtCore import Qt, QSize, QPoint
-from PySide6.QtGui import QPixmap, QPainter, QMouseEvent
+from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
 
 from utils.helpers import scale_component
 from config.settings import get_settings_manager
@@ -55,6 +55,7 @@ class MinecraftLauncher(QMainWindow):
     def init_ui(self):
         # 主布局
         main_widget = QWidget()
+        
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -190,10 +191,17 @@ class MinecraftLauncher(QMainWindow):
 
     def paintEvent(self, event):
         """重绘事件 - 绘制背景图片"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
         if self.bg_image:
-            painter = QPainter(self)
             # 直接绘制原始尺寸的背景图片，不进行缩放
             painter.drawPixmap(0, 0, self.bg_image)
+        
+        # 绘制白色边框
+        painter.setPen(QPen(QColor("#565656"), 1))  # 2像素宽的白色边框
+        painter.drawRect(self.rect().adjusted(1, 1, -1, -1))  # 向内调整1像素，避免边框被裁剪
+
         super().paintEvent(event)
     
     def resizeEvent(self, event):
