@@ -24,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class VersionControlPage(QWidget):
-    """版本管理"""
+    """用户面板 - 可折叠"""
+    
+    started_changed = Signal()  # 游戏开始信号
+    login_success = Signal(dict, str)  # 用户名, 登录类型
+    
 
     def __init__(self, parent, resource_path, cache_path):
         super().__init__(parent)
@@ -71,23 +75,28 @@ class VersionControlPage(QWidget):
         # self.version_stack.setCurrentIndex(0)
 
         main_layout.addWidget(self.tab_container)
-    
+        
+
     def create_tab_buttons(self):
         """创建选项卡按钮区域"""
         tab_buttons_widget = QWidget()
         tab_buttons_widget.setFixedWidth(178)
-        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
+        tab_buttons_widget.setContentsMargins(0, 24, 0, 0)
         tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
         tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        tab_buttons_layout.addSpacing(20)   
-
-        # 创建紫色分隔线
-        shared_separator = QFrame()
-        shared_separator.setFrameShape(QFrame.HLine)
-        shared_separator.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
-        shared_separator.setFixedWidth(155)
-        shared_separator.setFixedHeight(2)
-        tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
+        tab_buttons_layout.addSpacing(0)
+        
+        # 添加下划线（水平分隔线）
+        underline = QHBoxLayout()
+        title_underline = QFrame()
+        title_underline.setFrameShape(QFrame.HLine)
+        title_underline.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
+        title_underline.setFixedWidth(155)
+        title_underline.setFixedHeight(2)
+        underline.addWidget(title_underline)
+        
+        tab_buttons_layout.addLayout(underline)
+        tab_buttons_layout.addSpacing(20)
 
         # 离线选项卡按钮
         self.offline_tab_btn = self.create_tab_button(
