@@ -103,7 +103,8 @@ class SettingsPage(BasePage):
         shared_separator.setFixedWidth(155)
         shared_separator.setFixedHeight(2)
         tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
-
+        tab_buttons_layout.addSpacing(10)
+        
         # 通用设置按钮
         self.general_tab_btn = self.create_tab_button(
             "通用设置",

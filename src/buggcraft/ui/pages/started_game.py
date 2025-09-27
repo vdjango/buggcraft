@@ -274,6 +274,7 @@ class StartGamePage(QWidget):
         shared_separator.setFixedWidth(155)
         shared_separator.setFixedHeight(2)
         tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
+        tab_buttons_layout.addSpacing(10)
 
         # 离线选项卡按钮
         self.offline_tab_btn = self.create_tab_button(
