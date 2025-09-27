@@ -139,7 +139,7 @@ class MinecraftLibLauncher(QObject):
         height=480,
         fullscreen=False
     ):
-        """设置启动选项
+        """设置通用设置
         Args:
             username (str, optional): 游戏用户名。默认为 "Player"。
             uuid (str | None, optional): 玩家的 UUID。默认为 None。
@@ -217,7 +217,7 @@ class MinecraftLibLauncher(QObject):
                 *launch_jvm_args
             ]
             
-            # 准备启动选项
+            # 准备通用设置
             options = {
                 "executablePath": java_path,
                 "username": self.username,
