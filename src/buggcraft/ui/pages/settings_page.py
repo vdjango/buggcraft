@@ -40,22 +40,40 @@ class SettingsPage(BasePage):
         self.set_background('images/minecraft_bg.png')
         
         # 创建主布局
-        main_layout = QHBoxLayout(self)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 左侧导航 - 使用与开始页面相同的样式
-        nav_widget = self.create_tab_buttons()
-        main_layout.addWidget(nav_widget)
+        main_layout.setSpacing(0)
+
+        # 创建选项卡容器
+        self.tab_container = QWidget()
+        tab_container_layout = QHBoxLayout(self.tab_container)
+        tab_container_layout.setContentsMargins(15, 0, 15, 0)
+
+        # 创建选项卡按钮区域
+        self.tab_buttons_widget = self.create_tab_buttons()
+        self.tab_buttons_widget.setStyleSheet("background-color: #225500;")
+
+        # 创建选项卡内容区域
+        self.tab_content = QWidget()
+        self.tab_content.setFixedWidth(926 - 178 - 62)
+        self.tab_content.setContentsMargins(25, 0, 25, 0)
+        self.tab_content.setStyleSheet("background-color: #552299;")
+
+        tab_container_layout.addWidget(self.tab_buttons_widget)
+        tab_container_layout.addSpacing(23)
+        tab_container_layout.addWidget(self.tab_content)
+
+        main_layout.addWidget(self.tab_container)
         
         # 右侧设置内容
-        self.settings_stack = QStackedWidget()
+        self.settings_stack = QStackedWidget(self.tab_content)
         self.settings_stack.setContentsMargins(5, 5, 5, 5)
         # self.settings_stack.setStyleSheet("""
         #     QStackedWidget {
         #         border-radius: 8px;
         #     }
         # """)
-        main_layout.addWidget(self.settings_stack)
+        # main_layout.addWidget(self.settings_stack)
         
         # 添加设置页面
         self.create_launch_settings()
@@ -73,10 +91,18 @@ class SettingsPage(BasePage):
         """创建选项卡按钮区域  """
         tab_buttons_widget = QWidget()
         tab_buttons_widget.setFixedWidth(178)
-        tab_buttons_widget.setContentsMargins(24, 0, 0, 0)   
+        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
         tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
         tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        tab_buttons_layout.addSpacing(20)  
+        tab_buttons_layout.addSpacing(20)   
+
+        # 创建紫色分隔线
+        shared_separator = QFrame()
+        shared_separator.setFrameShape(QFrame.HLine)
+        shared_separator.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
+        shared_separator.setFixedWidth(155)
+        shared_separator.setFixedHeight(2)
+        tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
 
         # 通用设置按钮
         self.general_tab_btn = self.create_tab_button(
