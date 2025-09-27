@@ -1018,7 +1018,7 @@ class SettingsPage(BasePage):
         """重绘事件 - 绘制背景图片与主窗口渲染方式一致"""
         if self.bg_image:
             painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.SmoothTransformation)
+            painter.setRenderHint(QPainter.Antialiasing)
             
             widget_width = self.width()
             widget_height = self.height()
