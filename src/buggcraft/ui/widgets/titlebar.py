@@ -10,7 +10,7 @@ class TitleBar(QWidget):
     """优化的自定义标题栏 - 添加页面切换信号"""
     
     # 添加页面切换信号
-    tab_switch_clicked = Signal(str)  # 参数为标签索引
+    tab_switch_clicked = Signal(str)
     
     def __init__(self, parent, resource_path):
         super().__init__(parent)
