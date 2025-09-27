@@ -302,6 +302,7 @@ class StartGamePage(QWidget):
         """创建选项卡按钮"""
         button = QLabel()
         button.mousePressEvent = lambda event: click_handler()
+        button.setCursor(Qt.PointingHandCursor)
         button.setFixedSize(*size)
         button.setStyleSheet("background-color: transparent;")
         
