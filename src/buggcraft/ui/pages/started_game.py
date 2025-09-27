@@ -262,22 +262,10 @@ class StartGamePage(QWidget):
         """创建选项卡按钮区域"""
         tab_buttons_widget = QWidget()
         tab_buttons_widget.setFixedWidth(178)
-        tab_buttons_widget.setContentsMargins(0, 24, 0, 0)
+        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
         tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
         tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        tab_buttons_layout.addSpacing(0)
-        
-        # 添加下划线（水平分隔线）
-        underline = QHBoxLayout()
-        title_underline = QFrame()
-        title_underline.setFrameShape(QFrame.HLine)
-        title_underline.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
-        title_underline.setFixedWidth(155)
-        title_underline.setFixedHeight(2)
-        underline.addWidget(title_underline)
-        
-        tab_buttons_layout.addLayout(underline)
-        tab_buttons_layout.addSpacing(20)
+        tab_buttons_layout.addSpacing(20)   
 
         # 离线选项卡按钮
         self.offline_tab_btn = self.create_tab_button(
