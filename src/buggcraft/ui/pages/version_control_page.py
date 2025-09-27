@@ -5,30 +5,31 @@
 
 # StartGamePage 类
 import os
+import minecraft_launcher_lib
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QStackedWidget, QFileDialog, QMessageBox
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QStackedWidget, QFileDialog, QMessageBox, QDialog
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
 
-from core.auth.microsoft import Authenticator, MinecraftSignals
-from ui.widgets.buttons import QMStartButton
-from ui.dialog.LoginDialog import LoginWaitDialog
 from config.settings import get_settings_manager
-from core.launcher import MinecraftLibLauncher
-from utils.helpers import get_physical_resolution
+from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
+from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
 
 import logging
 logger = logging.getLogger(__name__)
 
 
+class MinecraftSettingSignals(QObject):
+    """游戏启动时需要指定游戏路径、游戏版本，这些信息如果发生变动未及时传递信号，启动游戏路径版本是错误的。
+    这里的信号需要同步到主UI中"""
+    versions = Signal(str)   # 用户修改了游戏版本
+    directory = Signal(str)  # 用户修改了游戏路径
+
+
 class VersionControlPage(QWidget):
     """用户面板 - 可折叠"""
-    
-    started_changed = Signal()  # 游戏开始信号
-    login_success = Signal(dict, str)  # 用户名, 登录类型
-    
 
     def __init__(self, parent, resource_path, cache_path):
         super().__init__(parent)
@@ -39,10 +40,11 @@ class VersionControlPage(QWidget):
         self.current_login_mode = "版本列表"  # 当前登录模式：版本列表/版本设置
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
+        self.signals = MinecraftSettingSignals()
+        self.version_delete_dialog = VersionDeleteDialog()
+
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
-
-        # 初始化UI
         self.init_ui()
 
     def init_ui(self):
@@ -75,8 +77,7 @@ class VersionControlPage(QWidget):
         # self.version_stack.setCurrentIndex(0)
 
         main_layout.addWidget(self.tab_container)
-        
-
+    
     def create_tab_buttons(self):
         """创建选项卡按钮区域"""
         tab_buttons_widget = QWidget()
@@ -226,12 +227,15 @@ class VersionControlPage(QWidget):
         
         # 存储目录项的引用
         self.directory_items = []
-        
+
+        # 从配置文件加载目录数据
+        directory_data = self.load_directory_data()
+
         # 添加目录项
-        directory_data = [
-            {"is_selected": True, "title": "当前文件夹", "path": "G:\\buggcraftx\\.buggcraft\\", "has_delete": True},
-            {"is_selected": False, "title": "官方启动器文件夹", "path": "G:\\buggcraftx\\.buggcraft\\", "has_delete": True}
-        ]
+        # directory_data = [
+        #     {"is_selected": True, "title": "当前文件夹", "path": "G:\\buggcraftx\\.buggcraft\\", "has_delete": True},
+        #     {"is_selected": False, "title": "官方启动器文件夹", "path": "G:\\buggcraftx\\.buggcraft\\", "has_delete": True}
+        # ]
 
         for data in directory_data:
             item = self.create_directory_item(
@@ -380,34 +384,27 @@ class VersionControlPage(QWidget):
         # 存储版本项的引用
         self.version_items = []
         
-        # 添加版本项
-        version_data = [
-            {"version": "1.20.8", "description": "最新正式版本，发布于2025/04/21", "is_selected": True},
-            {"version": "1.20.7", "description": "稳定版本，发布于2025/03/15", "is_selected": False}
-        ]
+        # 获取当前选中的目录
+        selected_directory = None
+        for item in self.directory_items:
+            if item.property("is_selected"):
+                selected_directory = item.property("path")
+                break
         
-        for data in version_data:
-            item = self.create_version_item(
-                data["version"],
-                data["description"],
-                data["is_selected"]
-            )
-            self.version_items.append(item)
-            layout.addWidget(item)
+        # 如果找到选中的目录，加载该目录的版本数据
+        if selected_directory:
+            version_data = self.load_version_data(selected_directory)
+            
+            # 添加版本项
+            for data in version_data:
+                item = self.create_version_item(
+                    data["version"],
+                    data["description"],
+                    data["is_selected"]
+                )
+                self.version_items.append(item)
+                layout.addWidget(item)
 
-        # 添加版本项
-        # layout.addWidget(self.create_version_item(
-        #     version="1.20.8",
-        #     description="最新正式版本，发布于2025/04/21",
-        #     is_selected=True
-        # ))
-        
-        # layout.addWidget(self.create_version_item(
-        #     version="1.20.7",
-        #     description="稳定版本，发布于2025/03/15",
-        #     is_selected=False
-        # ))
-        
         # 添加拉伸空间
         layout.addStretch()
         
@@ -520,8 +517,81 @@ class VersionControlPage(QWidget):
 
     # ----- page -----
 
+    def load_directory_data(self):
+        """从配置文件加载目录数据"""
+        # 获取当前启用的目录
+        enable_directory = self.settings_manager.get_setting('minecraft', {}).get("directory", {}).get("enable", None)
+        
+        # 获取所有已安装目录
+        installed_directories = self.settings_manager.get_setting('minecraft', {}).get("directory", {}).get("installed", [])
+        
+        # 准备目录数据
+        directory_data = []
+        for directory in installed_directories:
+            # 获取目录名称（使用路径的最后一部分）
+            dir_name = os.path.basename(directory)
+            
+            # 检查是否是当前启用的目录
+            is_selected = directory == enable_directory
+            
+            directory_data.append({
+                "is_selected": is_selected,
+                "title": dir_name,
+                "path": directory,
+                "has_delete": True
+            })
+        
+        return directory_data
+
+    def load_version_data(self, directory_path):
+        """扫描指定目录下的 Minecraft 版本"""
+        from datetime import datetime
+        try:
+            # 使用 minecraft_launcher_lib 获取已安装版本
+            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(directory_path)
+            
+            # 获取当前启用的版本
+            enable_version = self.settings_manager.get_setting('minecraft.version.enable')
+            
+            # 准备版本数据
+            version_data = []
+            for version in installed_versions:
+                version_id = version['id']
+                
+                # 获取版本类型和发布日期
+                version_type = version.get('type', 'release').capitalize()
+                release_time = version.get('releaseTime')
+                
+                # 格式化发布日期
+                if release_time:
+                    try:
+                        release_date = datetime.strptime(release_time, "%Y-%m-%dT%H:%M:%S%z")
+                        formatted_date = release_date.strftime("%Y/%m/%d")
+                    except:
+                        formatted_date = release_time
+                else:
+                    formatted_date = "未知日期"
+                
+                # 构建描述
+                description = f"{version_type}版本，发布于{formatted_date}"
+                
+                # 检查是否是当前启用的版本
+                is_selected = version_id == enable_version
+                
+                version_data.append({
+                    "version": version_id,
+                    "description": description,
+                    "is_selected": is_selected
+                })
+            
+            return version_data
+        
+        except Exception as e:
+            logger.error(f"扫描目录 {directory_path} 失败: {e}")
+            return []
+
     def on_directory_clicked(self, item, event):
-        """处理目录项点击事件"""
+        """处理目录项点击事件 - 更新配置文件并刷新版本列表"""
         # 更新所有目录项的选中状态
         for directory_item in self.directory_items:
             is_selected = directory_item == item
@@ -544,67 +614,95 @@ class VersionControlPage(QWidget):
         # 获取选中目录的数据
         title = item.property("title")
         path = item.property("path")
-        print(f"选中目录: {title}, 路径: {path}")
         
-        # 可以在这里触发其他操作，如刷新版本列表等
+        self.scan_versions(path)
+        # 更新配置文件
+        self.settings_manager.set_setting("minecraft.directory.enable", path)
+        self.settings_manager.save_settings()
+        
+        # 刷新版本列表
         self.refresh_version_list(path)
+        self.signals.directory.emit(path)
+        logger.info(f"已切换到新添加的目录: {title}, 路径: {path}")
 
     def on_delete_directory(self, item, event):
-        """处理删除目录事件"""
-        # 阻止事件冒泡，避免触发目录项点击事件
+        """处理删除目录事件 - 更新配置文件"""
+        # 阻止事件冒泡
         event.accept()
         
         title = item.property("title")
         path = item.property("path")
         
         # 显示确认对话框
-        reply = QMessageBox.question(
-            self, 
-            "确认删除", 
-            f"确定要删除目录 '{title}' 吗？\n路径: {path}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            # 执行删除操作
-            print(f"删除目录: {title}, 路径: {path}")
-            # 从界面中移除该项
+        self.version_delete_dialog.set_title(f"游戏删除确认")
+        self.version_delete_dialog.set_message(f"您确认要删除 {path} 整个游戏吗？")
+        self.version_delete_dialog.set_message_text(f"此操作不可回退，将删除所有版本、存档、资源包、光影、Mod等文件！")
+
+        if self.version_delete_dialog.exec() == QDialog.Accepted:
+            delete_minecraft_directory(path)
+
+            installed_directories: list = self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("installed", [])
+            if not path in installed_directories:
+                return
+            
+            installed_directories.remove(path)
+            
+            self.settings_manager.set_setting("minecraft.directory.installed", installed_directories)
+            self.settings_manager.save_settings()
+            
             if item in self.directory_items:
+                # 从界面中移除该项
                 self.directory_items.remove(item)
                 item.setParent(None)
                 item.deleteLater()
+                
+                # 如果删除的是当前选中的目录，选择第一个目录
+                if self.settings_manager.get_setting("minecraft.directory.enable") == path and self.directory_items:
+                    self.on_directory_clicked(self.directory_items[0], None)
 
     def on_add_directory(self, event):
-        """处理添加目录事件"""
+        """处理添加目录事件 - 更新配置文件"""
         # 打开目录选择对话框
         directory = QFileDialog.getExistingDirectory(
             self, 
-            "选择游戏目录",
+            "选择游戏目录 (.minecraft/)",
             "", 
             QFileDialog.ShowDirsOnly
         )
+
+        if not directory:
+            return
         
-        if directory:
-            print(f"添加目录: {directory}")
-            
-            # 创建新目录项
-            new_item = self.create_directory_item(
-                is_selected=False,
-                title=os.path.basename(directory),
-                path=directory,
-                has_delete=True
-            )
-            
-            # 添加到目录列表
-            self.directory_items.append(new_item)
-            
-            # 找到添加按钮的位置
-            layout = self.directory_panel.layout()
-            add_item_index = layout.count() - 3  # 添加按钮在倒数第三个位置
-            
-            # 在添加按钮之前插入新项
-            layout.insertWidget(add_item_index, new_item)
+        installed_directories = self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("installed", [])
+        if directory in installed_directories:
+            return
+        
+        installed_directories.append(directory)
+        
+        self.settings_manager.set_setting("minecraft.directory.installed", installed_directories)
+        self.settings_manager.save_settings()
+        
+        self.scan_versions(directory)  # 扫描新目录下的版本
+        
+        # 创建新目录项
+        new_item = self.create_directory_item(
+            is_selected=False,
+            title=os.path.basename(directory),
+            path=directory,
+            has_delete=True
+        )
+        
+        self.directory_items.append(new_item)
+        
+        # 找到添加按钮的位置
+        # 添加按钮在倒数第三个位置
+        # 在添加按钮之前插入新项
+        layout = self.directory_panel.layout()
+        add_item_index = layout.count() - 3
+        layout.insertWidget(add_item_index, new_item)
+
+        # 自动切换到新添加的目录
+        self.on_directory_clicked(new_item, None)
 
     def on_install_new_game(self):
         """处理安装新游戏事件"""
@@ -612,7 +710,7 @@ class VersionControlPage(QWidget):
         # 这里可以打开安装新游戏的对话框或页面
 
     def on_version_clicked(self, item, event):
-        """处理版本项点击事件"""
+        """处理版本项点击事件 - 更新配置文件"""
         # 更新所有版本项的选中状态
         for version_item in self.version_items:
             is_selected = version_item == item
@@ -628,10 +726,12 @@ class VersionControlPage(QWidget):
         
         # 获取选中版本的数据
         version = item.property("version")
-        description = item.property("description")
-        print(f"选中版本: {version}, 描述: {description}")
         
-        # 可以在这里触发其他操作，如准备启动游戏等
+        # 更新配置文件
+        self.settings_manager.set_setting("minecraft.version.enable", version)
+        self.settings_manager.save_settings()
+        self.signals.versions.emit(version)
+        print(f"选中版本: {version}")
 
     def on_version_settings(self, item, event):
         """处理版本设置事件"""
@@ -647,42 +747,96 @@ class VersionControlPage(QWidget):
         """处理打开版本文件夹事件"""
         # 阻止事件冒泡
         event.accept()
-        
-        version = item.property("version")
-        print(f"打开版本文件夹: {version}")
-        
-        # 这里可以打开版本文件夹
+        minecraft_version = item.property("version")
+        minecraft_directory = self.settings_manager.get_setting("minecraft.directory.enable")
+        minecraft_path = os.path.abspath(os.path.join(minecraft_directory, "versions", minecraft_version))
+        open_folder(minecraft_path)
+        logger.info(f"打开版本文件夹: {minecraft_path}")
 
     def on_delete_version(self, item, event):
-        """处理删除版本事件"""
+        """处理删除版本事件 - 更新配置文件"""
         # 阻止事件冒泡
         event.accept()
-        
         version = item.property("version")
         
         # 显示确认对话框
-        reply = QMessageBox.question(
-            self, 
-            "确认删除", 
-            f"确定要删除版本 '{version}' 吗？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        self.version_delete_dialog.set_title(f"版本删除确认")
+        self.version_delete_dialog.set_message(f"您确认要删除 {version} 游戏版本吗？")
+        self.version_delete_dialog.set_message_text(f"当前游戏版本已开启版本隔离，将删除 存档、资源包、光影、Mod等文件！")
+        if self.version_delete_dialog.exec() == QDialog.Accepted:
+            delete_minecraft_version(
+                self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("enable", None), 
+                version
+            )
+            # 获取现有版本列表
+            installed_versions: list = self.settings_manager.get_setting("minecraft", {}).get("version", {}).get("installed", [])
+            
+            # 移除版本
+            if version in installed_versions:
+                installed_versions.remove(version)
+
+                self.settings_manager.set_setting("minecraft.version.installed", installed_versions)
+                self.settings_manager.save_settings()
+                
+                # 从界面中移除该项
+                if item in self.version_items:
+                    self.version_items.remove(item)
+                    item.setParent(None)
+                    item.deleteLater()
+                
+                # 如果删除的是当前选中的版本，选择第一个版本
+                if self.settings_manager.get_setting("minecraft.version.enable") == version and self.version_items:
+                    self.on_version_clicked(self.version_items[0], None)
+
+    def scan_versions(self, directory_path):
+        """扫描目录下的版本并更新配置"""
+        try:
+            # 扫描目录下的版本
+            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(directory_path)
+            version_ids = [v['id'] for v in installed_versions]
+
+            # 如果没有当前启用的版本，设置第一个版本为启用
+            if not self.settings_manager.get_setting('minecraft.version.enable') in version_ids:
+                self.settings_manager.set_setting('minecraft.version.enable', version_ids[0])
+
+            self.settings_manager.set_setting("minecraft.version.installed", version_ids)
+            self.settings_manager.save_settings()
+            self.signals.versions.emit(version_ids[0])
+            logger.info(f"更新版本: {', '.join(version_ids)}")
         
-        if reply == QMessageBox.Yes:
-            # 执行删除操作
-            print(f"删除版本: {version}")
-            # 从界面中移除该项
-            if item in self.version_items:
-                self.version_items.remove(item)
-                item.setParent(None)
-                item.deleteLater()
+        except Exception as e:
+            logger.error(f"扫描版本失败: {e}")
 
     def refresh_version_list(self, directory_path):
-        """刷新版本列表"""
-        print(f"刷新版本列表，目录: {directory_path}")
-        # 这里可以根据目录路径加载版本列表
+        """刷新版本列表 - 扫描目录并更新UI"""
+        # 扫描目录下的版本
+        self.scan_versions(directory_path)
+        
+        for i in reversed(range(self.version_list_panel.layout().count())):
+            # 移除所有子部件
+            item = self.version_list_panel.layout().itemAt(i)
+            if item.widget():
+                item.widget().setParent(None)
+            self.version_list_panel.layout().removeItem(item)
 
+        # 清空版本项列表
+        self.version_items = []
+        
+        # 加载新版本的版本数据
+        version_data = self.load_version_data(directory_path)
+        
+        # 添加新版本项
+        for data in version_data:
+            item = self.create_version_item(
+                data["version"],
+                data["description"],
+                data["is_selected"]
+            )
+            self.version_items.append(item)
+            self.version_list_panel.layout().addWidget(item)
+        
+        # 添加拉伸空间
+        self.version_list_panel.layout().addStretch()
 
     def paintEvent(self, event):
         """重绘事件 - 透明背景"""
@@ -698,7 +852,6 @@ class VersionControlPage(QWidget):
             self.backgroundColor = color
         self.update()
 
-    
     def resizeEvent(self, event):
         """窗口大小变化事件 - 确保布局自适应"""
         super().resizeEvent(event)

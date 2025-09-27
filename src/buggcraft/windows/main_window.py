@@ -113,6 +113,18 @@ class MinecraftLauncher(QMainWindow):
         )
         self.content_stack.addWidget(self.version_control_page)
 
+        # 注册信号
+        def set_directory(v):
+            self.started_page.launcher.minecraft_directory = v
+
+        def set_version(v):
+            self.started_page.launcher.version = v
+            print('set', v)
+            self.started_page.set_minecraft_version(v)
+
+        self.version_control_page.signals.directory.connect(set_directory)
+        self.version_control_page.signals.versions.connect(set_version)
+
         # 游戏日志信息回显
         self.launcher = self.started_page.launcher
         self.launcher.signals.output.connect(self.minecraft_handle_output)

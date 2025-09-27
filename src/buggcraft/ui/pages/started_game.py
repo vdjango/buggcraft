@@ -76,7 +76,7 @@ class StartGamePage(QWidget):
             self.launch_btn.setEnabled(False)
             self.launch_btn.set_texts(f"启动中...", self.launcher.version)
             self.launcher.set_language('简体中文')
-            size = self.parent.settings_manager.get_setting("launcher.window_size", "默认")
+            size = self.settings_manager.get_setting("launcher.window_size", "默认")
 
             # ["默认", "与启动器一致", "最大化"]
             fullscreen = False

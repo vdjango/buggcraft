@@ -265,31 +265,11 @@ class QMStartButton(QWidget):
                 padding: 0;
             }}
         """)
-
-    def adjust_container_position(self, spacing):
-        """根据间距调整文本容器位置"""
-        # 计算文本容器的总高度
-        line1_height = self.line1_label.sizeHint().height()
-        line2_height = self.line2_label.sizeHint().height()
-        container_height = line1_height + line2_height + spacing
-        
-        # 计算垂直偏移量，使文本在按钮中垂直居中
-        button_height = self.height()
-        top_offset = max(0, (button_height - container_height) // 2)
-        
-        # 设置文本容器的几何位置
-        self.text_container.setGeometry(
-            0,  # x坐标
-            top_offset,  # y坐标
-            480,  # 宽度 
-            container_height  # 高度
-        )
     
     def set_texts(self, line1, line2):
         """设置两行文本"""
         self.line1_label.setText(line1)
         self.line2_label.setText(line2)
-        self.adjust_container_position(self.text_layout.spacing())
     
     def mousePressEvent(self, event):
         """鼠标点击事件"""
