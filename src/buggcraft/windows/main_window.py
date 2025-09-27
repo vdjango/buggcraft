@@ -3,7 +3,7 @@
 import os
 import logging
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QStackedWidget, QVBoxLayout
+    QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QHBoxLayout, QFrame
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QPixmap, QPainter
@@ -58,6 +58,25 @@ class MinecraftLauncher(QMainWindow):
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
+        
+        # 创建开始 设置 页面共用的紫色分隔线
+        separator_container = QWidget()
+        separator_container.setFixedHeight(26)   
+        separator_container.setStyleSheet("background-color: transparent;")
+        separator_layout = QVBoxLayout(separator_container)
+        separator_layout.setContentsMargins(22, 24, 0, 0)   
+        separator_layout.setSpacing(0)
+        
+        # 创建紫色分隔线
+        self.shared_separator = QFrame()
+        self.shared_separator.setFrameShape(QFrame.HLine)
+        self.shared_separator.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
+        self.shared_separator.setFixedWidth(155)
+        self.shared_separator.setFixedHeight(2)
+        separator_layout.addWidget(self.shared_separator)
+        separator_layout.addStretch()
+        
+        content_layout.addWidget(separator_container)
         
         # 堆叠内容区域
         self.content_stack = QStackedWidget()
