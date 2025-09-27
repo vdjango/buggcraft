@@ -5,7 +5,7 @@ import logging
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QHBoxLayout, QFrame
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QPoint
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent
 
 from utils.helpers import scale_component
@@ -27,6 +27,10 @@ class MinecraftLauncher(QMainWindow):
         self.cache_path = cache_path
         self.config_path = config_path
         self.resource_path = resource_path
+
+        # 窗口拖动
+        self.dragging = False
+        self.drag_position = QPoint()
 
         self.scale_ratio = scale_component(QSize(1280, 832), QSize(1280-1280/3, 832-832/3))
         self.settings_manager = get_settings_manager(self.config_path)  # 获取配置管理器
