@@ -731,24 +731,6 @@ class StartGamePage(QWidget):
             self.backgroundColor = color
         self.update()
 
-    def create_tab_button(self, text, click_handler, size=(155, 44), font_size=12):
-        """创建选项卡按钮"""
-        button = QLabel()
-        button.mousePressEvent = lambda event: click_handler()
-        button.setFixedSize(*size)
-        
-        # 初始状态 保持透明
-        button.setStyleSheet("background-color: transparent;")
-        
-        # 添加文本
-        text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
-        text_label.setAlignment(Qt.AlignCenter)  
-        text_label.setStyleSheet("color: white; background-color: transparent;")
-        text_label.setGeometry(0, 0, *size)   
-        
-        return button
-    
     def resizeEvent(self, event):
         """窗口大小变化事件 - 确保布局自适应"""
         super().resizeEvent(event)
