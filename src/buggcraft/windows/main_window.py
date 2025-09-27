@@ -13,7 +13,7 @@ from config.settings import get_settings_manager
 from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
 from ui.widgets.titlebar import TitleBar
-from ui.pages import StartGamePage, SettingsPage
+from ui.pages import StartGamePage, SettingsPage, VersionControlPage
 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,7 +31,15 @@ class MinecraftLauncher(QMainWindow):
         self.scale_ratio = scale_component(QSize(1280, 832), QSize(1280-1280/3, 832-832/3))
         self.settings_manager = get_settings_manager(self.config_path)  # 获取配置管理器
         self.visibility_manager = LauncherVisibilityManager(self)  # 初始化可见性管理器
-        self.current_tab = "started_game"
+
+        # ["StartedGame", "Settings", "VersionControl"]
+        self.tab_names = {
+            '开始': 'StartedGame',
+            '设置': 'Settings',
+            # '版本选择': 'VersionList',
+            '版本管理': 'VersionControl'
+        }
+        self.current_tab = "StartedGame"
         
         # 设置背景图片
         self.bg_image = None
@@ -51,6 +59,10 @@ class MinecraftLauncher(QMainWindow):
         
         # 自定义标题栏
         self.title_bar = TitleBar(self, resource_path=self.resource_path)
+
+        # 连接标签页点击信号
+        self.title_bar.tab_switch_clicked.connect(self.switch_pages)
+
         main_layout.addWidget(self.title_bar)
         
         # 主内容区域
@@ -74,18 +86,10 @@ class MinecraftLauncher(QMainWindow):
     
     def create_pages(self):
         """创建所有页面"""
-        # 开始 Start Game Play
+        # 开始页面
         self.started_page = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
         self.started_page.login_success.connect(self.handle_login_success)
         self.started_page.started_changed.connect(self.started_page.started_game)  # 启动游戏，必须在主UI中进行
-
-        # 游戏日志信息回显
-        self.launcher = self.started_page.launcher
-        self.launcher.signals.output.connect(self.minecraft_handle_output)
-        self.launcher.signals.started.connect(self.minecraft_handle_started)
-        self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
-        self.launcher.signals.error.connect(self.minecraft_handle_error)
-        self.launcher.signals.progress.connect(self.minecraft_handle_progress)
         self.content_stack.addWidget(self.started_page)
 
         # 设置页面
@@ -96,11 +100,34 @@ class MinecraftLauncher(QMainWindow):
             scale_ratio=self.scale_ratio
         )
         self.content_stack.addWidget(self.settings_page)
+
+        # 版本管理
+        self.version_control_page = VersionControlPage(
+            self,
+            cache_path=self.cache_path,
+            resource_path=self.resource_path
+        )
+        self.content_stack.addWidget(self.version_control_page)
+
+        # 游戏日志信息回显
+        self.launcher = self.started_page.launcher
+        self.launcher.signals.output.connect(self.minecraft_handle_output)
+        self.launcher.signals.started.connect(self.minecraft_handle_started)
+        self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
+        self.launcher.signals.error.connect(self.minecraft_handle_error)
+        self.launcher.signals.progress.connect(self.minecraft_handle_progress)
         
-    def switch_pages(self, index):
+    def switch_pages(self, name):
         """切换标签页"""
-        tab_names = ["started_game", "multiplayer", "download", "settings", "more"]
-        self.current_tab = tab_names[index]
+        def remove_duplicates_preserve_order(sequence):
+            """移除重复项并保持顺序"""
+            seen = set()
+            return [x for x in sequence if not (x in seen or seen.add(x))]
+
+        tab_names = remove_duplicates_preserve_order(self.tab_names.values())
+        self.current_tab = self.tab_names[name]
+        index =  tab_names.index(self.current_tab)
+        print('switch_pages', tab_names, index, self.current_tab)
         self.content_stack.setCurrentIndex(index)
     
     def load_background_image(self):
