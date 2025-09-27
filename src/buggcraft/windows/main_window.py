@@ -13,7 +13,7 @@ from config.settings import get_settings_manager
 from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
 from ui.widgets.titlebar import TitleBar
-from ui.pages import StartGamePage, SettingsPage, VersionControlPage
+from ui.pages import StartGamePage, SettingsPage, VersionsPages
 
 import logging
 logger = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ class MinecraftLauncher(QMainWindow):
         self.content_stack.addWidget(self.settings_page)
 
         # 版本管理
-        self.version_control_page = VersionControlPage(
+        self.version_control_page = VersionsPages(
             self,
             cache_path=self.cache_path,
             resource_path=self.resource_path

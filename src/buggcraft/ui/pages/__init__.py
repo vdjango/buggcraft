@@ -4,13 +4,14 @@ from .multiplayer_page import MultiplayerPage
 from .download_page import DownloadPage
 from .settings_page import SettingsPage
 from .more_page import MorePage
-from .version_control_page import VersionControlPage
+from .versions_page import VersionsPages
 
 __all__ = [
     'StartGamePage',
-    'VersionControlPage',
+    'SettingsPage',
+    'VersionsPages',
     'MultiplayerPage',
     'DownloadPage',
-    'SettingsPage',
+    
     'MorePage'
 ]

@@ -1,5 +1,4 @@
 """版本管理
- - 版本列表
  - 版本设置
 """
 
@@ -28,16 +27,14 @@ class MinecraftSettingSignals(QObject):
     directory = Signal(str)  # 用户修改了游戏路径
 
 
-class VersionControlPage(QWidget):
+class SettingsPage(QWidget):
     """用户面板 - 可折叠"""
 
-    def __init__(self, parent, resource_path, cache_path):
+    def __init__(self, resource_path, parent=None):
         super().__init__(parent)
         self.parent = parent
-        self.cache_path = cache_path
         self.resource_path = resource_path
         
-        self.current_login_mode = "版本列表"  # 当前登录模式：版本列表/版本设置
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
         self.signals = MinecraftSettingSignals()
@@ -53,124 +50,22 @@ class VersionControlPage(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # 创建选项卡容器
-        self.tab_container = QWidget()
-        tab_container_layout = QHBoxLayout(self.tab_container)
-        tab_container_layout.setContentsMargins(15, 0, 15, 25)
+        # 创建主容器
+        content_container = QWidget(self)
+        content_container.setContentsMargins(0, 0, 0, 0)
+        container_layout = QHBoxLayout(content_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(10)
         
-        # 创建选项卡按钮区域
-        self.tab_buttons_widget = self.create_tab_buttons()
-        # self.tab_buttons_widget.setStyleSheet("background-color: #225500;")
-
-        # 右侧堆叠内容
-        self.version_stack = QStackedWidget()
-        self.version_stack.setFixedWidth(926 - 178 - 62)
-        self.version_stack.setContentsMargins(10, 10, 10, 10)
-        # self.version_stack.setStyleSheet("background-color: #552299;")
-
-        tab_container_layout.addWidget(self.tab_buttons_widget)
-        tab_container_layout.addSpacing(22)
-        tab_container_layout.addWidget(self.version_stack)
+        # # 左侧游戏安装路径区域
+        # self.directory_panel = self.create_directory_panel()
+        # container_layout.addWidget(self.directory_panel)
         
-        self.create_page_version_lists()  # 版本列表页
-        self.create_page_version_setting()  # 版本设置页
-        # self.version_stack.setCurrentIndex(0)
-
-        main_layout.addWidget(self.tab_container)
-    
-    def create_tab_buttons(self):
-        """创建选项卡按钮区域"""
-        tab_buttons_widget = QWidget()
-        tab_buttons_widget.setFixedWidth(178)
-        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)
-        tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
-        tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        tab_buttons_layout.addSpacing(20)
+        # # 右侧游戏版本列表区域
+        # self.version_list_panel = self.create_version_list_panel()
+        # container_layout.addWidget(self.version_list_panel)
         
-        # 添加下划线（水平分隔线）
-        shared_separator = QFrame()
-        shared_separator.setFrameShape(QFrame.HLine)
-        shared_separator.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
-        shared_separator.setFixedWidth(155)
-        shared_separator.setFixedHeight(2)
-        tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
-        tab_buttons_layout.addSpacing(10)
-
-        # 离线选项卡按钮
-        self.offline_tab_btn = self.create_tab_button(
-            "版本列表",
-            self.version_lists_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.offline_tab_btn, 0, Qt.AlignCenter)
-        
-        # 正版选项卡按钮
-        self.external_tab_btn = self.create_tab_button(
-            "版本设置",
-            self.version_settings_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.external_tab_btn, 0, Qt.AlignCenter)
-        tab_buttons_layout.addStretch()
-        
-        # 设置初始状态：版本列表默认选中
-        self.update_tab_button_style("版本列表", False)
-        self.update_tab_button_style("版本设置", True)
-        
-        return tab_buttons_widget
-
-    def create_tab_button(self, text, click_handler, size=(155, 44), font_size=12):
-        """创建选项卡按钮"""
-        button = QLabel()
-        button.mousePressEvent = lambda event: click_handler()
-        button.setFixedSize(*size)
-        button.setStyleSheet("background-color: transparent;")
-        
-        # 添加文本
-        text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
-        text_label.setAlignment(Qt.AlignCenter)  
-        text_label.setStyleSheet("color: white; background-color: transparent;")
-        text_label.setGeometry(0, 0, *size)   
-        
-        return button
-
-    def version_settings_btn_clicked(self):
-        """版本列表按钮点击事件"""
-        # self.external_content.show()
-        # self.offline_content.hide()
-        
-        self.update_tab_button_style("版本列表", True)
-        self.update_tab_button_style("版本设置", False)
-        self.current_login_mode = "版本列表"
-        # self.update_ui_state()
-        # self.restore_login_state()
-
-    def version_lists_btn_clicked(self):
-        """版本设置按钮点击事件"""
-        # self.external_content.hide()
-        # self.offline_content.show()
-        # self.auth_manager.current_mode = 'offline'
-        self.update_tab_button_style("版本列表", False)
-        self.update_tab_button_style("版本设置", True)
-        self.current_login_mode = "版本设置"
-        # self.update_ui_state()
-        # self.restore_login_state()
-
-    def update_tab_button_style(self, tab_name, is_active):
-        """更新选项卡按钮样式"""
-        if tab_name == "版本列表":
-            btn = self.external_tab_btn
-            active_image = os.path.join(self.resource_path, 'images', 'user', 'external_tab_btn_active.png')
-        else:
-            btn = self.offline_tab_btn
-            active_image = os.path.join(self.resource_path, 'images', 'user', 'external_tab_btn_active.png')
-        
-        if is_active and os.path.exists(active_image):
-            btn.setPixmap(QPixmap(active_image).scaled(155, 44, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        else:
-            btn.clear()
-            btn.setStyleSheet("background-color: transparent;")
+        main_layout.addWidget(content_container)
 
     def create_image_button(self, text, image_path, click_handler, width, height, font_size=11):
         """创建图片按钮"""
@@ -193,26 +88,6 @@ class VersionControlPage(QWidget):
     
     # ----- page 版本列表页 -----
 
-    def create_page_version_lists(self):
-        """版本列表页 - 带点击事件"""
-        # 创建主容器
-        content = QWidget()
-        content.setContentsMargins(0, 0, 0, 0)
-        container_layout = QHBoxLayout(content)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(10)
-        
-        # 左侧游戏安装路径区域
-        self.directory_panel = self.create_directory_panel()
-        container_layout.addWidget(self.directory_panel)
-        
-        # 右侧游戏版本列表区域
-        self.version_list_panel = self.create_version_list_panel()
-        container_layout.addWidget(self.version_list_panel)
-        
-        self.version_stack.addWidget(content)
-        return content
-    
     def create_directory_panel(self):
         """创建左侧游戏安装路径面板"""
         # 容器
@@ -229,15 +104,7 @@ class VersionControlPage(QWidget):
         self.directory_items = []
 
         # 从配置文件加载目录数据
-        directory_data = self.load_directory_data()
-
-        # 添加目录项
-        # directory_data = [
-        #     {"is_selected": True, "title": "当前文件夹", "path": "G:\\buggcraftx\\.buggcraft\\", "has_delete": True},
-        #     {"is_selected": False, "title": "官方启动器文件夹", "path": "G:\\buggcraftx\\.buggcraft\\", "has_delete": True}
-        # ]
-
-        for data in directory_data:
+        for data in self.load_directory_data():
             item = self.create_directory_item(
                 data["is_selected"],
                 data["title"],
@@ -348,7 +215,7 @@ class VersionControlPage(QWidget):
         """创建添加目录项"""
         item = QWidget()
         item.setStyleSheet('background-color: transparent; border: 1px solid rgba(120, 89, 255, 1);')
-        item.setFixedHeight(45)
+        item.setFixedHeight(40)
         
         layout = QHBoxLayout(item)
         
