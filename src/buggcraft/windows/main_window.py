@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QHBoxLayout, QFrame
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QPixmap, QPainter
+from PySide6.QtGui import QPixmap, QPainter, QMouseEvent
 
 from utils.helpers import scale_component
 from config.settings import get_settings_manager
@@ -199,3 +199,20 @@ class MinecraftLauncher(QMainWindow):
     def closeEvent(self, event):
         self.settings_page.save_all_settings()  # 假设 settings_page 是 SettingsPage 实例
         super().closeEvent(event)
+
+    # 窗口拖动功能
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self.dragging = True
+            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+    
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self.dragging and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+            event.accept()
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self.dragging = False
+            event.accept()
