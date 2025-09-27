@@ -1,14 +1,16 @@
 import os
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QHBoxLayout, 
-    QSizePolicy, QVBoxLayout, QSpacerItem
+    QWidget, QLabel, QPushButton, QHBoxLayout
 )
-from PySide6.QtGui import QFont, QPixmap, QColor, QIcon, QPainter, QMouseEvent
-from PySide6.QtCore import Qt, QPoint, QSize
+from PySide6.QtGui import QFont,  QColor, QIcon, QPainter, QMouseEvent
+from PySide6.QtCore import Qt, QPoint, Signal
 
 
 class TitleBar(QWidget):
-    """优化的自定义标题栏 - 使用布局管理器实现自适应"""
+    """优化的自定义标题栏 - 添加页面切换信号"""
+    
+    # 添加页面切换信号
+    tab_switch_clicked = Signal(str)  # 参数为标签索引
     
     def __init__(self, parent, resource_path):
         super().__init__(parent)
@@ -29,12 +31,12 @@ class TitleBar(QWidget):
         self.tab_names = ["开始", "设置"]
         
         # 版本按钮配置
-        self.version_buttons = ["版本选择", "版本设置"]
+        self.version_buttons = ["版本选择", "版本管理"]
         
         # 控制按钮配置
         self.control_buttons = ["最小化", "关闭"]
         
-        # 创建透明图标 
+        # 创建透明图标
         self.transparent_icon = QIcon(os.path.abspath(os.path.join(self.resource_path, 'images', 'bar', 'ic_no.png')))
         
         self.setFixedHeight(58)  # 固定高度，确保按钮不被裁切
@@ -118,7 +120,7 @@ class TitleBar(QWidget):
         """创建单个标签按钮 - 使用背景图片和居中文字"""
         tab_button = QLabel()
         tab_button.setObjectName(f"tab_{name}")
-        tab_button.mousePressEvent = lambda event: self.on_tab_clicked(name)
+        tab_button.mousePressEvent = lambda e: self.on_tab_clicked(name)
         
         # 设置按钮文字
         tab_button.setText(name)
@@ -136,7 +138,7 @@ class TitleBar(QWidget):
             }
         """)
         
-        # 设置  背景图片
+        # 设置背景图片
         tab_button.setFixedSize(123, 45)
         
         return tab_button
@@ -145,7 +147,7 @@ class TitleBar(QWidget):
         """创建版本选择按钮 - 使用version_selection_background.png背景图片"""
         version_btn = QLabel()
         version_btn.setObjectName("version_版本选择")
-        version_btn.mousePressEvent = lambda event: self.on_version_clicked("版本选择")
+        # version_btn.mousePressEvent = lambda e: self.tab_switch_clicked.emit('版本选择')
         
         # 设置按钮文字
         version_btn.setText("版本选择")
@@ -193,10 +195,10 @@ class TitleBar(QWidget):
         """创建版本设置按钮 - 使用version_settings_background.png背景图片"""
         version_btn = QLabel()
         version_btn.setObjectName("version_版本设置")
-        version_btn.mousePressEvent = lambda event: self.on_version_clicked("版本设置")
+        version_btn.mousePressEvent = lambda e: self.tab_switch_clicked.emit('版本管理')
         
         # 设置按钮文字
-        version_btn.setText("版本设置")
+        version_btn.setText("版本管理")
         version_btn.setFont(QFont("Source Han Sans CN Heavy", 10))
         version_btn.setAlignment(Qt.AlignCenter)
         
@@ -299,18 +301,31 @@ class TitleBar(QWidget):
         for i, tab_button in enumerate(self.tab_buttons):
             if i == index:
                 # 激活状态 - 设置ic.png作为背景图片
-                bg_path = str(self.resource_path / 'images' / 'bar' / 'ic.png').replace('\\', '/')
-                tab_button.setStyleSheet(f"""
-                    QLabel {{
-                        color: #FFFFFF;
-                        font-weight: bold;
-                        background-image: url({bg_path});
-                        background-repeat: no-repeat;
-                        background-position: center;
-                        padding-left: 15px;
-                        padding-top: 5px;
-                    }}
-                """)
+                bg_path = os.path.abspath(os.path.join(self.resource_path, 'images', 'bar', 'ic.png'))
+                if os.path.exists(bg_path):
+                    bg_path_url = bg_path.replace('\\', '/')
+                    tab_button.setStyleSheet(f"""
+                        QLabel {{
+                            color: #FFFFFF;
+                            font-weight: bold;
+                            background-image: url({bg_path_url});
+                            background-repeat: no-repeat;
+                            background-position: center;
+                            padding-left: 15px;
+                            padding-top: 5px;
+                        }}
+                    """)
+                else:
+                    # 如果图片不存在，使用颜色样式
+                    tab_button.setStyleSheet("""
+                        QLabel {
+                            color: #FFFFFF;
+                            font-weight: bold;
+                            background-color: #7959FF;
+                            padding-left: 15px;
+                            padding-top: 5px;
+                        }
+                    """)
             else:
                 # 非激活状态 - 透明背景
                 tab_button.setStyleSheet("""
@@ -328,18 +343,13 @@ class TitleBar(QWidget):
         if name in self.tab_names:
             index = self.tab_names.index(name)
             self.set_active_tab(index)
-            # 调用父窗口的标签切换方法
-            if hasattr(self.parent, 'switch_pages'):
-                self.parent.switch_pages(index)
-    
-    def on_version_clicked(self, name):
-        """版本按钮点击事件处理"""
-        if name == "版本选择":
-            # TODO: 实现版本选择功能
-            print(f"点击了{name}按钮")
-        elif name == "版本设置":
-            # TODO: 实现版本设置功能
-            print(f"点击了{name}按钮")
+            
+            # 发射页面切换信号
+            self.tab_switch_clicked.emit(name)
+            
+            # # 调用父窗口的标签切换方法（如果存在）
+            # if hasattr(self.parent, 'switch_pages'):
+            #     self.parent.switch_pages(index)
     
     # 保留原有的窗口拖动功能
     def mousePressEvent(self, event: QMouseEvent):
