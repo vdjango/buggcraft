@@ -6,9 +6,10 @@ from typing import Any
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QStackedWidget, QLineEdit, QComboBox, QSlider,
-    QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QGraphicsOpacityEffect
+    QRadioButton, QButtonGroup, QScrollArea, QFormLayout
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QPixmap, QPainter
 from .base_page import BasePage
 from utils.helpers import MemorySliderManager
 from config.settings import get_settings_manager
@@ -36,56 +37,15 @@ class SettingsPage(BasePage):
     def init_ui(self):
         """初始化UI"""
         # 设置背景
-        self.set_background('settings/background.png')
+        self.set_background('images/minecraft_bg.png')
         
         # 创建主布局
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # opacity_effect = QGraphicsOpacityEffect()
-        # opacity_effect.setOpacity(0.7)  # 70% 不透明
-
-        # 左侧导航
-        nav_frame = QFrame()
-        nav_frame.setFixedWidth(200)
-        nav_frame.setStyleSheet("""
-            QFrame {
-                background-color: rgba(39, 39, 39, 0.6);
-                border-radius: 0px;
-                padding: 15px;
-            }
-        """)
-        nav_layout = QVBoxLayout(nav_frame)
-        
-        nav_buttons = [
-            ("启动选项", self.show_launch_settings),
-            # ("个性化", self.show_personalization),
-            # ("其他", self.show_other_settings)
-        ]
-        
-        for text, callback in nav_buttons:
-            btn = QPushButton(text)
-            btn.setFixedHeight(40)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 152, 0, 0.6);
-                    color: white;
-                    border-radius: 4px;
-                    text-align: left;
-                    padding-left: 15px;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QPushButton:pressed {
-                    background-color: #5a5a5a;
-                }
-            """)
-            btn.clicked.connect(callback)
-            nav_layout.addWidget(btn)
-        
-        nav_layout.addStretch()
-        main_layout.addWidget(nav_frame)
+        # 左侧导航 - 使用与开始页面相同的样式
+        nav_widget = self.create_tab_buttons()
+        main_layout.addWidget(nav_widget)
         
         # 右侧设置内容
         self.settings_stack = QStackedWidget()
@@ -99,11 +59,135 @@ class SettingsPage(BasePage):
         
         # 添加设置页面
         self.create_launch_settings()
-        # self.create_personalization_settings()
-        # self.create_other_settings()
+        self.create_java_management()
+        self.create_download_settings()
+        self.create_about_settings()
+        
+        # 设置初始状态：通用设置默认选中
+        self.update_tab_button_style("通用设置", True)
+        self.update_tab_button_style("Java管理", False)
+        self.update_tab_button_style("下载", False)
+        self.update_tab_button_style("关于", False)
+
+    def create_tab_buttons(self):
+        """创建选项卡按钮区域  """
+        tab_buttons_widget = QWidget()
+        tab_buttons_widget.setFixedWidth(178)
+        tab_buttons_widget.setContentsMargins(24, 0, 0, 0)   
+        tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
+        tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        tab_buttons_layout.addSpacing(20)  
+
+        # 通用设置按钮
+        self.general_tab_btn = self.create_tab_button(
+            "通用设置",
+            self.general_tab_btn_clicked,
+            size=(155, 44), font_size=10
+        )
+        tab_buttons_layout.addWidget(self.general_tab_btn, 0, Qt.AlignCenter)
+        
+        # Java管理按钮
+        self.java_tab_btn = self.create_tab_button(
+            "Java管理",
+            self.java_tab_btn_clicked,
+            size=(155, 44), font_size=10
+        )
+        tab_buttons_layout.addWidget(self.java_tab_btn, 0, Qt.AlignCenter)
+        
+        # 下载按钮
+        self.download_tab_btn = self.create_tab_button(
+            "下载",
+            self.download_tab_btn_clicked,
+            size=(155, 44), font_size=10
+        )
+        tab_buttons_layout.addWidget(self.download_tab_btn, 0, Qt.AlignCenter)
+        
+        # 关于按钮
+        self.about_tab_btn = self.create_tab_button(
+            "关于",
+            self.about_tab_btn_clicked,
+            size=(155, 44), font_size=10
+        )
+        tab_buttons_layout.addWidget(self.about_tab_btn, 0, Qt.AlignCenter)
+        tab_buttons_layout.addStretch()
+        
+        # 设置初始状态：通用设置默认选中
+        self.update_tab_button_style("通用设置", True)
+        
+        return tab_buttons_widget
+
+    def create_tab_button(self, text, click_handler, size=(155, 44), font_size=12):
+        """创建选项卡按钮 """
+        button = QLabel()
+        button.mousePressEvent = lambda event: click_handler()
+        button.setFixedSize(*size)
+        button.setStyleSheet("background-color: transparent;")
+        
+        # 添加文本
+        text_label = QLabel(text, button)
+        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setAlignment(Qt.AlignCenter)  
+        text_label.setStyleSheet("color: white; background-color: transparent;")
+        text_label.setGeometry(0, 0, *size)   
+        
+        return button
+
+    def update_tab_button_style(self, tab_name, is_active):
+        """更新选项卡按钮样式 """
+        if tab_name == "通用设置":
+            btn = self.general_tab_btn
+        elif tab_name == "Java管理":
+            btn = self.java_tab_btn
+        elif tab_name == "下载":
+            btn = self.download_tab_btn
+        elif tab_name == "关于":
+            btn = self.about_tab_btn
+        else:
+            return
+            
+        active_image = os.path.join(self.resource_path, 'images', 'user', 'external_tab_btn_active.png')
+        
+        if is_active and os.path.exists(active_image):
+            btn.setPixmap(QPixmap(active_image).scaled(155, 44, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+        else:
+            btn.clear()
+            btn.setStyleSheet("background-color: transparent;")
+
+    # 按钮点击事件处理函数
+    def general_tab_btn_clicked(self):
+        """通用设置按钮点击事件"""
+        self.settings_stack.setCurrentIndex(0)
+        self.update_tab_button_style("通用设置", True)
+        self.update_tab_button_style("Java管理", False)
+        self.update_tab_button_style("下载", False)
+        self.update_tab_button_style("关于", False)
+
+    def java_tab_btn_clicked(self):
+        """Java管理按钮点击事件"""
+        self.settings_stack.setCurrentIndex(1)
+        self.update_tab_button_style("通用设置", False)
+        self.update_tab_button_style("Java管理", True)
+        self.update_tab_button_style("下载", False)
+        self.update_tab_button_style("关于", False)
+
+    def download_tab_btn_clicked(self):
+        """下载按钮点击事件"""
+        self.settings_stack.setCurrentIndex(2)
+        self.update_tab_button_style("通用设置", False)
+        self.update_tab_button_style("Java管理", False)
+        self.update_tab_button_style("下载", True)
+        self.update_tab_button_style("关于", False)
+
+    def about_tab_btn_clicked(self):
+        """关于按钮点击事件"""
+        self.settings_stack.setCurrentIndex(3)
+        self.update_tab_button_style("通用设置", False)
+        self.update_tab_button_style("Java管理", False)
+        self.update_tab_button_style("下载", False)
+        self.update_tab_button_style("关于", True)
     
     def create_launch_settings(self):
-        """创建启动选项设置页面"""
+        """创建通用设置设置页面"""
         # 创建滚动区域以容纳所有设置
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -127,7 +211,7 @@ class SettingsPage(BasePage):
         
         ######################################################
         crad_widget = QMCard(
-            title="启动选项",
+            title="通用设置",
             icon=os.path.join(self.resource_path, "icons/union@2x.png")
         )
         crad_widget.setStyleSheet("background-color: transparent;")
@@ -398,9 +482,9 @@ class SettingsPage(BasePage):
         layout.addWidget(spacer)
 
         ###############
-        # 高级启动选项 #
+        # 高级通用设置 #
         crad_advanced_options_widget = QMCard(
-            title="高级启动选项",
+            title="高级通用设置",
             icon=os.path.join(self.resource_path, "icons/union@2x.png")
         )
         crad_advanced_options_widget.setBackgroundColor("#252627")
@@ -492,6 +576,189 @@ class SettingsPage(BasePage):
         page_layout = QVBoxLayout(page)
         page_layout.addWidget(scroll_area)
         self.settings_stack.addWidget(page)
+
+    def create_java_management(self):
+        """创建Java管理页面"""
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("background-color: transparent;")
+
+        import os
+        from ui.widgets.card.qmcard import QMCard
+
+        main_layout = QWidget()
+        main_layout.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(main_layout)
+        
+        # Java管理卡片
+        java_card = QMCard(
+            title="Java管理",
+            icon=os.path.join(self.resource_path, "icons/union@2x.png")
+        )
+        java_card.setStyleSheet("background-color: transparent;")
+        java_card.setBackgroundColor("rgba(50, 50, 50, 0.68)")
+        java_card.setStyleSheet("""
+            QWidget {
+                color: #AFAFAF;
+            }
+        """)
+        
+        # Java路径设置
+        java_layout = QFormLayout()
+        java_path_label = QLabel("Java路径:")
+        java_path_label.setStyleSheet("color: #AFAFAF; font-weight: bold;")
+        
+        self.java_path_input = QLineEdit()
+        self.java_path_input.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(60, 60, 60, 0.8);
+                color: #FFFFFF;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """)
+        
+        java_browse_btn = QPushButton("浏览")
+        java_browse_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(120, 89, 255, 0.8);
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(120, 89, 255, 1.0);
+            }
+        """)
+        
+        java_layout.addRow(java_path_label, self.java_path_input)
+        java_layout.addRow("", java_browse_btn)
+        
+        java_card.add_layout(java_layout)
+        layout.addWidget(java_card)
+        layout.addStretch()
+        
+        scroll_area.setWidget(main_layout)
+        return scroll_area
+
+    def create_download_settings(self):
+        """创建下载设置页面"""
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("background-color: transparent;")
+
+        import os
+        from ui.widgets.card.qmcard import QMCard
+
+        main_layout = QWidget()
+        main_layout.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(main_layout)
+        
+        # 下载设置卡片
+        download_card = QMCard(
+            title="下载设置",
+            icon=os.path.join(self.resource_path, "icons/union@2x.png")
+        )
+        download_card.setStyleSheet("background-color: transparent;")
+        download_card.setBackgroundColor("rgba(50, 50, 50, 0.68)")
+        download_card.setStyleSheet("""
+            QWidget {
+                color: #AFAFAF;
+            }
+        """)
+        
+        # 下载源设置
+        download_layout = QFormLayout()
+        download_source_label = QLabel("下载源:")
+        download_source_label.setStyleSheet("color: #AFAFAF; font-weight: bold;")
+        
+        self.download_source_combo = QComboBox()
+        self.download_source_combo.addItems(["官方源", "镜像源1", "镜像源2"])
+        self.download_source_combo.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(60, 60, 60, 0.8);
+                color: #FFFFFF;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #AFAFAF;
+            }
+        """)
+        
+        download_layout.addRow(download_source_label, self.download_source_combo)
+        
+        download_card.add_layout(download_layout)
+        layout.addWidget(download_card)
+        layout.addStretch()
+        
+        scroll_area.setWidget(main_layout)
+        return scroll_area
+
+    def create_about_settings(self):
+        """创建关于页面"""
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("background-color: transparent;")
+
+        import os
+        from ui.widgets.card.qmcard import QMCard
+
+        main_layout = QWidget()
+        main_layout.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(main_layout)
+        
+        # 关于卡片
+        about_card = QMCard(
+            title="关于 BuggCraft",
+            icon=os.path.join(self.resource_path, "icons/union@2x.png")
+        )
+        about_card.setStyleSheet("background-color: transparent;")
+        about_card.setBackgroundColor("rgba(50, 50, 50, 0.68)")
+        about_card.setStyleSheet("""
+            QWidget {
+                color: #AFAFAF;
+            }
+        """)
+        
+        # 关于信息
+        about_layout = QVBoxLayout()
+        
+        version_label = QLabel("版本: 1.0.0")
+        version_label.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold;")
+        
+        description_label = QLabel("BuggCraft 是一个现代化的 Minecraft 启动器")
+        description_label.setStyleSheet("color: #AFAFAF; font-size: 12px;")
+        description_label.setWordWrap(True)
+        
+        author_label = QLabel("作者: BuggCraft Team")
+        author_label.setStyleSheet("color: #AFAFAF; font-size: 12px;")
+        
+        about_layout.addWidget(version_label)
+        about_layout.addWidget(description_label)
+        about_layout.addWidget(author_label)
+        
+        about_card.add_layout(about_layout)
+        layout.addWidget(about_card)
+        layout.addStretch()
+        
+        scroll_area.setWidget(main_layout)
+        return scroll_area
 
     def create_personalization_settings(self):
         """创建个性化设置页面"""
@@ -720,3 +987,30 @@ class SettingsPage(BasePage):
             
         except Exception as e:
             logger.info(f"加载配置到UI时出错: {e}")
+
+    def paintEvent(self, event):
+        """重绘事件 - 绘制背景图片与主窗口渲染方式一致"""
+        if self.bg_image:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.SmoothTransformation)
+            
+            widget_width = self.width()
+            widget_height = self.height()
+            
+            scale_x = widget_width / self.bg_image.width()
+            scale_y = widget_height / self.bg_image.height()
+            scale = min(scale_x, scale_y)   
+            
+            scaled_width = int(self.bg_image.width() * scale)
+            scaled_height = int(self.bg_image.height() * scale)
+            
+            x = (widget_width - scaled_width) // 2
+            y = (widget_height - scaled_height) // 2
+            
+            scaled_pixmap = self.bg_image.scaled(
+                scaled_width, scaled_height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            painter.drawPixmap(x, y, scaled_pixmap)
+        super().paintEvent(event)
