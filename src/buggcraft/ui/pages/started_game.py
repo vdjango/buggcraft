@@ -267,6 +267,14 @@ class StartGamePage(QWidget):
         tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
         tab_buttons_layout.addSpacing(20)   
 
+        # 创建紫色分隔线
+        shared_separator = QFrame()
+        shared_separator.setFrameShape(QFrame.HLine)
+        shared_separator.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
+        shared_separator.setFixedWidth(155)
+        shared_separator.setFixedHeight(2)
+        tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
+
         # 离线选项卡按钮
         self.offline_tab_btn = self.create_tab_button(
             "离线登录",
