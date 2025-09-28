@@ -12,8 +12,8 @@ class CollapsePanel(QWidget):
     
     collapse_changed = Signal(bool)  # 折叠面板折叠展开的信号
     
-    def __init__(self, parent, title, messages=None, expanded = False, content=None,
-                 header_height=58, content_height=None,
+    def __init__(self, parent, title, messages=None, expanded = False, content=None, 
+                 header_height=60, content_height=None,
                  header_bg_color="rgba(190, 183, 255, 0.3)",
                  content_bg_color="rgba(190, 183, 255, 0.2)",
                  expand_icon_size=16,
@@ -82,7 +82,7 @@ class CollapsePanel(QWidget):
         
         # 布局
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setContentsMargins(25, 10, 25, 10)
         
         # 标题容器
         title_container = QWidget()
