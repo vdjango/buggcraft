@@ -1,5 +1,6 @@
 # 折叠面板
 import os
+from typing import Any
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel
@@ -11,7 +12,7 @@ from PySide6.QtGui import QFont, QPixmap
 class QMRadioGroup(QObject):
     """管理一组 QMCheckBoxButton，实现单选行为"""
     
-    button_selected = Signal(bool, tuple)  # 按钮被选中时发出信号，参数为按钮文本
+    button_selected = Signal(Any)  # 按钮被选中时发出信号，参数为按钮文本
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,7 +45,7 @@ class QMRadioGroup(QObject):
             
             # 更新当前选中的按钮
             self.selected_button = button
-            self.button_selected.emit(selected, proprty)
+            self.button_selected.emit(proprty)
         else:
             # 如果取消选中当前按钮，更新状态
             if button == self.selected_button:
@@ -72,10 +73,19 @@ class QMRadioGroup(QObject):
 
 class QMRadioButton(QWidget):
     """"""
-    selected = Signal(bool, tuple)  # 选中状态改变时发出信号
+    selected = Signal(bool, Any)  # 选中状态改变时发出信号
 
-    def __init__(self, parent, text, messages=None, text_font_size=10, messages_font_size=9, slot_desc=None):
+    def __init__(self, parent, text, messages=None, text_font_size=11, messages_font_size=10, slot_desc=None, data_property=None):
+        """单选组件
+        :param text: 标题
+        :param messages: 副文本内容
+        :param data_property: selected信号发送的数据
+        :param text_font_size: 标题字号大小
+        :param messages_font_size: 副文本字号大小
+        :param slot_desc: 自定义副文本插槽
+        """
         super().__init__(parent)
+        self.data_property = data_property
         self.text = text
         self.messages = messages
         self.slot_desc = slot_desc
@@ -86,14 +96,15 @@ class QMRadioButton(QWidget):
         self.init_ui()
         self.setProperty('text', self.text)
         self.setProperty('messages', self.messages)
+        self.setProperty('data_property', data_property)
 
     def init_ui(self):
         """初始化 UI"""
         # 主布局
         self.setStyleSheet("background-color: transparent;")
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(15, 0, 15, 0)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(5, 0, 5, 0)
+        main_layout.setSpacing(5)
         
         # 图标容器
         icon_container = QWidget()
@@ -142,7 +153,9 @@ class QMRadioButton(QWidget):
         if selected != self.auto_radio_selected:
             self.auto_radio_selected = selected
             self.update_icon(selected)
-            self.selected.emit(selected, (self.text, self.messages))
+            data = (self.text, self.messages)
+            if self.data_property is not None: data = self.data_property
+            self.selected.emit(selected, data)
     
     def update_icon(self, selected):
         """更新图标"""
@@ -181,20 +194,20 @@ class QMRadioButton(QWidget):
         """设置描述文本"""
         self.messages = messages
 
-    def on_auto_clicked(self, selected):
-        """处理自动选择标签点击事件"""
-        if selected is not None:
-            self.auto_radio_selected = selected
-        else:
-            if self.auto_radio_selected:
-                self.auto_radio_selected = False
-            else:
-                self.auto_radio_selected = True
+    # def on_auto_clicked(self, selected):
+    #     """处理自动选择标签点击事件"""
+    #     if selected is not None:
+    #         self.auto_radio_selected = selected
+    #     else:
+    #         if self.auto_radio_selected:
+    #             self.auto_radio_selected = False
+    #         else:
+    #             self.auto_radio_selected = True
         
-        self.selected.emit(self.auto_radio_selected, (self.text, self.messages))
+    #     self.selected.emit(self.data, (self.text, self.messages))
         
-        # 更新图标
-        icon_name = "selected1.png" if self.auto_radio_selected else "not-selected1.png"
-        icon_path = os.path.join(self.resource_path, 'images', 'version', icon_name)
-        self.auto_icon.setPixmap(QPixmap(icon_path).scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    #     # 更新图标
+    #     icon_name = "selected1.png" if self.auto_radio_selected else "not-selected1.png"
+    #     icon_path = os.path.join(self.resource_path, 'images', 'version', icon_name)
+    #     self.auto_icon.setPixmap(QPixmap(icon_path).scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
