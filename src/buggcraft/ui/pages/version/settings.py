@@ -1,46 +1,40 @@
 """版本管理
  - 版本设置
 """
-
-# StartGamePage 类
 import os
-import minecraft_launcher_lib
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QStackedWidget, QFileDialog, QMessageBox, QDialog
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
 
 from config.settings import get_settings_manager
-from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
-from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
 from ui.widgets.collapse import CollapsePanel
+from ui.pages.version.memory_panel import MemorySettingsPanel
+from ui.widgets.radio import QMRadioButton, QMRadioGroup
 
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-class MinecraftSettingSignals(QObject):
-    """游戏启动时需要指定游戏路径、游戏版本，这些信息如果发生变动未及时传递信号，启动游戏路径版本是错误的。
-    这里的信号需要同步到主UI中"""
-    versions = Signal(str)   # 用户修改了游戏版本
-    directory = Signal(str)  # 用户修改了游戏路径
-
-
 class SettingsPage(QWidget):
     """用户面板 - 可折叠"""
 
-    def __init__(self, resource_path, parent=None):
+    def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.resource_path = resource_path
-        
+        self.cache_path = parent.cache_path
+        self.resource_path = parent.resource_path
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
-        self.signals = MinecraftSettingSignals()
-        self.version_delete_dialog = VersionDeleteDialog()
+        self.available_java_versions = [
+            {"version": "21.0.7", "path": "C:\\Program Files\\Java\\jdk-21.0.7"},
+            {"version": "17.0.10", "path": "C:\\Program Files\\Java\\jdk-17.0.10"},
+            {"version": "11.0.22", "path": "C:\\Program Files\\Java\\jdk-11.0.22"},
+            {"version": "8.0.402", "path": "C:\\Program Files\\Java\\jdk-8.0.402"}
+        ]
 
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
@@ -66,625 +60,189 @@ class SettingsPage(QWidget):
         
         main_layout.addWidget(content_container)
 
-    def create_image_button(self, text, image_path, click_handler, width, height, font_size=11):
-        """创建图片按钮"""
-        button = QLabel()
-        button.mousePressEvent = lambda event: click_handler()
-        button.setCursor(Qt.PointingHandCursor)
-        button.setFixedSize(width, height)
-        
-        if image_path and os.path.exists(image_path):
-            pixmap = QPixmap(image_path)
-            if not pixmap.isNull():
-                button.setPixmap(pixmap.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        
-        text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
-        text_label.setAlignment(Qt.AlignCenter)
-        text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
-        text_label.setGeometry(0, 0, width, height)
-        return button
-    
-    # ----- page 版本列表页 -----
-
     def create_settings_panel(self):
         # 容器
         panel = QWidget()
         
         # 布局
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
         ###############
         ##  版本隔离   #
-
+        panel_version_isolation = CollapsePanel(self, '版本隔离', '默认 (".minecraft/")', True)
+        # 展开内容区域
+        version_isolation = self.create_version_isolation()
+        panel_version_isolation.set_content(version_isolation)
+        layout.addWidget(panel_version_isolation)
 
         ###############
         ##  游戏Java  #
         panel_java_settings = CollapsePanel(self, '游戏Java', 'C:\\Program Files\\Java\\jdk-21.0.7')
+        # 展开内容区域
+        java_content = self.create_java_content()
+        panel_java_settings.set_content(java_content)
         layout.addWidget(panel_java_settings)
 
-
+        ##################
+        ##  自动分配内存  #
+        minecraft_free = MemorySettingsPanel(self)  # self.create_minecraft_free()
+        layout.addWidget(minecraft_free)
 
         # 添加拉伸空间
         layout.addStretch(1)
         return panel
 
+    def create_version_isolation(self):
+        """创建 版本隔离 设置内容"""
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-    def create_directory_item(self, is_selected, title, path, has_delete=False):
-        """创建目录项"""
-        # 容器
-        item = QWidget()
-        item.setStyleSheet("background-color: transparent;")
-        item.setFixedHeight(60)
-        
-        # 存储数据
-        item.setProperty("is_selected", is_selected)
-        item.setProperty("title", title)
-        item.setProperty("path", path)
+        # 创建按钮组
+        self.button_group = QMRadioGroup()
+        self.button_group.button_selected.connect(self.on_isolate_selected)
 
-        # 设置样式
-        if is_selected:
-            item.setStyleSheet('background-color: rgba(120, 89, 255, 1);')
-        else:
-            item.setStyleSheet('background-color: rgba(173, 157, 244, 0.21); border: 1px solid rgba(120, 89, 255, 1);')
-        
-        # 布局
-        layout = QHBoxLayout(item)
-        layout.setContentsMargins(15, 0, 0, 0)
-        layout.setSpacing(0)
-        
-        # 选中图标
-        icon_name = "selected.png" if is_selected else "not-selected.png"
-        select_icon = self.create_icon_label(
-            os.path.join(self.resource_path, 'images', 'version', icon_name),
-            size=(30, 30)
+        # 默认选择选项
+        default_button = QMRadioButton(
+            self,
+            '默认 (".minecraft/")',
+            '(资源存放在 ".minecraft/")',
+            data_property=False
         )
-        
-        layout.addWidget(select_icon)
-        layout.addSpacing(15)
-        
-        # 文本区域
-        text_widget = QWidget()
-        text_widget.setStyleSheet("background-color: transparent; border: none;")
-        text_layout = QVBoxLayout(text_widget)
-        text_layout.setContentsMargins(0, 10, 0, 10)
-        text_layout.setSpacing(5)
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet("color: #f2f2f2; font-size: 14px; font-weight: bold; border: none;")
-        
-        path_label = QLabel(path)
-        path_label.setStyleSheet("color: #f2f2f2; font-size: 11px; border: none;")
-        
-        text_layout.addWidget(title_label)
-        text_layout.addWidget(path_label)
-        
-        layout.addWidget(text_widget, 1)
-        layout.addSpacing(5)
-        
-        # 删除图标（如果有）
-        if has_delete:
-            delete_widget = QWidget()
-            delete_widget.setStyleSheet("background-color: transparent; border: none;")
-            delete_layout = QVBoxLayout(delete_widget)
-            delete_layout.setContentsMargins(0, 10, 8, 0)
-            delete_layout.setSpacing(0)
-            
-            delete_icon = self.create_icon_label(
-                os.path.join(self.resource_path, 'images', 'version', 'close.png'),
-                size=(16, 16),
-                cursor=Qt.PointingHandCursor
-            )
-            # 添加删除点击事件
-            delete_icon.mousePressEvent = lambda event: self.on_delete_directory(item, event)
-            delete_layout.addWidget(delete_icon)
-            delete_layout.addStretch()
-            
-            layout.addWidget(delete_widget)
-        
-        layout.addStretch()
-        
-        # 添加目录项点击事件
-        item.mousePressEvent = lambda event: self.on_directory_clicked(item, event)
-        item.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(default_button)
+        self.button_group.add_button(default_button)
 
-        return item
-
-    def create_add_directory_item(self):
-        """创建添加目录项"""
-        item = QWidget()
-        item.setStyleSheet('background-color: transparent; border: 1px solid rgba(120, 89, 255, 1);')
-        item.setFixedHeight(40)
-        
-        layout = QHBoxLayout(item)
-        
-        # 添加图标
-        add_icon = self.create_icon_label(
-            os.path.join(self.resource_path, 'images', 'version', 'add.png'),
-            size=(12, 12)
+        # 版本独立选择选项
+        isolate_button = QMRadioButton(
+            self,
+            "个版本独立",
+            '(存放在 ".minecraft/versions/<版本名>/"，除 assets、libraries 外)',
+            data_property=True,
         )
-        
-        # 文本
-        text_label = QLabel('添加游戏文件夹')
-        text_label.setStyleSheet("color: rgba(209, 204, 255, 1); font-weight: bold; font-size: 13px; border: none;")
-        
-        layout.addStretch()
-        layout.addWidget(add_icon, 0, Qt.AlignCenter)
-        layout.addWidget(text_label, 0, Qt.AlignCenter)
-        layout.addStretch()
-        
-        # 添加点击事件
-        item.mousePressEvent = self.on_add_directory
-        item.setCursor(Qt.PointingHandCursor)
-        return item
+        layout.addWidget(isolate_button)
+        self.button_group.add_button(isolate_button)
 
-    def create_version_list_panel(self):
-        """创建右侧游戏版本列表面板"""
-        panel = QWidget()
-        panel.setStyleSheet("background-color: transparent;")
-        
-        layout = QVBoxLayout(panel)
+        # 设置默认选中
+        _isolation = {
+            False: default_button,
+            True: isolate_button
+        }.get(self.settings_manager.get_setting("minecraft.isolation", True))
+        self.button_group.set_selected_button(_isolation)
+        return content
+
+    def create_java_content(self):
+        """创建 Java 设置内容"""
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         
-        # 存储版本项的引用
-        self.version_items = []
+        # 创建按钮组
+        self.button_group = QMRadioGroup()
+        self.button_group.button_selected.connect(self.on_java_selected)
         
-        # 获取当前选中的目录
-        selected_directory = None
-        for item in self.directory_items:
-            if item.property("is_selected"):
-                selected_directory = item.property("path")
-                break
+        # 自动选择选项
+        auto_button = QMRadioButton(
+            self,
+            "使用推荐的 Java 版本",
+            "系统将自动选择最适合的 Java 版本"
+        )
+        layout.addWidget(auto_button)
+        self.button_group.add_button(auto_button)
         
-        # 如果找到选中的目录，加载该目录的版本数据
-        if selected_directory:
-            version_data = self.load_version_data(selected_directory)
-            
-            # 添加版本项
-            for data in version_data:
-                item = self.create_version_item(
-                    data["version"],
-                    data["description"],
-                    data["is_selected"]
-                )
-                self.version_items.append(item)
-                layout.addWidget(item)
+        # 版本选项
+        for java in self.available_java_versions:
+            version_button = QMRadioButton(
+                self,
+                java['version'],
+                java['path']
+            )
+            layout.addWidget(version_button)
+            self.button_group.add_button(version_button)
+        
+        # 自定义选项
+        custom_button = QMRadioButton(
+            self,
+            "自定义 Java 路径",
+            None,
+            slot_desc=self.create_custom_java_button()
+        )
+        layout.addWidget(custom_button)
+        self.button_group.add_button(custom_button)
 
-        # 添加拉伸空间
-        layout.addStretch()
-        
-        return panel
+        # 设置默认选中
+        auto_button.set_selected(True)
+        return content
 
-    def create_version_item(self, version, description, is_selected=False):
-        """创建版本项"""
-        item = QWidget()
-        item.setStyleSheet('background-color: rgba(190, 183, 255, 0.25);')
-        item.setFixedHeight(68)
-        
-        # 存储数据
-        item.setProperty("version", version)
-        item.setProperty("description", description)
-        item.setProperty("is_selected", is_selected)
-
-        layout = QHBoxLayout(item)
-        layout.setContentsMargins(15, 0, 0, 0)
+    def create_custom_java_button(self):
+        """创建自定义 Java 按钮"""
+        # 容器
+        container = QWidget()
+        container.setStyleSheet('background-color: rgba(0, 0, 0, 0.3);')
+        container.setFixedHeight(27)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # 选中图标
-        icon_name = "selected.png" if is_selected else "not-selected.png"
-        select_icon = self.create_icon_label(
-            os.path.join(self.resource_path, 'images', 'version', icon_name),
-            size=(30, 30)
-        )
-        layout.addWidget(select_icon)
-        layout.addSpacing(15)
-        
-        # 文本区域
-        text_widget = QWidget()
-        text_widget.setStyleSheet("background-color: transparent;")
-        text_layout = QVBoxLayout(text_widget)
-        text_layout.setContentsMargins(0, 14, 0, 14)
+        # 文件夹选择的路径容器
+        text_container = QWidget()
+        text_container.setStyleSheet('background-color: rgba(0, 0, 0, 0.3);')
+        text_container.setFixedHeight(27)
+        text_layout = QHBoxLayout(text_container)
+        text_layout.setContentsMargins(5, 0, 5, 0)
         text_layout.setSpacing(5)
-        
-        version_label = QLabel(f'版本号：{version}')
-        version_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
-        
-        desc_label = QLabel(description)
-        desc_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
-        
-        text_layout.addWidget(version_label)
-        text_layout.addWidget(desc_label)
-        
-        layout.addWidget(text_widget, 1)
-        layout.addSpacing(5)
-        
-        # 操作图标区域
-        icons_widget = QWidget()
-        icons_widget.setStyleSheet("background-color: transparent;")
-        icons_layout = QHBoxLayout(icons_widget)
-        icons_layout.setContentsMargins(10, 5, 15, 5)
-        icons_layout.setSpacing(15)
-        
-        # 设置图标
-        setting_icon = self.create_icon_label(
-            os.path.join(self.resource_path, 'images', 'version', 'setting.png'),
-            size=(17, 17),
-            cursor=Qt.PointingHandCursor
-        )
-        setting_icon.mousePressEvent = lambda event: self.on_version_settings(item, event)
-        icons_layout.addWidget(setting_icon)
+
+        title_label = QLabel('C:\\Program Files\\Java\\jdk-21.0.7')
+        title_label.setFont(QFont("Source Han Sans CN", 11))
+        title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
+        title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
+        text_layout.addWidget(title_label)
+        layout.addWidget(text_container, 1)
         
         # 文件夹图标
-        folder_icon = self.create_icon_label(
-            os.path.join(self.resource_path, 'images', 'version', 'folder.png'),
-            size=(18, 18),
-            cursor=Qt.PointingHandCursor
-        )
-        folder_icon.mousePressEvent = lambda event: self.on_open_version_folder(item, event)
-        icons_layout.addWidget(folder_icon)
+        folder_icon = QLabel()
+        folder_icon.setFixedSize(25, 25)
+        folder_icon.setAlignment(Qt.AlignCenter)
+        folder_icon.setPixmap(QPixmap(
+            os.path.join(self.resource_path, 'images', 'version', 'folder.png')
+        ).scaled(12, 12, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1);')
+        folder_icon.setCursor(Qt.PointingHandCursor)
+        # folder_icon.mousePressEvent = self.browse_java_path
+        layout.addWidget(folder_icon)
         
-        # 删除图标
-        delete_icon = self.create_icon_label(
-            os.path.join(self.resource_path, 'images', 'version', 'delete.png'),
-            size=(16, 16),
-            cursor=Qt.PointingHandCursor
-        )
-        delete_icon.mousePressEvent = lambda event: self.on_delete_version(item, event)
-        icons_layout.addWidget(delete_icon)
-        
-        layout.addWidget(icons_widget)
-        
-        # 添加版本项点击事件
-        item.mousePressEvent = lambda event: self.on_version_clicked(item, event)
-        item.setCursor(Qt.PointingHandCursor)
+        return container
 
-        return item
+    def create_minecraft_free(self):
+        """游戏内存"""
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-    def create_icon_label(self, icon_path, size=(30, 30), cursor=None):
-        """创建图标标签"""
-        label = QLabel()
-        label.setFixedSize(size[0] + 1, size[1] + 1)
-        label.setPixmap(QPixmap(icon_path).scaled(
-            size[0], size[1], 
-            Qt.IgnoreAspectRatio, 
-            Qt.SmoothTransformation
-        ))
-        
-        if cursor:
-            label.setCursor(cursor)
-        label.setStyleSheet("background-color: transparent; border: none;")
-        return label
+        # 默认选择选项
+        default_button = QMRadioButton(self, '自动分配内存', None)
+        layout.addWidget(default_button)
 
-    # ----- page 版本设置页 -----
-    def create_page_version_setting(self):
-        """版本设置页"""
-        pass
+        return content
 
-    # ----- page -----
-
-    def load_directory_data(self):
-        """从配置文件加载目录数据"""
-        # 获取当前启用的目录
-        enable_directory = self.settings_manager.get_setting('minecraft', {}).get("directory", {}).get("enable", None)
-        
-        # 获取所有已安装目录
-        installed_directories = self.settings_manager.get_setting('minecraft', {}).get("directory", {}).get("installed", [])
-        
-        # 准备目录数据
-        directory_data = []
-        for directory in installed_directories:
-            # 获取目录名称（使用路径的最后一部分）
-            dir_name = os.path.basename(directory)
-            
-            # 检查是否是当前启用的目录
-            is_selected = directory == enable_directory
-            
-            directory_data.append({
-                "is_selected": is_selected,
-                "title": dir_name,
-                "path": directory,
-                "has_delete": True
-            })
-        
-        return directory_data
-
-    def load_version_data(self, directory_path):
-        """扫描指定目录下的 Minecraft 版本"""
-        from datetime import datetime
-        try:
-            # 使用 minecraft_launcher_lib 获取已安装版本
-            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(directory_path)
-            
-            # 获取当前启用的版本
-            enable_version = self.settings_manager.get_setting('minecraft.version.enable')
-            
-            # 准备版本数据
-            version_data = []
-            for version in installed_versions:
-                version_id = version['id']
-                
-                # 获取版本类型和发布日期
-                version_type = version.get('type', 'release').capitalize()
-                release_time = version.get('releaseTime')
-                
-                # 格式化发布日期
-                if release_time:
-                    try:
-                        release_date = datetime.strptime(release_time, "%Y-%m-%dT%H:%M:%S%z")
-                        formatted_date = release_date.strftime("%Y/%m/%d")
-                    except:
-                        formatted_date = release_time
-                else:
-                    formatted_date = "未知日期"
-                
-                # 构建描述
-                description = f"{version_type}版本，发布于{formatted_date}"
-                
-                # 检查是否是当前启用的版本
-                is_selected = version_id == enable_version
-                
-                version_data.append({
-                    "version": version_id,
-                    "description": description,
-                    "is_selected": is_selected
-                })
-            
-            return version_data
-        
-        except Exception as e:
-            logger.error(f"扫描目录 {directory_path} 失败: {e}")
-            return []
-
-    def on_directory_clicked(self, item, event):
-        """处理目录项点击事件 - 更新配置文件并刷新版本列表"""
-        # 更新所有目录项的选中状态
-        for directory_item in self.directory_items:
-            is_selected = directory_item == item
-            directory_item.setProperty("is_selected", is_selected)
-            
-            # 更新样式
-            if is_selected:
-                directory_item.setStyleSheet('background-color: rgba(120, 89, 255, 1);')
-            else:
-                directory_item.setStyleSheet('background-color: rgba(173, 157, 244, 0.21);')
-            
-            # 更新选中图标
-            select_icon = directory_item.findChild(QLabel)
-            if select_icon:
-                icon_name = "selected.png" if is_selected else "not-selected.png"
-                select_icon.setPixmap(QPixmap(
-                    os.path.join(self.resource_path, 'images', 'version', icon_name)
-                ).scaled(30, 30, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        
-        # 获取选中目录的数据
-        title = item.property("title")
-        path = item.property("path")
-        
-        self.scan_versions(path)
-        # 更新配置文件
-        self.settings_manager.set_setting("minecraft.directory.enable", path)
+    def on_isolate_selected(self, proprty):
+        """处理自动选择标签点击事件"""
+        print('处理自动选择标签点击事件', proprty)
+        self.settings_manager.set_setting("minecraft.isolation", proprty)
         self.settings_manager.save_settings()
-        
-        # 刷新版本列表
-        self.refresh_version_list(path)
-        self.signals.directory.emit(path)
-        logger.info(f"已切换到新添加的目录: {title}, 路径: {path}")
 
-    def on_delete_directory(self, item, event):
-        """处理删除目录事件 - 更新配置文件"""
-        # 阻止事件冒泡
-        event.accept()
-        
-        title = item.property("title")
-        path = item.property("path")
-        
-        # 显示确认对话框
-        self.version_delete_dialog.set_title(f"游戏删除确认")
-        self.version_delete_dialog.set_message(f"您确认要删除 {path} 整个游戏吗？")
-        self.version_delete_dialog.set_message_text(f"此操作不可回退，将删除所有版本、存档、资源包、光影、Mod等文件！")
-
-        if self.version_delete_dialog.exec() == QDialog.Accepted:
-            delete_minecraft_directory(path)
-
-            installed_directories: list = self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("installed", [])
-            if not path in installed_directories:
-                return
-            
-            installed_directories.remove(path)
-            
-            self.settings_manager.set_setting("minecraft.directory.installed", installed_directories)
-            self.settings_manager.save_settings()
-            
-            if item in self.directory_items:
-                # 从界面中移除该项
-                self.directory_items.remove(item)
-                item.setParent(None)
-                item.deleteLater()
-                
-                # 如果删除的是当前选中的目录，选择第一个目录
-                if self.settings_manager.get_setting("minecraft.directory.enable") == path and self.directory_items:
-                    self.on_directory_clicked(self.directory_items[0], None)
-
-    def on_add_directory(self, event):
-        """处理添加目录事件 - 更新配置文件"""
-        # 打开目录选择对话框
-        directory = QFileDialog.getExistingDirectory(
-            self, 
-            "选择游戏目录 (.minecraft/)",
-            "", 
-            QFileDialog.ShowDirsOnly
-        )
-
-        if not directory:
-            return
-        
-        installed_directories = self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("installed", [])
-        if directory in installed_directories:
-            return
-        
-        installed_directories.append(directory)
-        
-        self.settings_manager.set_setting("minecraft.directory.installed", installed_directories)
-        self.settings_manager.save_settings()
-        
-        self.scan_versions(directory)  # 扫描新目录下的版本
-        
-        # 创建新目录项
-        new_item = self.create_directory_item(
-            is_selected=False,
-            title=os.path.basename(directory),
-            path=directory,
-            has_delete=True
-        )
-        
-        self.directory_items.append(new_item)
-        
-        # 找到添加按钮的位置
-        # 添加按钮在倒数第三个位置
-        # 在添加按钮之前插入新项
-        layout = self.directory_panel.layout()
-        add_item_index = layout.count() - 3
-        layout.insertWidget(add_item_index, new_item)
-
-        # 自动切换到新添加的目录
-        self.on_directory_clicked(new_item, None)
-
-    def on_install_new_game(self):
-        """处理安装新游戏事件"""
-        print("安装新游戏")
-        # 这里可以打开安装新游戏的对话框或页面
-
-    def on_version_clicked(self, item, event):
-        """处理版本项点击事件 - 更新配置文件"""
-        # 更新所有版本项的选中状态
-        for version_item in self.version_items:
-            is_selected = version_item == item
-            version_item.setProperty("is_selected", is_selected)
-            
-            # 更新选中图标
-            select_icon = version_item.findChild(QLabel)
-            if select_icon:
-                icon_name = "selected.png" if is_selected else "not-selected.png"
-                select_icon.setPixmap(QPixmap(
-                    os.path.join(self.resource_path, 'images', 'version', icon_name)
-                ).scaled(30, 30, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        
-        # 获取选中版本的数据
-        version = item.property("version")
-        
-        # 更新配置文件
-        self.settings_manager.set_setting("minecraft.version.enable", version)
-        self.settings_manager.save_settings()
-        self.signals.versions.emit(version)
-        print(f"选中版本: {version}")
-
-    def on_version_settings(self, item, event):
-        """处理版本设置事件"""
-        # 阻止事件冒泡
-        event.accept()
-        
-        version = item.property("version")
-        print(f"打开版本设置: {version}")
-        
-        # 这里可以打开版本设置对话框
-
-    def on_open_version_folder(self, item, event):
-        """处理打开版本文件夹事件"""
-        # 阻止事件冒泡
-        event.accept()
-        minecraft_version = item.property("version")
-        minecraft_directory = self.settings_manager.get_setting("minecraft.directory.enable")
-        minecraft_path = os.path.abspath(os.path.join(minecraft_directory, "versions", minecraft_version))
-        open_folder(minecraft_path)
-        logger.info(f"打开版本文件夹: {minecraft_path}")
-
-    def on_delete_version(self, item, event):
-        """处理删除版本事件 - 更新配置文件"""
-        # 阻止事件冒泡
-        event.accept()
-        version = item.property("version")
-        
-        # 显示确认对话框
-        self.version_delete_dialog.set_title(f"版本删除确认")
-        self.version_delete_dialog.set_message(f"您确认要删除 {version} 游戏版本吗？")
-        self.version_delete_dialog.set_message_text(f"当前游戏版本已开启版本隔离，将删除 存档、资源包、光影、Mod等文件！")
-        if self.version_delete_dialog.exec() == QDialog.Accepted:
-            delete_minecraft_version(
-                self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("enable", None), 
-                version
-            )
-            # 获取现有版本列表
-            installed_versions: list = self.settings_manager.get_setting("minecraft", {}).get("version", {}).get("installed", [])
-            
-            # 移除版本
-            if version in installed_versions:
-                installed_versions.remove(version)
-
-                self.settings_manager.set_setting("minecraft.version.installed", installed_versions)
-                self.settings_manager.save_settings()
-                
-                # 从界面中移除该项
-                if item in self.version_items:
-                    self.version_items.remove(item)
-                    item.setParent(None)
-                    item.deleteLater()
-                
-                # 如果删除的是当前选中的版本，选择第一个版本
-                if self.settings_manager.get_setting("minecraft.version.enable") == version and self.version_items:
-                    self.on_version_clicked(self.version_items[0], None)
-
-    def scan_versions(self, directory_path):
-        """扫描目录下的版本并更新配置"""
-        try:
-            # 扫描目录下的版本
-            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(directory_path)
-            version_ids = [v['id'] for v in installed_versions]
-
-            # 如果没有当前启用的版本，设置第一个版本为启用
-            if not self.settings_manager.get_setting('minecraft.version.enable') in version_ids:
-                self.settings_manager.set_setting('minecraft.version.enable', version_ids[0])
-
-            self.settings_manager.set_setting("minecraft.version.installed", version_ids)
-            self.settings_manager.save_settings()
-            self.signals.versions.emit(version_ids[0])
-            logger.info(f"更新版本: {', '.join(version_ids)}")
-        
-        except Exception as e:
-            logger.error(f"扫描版本失败: {e}")
-
-    def refresh_version_list(self, directory_path):
-        """刷新版本列表 - 扫描目录并更新UI"""
-        # 扫描目录下的版本
-        self.scan_versions(directory_path)
-        
-        for i in reversed(range(self.version_list_panel.layout().count())):
-            # 移除所有子部件
-            item = self.version_list_panel.layout().itemAt(i)
-            if item.widget():
-                item.widget().setParent(None)
-            self.version_list_panel.layout().removeItem(item)
-
-        # 清空版本项列表
-        self.version_items = []
-        
-        # 加载新版本的版本数据
-        version_data = self.load_version_data(directory_path)
-        
-        # 添加新版本项
-        for data in version_data:
-            item = self.create_version_item(
-                data["version"],
-                data["description"],
-                data["is_selected"]
-            )
-            self.version_items.append(item)
-            self.version_list_panel.layout().addWidget(item)
-        
-        # 添加拉伸空间
-        self.version_list_panel.layout().addStretch()
+    def on_java_selected(self, proprty):
+        """处理自动选择标签点击事件"""
+        # print('处理自动选择标签点击事件', proprty)
+        # self.settings_manager.set_setting("minecraft.isolation", proprty)
+        # self.settings_manager.save_settings()
 
     def paintEvent(self, event):
         """重绘事件 - 透明背景"""

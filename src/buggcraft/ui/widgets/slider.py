@@ -13,7 +13,31 @@ class StepSlider(QSlider):
         :param step: 步长值
         """
         super().__init__(*args, **kwargs)
+        self.setStyleSheet("""
+            QSlider {
+                background: transparent;
+            }
+            QSlider::groove:horizontal {
+                height: 3px;
+                background: rgba(94, 93, 104, 0.8);
+            }
+            QSlider::handle:horizontal {
+                width: 11px;
+                margin: -5px 0;
+                border-radius: 6px;
+                background: rgba(116, 146, 246, 0.8);
+                border: 1px solid rgba(255, 255, 255, 0.9);
+            }
+            QSlider::sub-page:horizontal {
+                border-radius: 2px;
+                background: rgba(116, 146, 246, 0.7);
+            }
+        """)
         self.step = step
+        self.setTickPosition(QSlider.TicksBelow)
+        self.setTickInterval(512)  # 每512MB一个刻度
+        self.setSingleStep(256)  # 步长256MB
+        # self.setPageStep(1024)  # 页步长1GB
         self.setSingleStep(step)  # 设置单步步长
         self.setPageStep(step)    # 设置页步步长
     

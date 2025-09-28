@@ -37,7 +37,7 @@ class VersionsPages(QWidget):
 
         # 版本列表
         self.versions_page = VersionsPage(self.resource_path)
-        self.settings_page = SettingsPage(self.resource_path)
+        self.settings_page = SettingsPage(self)
 
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
