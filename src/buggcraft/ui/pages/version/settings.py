@@ -15,6 +15,8 @@ from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
 from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
+from ui.widgets.collapse import CollapsePanel
+
 
 import logging
 logger = logging.getLogger(__name__)
@@ -57,13 +59,10 @@ class SettingsPage(QWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(10)
         
+        # 设置区域
         # # 左侧游戏安装路径区域
-        # self.directory_panel = self.create_directory_panel()
-        # container_layout.addWidget(self.directory_panel)
-        
-        # # 右侧游戏版本列表区域
-        # self.version_list_panel = self.create_version_list_panel()
-        # container_layout.addWidget(self.version_list_panel)
+        self.settings_panel = self.create_settings_panel()
+        container_layout.addWidget(self.settings_panel)
         
         main_layout.addWidget(content_container)
 
@@ -88,48 +87,30 @@ class SettingsPage(QWidget):
     
     # ----- page 版本列表页 -----
 
-    def create_directory_panel(self):
-        """创建左侧游戏安装路径面板"""
+    def create_settings_panel(self):
         # 容器
         panel = QWidget()
-        panel.setFixedWidth(260)
-        panel.setStyleSheet("background-color: rgba(92, 90, 152, 0.35);")
         
         # 布局
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
-        
-        # 存储目录项的引用
-        self.directory_items = []
 
-        # 从配置文件加载目录数据
-        for data in self.load_directory_data():
-            item = self.create_directory_item(
-                data["is_selected"],
-                data["title"],
-                data["path"],
-                data["has_delete"]
-            )
-            self.directory_items.append(item)
-            layout.addWidget(item)
-        
-        layout.addWidget(self.create_add_directory_item())
-        
+        ###############
+        ##  版本隔离   #
+
+
+        ###############
+        ##  游戏Java  #
+        panel_java_settings = CollapsePanel(self, '游戏Java', 'C:\\Program Files\\Java\\jdk-21.0.7')
+        layout.addWidget(panel_java_settings)
+
+
+
         # 添加拉伸空间
-        layout.addStretch()
-        
-        # 添加安装新游戏按钮
-        install_button = self.create_image_button(
-            "安装新游戏", 
-            os.path.join(self.resource_path, 'images', 'user', 'legal_login_btn.png'),
-            lambda: print('安装新游戏'),
-            235, 40,
-            font_size=10
-        )
-        layout.addWidget(install_button)
-        
+        layout.addStretch(1)
         return panel
+
 
     def create_directory_item(self, is_selected, title, path, has_delete=False):
         """创建目录项"""
