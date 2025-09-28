@@ -75,7 +75,9 @@ class SettingsManager:
             'version': {
                 "enable": None,
                 "installed": []
-            }
+            },
+            'isolation': True,  # 版本隔离
+            'auto_allocate_memory': True  # 自动分配内存
         }
 
         # 获取已安装版本列表
