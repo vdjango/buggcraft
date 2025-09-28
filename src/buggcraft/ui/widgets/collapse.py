@@ -12,7 +12,7 @@ class CollapsePanel(QWidget):
     
     collapse_changed = Signal(bool)  # 折叠面板折叠展开的信号
     
-    def __init__(self, parent, title, messages=None, content=None, 
+    def __init__(self, parent, title, messages=None, expanded = False, content=None,
                  header_height=58, content_height=None,
                  header_bg_color="rgba(190, 183, 255, 0.3)",
                  content_bg_color="rgba(190, 183, 255, 0.2)",
@@ -22,6 +22,8 @@ class CollapsePanel(QWidget):
         初始化可折叠面板
         :param parent: 父组件
         :param title: 面板标题
+        :param messages: 面板desc信息
+        :param expanded: 面板默认是否展开
         :param content: 内容组件 (可选)
         :param header_height: 标题栏高度
         :param content_height: 内容区域高度 (可选)
@@ -46,6 +48,9 @@ class CollapsePanel(QWidget):
         self.resource_path = parent.resource_path
         self.is_expanded = False  # 初始状态为折叠
         self.init_ui()
+
+        if expanded:
+            self.toggle_expand(False)
         
     def init_ui(self):
         """初始化 UI"""
@@ -186,6 +191,7 @@ class CollapsePanel(QWidget):
         """设置展开/折叠状态"""
         if expanded != self.is_expanded:
             self.toggle_expand(None)
+            print('toggle_expand', expanded)
     
     # @property
     # def is_expanded(self):
