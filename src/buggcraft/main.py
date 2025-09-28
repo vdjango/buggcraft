@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 全局配置
-HOME_DIR = Path.home() / '.buggcraft'
+HOME_DIR = Path.cwd() / '.buggcraft'
 CACHE_DIR = HOME_DIR / 'cache'
 CONFIG_DIR = HOME_DIR / 'etc'
 RESOURCE_DIR = HOME_DIR / 'resources'  # 资源目录，存放字体、图标等
@@ -43,11 +43,6 @@ NOTIFICATION_MESSAGES = {
 }
 
 RESOURCE_DIR = Path.cwd() / 'resources'
-# def setup_directories():
-#     """创建必要的目录结构"""
-#     for directory in [HOME_DIR, CACHE_DIR, CONFIG_DIR, RESOURCE_DIR, DEPENDENCIES_DIR]:
-#         directory.mkdir(parents=True, exist_ok=True)
-#         logger.info(f"初始化目录: {directory}")
 
 
 def download_and_extract(url, download_dir, extract_dir):

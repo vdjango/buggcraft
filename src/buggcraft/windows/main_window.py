@@ -13,7 +13,7 @@ from config.settings import get_settings_manager
 from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
 from ui.widgets.titlebar import TitleBar
-from ui.pages import StartGamePage, SettingsPage, VersionsPages
+from ui.pages import StartGamePage, SettingsPage, VersionsPages, VersionsListPages
 
 import logging
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ class MinecraftLauncher(QMainWindow):
         self.tab_names = {
             '开始': 'StartedGame',
             '设置': 'Settings',
+            '版本选择': 'VersionList',
             '版本管理': 'VersionControl'
         }
         self.current_tab = "StartedGame"
@@ -105,6 +106,14 @@ class MinecraftLauncher(QMainWindow):
         )
         self.content_stack.addWidget(self.settings_page)
 
+        # 版本选择
+        self.version_list_page = VersionsListPages(
+            self,
+            cache_path=self.cache_path,
+            resource_path=self.resource_path
+        )
+        self.content_stack.addWidget(self.version_list_page)
+
         # 版本管理
         self.version_control_page = VersionsPages(
             self,
@@ -119,11 +128,10 @@ class MinecraftLauncher(QMainWindow):
 
         def set_version(v):
             self.started_page.launcher.version = v
-            print('set', v)
             self.started_page.set_minecraft_version(v)
 
-        self.version_control_page.signals.directory.connect(set_directory)
-        self.version_control_page.signals.versions.connect(set_version)
+        self.version_list_page.signals.directory.connect(set_directory)
+        self.version_list_page.signals.versions.connect(set_version)
 
         # 游戏日志信息回显
         self.launcher = self.started_page.launcher

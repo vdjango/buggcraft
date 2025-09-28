@@ -147,7 +147,7 @@ class TitleBar(QWidget):
         """创建版本选择按钮 - 使用version_selection_background.png背景图片"""
         version_btn = QLabel()
         version_btn.setObjectName("version_版本选择")
-        # version_btn.mousePressEvent = lambda e: self.tab_switch_clicked.emit('版本选择')
+        version_btn.mousePressEvent = lambda e: self.tab_switch_clicked.emit('版本选择')
         
         # 设置按钮文字
         version_btn.setText("版本选择")
