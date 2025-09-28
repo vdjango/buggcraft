@@ -11,7 +11,7 @@ from PySide6.QtGui import QFont, QPixmap
 class QMRadioGroup(QObject):
     """管理一组 QMCheckBoxButton，实现单选行为"""
     
-    button_selected = Signal(str)  # 按钮被选中时发出信号，参数为按钮文本
+    button_selected = Signal(bool, tuple)  # 按钮被选中时发出信号，参数为按钮文本
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -36,7 +36,6 @@ class QMRadioGroup(QObject):
     
     def on_button_selected(self, button, selected, proprty):
         """处理按钮选中事件"""
-        print('proprty', proprty, selected)
         if selected:
             # 取消其他按钮的选中状态
             for btn in self.buttons:
@@ -45,7 +44,7 @@ class QMRadioGroup(QObject):
             
             # 更新当前选中的按钮
             self.selected_button = button
-            self.button_selected.emit(proprty)
+            self.button_selected.emit(selected, proprty)
         else:
             # 如果取消选中当前按钮，更新状态
             if button == self.selected_button:

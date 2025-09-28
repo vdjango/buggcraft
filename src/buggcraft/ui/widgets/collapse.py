@@ -132,6 +132,9 @@ class CollapsePanel(QWidget):
         
         return container
     
+    def set_messages(self, message):
+        self.messages_label.setText(message)
+
     def set_content(self, content):
         """设置内容组件"""
         # 清除现有内容
