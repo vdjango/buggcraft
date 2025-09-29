@@ -4,7 +4,7 @@
 import os
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
@@ -31,9 +31,7 @@ class SettingsPage(QWidget):
         
         self.available_java_versions = [
             {"version": "21.0.7", "path": "C:\\Program Files\\Java\\jdk-21.0.7"},
-            {"version": "17.0.10", "path": "C:\\Program Files\\Java\\jdk-17.0.10"},
-            {"version": "11.0.22", "path": "C:\\Program Files\\Java\\jdk-11.0.22"},
-            {"version": "8.0.402", "path": "C:\\Program Files\\Java\\jdk-8.0.402"}
+            {"version": "17.0.10", "path": "C:\\Program Files\\Java\\jdk-17.0.10"}
         ]
 
         # 初始化设置管理器
@@ -57,13 +55,13 @@ class SettingsPage(QWidget):
         # # 左侧游戏安装路径区域
         self.settings_panel = self.create_settings_panel()
         container_layout.addWidget(self.settings_panel)
-        
+
         main_layout.addWidget(content_container)
 
     def create_settings_panel(self):
         # 容器
         panel = QWidget()
-        
+
         # 布局
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -92,7 +90,42 @@ class SettingsPage(QWidget):
 
         # 添加拉伸空间
         layout.addStretch(1)
-        return panel
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # scroll_area.setStyleSheet("background-color: transparent;")
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            
+            QScrollArea > QWidget > QWidget {
+                background-color: transparent;
+            }
+                                  
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll_area.setWidget(panel)
+        return scroll_area
 
     def create_version_isolation(self):
         """创建 版本隔离 设置内容"""

@@ -7,7 +7,7 @@ import logging
 import minecraft_launcher_lib
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QDialog
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QDialog, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
@@ -63,9 +63,10 @@ class VersionsPage(QWidget):
         
         # 右侧游戏版本列表区域
         self.version_list_panel = self.create_version_list_panel()
-        container_layout.addWidget(self.version_list_panel)
-        
+        container_layout.addWidget(self.version_list_panel, 1)
         main_layout.addWidget(content_container)
+        
+
 
     def create_image_button(self, text, image_path, click_handler, width, height, font_size=11):
         """创建图片按钮"""
@@ -73,6 +74,8 @@ class VersionsPage(QWidget):
         button.mousePressEvent = lambda event: click_handler()
         button.setCursor(Qt.PointingHandCursor)
         button.setFixedSize(width, height)
+        # button.setMaximumWidth(width)
+        # button.setMaximumHeight(height)
         
         if image_path and os.path.exists(image_path):
             pixmap = QPixmap(image_path)
@@ -90,7 +93,8 @@ class VersionsPage(QWidget):
         """创建左侧游戏安装路径面板"""
         # 容器
         panel = QWidget()
-        panel.setFixedWidth(260)
+        # panel.setMaximumWidth(260)
+        # panel.setContentsMargins(10, 0, 10, 0)
         panel.setStyleSheet("background-color: rgba(92, 90, 152, 0.25);")
         
         # 布局
@@ -127,12 +131,41 @@ class VersionsPage(QWidget):
         )
         layout.addWidget(install_button)
         
-        return panel
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll_area.setWidget(panel)
+        return scroll_area
 
     def create_directory_item(self, is_selected, title, path, has_delete=False):
         """创建目录项"""
         # 容器
         item = QWidget()
+        item.setContentsMargins(0, 2, 0, 2)
         item.setStyleSheet("background-color: transparent;")
         item.setFixedHeight(60)
         
@@ -149,7 +182,7 @@ class VersionsPage(QWidget):
         
         # 布局
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(15, 0, 0, 0)
+        layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(0)
         
         # 选中图标
@@ -158,7 +191,7 @@ class VersionsPage(QWidget):
             os.path.join(self.resource_path, 'images', 'version', icon_name),
             size=(30, 30)
         )
-        
+        layout.addSpacing(15)
         layout.addWidget(select_icon)
         layout.addSpacing(15)
         
@@ -173,17 +206,20 @@ class VersionsPage(QWidget):
         title_label.setStyleSheet("color: #f2f2f2; font-size: 14px; font-weight: bold; border: none;")
         
         path_label = QLabel(path)
+        path_label.setMaximumWidth(135)
         path_label.setStyleSheet("color: #f2f2f2; font-size: 11px; border: none;")
         
         text_layout.addWidget(title_label)
         text_layout.addWidget(path_label)
         
-        layout.addWidget(text_widget, 1)
-        layout.addSpacing(5)
+        layout.addWidget(text_widget)
+        # layout.addSpacing(5)
+        layout.addStretch()
         
         # 删除图标（如果有）
         if has_delete:
             delete_widget = QWidget()
+            delete_widget.setContentsMargins(0, 0, 0, 0)
             delete_widget.setStyleSheet("background-color: transparent; border: none;")
             delete_layout = QVBoxLayout(delete_widget)
             delete_layout.setContentsMargins(0, 10, 8, 0)
@@ -196,12 +232,12 @@ class VersionsPage(QWidget):
             )
             # 添加删除点击事件
             delete_icon.mousePressEvent = lambda event: self.on_delete_directory(item, event)
-            delete_layout.addWidget(delete_icon)
+            delete_layout.addWidget(delete_icon, 0)
             delete_layout.addStretch()
             
             layout.addWidget(delete_widget)
         
-        layout.addStretch()
+        # layout.addStretch()
         
         # 添加目录项点击事件
         item.mousePressEvent = lambda event: self.on_directory_clicked(item, event)
@@ -268,12 +304,39 @@ class VersionsPage(QWidget):
                     data["is_selected"]
                 )
                 self.version_items.append(item)
-                layout.addWidget(item)
+                layout.addWidget(item, 1)
 
         # 添加拉伸空间
         layout.addStretch()
-        
-        return panel
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll_area.setWidget(panel)
+        return scroll_area
 
     def create_version_item(self, version, description, is_selected=False):
         """创建版本项"""
@@ -287,7 +350,7 @@ class VersionsPage(QWidget):
         item.setProperty("is_selected", is_selected)
 
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(15, 0, 0, 0)
+        layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(0)
         
         # 选中图标
@@ -296,6 +359,7 @@ class VersionsPage(QWidget):
             os.path.join(self.resource_path, 'images', 'version', icon_name),
             size=(30, 30)
         )
+        layout.addSpacing(10)
         layout.addWidget(select_icon)
         layout.addSpacing(15)
         
@@ -310,13 +374,14 @@ class VersionsPage(QWidget):
         version_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
         
         desc_label = QLabel(description)
+        desc_label.setMaximumWidth(200)
         desc_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
         
-        text_layout.addWidget(version_label)
-        text_layout.addWidget(desc_label)
+        text_layout.addWidget(version_label, 0, Qt.AlignVCenter)
+        text_layout.addWidget(desc_label, 0, Qt.AlignVCenter)
         
-        layout.addWidget(text_widget, 1)
-        layout.addSpacing(5)
+        layout.addWidget(text_widget)
+        layout.addStretch(1)
         
         # 操作图标区域
         icons_widget = QWidget()
@@ -555,7 +620,7 @@ class VersionsPage(QWidget):
         # 找到添加按钮的位置
         # 添加按钮在倒数第三个位置
         # 在添加按钮之前插入新项
-        layout = self.directory_panel.layout()
+        layout = self.directory_panel.widget().layout()
         add_item_index = layout.count() - 3
         layout.insertWidget(add_item_index, new_item)
 
@@ -664,13 +729,12 @@ class VersionsPage(QWidget):
         """刷新版本列表 - 扫描目录并更新UI"""
         # 扫描目录下的版本
         self.scan_versions(directory_path)
-        
-        for i in reversed(range(self.version_list_panel.layout().count())):
+        for i in reversed(range(self.version_list_panel.widget().layout().count())):
             # 移除所有子部件
-            item = self.version_list_panel.layout().itemAt(i)
+            item = self.version_list_panel.widget().layout().itemAt(i)
             if item.widget():
                 item.widget().setParent(None)
-            self.version_list_panel.layout().removeItem(item)
+            self.version_list_panel.widget().layout().removeItem(item)
 
         # 清空版本项列表
         self.version_items = []
@@ -686,10 +750,10 @@ class VersionsPage(QWidget):
                 data["is_selected"]
             )
             self.version_items.append(item)
-            self.version_list_panel.layout().addWidget(item)
+            self.version_list_panel.widget().layout().addWidget(item)
         
         # 添加拉伸空间
-        self.version_list_panel.layout().addStretch()
+        self.version_list_panel.widget().layout().addStretch()
 
     def paintEvent(self, event):
         """重绘事件 - 透明背景"""

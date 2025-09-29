@@ -31,12 +31,12 @@ class VersionsPages(QWidget):
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
         self.tab_names = {
-            # '版本列表': 'Versions',
+            '版本列表': 'Versions',
             '版本设置': 'Settings'
         }
 
         # 版本列表
-        # self.versions_page = VersionsPage(self.resource_path)
+        self.versions_page = VersionsPage(self.resource_path)
         self.settings_page = SettingsPage(self)
 
         # 初始化设置管理器
@@ -69,14 +69,14 @@ class VersionsPages(QWidget):
         tab_container_layout.addWidget(self.version_stack)
         
         # 版本列表/版本设置
-        # self.version_stack.addWidget(self.versions_page)
+        self.version_stack.addWidget(self.versions_page)
         self.version_stack.addWidget(self.settings_page)
 
         main_layout.addWidget(self.tab_container)
     
-    # @property
-    # def signals(self):
-    #     return self.versions_page.signals
+    @property
+    def signals(self):
+        return self.versions_page.signals
 
     def create_tab_buttons(self):
         """创建选项卡按钮区域"""
@@ -97,12 +97,12 @@ class VersionsPages(QWidget):
         tab_buttons_layout.addSpacing(10)
 
         # 离线选项卡按钮
-        # self.offline_tab_btn = self.create_tab_button(
-        #     "版本列表（移除）",
-        #     self.versions_btn_clicked,
-        #     size=(155, 44), font_size=10
-        # )
-        # tab_buttons_layout.addWidget(self.offline_tab_btn, 0, Qt.AlignCenter)
+        self.offline_tab_btn = self.create_tab_button(
+            "版本列表",
+            self.versions_btn_clicked,
+            size=(155, 44), font_size=10
+        )
+        tab_buttons_layout.addWidget(self.offline_tab_btn, 0, Qt.AlignCenter)
         
         # 正版选项卡按钮
         self.external_tab_btn = self.create_tab_button(
@@ -131,7 +131,7 @@ class VersionsPages(QWidget):
         tab_buttons_layout.addStretch()
         
         # 设置初始状态：版本列表默认选中
-        # self.update_button_style("版本列表", False)
+        self.update_button_style("版本列表", False)
         self.update_button_style("版本设置", True)
         
         return tab_buttons_widget
@@ -154,25 +154,22 @@ class VersionsPages(QWidget):
 
     def settings_btn_clicked(self):
         """版本列表按钮点击事件"""
-        # self.update_button_style("版本列表", True)
+        self.update_button_style("版本列表", True)
         self.update_button_style("版本设置", False)
         self.switch_pages("版本设置")
 
     def versions_btn_clicked(self):
         """版本设置按钮点击事件"""
-        # self.update_button_style("版本列表", False)
+        self.update_button_style("版本列表", False)
         self.update_button_style("版本设置", True)
-        # self.switch_pages("版本列表")
+        self.switch_pages("版本列表")
 
     def update_button_style(self, tab_name, is_active):
         """更新选项卡按钮样式"""
-        if tab_name == "版本设置":
+        if tab_name == "版本列表":
             btn = self.external_tab_btn
-            
-        elif tab_name == "模组管理":
+        else:
             btn = self.offline_tab_btn
-        # else:
-        #     btn = self.offline_tab_btn
         
         active_image = os.path.join(self.resource_path, 'images', 'user', 'external_tab_btn_active.png')
         if is_active and os.path.exists(active_image):
