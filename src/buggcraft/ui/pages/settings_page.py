@@ -6,7 +6,7 @@ from typing import Any
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QStackedWidget, QLineEdit, QComboBox, QSlider,
-    QRadioButton, QButtonGroup, QScrollArea, QFormLayout
+    QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QSpacerItem, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QPixmap, QPainter
@@ -15,6 +15,7 @@ from utils.helpers import MemorySliderManager
 from config.settings import get_settings_manager
 from config.javafinder import JavaPathFinder
 from core.visibility import VisibilitySettings
+from ui.widgets.collapse import CollapsePanel
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ class SettingsPage(BasePage):
         # self.settings_manager = get_settings_manager(self.parent.config_path)  # 获取配置管理器
         
         self.init_ui()
-        self.load_settings_to_ui()  # 加载设置
+        # self.load_settings_to_ui()  # 加载设置 - 方法不存在，暂时注释
+        self.load_cache_settings()  # 加载缓存设置
         
     def init_ui(self):
         """初始化UI"""
@@ -65,15 +67,15 @@ class SettingsPage(BasePage):
 
         main_layout.addWidget(self.tab_container)
         
+        # tab_content设置布局
+        tab_content_layout = QVBoxLayout(self.tab_content)
+        tab_content_layout.setContentsMargins(0, 0, 0, 0)
+        tab_content_layout.setSpacing(0)
+        
         # 右侧设置内容
-        self.settings_stack = QStackedWidget(self.tab_content)
-        self.settings_stack.setContentsMargins(5, 5, 5, 5)
-        # self.settings_stack.setStyleSheet("""
-        #     QStackedWidget {
-        #         border-radius: 8px;
-        #     }
-        # """)
-        # main_layout.addWidget(self.settings_stack)
+        self.settings_stack = QStackedWidget()
+        self.settings_stack.setContentsMargins(0, 5, 0, 5) 
+        tab_content_layout.addWidget(self.settings_stack)
         
         # 添加设置页面
         self.create_launch_settings()
@@ -219,7 +221,13 @@ class SettingsPage(BasePage):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("background-color: transparent;")
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 隐藏垂直滚动条但保留滚动功能
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+        """)
 
         import os
         from ui.widgets.card.qmcard import QMCard
@@ -227,380 +235,928 @@ class SettingsPage(BasePage):
 
         main_layout = QWidget()
         main_layout.setStyleSheet("background-color: transparent;")
-        # main_layout.setStyleSheet("""
-        # QWidget {
-        #     background-color: #252627;
-        #     color: #AFAFAF;
-        # }
-        # """)
 
         layout = QVBoxLayout(main_layout)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)  
         
-        ######################################################
-        crad_widget = QMCard(
-            title="通用设置",
-            icon=os.path.join(self.resource_path, "icons/union@2x.png")
-        )
-        crad_widget.setStyleSheet("background-color: transparent;")
-        crad_widget.setBackgroundColor("rgba(50, 50, 50, 0.68)")
-        # background-color: rgba(50, 50, 50, 0.68);
-        crad_widget.setStyleSheet("""
-            QWidget {
-                color: #AFAFAF;
+        # 启动器更新 区域 - 使用可复用的CollapsePanel
+        # 创建主容器，使用边距来控制整体位置
+        update_container = QWidget()
+        update_container.setContentsMargins(13, 0, 0, 0)  
+        update_container_layout = QVBoxLayout(update_container)
+        update_container_layout.setContentsMargins(0, 0, 0, 0)
+        update_container_layout.setSpacing(0)
+        
+        # 创建水平布局来放置标题和内容
+        update_main_layout = QHBoxLayout()
+        update_main_layout.setContentsMargins(0, 0, 0, 0)
+        update_main_layout.setSpacing(0)
+        
+        # 左侧标题区域 - 尺寸94x26px
+        title_widget = QWidget()
+        title_widget.setFixedSize(94, 26)
+        title_layout = QVBoxLayout(title_widget)
+        title_layout.setContentsMargins(0, 0, 0, 0)  
+        title_layout.setSpacing(0)
+        
+        # 标题标签
+        title_label = QLabel("启动器更新:")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #f0f0f0;
+                font-size: 12px;
+                font-weight: bold;
+                text-align: left;
+                background-color: transparent;
             }
         """)
+        title_layout.addWidget(title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
         
-        ####################
-        # 启动器可见性：选项 #
-        launcher_visibility_layout = QFormLayout()
-        self.launcher_visibility_combo = QComboBox()  # 使用唯一变量名
-        # self.launcher_visibility_combo.addItems(["游戏启动后保持不变", "游戏启动后最小化", "游戏启动后隐藏，游戏退出后重新打开", "游戏启动后立即关闭"])
-        self.launcher_visibility_combo.addItems([
-            VisibilitySettings.KEEP_VISIBLE,
-            VisibilitySettings.MINIMIZE,
-            VisibilitySettings.HIDE,
-            VisibilitySettings.CLOSE
-        ])
-        self.launcher_visibility_combo.currentTextChanged.connect(
-            lambda t: self.on_setting_changed("launcher.visibility", t)
-        )
-
-        launcher_visibility_layout.addRow("启动器可见性", self.launcher_visibility_combo)
-        ###################
-        # 进程优先级: 选项 #
-        self.process_priority_combo = QComboBox()  # 使用唯一变量名
-        self.process_priority_combo.addItems(["高 (优先保证游戏运行，但可能造成其他程序卡顿)", "中 (平衡)", "低 (优先保证其他程序运行，但可能造成游戏卡顿)"])
-        self.process_priority_combo.currentTextChanged.connect(
-            lambda t: self.on_setting_changed("launcher.process_priority", t)
-        )
-        launcher_visibility_layout.addRow("进程优先级", self.process_priority_combo)
-        #################
-        # 窗口大小: 选项 #
-        self.window_size_combo = QComboBox()  # 使用唯一变量名
-        self.window_size_combo.addItems(["默认", "与启动器一致", "最大化"])
-        self.window_size_combo.currentTextChanged.connect(
-            lambda t: self.on_setting_changed("launcher.window_size", t)
-        )
-        launcher_visibility_layout.addRow("窗口大小", self.window_size_combo)
-
-        #################
-        # 游戏Java: 选项 #
-        #################
-        self.game_java_combo = QComboBox()  # 使用唯一变量名
-        # 设置自定义委托
-        self.game_java_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.game_java_combo.addItems(["自动选择"])
-        self.game_java_combo.currentTextChanged.connect(
-            lambda t: self.on_setting_changed("java.path", t)
-        )
-        launcher_visibility_layout.addRow("游戏Java", self.game_java_combo)
-
-        # 在选项框下方添加按钮行
-        button_container = QWidget()
-        button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(0, 0, 0, 0)  # 移除边距
-        button_layout.setSpacing(8)  # 按钮间距
-
-        # 自动搜索按钮
-        self.auto_search_button = QPushButton("自动搜索")
-        self.auto_search_button.setFixedHeight(25)  # 固定高度
-        self.auto_search_button.setFixedWidth(80)
-        self.auto_search_button.setStyleSheet("""
+        # 内容区域 - 距离标题左侧25px  
+        content_spacer = QWidget()
+        content_spacer.setFixedWidth(25)  
+        
+        # 创建版本选择内容组件
+        version_content_widget = self.create_version_selection_content()
+        
+        # 创建刷新按钮组件
+        refresh_btn = QPushButton("@")
+        refresh_btn.setFixedSize(20, 20)
+        refresh_btn.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border-radius: 4px;
+                background-color: rgba(70, 70, 70, 0.8);
+                border: 1px solid #555;
+                border-radius: 10px;
+                color: #FFFFFF;
                 font-size: 12px;
-                padding: 4px 8px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: rgba(90, 90, 90, 0.8);
             }
         """)
-        self.auto_search_button.clicked.connect(self.auto_search_java)
-        button_layout.addWidget(self.auto_search_button)
-
-        # 手动导入按钮  TODO: 待实现
-        manual_import_button = QPushButton("手动导入")
-        manual_import_button.setFixedHeight(25)  # 固定高度
-        manual_import_button.setFixedWidth(80)
-        manual_import_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border-radius: 4px;
-                font-size: 12px;
-                padding: 4px 8px;
-            }
-            QPushButton:hover {
-                background-color: #0b7dda;
-            }
-        """)
-        # manual_import_button.clicked.connect(self.manual_import_java)
-        # button_layout.addWidget(manual_import_button)
-        button_layout.addStretch()
-        # 添加按钮行到表单布局（空标签占位第一列）
-        launcher_visibility_layout.addRow("", button_container)  # 空标签使按钮对齐下拉框
-
-        # 将表单布局添加到卡片的内容区域
-        crad_widget.add_layout(launcher_visibility_layout)
-        layout.addWidget(crad_widget)
-        # 添加间隔 - 方法2：使用透明占位控件（更可靠）
-        spacer = QWidget()
-        spacer.setFixedHeight(10)
-        spacer.setStyleSheet("background-color: transparent;")
-        layout.addWidget(spacer)
         
-
-        ################
-        crad_game_memory_widget = QMCard(
-            title="游戏内存",
-            icon=os.path.join(self.resource_path, "icons/union@2x.png"),
-            # content="这是一个Minecraft服务器，支持多种游戏模式。"
-        )
-        crad_game_memory_widget.setBackgroundColor("#252627")
-        crad_game_memory_widget.setStyleSheet("""
-            QWidget {
-                color: #AFAFAF;
+        # 创建标题栏的自定义内容 
+        header_content_widget = QWidget()
+        header_content_layout = QHBoxLayout(header_content_widget)
+        header_content_layout.setContentsMargins(0, 0, 0, 0)
+        header_content_layout.setSpacing(0)
+        
+        # 版本信息标签
+        version_label = QLabel("发现更新 最新版本为：3.6.17")
+        version_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                background-color: transparent;
             }
         """)
-        ###############
-        # 创建内存滑块 #
-        ###############
-        # 创建步长滑块
-        game_memory_layout = QFormLayout()
-        self.memory_slider = StepSlider(step=512, orientation=Qt.Horizontal)
-        self.memory_slider.setTickPosition(QSlider.TicksBelow)
-        self.memory_slider.setTickInterval(512)  # 每512MB一个刻度
-        self.memory_slider.setSingleStep(256)  # 步长256MB
-        self.memory_slider.setPageStep(1024)  # 页步长1GB
-        self.memory_slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                height: 6px;
-                background: rgba(217, 217, 217, 1);
-                border-radius: 3px;
+        
+        # 添加到标题栏布局 
+        header_content_layout.addWidget(version_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        header_content_layout.addWidget(QWidget())   
+        
+        # 使用CollapsePanel 折叠面板
+        self.update_collapse_panel = CollapsePanel(
+            parent=self,
+            title="",   
+            content=version_content_widget,
+            header_height=46,
+            content_height=90,  
+            header_bg_color="#3E344F",
+            content_bg_color="#3E344F",
+            expand_icon_size=16,
+            text_font_size=12,
+            messages_font_size=11
+        )
+        
+        # 设置宽度
+        self.update_collapse_panel.setFixedWidth(508)
+        
+        # 自定义标题栏内容
+        self.update_collapse_panel.header.layout().insertWidget(0, header_content_widget, 1)
+        
+        # 创建包含分割线的容器
+        collapse_container = QWidget()
+        collapse_container.setFixedWidth(508)   
+        collapse_container_layout = QVBoxLayout(collapse_container)
+        collapse_container_layout.setContentsMargins(0, 0, 0, 0)
+        collapse_container_layout.setSpacing(0)
+        
+        # 添加CollapsePanel的header
+        collapse_container_layout.addWidget(self.update_collapse_panel.header)
+        
+        # 创建分割线（在header和content之间）
+        self.divider = QFrame()
+        self.divider.setFrameShape(QFrame.HLine)
+        self.divider.setStyleSheet("background-color: #FFFFFF;")
+        self.divider.setFixedHeight(1)
+        self.divider.setFixedWidth(508)   
+        self.divider.hide()  
+        collapse_container_layout.addWidget(self.divider)
+        
+        # 添加CollapsePanel的content
+        collapse_container_layout.addWidget(self.update_collapse_panel.content_area)
+        
+        # 连接折叠状态变化信号来控制分割线显示
+        self.update_collapse_panel.collapse_changed.connect(self.on_collapse_changed)
+        
+        # 创建水平布局，将CollapsePanel和刷新按钮并排放置
+        collapse_with_button_layout = QHBoxLayout()
+        collapse_with_button_layout.setContentsMargins(0, 0, 0, 0)
+        collapse_with_button_layout.setSpacing(0)
+        
+        # 添加CollapsePanel容器
+        collapse_with_button_layout.addWidget(collapse_container)
+        
+        collapse_with_button_layout.addSpacing(-80)
+        
+        refresh_container = QWidget()
+        refresh_container_layout = QVBoxLayout(refresh_container)
+        refresh_container_layout.setContentsMargins(0, 10, 0, 0)   
+        refresh_container_layout.setSpacing(0)
+        refresh_container_layout.addWidget(refresh_btn)
+        refresh_container_layout.addStretch()  
+        
+        collapse_with_button_layout.addWidget(refresh_container, 0, Qt.AlignTop | Qt.AlignLeft)
+        collapse_with_button_layout.addStretch()
+        
+        # 组装主布局
+        update_main_layout.addWidget(title_widget, 0, Qt.AlignTop)   
+        update_main_layout.addWidget(content_spacer)
+        update_main_layout.addLayout(collapse_with_button_layout, 0)   
+        update_main_layout.addStretch()
+        
+        # 将水平布局添加到容器
+        update_container_layout.addLayout(update_main_layout)
+        
+        # 将容器添加到主布局
+        layout.addWidget(update_container)
+        
+        spacer_after_update = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addItem(spacer_after_update)
+
+        # 2. 文件下载缓存区域 - 使用CollapsePanel
+        
+        # 创建缓存内容区域
+        cache_content_widget = QWidget()
+        cache_content_widget.setFixedSize(508, 90)
+        cache_content_widget.setStyleSheet("""
+            QWidget {
+                background-color: #3E344F;
+                border: none;
             }
-            QSlider::handle:horizontal {
-                background: rgba(255, 152, 0, 1);
+        """)
+        
+        cache_content_layout = QVBoxLayout(cache_content_widget)
+        cache_content_layout.setContentsMargins(16, 0, 16, 10)  
+        cache_content_layout.setSpacing(10)
+        
+        # 默认缓存选项
+        default_cache_layout = QHBoxLayout()
+        
+        # 构建选中和未选中状态图片的完整路径
+        selected_image_path = os.path.join(self.resource_path, 'images', 'version', 'selected1.png')
+        unselected_image_path = os.path.join(self.resource_path, 'images', 'version', 'not-selected1.png')
+        # 将反斜杠替换为正斜杠，Qt在Windows上也支持正斜杠
+        selected_image_path = selected_image_path.replace('\\', '/')
+        unselected_image_path = unselected_image_path.replace('\\', '/')
+        
+        self.default_cache_checkbox = QRadioButton("默认")
+        self.default_cache_checkbox.setChecked(True)
+        self.default_cache_checkbox.setStyleSheet(f"""
+            QRadioButton {{
+                color: #FFFFFF;
+                font-size: 12px;
+                spacing: 10px;
+                background-color: transparent;
+            }}
+            QRadioButton::indicator {{
                 width: 16px;
                 height: 16px;
-                margin: -5px 0;
-                border-radius: 8px;
-            }
-            QSlider::sub-page:horizontal {
-                background: rgba(255, 152, 0, 1);
-                border-radius: 3px;
-            }
+            }}
+            QRadioButton::indicator:unchecked {{
+                border: 1px solid #FFFFFF;
+                background-color: #000000;
+                border-radius: 0px;
+                background-image: url({unselected_image_path});
+                background-repeat: no-repeat;
+                background-position: center;
+            }}
+            QRadioButton::indicator:checked {{
+                border: none;
+                background-color: transparent;
+                background-image: url({selected_image_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                border-radius: 0px;
+            }}
         """)
-        game_memory_layout.addRow("自定义内存", self.memory_slider)  # 空标签使按钮对齐下拉框
         
-        # 创建内存值显示标签
-        memory_container = QWidget()
-        memory_layout = QHBoxLayout(memory_container)
-        memory_layout.setContentsMargins(0, 0, 0, 0)
-        memory_layout.setSpacing(10)
-        game_memory_layout.addRow(memory_container)
-
-        # 添加内存使用情况显示
-        memory_usage_container = QWidget()
-        memory_usage_layout = QHBoxLayout(memory_usage_container)
-        memory_usage_layout.setContentsMargins(0, 0, 0, 0)
-        memory_usage_layout.setSpacing(5)
-
-        # 已分配内存标签
-        allocated_label = QLabel("游戏分配:")
-        allocated_label.setStyleSheet("""
+        default_path_label = QLabel("(%APPDATA%/.minecraft或~/.minecraft)")
+        default_path_label.setStyleSheet("""
             QLabel {
-                color: #aaa;
+                color: #AAAAAA;
                 font-size: 11px;
+                background-color: transparent;
+                padding-left: 10px;
             }
         """)
-        # 已分配内存值
-        self.allocated_value = QLabel("2048 MB")
-        self.allocated_value.setStyleSheet("""
-            QLabel {
-                color: #4CAF50;
+        
+        default_cache_layout.addWidget(self.default_cache_checkbox, 0, Qt.AlignLeft)
+        default_cache_layout.addWidget(default_path_label, 0, Qt.AlignLeft)
+        default_cache_layout.addStretch()
+        
+        # 自定义缓存选项
+        custom_cache_layout = QHBoxLayout()
+        self.custom_cache_checkbox = QRadioButton("自定义")
+        self.custom_cache_checkbox.setStyleSheet(f"""
+            QRadioButton {{
+                color: #FFFFFF;
+                font-size: 12px;
+                spacing: 10px;
+                background-color: transparent;
+            }}
+            QRadioButton::indicator {{
+                width: 16px;
+                height: 16px;
+            }}
+            QRadioButton::indicator:unchecked {{
+                border: 1px solid #FFFFFF;
+                background-color: #000000;
+                border-radius: 0px;
+                background-image: url({unselected_image_path});
+                background-repeat: no-repeat;
+                background-position: center;
+            }}
+            QRadioButton::indicator:checked {{
+                border: none;
+                background-color: transparent;
+                background-image: url({selected_image_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                border-radius: 0px;
+            }}
+        """)
+        
+        self.custom_cache_path = QLineEdit("C:\\Users\\Administrator\\Documents\\WXWork\\1688858218")
+        self.custom_cache_path.setStyleSheet("""
+            QLineEdit {
+                background-color: #2A2A2A;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                color: #FFFFFF;
                 font-size: 11px;
+                padding: 4px 8px;
+                min-width: 200px;
+            }
+            QLineEdit:focus {
+                border-color: #0078D4;
+            }
+        """)
+        
+        # 构建folder图标的完整路径
+        folder_icon_path = os.path.join(self.resource_path, 'images', 'version', 'folder.png')
+        folder_icon_path = folder_icon_path.replace('\\', '/')
+        
+        browse_btn = QPushButton()
+        browse_btn.setFixedSize(28, 28)
+        browse_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                background-image: url({folder_icon_path});
+                background-repeat: no-repeat;
+                background-position: center;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.1);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(255, 255, 255, 0.2);
+            }}
+        """)
+        # 连接浏览按钮点击事件
+        browse_btn.clicked.connect(self.browse_custom_cache_path)
+        
+        custom_cache_layout.addWidget(self.custom_cache_checkbox, 0, Qt.AlignLeft)
+        custom_cache_layout.addWidget(self.custom_cache_path, 0, Qt.AlignLeft)
+        custom_cache_layout.addWidget(browse_btn, 0, Qt.AlignLeft)
+        custom_cache_layout.addStretch()
+        
+        cache_content_layout.addLayout(default_cache_layout)
+        cache_content_layout.addLayout(custom_cache_layout)
+        
+        # 创建缓存选项的按钮组（互斥选择）
+        self.cache_button_group = QButtonGroup()
+        self.cache_button_group.addButton(self.default_cache_checkbox)
+        self.cache_button_group.addButton(self.custom_cache_checkbox)
+        
+        # 连接单选框状态变化事件
+        self.default_cache_checkbox.toggled.connect(self.on_cache_option_changed)
+        self.custom_cache_checkbox.toggled.connect(self.on_cache_option_changed)
+        
+        # 创建标题栏的自定义内容
+        cache_header_content_widget = QWidget()
+        cache_header_content_layout = QHBoxLayout(cache_header_content_widget)
+        cache_header_content_layout.setContentsMargins(0, 0, 0, 0)
+        cache_header_content_layout.setSpacing(0)
+        
+        # 路径信息标签 - 动态显示路径
+        self.cache_path_label = QLabel()
+        self.cache_path_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
                 font-weight: bold;
+                background-color: transparent;
             }
         """)
-        # 分隔符
-        separator = QLabel("|")
-        separator.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 11px;
-                padding: 0 5px;
-            }
-        """)
-        # 已使用内存标签
-        used_label = QLabel("已使用:")
-        used_label.setStyleSheet("""
-            QLabel {
-                color: #aaa;
-                font-size: 11px;
-            }
-        """)
-        # 已使用内存值
-        self.used_value = QLabel("1024 MB")
-        self.used_value.setStyleSheet("""
-            QLabel {
-                color: #FF9800;
-                font-size: 11px;
-                font-weight: bold;
-            }
-        """)
-        # 分隔符
-        separator2 = QLabel("|")
-        separator2.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 11px;
-                padding: 0 5px;
-            }
-        """)
-        # 空闲内存标签
-        free_label = QLabel("空闲:")
-        free_label.setStyleSheet("""
-            QLabel {
-                color: #aaa;
-                font-size: 11px;
-            }
-        """)
-        # 空闲内存值
-        self.free_value = QLabel("1024 MB")
-        self.free_value.setStyleSheet("""
-            QLabel {
-                color: #2196F3;
-                font-size: 11px;
-                font-weight: bold;
-            }
-        """)
-
-        memory_usage_layout.addWidget(allocated_label)
-        memory_usage_layout.addWidget(self.allocated_value)
-        memory_usage_layout.addWidget(separator)
-        memory_usage_layout.addWidget(used_label)
-        memory_usage_layout.addWidget(self.used_value)
-        memory_usage_layout.addWidget(separator2)
-        memory_usage_layout.addWidget(free_label)
-        memory_usage_layout.addWidget(self.free_value)
-        memory_usage_layout.addStretch()
-
-        game_memory_layout.addRow("", memory_usage_container)
-
-        # 连接滑块值改变信号
-        self.memory_manager = MemorySliderManager(
-            slider=self.memory_slider,
-            allocated_label=allocated_label,
-            used_label=self.used_value,
-            free_label=self.free_value,
+        
+        # 添加到标题栏布局
+        cache_header_content_layout.addWidget(self.cache_path_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        cache_header_content_layout.addWidget(QWidget())
+        
+        # 使用CollapsePanel 折叠面板
+        self.cache_collapse_panel = CollapsePanel(
+            parent=self,
+            title="",
+            content=cache_content_widget,
+            header_height=46,
+            content_height=90,
+            header_bg_color="#3E344F",
+            content_bg_color="#3E344F",
+            expand_icon_size=16,
+            text_font_size=12,
+            messages_font_size=11
         )
-        self.memory_manager.update_system_memory()
-        self.memory_slider.valueChanged.connect(lambda: self.on_setting_changed("memory.allocation", self.memory_slider.value()))
-
-        # 将表单布局添加到卡片的内容区域
-        crad_game_memory_widget.add_layout(game_memory_layout)
-        layout.addWidget(crad_game_memory_widget)
-        # 添加间隔 - 方法2：使用透明占位控件（更可靠）
-        spacer = QWidget()
-        spacer.setFixedHeight(10)
-        spacer.setStyleSheet("background-color: transparent;")
-        layout.addWidget(spacer)
-
-        ###############
-        # 高级通用设置 #
-        crad_advanced_options_widget = QMCard(
-            title="高级通用设置",
-            icon=os.path.join(self.resource_path, "icons/union@2x.png")
-        )
-        crad_advanced_options_widget.setBackgroundColor("#252627")
-        crad_advanced_options_widget.setStyleSheet("""
+        
+        # 设置宽度
+        self.cache_collapse_panel.setFixedWidth(508)
+        
+        # 调整CollapsePanel内容区域的上边距，减少与分割线的距离
+        content_area_layout = self.cache_collapse_panel.content_area.layout()
+        content_area_layout.setContentsMargins(15, 0, 15, 15) 
+        
+        # 自定义标题栏内容
+        self.cache_collapse_panel.header.layout().insertWidget(0, cache_header_content_widget, 1)
+        
+        # 创建包含分割线的容器
+        cache_collapse_container = QWidget()
+        cache_collapse_container.setFixedWidth(508)
+        cache_collapse_container_layout = QVBoxLayout(cache_collapse_container)
+        cache_collapse_container_layout.setContentsMargins(0, 0, 0, 0)
+        cache_collapse_container_layout.setSpacing(0)
+        
+        # 添加CollapsePanel的header
+        cache_collapse_container_layout.addWidget(self.cache_collapse_panel.header)
+        
+        # 创建分割线（在路径显示和content之间）
+        self.cache_divider = QFrame()
+        self.cache_divider.setFrameShape(QFrame.HLine)
+        self.cache_divider.setStyleSheet("background-color: #FFFFFF;")
+        self.cache_divider.setFixedHeight(1)
+        self.cache_divider.setFixedWidth(508)
+        self.cache_divider.hide()   
+        cache_collapse_container_layout.addWidget(self.cache_divider)
+        
+        # 添加CollapsePanel的content
+        cache_collapse_container_layout.addWidget(self.cache_collapse_panel.content_area)
+        
+        # 连接折叠状态变化信号来控制分割线显示
+        self.cache_collapse_panel.collapse_changed.connect(self.on_cache_collapse_changed)
+        
+        # 创建标题
+        cache_title_widget = QWidget()
+        cache_title_widget.setFixedSize(94, 26)
+        cache_title_widget.setStyleSheet("""
             QWidget {
-                color: #AFAFAF;
+                background-color: transparent;
             }
         """)
-        # JVM参数
-        advanced_options_layout = QFormLayout()
-        self.jvm_args_input = QLineEdit()
-        self.jvm_args_input.textChanged.connect(
-            lambda t: self.on_setting_changed("game.launch_jvm_args", t)
-        )
-        advanced_options_layout.addRow("Java虚拟机参数", self.jvm_args_input)
-        # 启动参数
-        self.launch_args_input = QLineEdit()
-        self.launch_args_input.textChanged.connect(
-            lambda t: self.on_setting_changed("game.launch_args", t)
-        )
-        advanced_options_layout.addRow("启动参数", self.launch_args_input)
-        # 启动前执行命令
-        self.pre_launch_command = QLineEdit()
-        self.pre_launch_command.textChanged.connect(
-            lambda t: self.on_setting_changed("game.launch_pre_command", t)
-        )
-        advanced_options_layout.addRow("启动前执行命令", self.pre_launch_command)
         
-        # 启用独立显卡
-        self.high_perf_java_yes = QRadioButton("是")
-        self.high_perf_java_no = QRadioButton("否")
-        self.high_perf_java_no.setChecked(True)  # 默认选中“否”
-        self.high_perf_java_yes.toggled.connect(lambda: self.on_setting_changed("gpu_enable", self.high_perf_java_yes.isChecked()))
-        self.high_perf_java_no.toggled.connect(lambda: self.on_setting_changed("gpu_enable", self.high_perf_java_yes.isChecked()))
+        cache_title_layout = QVBoxLayout(cache_title_widget)
+        cache_title_layout.setContentsMargins(0, 0, 0, 0)   
+        cache_title_layout.setSpacing(0)
+        
+        cache_title_label = QLabel("文件下载缓存:")
+        cache_title_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                background-color: transparent;
+            }
+        """)
+        
+        cache_title_layout.addWidget(cache_title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        
+        cache_spacer = QWidget()
+        cache_spacer.setFixedWidth(22)
+        
+        # 创建水平布局，将标题和CollapsePanel并排放置
+        cache_with_title_layout = QHBoxLayout()
+        cache_with_title_layout.setContentsMargins(15, 0, 0, 0)
+        cache_with_title_layout.setSpacing(0)
 
-        # 启用独立显卡
-        high_perf_layout = QHBoxLayout()
-        self.high_perf_java_no.setChecked(True)
-        high_perf_group = QButtonGroup(self)
-        high_perf_group.addButton(self.high_perf_java_yes)
-        high_perf_group.addButton(self.high_perf_java_no)
-        high_perf_layout.addWidget(self.high_perf_java_yes)
-        high_perf_layout.addWidget(self.high_perf_java_no)
-        high_perf_layout.addStretch()
-        # advanced_options_layout.addRow("启用独立显卡", high_perf_layout)
+        # 添加标题
+        cache_with_title_layout.addWidget(cache_title_widget, 0, Qt.AlignTop | Qt.AlignLeft)
+        
+        cache_with_title_layout.addWidget(cache_spacer)
 
-        crad_advanced_options_widget.add_layout(advanced_options_layout)
-        layout.addWidget(crad_advanced_options_widget)
-        # 添加间隔 - 方法2：使用透明占位控件（更可靠）
-        spacer = QWidget()
-        spacer.setFixedHeight(10)
-        spacer.setStyleSheet("background-color: transparent;")
-        layout.addWidget(spacer)
+        # 添加CollapsePanel容器
+        cache_with_title_layout.addWidget(cache_collapse_container)
+        cache_with_title_layout.addStretch()
+        
+        # 创建文件下载缓存的主布局
+        cache_main_layout = QVBoxLayout()
+        cache_main_layout.setContentsMargins(0, 0, 0, 0)
+        cache_main_layout.setSpacing(0)
+        
+        # 组装主布局
+        cache_main_layout.addLayout(cache_with_title_layout, 0)
+        cache_main_layout.addStretch()
+        
+        # 添加到下载页面布局
+        cache_container = QWidget()
+        cache_container_layout = QVBoxLayout(cache_container)
+        cache_container_layout.setContentsMargins(0, 0, 0, 0)   
+        cache_container_layout.setSpacing(0)
+        cache_container_layout.addLayout(cache_main_layout)
+        
+        layout.addWidget(cache_container)
+        
+        spacer_after_cache = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addItem(spacer_after_cache)
 
+        # 3. 语言设置区域 - 使用CollapsePanel 
+        
+        # 创建语言设置内容区域
+        language_content_widget = QWidget()
+        language_content_widget.setFixedSize(508, 50)
+        language_content_widget.setStyleSheet("""
+            QWidget {
+                background-color: #3E344F;
+                border: none;
+            }
+        """)
+        
+        language_content_layout = QVBoxLayout(language_content_widget)
+        language_content_layout.setContentsMargins(16, 10, 16, 10)
+        language_content_layout.setSpacing(10)
+        
+        # 语言选择下拉框
+        self.language_combo = QComboBox()
+        self.language_combo.addItems(["跟随系统语言", "简体中文", "繁体中文", "English"])
+        self.language_combo.setCurrentText("简体中文")  # 默认选中简体中文
+        self.language_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #4A90E2;
+                border: 1px solid #4A90E2;
+                border-radius: 4px;
+                padding: 8px;
+                color: #FFFFFF;
+                font-size: 12px;
+                min-width: 200px;
+            }
+            QComboBox:hover {
+                background-color: #5BA0F2;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #FFFFFF;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: rgba(60, 60, 60, 0.95);
+                border: 1px solid #555;
+                selection-background-color: #4A90E2;
+                color: #FFFFFF;
+            }
+        """)
+        
+        language_content_layout.addWidget(self.language_combo, 0, Qt.AlignLeft)
+        
+        # 创建标题栏内容（只包含下拉框，不显示左侧文字）
+        language_header_content_widget = QWidget()
+        language_header_content_widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
+        """)
+        
+        language_header_content_layout = QHBoxLayout(language_header_content_widget)
+        language_header_content_layout.setContentsMargins(10, 0, 0, 0)   
+        language_header_content_layout.setSpacing(0)
+        
+        # 语言选择下拉框（内嵌在标题栏中）
+        self.language_combo_in_header = QComboBox()
+        self.language_combo_in_header.setFixedSize(187, 26)   
+        self.language_combo_in_header.addItems(["跟随系统语言", "简体中文", "繁体中文", "English"])  # 更新选项列表
+        self.language_combo_in_header.setCurrentText("跟随系统语言")   
+        
+        # 初始化下拉框样式（默认显示expand.png）
+        self.update_language_combo_style(False)
+        
+        # 连接下拉框的显示/隐藏事件来切换图标
+        self.language_combo_in_header.showPopup = self.on_language_combo_show_popup
+        self.language_combo_in_header.hidePopup = self.on_language_combo_hide_popup
+        
+        # 添加到标题栏布局 
+        language_header_content_layout.addWidget(self.language_combo_in_header, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        language_header_content_layout.addStretch()  
+        
+        # 使用CollapsePanel样式但隐藏折叠按钮
+        self.language_collapse_panel = CollapsePanel(
+            parent=self,
+            title="",
+            content=language_content_widget,
+            header_height=46,
+            content_height=50,
+            header_bg_color="#3E344F",
+            content_bg_color="#3E344F",
+            expand_icon_size=0,  
+            text_font_size=12,
+            messages_font_size=11
+        )
+        
+        # 设置宽度
+        self.language_collapse_panel.setFixedWidth(508)
+        
+        # 自定义标题栏内容
+        self.language_collapse_panel.header.layout().insertWidget(0, language_header_content_widget, 1)
+        
+        # 隐藏折叠图标
+        self.language_collapse_panel.expand_icon.hide()
+        
+        # 禁用点击切换功能
+        self.language_collapse_panel.header.mousePressEvent = lambda event: None
+        
+        # 创建包含分割线的容器
+        language_collapse_container = QWidget()
+        language_collapse_container.setFixedWidth(508)
+        language_collapse_container_layout = QVBoxLayout(language_collapse_container)
+        language_collapse_container_layout.setContentsMargins(0, 0, 0, 0)
+        language_collapse_container_layout.setSpacing(0)
+        
+        # 添加CollapsePanel的header
+        language_collapse_container_layout.addWidget(self.language_collapse_panel.header)
+        
+        # 创建分割线（在header和content之间）
+        self.language_divider = QFrame()
+        self.language_divider.setFrameShape(QFrame.HLine)
+        self.language_divider.setStyleSheet("background-color: #FFFFFF;")
+        self.language_divider.setFixedHeight(1)
+        self.language_divider.setFixedWidth(508)
+        self.language_divider.hide()  
+        language_collapse_container_layout.addWidget(self.language_divider)
+        
+        # 添加CollapsePanel的content
+        language_collapse_container_layout.addWidget(self.language_collapse_panel.content_area)
+        
+        # 连接折叠状态变化信号来控制分割线显示
+        self.language_collapse_panel.collapse_changed.connect(self.on_language_collapse_changed)
+        
+        # 连接语言选择变化信号来更新功能（使用标题栏中的下拉框）
+        self.language_combo_in_header.currentTextChanged.connect(self.on_language_changed)
+        
+        # 创建标题
+        language_title_widget = QWidget()
+        language_title_widget.setFixedSize(110, 26)
+        language_title_widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
+        """)
+        
+        language_title_layout = QVBoxLayout(language_title_widget)
+        language_title_layout.setContentsMargins(0, 0, 0, 0)   
+        language_title_layout.setSpacing(0)
+        
+        language_title_label = QLabel("语言(重启后生效):")
+        language_title_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                background-color: transparent;
+            }
+        """)
+        
+        language_title_layout.addWidget(language_title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        
+        language_spacer = QWidget()
+        language_spacer.setFixedWidth(5)
+        
+        # 创建水平布局，将标题和CollapsePanel并排放置
+        language_with_title_layout = QHBoxLayout()
+        language_with_title_layout.setContentsMargins(15, 0, 0, 0)
+        language_with_title_layout.setSpacing(0)
 
-        ###############
-        # BUG调试模式 #
-        # debug_widget = QMCard(
-        #     title="高级启动选项",
-        #     icon=os.path.join(self.resource_path, "icons/union@2x.png")
-        # )
-        # debug_widget.setBackgroundColor("#252627")
-        # debug_widget.setStyleSheet("""
-        #     QWidget {
-        #         background-color: #252627;
-        #         color: #AFAFAF;
-        #     }
-        # """)
-        # # BUG调试
-        # debug_layout = QFormLayout()
-        # self.bug_debug_mode = QCheckBox("BUG调试模式")
-        # self.bug_debug_mode.toggled.connect(lambda: self.on_setting_changed("debug_endble", self.bug_debug_mode.isChecked()))
+        # 添加标题
+        language_with_title_layout.addWidget(language_title_widget, 0, Qt.AlignTop | Qt.AlignLeft)
+        
+        language_with_title_layout.addWidget(language_spacer)
 
-        # debug_layout.addRow("测试", self.bug_debug_mode)
+        # 添加CollapsePanel容器
+        language_with_title_layout.addWidget(language_collapse_container)
+        language_with_title_layout.addStretch()
+        
+        # 创建语言设置的主布局
+        language_main_layout = QVBoxLayout()
+        language_main_layout.setContentsMargins(0, 0, 0, 0)
+        language_main_layout.setSpacing(0)
+        
+        # 组装主布局
+        language_main_layout.addLayout(language_with_title_layout, 0)
+        language_main_layout.addStretch()
+        
+        # 添加到下载页面布局
+        language_container = QWidget()
+        language_container_layout = QVBoxLayout(language_container)
+        language_container_layout.setContentsMargins(0, 0, 0, 0)   
+        language_container_layout.setSpacing(0)
+        language_container_layout.addLayout(language_main_layout)
+        
+        layout.addWidget(language_container)
+        
+        spacer_after_language = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addItem(spacer_after_language)
 
-        # debug_widget.add_layout(debug_layout)
-        # layout.addWidget(debug_widget)
-        # 添加间隔 - 方法2：使用透明占位控件（更可靠）
-        spacer = QWidget()
-        spacer.setFixedHeight(10)
-        spacer.setStyleSheet("background-color: transparent;")
-        layout.addWidget(spacer)
+        # 4. 下载源设置区域 - 使用CollapsePanel重新设计
+        
+        # 创建下载源内容区域
+        download_source_content_widget = QWidget()
+        download_source_content_widget.setFixedSize(508, 120)
+        download_source_content_widget.setStyleSheet("""
+            QWidget {
+                background-color: #3E344F;
+                border: none;
+            }
+        """)
+        
+        download_source_content_layout = QVBoxLayout(download_source_content_widget)
+        download_source_content_layout.setContentsMargins(16, 10, 16, 10)
+        download_source_content_layout.setSpacing(8)
+        
+        # 1. 版本列表源区域（第一行）
+        version_source_layout = QHBoxLayout()
+        
+        # 添加"版本列表源:"标题标签
+        version_source_title_label = QLabel("版本列表源:")
+        version_source_title_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                background-color: transparent;
+            }
+        """)
+        
+        # 内嵌下拉选择框
+        self.version_source_combo = QComboBox()
+        self.version_source_combo.addItems(["选择加载速度快的下载源（平衡，但可能不是最新）", "选择最新版本源", "自定义源"])
+        self.version_source_combo.setCurrentText("选择加载速度快的下载源（平衡，但可能不是最新）")
+        self.version_source_combo.setFixedSize(280, 24)
+        self.version_source_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #4A90E2;
+                border: 1px solid #4A90E2;
+                border-radius: 0px;
+                padding: 4px 8px;
+                color: #FFFFFF;
+                font-size: 11px;
+            }
+            QComboBox:hover {
+                background-color: #5BA0F2;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #FFFFFF;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: rgba(60, 60, 60, 0.95);
+                border: 1px solid #555;
+                selection-background-color: #4A90E2;
+                color: #FFFFFF;
+            }
+        """)
+        
+        version_source_layout.addWidget(version_source_title_label, 0, Qt.AlignLeft)
+        version_source_layout.addSpacing(10)   
+        version_source_layout.addWidget(self.version_source_combo, 0, Qt.AlignLeft)
+        version_source_layout.addStretch()
+        download_source_content_layout.addLayout(version_source_layout)
+        
+        # 2. 具体下载源信息区域（第二行）
+        bmclapi_layout = QHBoxLayout()
+        
+        # 添加"下载源:"标题标签
+        download_source_title_label = QLabel("下载源:")
+        download_source_title_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                background-color: transparent;
+            }
+        """)
+        
+        bmclapi_label = QLabel('BMCLAPI(bangbang93, <a href="https://bmclapi2.bangbang93.com" style="color: #4A90E2; text-decoration: none;">https://bmclapi2.bangbang93.com</a>)')
+        bmclapi_label.setStyleSheet("""
+            QLabel {
+                color: #AAAAAA;
+                font-size: 11px;
+                background-color: transparent;
+            }
+        """)
+        bmclapi_label.setOpenExternalLinks(True)  # 允许打开外部链接
+        
+        bmclapi_layout.addWidget(download_source_title_label, 0, Qt.AlignLeft)
+        bmclapi_layout.addSpacing(10)  
+        bmclapi_layout.addWidget(bmclapi_label, 0, Qt.AlignLeft)
+        bmclapi_layout.addStretch()
+        download_source_content_layout.addLayout(bmclapi_layout)
+        
+        # 创建标题栏内容（显示当前选择的下载源）
+        download_source_header_content_widget = QWidget()
+        download_source_header_content_layout = QHBoxLayout(download_source_header_content_widget)
+        download_source_header_content_layout.setContentsMargins(0, 0, 0, 0)
+        download_source_header_content_layout.setSpacing(10)
+        
+        # 构建选中和未选中状态图片的完整路径
+        selected_image_path = os.path.join(self.resource_path, 'images', 'version', 'selected1.png')
+        unselected_image_path = os.path.join(self.resource_path, 'images', 'version', 'not-selected1.png')
+        selected_image_path = selected_image_path.replace('\\', '/')
+        unselected_image_path = unselected_image_path.replace('\\', '/')
+        
+        # 在header左边添加单选框按钮
+        self.header_auto_select_checkbox = QRadioButton("自动选择下载源")
+        self.header_auto_select_checkbox.setChecked(True)
+        self.header_auto_select_checkbox.setStyleSheet(f"""
+            QRadioButton {{
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                spacing: 10px;
+                background-color: transparent;
+            }}
+            QRadioButton::indicator {{
+                width: 16px;
+                height: 16px;
+            }}
+            QRadioButton::indicator:unchecked {{
+                border: 1px solid #FFFFFF;
+                background-color: #000000;
+                border-radius: 0px;
+                background-image: url({unselected_image_path});
+            }}
+            QRadioButton::indicator:checked {{
+                border: 1px solid #FFFFFF;
+                background-color: #000000;
+                border-radius: 0px;
+                background-image: url({selected_image_path});
+            }}
+        """)
+        
+        # 添加到标题栏布局
+        download_source_header_content_layout.addWidget(self.header_auto_select_checkbox, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        download_source_header_content_layout.addWidget(QWidget())
+        
+        # 使用CollapsePanel 折叠面板
+        self.download_source_collapse_panel = CollapsePanel(
+            parent=self,
+            title="",
+            content=download_source_content_widget,
+            header_height=46,
+            content_height=120,
+            header_bg_color="#3E344F",
+            content_bg_color="#3E344F",
+            expand_icon_size=16,
+            text_font_size=12,
+            messages_font_size=11
+        )
+        
+        # 设置宽度
+        self.download_source_collapse_panel.setFixedWidth(508)
+        
+        # 自定义标题栏内容
+        self.download_source_collapse_panel.header.layout().insertWidget(0, download_source_header_content_widget, 1)
+        
+        # 创建包含分割线的容器
+        download_source_collapse_container = QWidget()
+        download_source_collapse_container.setFixedWidth(508)
+        download_source_collapse_container_layout = QVBoxLayout(download_source_collapse_container)
+        download_source_collapse_container_layout.setContentsMargins(0, 0, 0, 0)
+        download_source_collapse_container_layout.setSpacing(0)
+        
+        # 添加CollapsePanel的header
+        download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.header)
+        
+        # 创建分割线（在header和content之间）
+        self.download_source_divider = QFrame()
+        self.download_source_divider.setFrameShape(QFrame.HLine)
+        self.download_source_divider.setStyleSheet("background-color: #FFFFFF;")
+        self.download_source_divider.setFixedHeight(1)
+        self.download_source_divider.setFixedWidth(508)
+        self.download_source_divider.hide()  
+        download_source_collapse_container_layout.addWidget(self.download_source_divider)
+        
+        # 添加CollapsePanel的content
+        download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.content_area)
+        
+        # 连接折叠状态变化信号来控制分割线显示
+        self.download_source_collapse_panel.collapse_changed.connect(self.on_download_source_collapse_changed)
+        
+        # 创建标题
+        download_source_title_widget = QWidget()
+        download_source_title_widget.setFixedSize(94, 26)
+        download_source_title_widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
+        """)
+        
+        download_source_title_layout = QVBoxLayout(download_source_title_widget)
+        download_source_title_layout.setContentsMargins(0, 0, 0, 0)   
+        download_source_title_layout.setSpacing(0)
+        
+        download_source_title_label = QLabel("下载源:")
+        download_source_title_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                background-color: transparent;
+            }
+        """)
+        
+        download_source_title_layout.addWidget(download_source_title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        
+        download_source_spacer = QWidget()
+        download_source_spacer.setFixedWidth(22)
+        
+        # 创建水平布局，将标题和CollapsePanel并排放置
+        download_source_with_title_layout = QHBoxLayout()
+        download_source_with_title_layout.setContentsMargins(15, 0, 0, 0)
+        download_source_with_title_layout.setSpacing(0)
+
+        # 添加标题
+        download_source_with_title_layout.addWidget(download_source_title_widget, 0, Qt.AlignTop | Qt.AlignLeft)
+        
+        download_source_with_title_layout.addWidget(download_source_spacer)
+
+        # 添加CollapsePanel容器
+        download_source_with_title_layout.addWidget(download_source_collapse_container)
+        download_source_with_title_layout.addStretch()
+        
+        # 创建下载源设置的主布局
+        download_source_main_layout = QVBoxLayout()
+        download_source_main_layout.setContentsMargins(0, 0, 0, 0)
+        download_source_main_layout.setSpacing(0)
+        
+        
+        # 组装主布局
+        download_source_main_layout.addLayout(download_source_with_title_layout, 0)
+        download_source_main_layout.addStretch()
+        
+        # 添加到下载页面布局
+        download_source_container = QWidget()
+        download_source_container_layout = QVBoxLayout(download_source_container)
+        download_source_container_layout.setContentsMargins(0, 0, 0, 0)  
+        download_source_container_layout.setSpacing(0)
+        download_source_container_layout.addLayout(download_source_main_layout)
+        
+        layout.addWidget(download_source_container)
+        
+        spacer_after_download_source = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addItem(spacer_after_download_source)
+       
+
 
         # 设置滚动区域的内容
         scroll_area.setWidget(main_layout)
         
+        scroll_area.setMinimumHeight(500)   
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  
+        
         # 创建容器页面
         page = QWidget()
         page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)  # 移除页面边距，让滚动条贴近右边 
         page_layout.addWidget(scroll_area)
         self.settings_stack.addWidget(page)
 
@@ -958,62 +1514,9 @@ class SettingsPage(BasePage):
             logger.info("所有设置已保存")
         else:
             logger.info("保存设置失败")
-
-    def load_settings_to_ui(self):
-        """将配置加载到UI控件"""
-        try:
-            # 启动器可见性
-            visibility = self.settings_manager.get_setting("launcher.visibility", "游戏启动后保持不变")
-            """设置当前选中的选项"""
-            index = self.launcher_visibility_combo.findText(visibility)
-            if index >= 0:
-                self.launcher_visibility_combo.setCurrentIndex(index)
-
-            # 进程优先级
-            priority = self.settings_manager.get_setting("launcher.process_priority", "中 (平衡)")
-            self.process_priority_combo.setCurrentText(priority)
-
-            # 窗口大小
-            size = self.settings_manager.get_setting("launcher.window_size", "默认")
-            self.window_size_combo.setCurrentText(size)
-
-            ##############################
-            # 游戏Java，自动选择Java运行时 #
-            java_path = self.settings_manager.get_setting("java.path", "自动选择")
-            self.auto_search_java(java_path)
-
-            # 内存分配 y
-            memory = self.settings_manager.get_setting("memory.allocation", 2048)
-            self.memory_slider.setValue(memory)
+           
             
-            # JVM参数
-            # -XX:+UseG1GC -XX:-UseAdaptiveSizePolicy -XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=true -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True -Dlog4j2.formatMsgNoLookups=true
-            jvm_args = self.settings_manager.get_setting("game.launch_jvm_args", "")
-            self.jvm_args_input.setText(jvm_args)
 
-            # 启动参数
-            launch_args = self.settings_manager.get_setting("game.launch_args", "")
-            self.launch_args_input.setText(launch_args)
-
-            # 启动前执行命令
-            pre_launch_command = self.settings_manager.get_setting("game.launch_pre_command", "")
-            self.pre_launch_command.setText(pre_launch_command)
-
-            # 启用独立显卡
-            pre_launch_command = self.settings_manager.get_setting("gpu_enable", False)
-            if pre_launch_command:
-                self.high_perf_java_yes.setChecked(True)
-            else:
-                self.high_perf_java_no.setChecked(True)
-
-            # 调试模式
-            # debug_mode = self.settings_manager.get_setting("debug_endble", False)
-            # self.bug_debug_mode.setChecked(debug_mode)
-            
-            logger.info("配置已加载到UI")
-            
-        except Exception as e:
-            logger.info(f"加载配置到UI时出错: {e}")
 
     def paintEvent(self, event):
         """重绘事件 - 绘制背景图片与主窗口渲染方式一致"""
@@ -1041,3 +1544,287 @@ class SettingsPage(BasePage):
             )
             painter.drawPixmap(x, y, scaled_pixmap)
         super().paintEvent(event)
+
+    def create_version_selection_content(self):
+        """
+        创建版本选择内容组件
+        返回包含版本选择功能的QWidget
+        """
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(15, 5, 15, 8)  
+        content_layout.setSpacing(5)  
+        
+        # 版本选择区域 - 第一行：稳定版和开发版选择
+        version_selection_layout = QHBoxLayout()
+        version_selection_layout.setContentsMargins(0, 0, 0, 0)
+        version_selection_layout.setSpacing(20)  
+        
+        selected_image_path = os.path.join(self.resource_path, 'images', 'version', 'selected1.png')
+        selected_image_path = selected_image_path.replace('\\', '/')
+        
+        # 稳定版选择框
+        self.stable_version_checkbox = QRadioButton("稳定版")
+        self.stable_version_checkbox.setStyleSheet(f"""
+            QRadioButton {{
+                color: #AFAFAF;
+                font-size: 12px;
+                spacing: 8px;
+                background-color: transparent;
+            }}
+            QRadioButton::indicator {{
+                width: 16px;
+                height: 16px;
+            }}
+            QRadioButton::indicator:unchecked {{
+                border: 1px solid #FFFFFF;
+                background-color: #000000;
+                border-radius: 0px;
+            }}
+            QRadioButton::indicator:checked {{
+                border: none;
+                background-color: transparent;
+                background-image: url({selected_image_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                border-radius: 0px;
+            }}
+        """)
+        
+        # 开发版选择框
+        self.dev_version_checkbox = QRadioButton("开发版")
+        self.dev_version_checkbox.setStyleSheet(f"""
+            QRadioButton {{
+                color: #AFAFAF;
+                font-size: 12px;
+                spacing: 8px;
+                background-color: transparent;
+            }}
+            QRadioButton::indicator {{
+                width: 16px;
+                height: 16px;
+            }}
+            QRadioButton::indicator:unchecked {{
+                border: 1px solid #FFFFFF;
+                background-color: #000000;
+                border-radius: 0px;
+            }}
+            QRadioButton::indicator:checked {{
+                border: none;
+                background-color: transparent;
+                background-image: url({selected_image_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                border-radius: 0px;
+            }}
+        """)
+        self.dev_version_checkbox.setChecked(True)  
+        
+        # 创建按钮组确保单选
+        self.version_button_group = QButtonGroup()
+        self.version_button_group.addButton(self.stable_version_checkbox)
+        self.version_button_group.addButton(self.dev_version_checkbox)
+        
+        version_selection_layout.addWidget(self.stable_version_checkbox)
+        version_selection_layout.addWidget(self.dev_version_checkbox)
+        version_selection_layout.addStretch()
+        
+        # 版本说明文字 - 第二行
+        version_desc_label = QLabel("开发版与预览版包含更多的功能以及错误修复，但也可能会包含其他的问题。")
+        version_desc_label.setStyleSheet("""
+            QLabel {
+                color: #AFAFAF;
+                font-size: 11px;
+                background-color: transparent;
+                margin-top: 2px;
+            }
+        """)
+        version_desc_label.setWordWrap(True)
+        
+        content_layout.addLayout(version_selection_layout)
+        content_layout.addWidget(version_desc_label)        
+        return content_widget
+    
+    def toggle_cache_details(self):
+        """切换文件下载缓存详细信息的显示/隐藏"""
+        self.cache_expanded = not self.cache_expanded
+        self.cache_details_widget.setVisible(self.cache_expanded)
+        
+        # 更新按钮图标
+        if self.cache_expanded:
+            self.cache_expand_btn.setText("⌃")  # 向上箭头
+        else:
+            self.cache_expand_btn.setText("⌄")  # 向下箭头
+    
+    def on_collapse_changed(self, is_expanded):
+        """处理CollapsePanel折叠状态变化，控制分割线显示"""
+        self.divider.setVisible(is_expanded)
+    
+    def on_cache_collapse_changed(self, is_expanded):
+        """处理缓存CollapsePanel折叠状态变化，控制分割线显示"""
+        self.cache_divider.setVisible(is_expanded)
+        
+        # 当展开时更新路径显示
+        if is_expanded:
+            self.update_cache_path_display()
+    
+    def on_language_collapse_changed(self, is_expanded):
+        """处理语言CollapsePanel折叠状态变化，控制分割线显示"""
+        self.language_divider.setVisible(is_expanded)
+    
+    def on_language_changed(self, text):
+        """处理语言选择变化"""
+        # 由于下拉框已经嵌入到标题栏中，不需要更新其他标签
+        # 这里可以添加语言切换的实际逻辑
+        print(f"语言已切换为: {text}")
+    
+    def update_language_combo_style(self, is_expanded):
+        """
+        更新语言下拉框的样式，根据展开状态切换图标
+        :param is_expanded: 是否展开状态，True显示fold-up.png，False显示expand.png
+        """
+        # 根据展开状态选择图标
+        icon_name = "fold-up.png" if is_expanded else "expand.png"
+        image_path = os.path.join(self.resource_path, 'images', 'version', icon_name).replace('\\', '/')
+        
+        self.language_combo_in_header.setStyleSheet(f"""
+            QComboBox {{
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 0px;
+                padding: 4px 30px 4px 8px;
+                color: #FFFFFF;
+                font-size: 11px;
+                background-image: url({image_path});
+                background-repeat: no-repeat;
+                background-position: right;
+            }}
+            QComboBox:hover {{
+                background-color: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.5);
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 0px;
+            }}
+            QComboBox::down-arrow {{
+                width: 0;
+                height: 0;
+                border: none;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: #3E344F;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                selection-background-color: rgba(255, 255, 255, 0.2);
+                color: #FFFFFF;
+            }}
+        """)
+    
+    def on_language_combo_show_popup(self):
+        """处理语言下拉框显示弹出菜单事件"""
+        # 切换到fold-up.png图标
+        self.update_language_combo_style(True)
+        # 调用原始的showPopup方法
+        QComboBox.showPopup(self.language_combo_in_header)
+    
+    def on_language_combo_hide_popup(self):
+        """处理语言下拉框隐藏弹出菜单事件"""
+        # 切换到expand.png图标
+        self.update_language_combo_style(False)
+        # 调用原始的hidePopup方法
+        QComboBox.hidePopup(self.language_combo_in_header)
+    
+    def on_download_source_collapse_changed(self, is_expanded):
+        """处理下载源CollapsePanel折叠状态变化"""
+        pass
+    
+    def get_default_cache_path(self):
+        """获取默认缓存路径"""
+        if os.name == 'nt':  # Windows系统
+            appdata = os.environ.get('APPDATA', '')
+            return os.path.join(appdata, '.minecraft').replace('\\', '/')
+        else:  # Linux/Mac系统
+            home = os.path.expanduser('~')
+            return os.path.join(home, '.minecraft')
+    
+    def update_cache_path_display(self):
+        """更新缓存路径显示"""
+        if self.default_cache_checkbox.isChecked():
+            # 显示默认路径
+            default_path = self.get_default_cache_path()
+            self.cache_path_label.setText(default_path)
+        elif self.custom_cache_checkbox.isChecked():
+            # 显示自定义路径
+            custom_path = self.custom_cache_path.text()
+            self.cache_path_label.setText(custom_path)
+        else:
+            # 如果都没选中，显示默认路径
+            default_path = self.get_default_cache_path()
+            self.cache_path_label.setText(default_path)
+    
+    def on_cache_option_changed(self):
+        """处理缓存选项变化"""
+        # 更新路径显示（无论是否展开都更新）
+        self.update_cache_path_display()
+        
+        # 保存配置
+        self.save_cache_settings()
+    
+    def browse_custom_cache_path(self):
+        """浏览自定义缓存路径"""
+        from PySide6.QtWidgets import QFileDialog
+        
+        # 获取当前路径作为起始目录
+        current_path = self.custom_cache_path.text()
+        if not current_path or not os.path.exists(current_path):
+            current_path = os.path.expanduser('~')
+        
+        # 打开文件夹选择对话框
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "选择缓存文件夹",
+            current_path,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+        
+        if folder_path:
+            # 更新自定义路径输入框
+            self.custom_cache_path.setText(folder_path)
+            # 自动选择自定义选项
+            self.custom_cache_checkbox.setChecked(True)
+            # 更新路径显示（无论是否展开都更新）
+            self.update_cache_path_display()
+            # 保存配置
+            self.save_cache_settings()
+    
+    def save_cache_settings(self):
+        """保存缓存设置到配置文件"""
+        settings_manager = get_settings_manager(self.config_path)
+        settings_manager.set_setting('cache_use_default', self.default_cache_checkbox.isChecked())
+        settings_manager.set_setting('cache_custom_path', self.custom_cache_path.text())
+        settings_manager.save_settings()
+    
+    def load_cache_settings(self):
+        """从配置文件加载缓存设置"""
+        settings_manager = get_settings_manager(self.config_path)
+        
+        # 加载设置，默认使用默认路径
+        use_default = settings_manager.get_setting('cache_use_default', True)
+        custom_path = settings_manager.get_setting('cache_custom_path', '')
+        
+        if use_default:
+            self.default_cache_checkbox.setChecked(True)
+        else:
+            self.custom_cache_checkbox.setChecked(True)
+            if custom_path:
+                self.custom_cache_path.setText(custom_path)
+        
+        # 立即更新路径显示，无论折叠状态如何
+        self.update_cache_path_display()
+    
+    def on_download_source_collapse_changed(self, is_expanded):
+        """处理下载源折叠面板状态变化"""
+        if is_expanded:
+            self.download_source_divider.show()
+        else:
+            self.download_source_divider.hide()
