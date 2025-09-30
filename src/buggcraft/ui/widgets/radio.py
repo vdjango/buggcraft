@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap
 
+from ui.widgets.lable import SmartLabel
+
 
 class QMRadioGroup(QObject):
     """管理一组 QMCheckBoxButton，实现单选行为"""
@@ -75,7 +77,7 @@ class QMRadioButton(QWidget):
     """"""
     selected = Signal(bool, Any)  # 选中状态改变时发出信号
 
-    def __init__(self, parent, text, messages=None, text_font_size=11, messages_font_size=10, slot_desc=None, data_property=None):
+    def __init__(self, parent, text, messages=None, text_font_size=11, messages_font_size=10, text_max_heiht=200, messages_max_heiht=350, slot_desc=None, data_property=None):
         """单选组件
         :param text: 标题
         :param messages: 副文本内容
@@ -91,6 +93,8 @@ class QMRadioButton(QWidget):
         self.slot_desc = slot_desc
         self.text_font_size = text_font_size
         self.messages_font_size = messages_font_size
+        self.text_max_heiht = text_max_heiht
+        self.messages_max_heiht = messages_max_heiht
         self.resource_path = parent.resource_path
         self.auto_radio_selected = False  # 当前选项状态
         self.init_ui()
@@ -122,7 +126,7 @@ class QMRadioButton(QWidget):
         main_layout.addWidget(icon_container)
         
         # 自动选择选项 - 使用 QLabel
-        self.auto_label = QLabel(self.text)
+        self.auto_label = SmartLabel(self.text, self.text_max_heiht)
         self.auto_label.setFont(QFont("Source Han Sans CN", self.text_font_size))
         self.auto_label.setStyleSheet("color: #FFFFFF;")
         self.auto_label.setCursor(Qt.PointingHandCursor)  # 设置手型光标
@@ -131,18 +135,17 @@ class QMRadioButton(QWidget):
         self.auto_label.mousePressEvent = lambda e: self.toggle_selection()
         
         main_layout.addWidget(self.auto_label)
-        
+        main_layout.addStretch()
+
         # 描述
         if self.slot_desc:
             main_layout.addWidget(self.slot_desc, 1)
         elif self.messages:
-            desc_label = QLabel(self.messages)
+            desc_label = SmartLabel(self.messages, self.messages_max_heiht)
             desc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             desc_label.setFont(QFont("Source Han Sans CN", self.messages_font_size))
             desc_label.setStyleSheet("color: #888888;")
             main_layout.addWidget(desc_label, 1)
-        
-        main_layout.addStretch()
 
     def toggle_selection(self):
         """切换选中状态"""
