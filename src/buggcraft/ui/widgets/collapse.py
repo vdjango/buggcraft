@@ -1,10 +1,9 @@
 import os
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, 
-    QPushButton, QGroupBox, QFileDialog, QScrollArea
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel
 )
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QBrush, QLinearGradient
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QPixmap
 
 
 class CollapsePanel(QWidget):
@@ -12,18 +11,26 @@ class CollapsePanel(QWidget):
     
     collapse_changed = Signal(bool)  # 折叠面板折叠展开的信号
     
-    def __init__(self, parent, title, messages=None, expanded = False, content=None, 
-                 header_height=60, content_height=None,
-                 header_bg_color="rgba(190, 183, 255, 0.3)",
-                 content_bg_color="rgba(190, 183, 255, 0.2)",
-                 expand_icon_size=16,
-                 text_font_size=10, messages_font_size=9):
+    def __init__(self,
+        parent,
+        title,
+        messages=None,
+        expanded = False,
+        content=None, 
+        header_height=60,
+        content_height=None,
+        is_collaspe=True,
+        expand_icon_size=16,
+        text_font_size=11,
+        messages_font_size=10
+    ):
         """
         初始化可折叠面板
         :param parent: 父组件
         :param title: 面板标题
         :param messages: 面板desc信息
         :param expanded: 面板默认是否展开
+        :param is_collaspe: 是否开启折叠面板功能
         :param content: 内容组件 (可选)
         :param header_height: 标题栏高度
         :param content_height: 内容区域高度 (可选)
@@ -37,10 +44,11 @@ class CollapsePanel(QWidget):
         self.title = title
         self.messages = messages
         self.content = content
+        self.is_collaspe = is_collaspe
         self.header_height = header_height
         self.content_height = content_height
-        self.header_bg_color = header_bg_color
-        self.content_bg_color = content_bg_color
+        self.header_bg_color = "rgba(190, 183, 255, 0.3)"
+        self.content_bg_color = "rgba(190, 183, 255, 0.2)"
         self.expand_icon_size = expand_icon_size
         self.text_font_size = text_font_size
         self.messages_font_size = messages_font_size
@@ -49,7 +57,7 @@ class CollapsePanel(QWidget):
         self.is_expanded = False  # 初始状态为折叠
         self.init_ui()
 
-        if expanded:
+        if expanded and self.is_collaspe:
             self.toggle_expand(False)
         
     def init_ui(self):
@@ -64,9 +72,10 @@ class CollapsePanel(QWidget):
         main_layout.addWidget(self.header)
         
         # 内容区域
-        self.content_area = self.create_content_area()
-        main_layout.addWidget(self.content_area)
-        self.content_area.hide()  # 初始隐藏内容区域
+        self.content = self.create_content_area()
+        main_layout.addWidget(self.content)
+        if self.is_collaspe:
+            self.content.hide()  # 初始隐藏内容区域
         
     def create_header(self):
         """创建标题栏"""
@@ -77,8 +86,9 @@ class CollapsePanel(QWidget):
                 background-color: {self.header_bg_color};
             }}
         """)
-        header.setCursor(Qt.PointingHandCursor)
-        header.mousePressEvent = self.toggle_expand  # 点击切换展开/折叠
+        if self.is_collaspe:
+            header.setCursor(Qt.PointingHandCursor)
+            header.mousePressEvent = self.toggle_expand  # 点击切换展开/折叠
         
         # 布局
         layout = QHBoxLayout(header)
@@ -102,17 +112,18 @@ class CollapsePanel(QWidget):
             self.messages_label.setFont(QFont("Source Han Sans CN", self.messages_font_size))
             self.messages_label.setStyleSheet("color: #AAAAAA; background-color: transparent;")
             self.messages_label.setAlignment(Qt.AlignVCenter)
-            title_layout.addWidget(self.messages_label, 1)
+            title_layout.addWidget(self.messages_label)
         
         # 添加标题容器到布局
         layout.addWidget(title_container, 1)
         
         # 展开/折叠图标
-        self.expand_icon = QLabel()
-        self.expand_icon.setFixedSize(self.expand_icon_size, self.expand_icon_size)
-        self.expand_icon.setStyleSheet("color: #AAAAAA; background-color: transparent;")
-        self.update_expand_icon()
-        layout.addWidget(self.expand_icon)
+        if self.is_collaspe:
+            self.expand_icon = QLabel()
+            self.expand_icon.setFixedSize(self.expand_icon_size, self.expand_icon_size)
+            self.expand_icon.setStyleSheet("color: #AAAAAA; background-color: transparent;")
+            self.update_expand_icon()
+            layout.addWidget(self.expand_icon)
         
         return header
     
@@ -143,7 +154,7 @@ class CollapsePanel(QWidget):
     def set_content(self, content):
         """设置内容组件"""
         # 清除现有内容
-        layout = self.content_area.layout()
+        layout = self.content.layout()
         for i in reversed(range(layout.count())):
             # 移除所有子部件
             item = layout.itemAt(i)
@@ -157,7 +168,7 @@ class CollapsePanel(QWidget):
     def toggle_expand(self, event):
         """切换展开/折叠状态"""
         self.is_expanded = not self.is_expanded
-        self.content_area.setVisible(self.is_expanded)
+        self.content.setVisible(self.is_expanded)
         self.update_expand_icon()
         self.collapse_changed.emit(self.is_expanded)
         
