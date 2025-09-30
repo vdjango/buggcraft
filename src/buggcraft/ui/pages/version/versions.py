@@ -15,6 +15,7 @@ from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
 from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
+from ui.widgets.lable import SmartLabel
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class VersionsPage(QWidget):
     def init_ui(self):
         """初始化用户界面"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(0)
         
         # 创建主容器
@@ -182,7 +183,7 @@ class VersionsPage(QWidget):
         
         # 布局
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setContentsMargins(10, 2, 10, 2)
         layout.setSpacing(0)
         
         # 选中图标
@@ -202,11 +203,11 @@ class VersionsPage(QWidget):
         text_layout.setContentsMargins(0, 10, 0, 10)
         text_layout.setSpacing(5)
         
-        title_label = QLabel(title)
+        title_label = SmartLabel(title, max_heiht=140)
         title_label.setStyleSheet("color: #f2f2f2; font-size: 14px; font-weight: bold; border: none;")
         
-        path_label = QLabel(path)
-        path_label.setMaximumWidth(135)
+        path_label = SmartLabel(path, max_heiht=140)
+        # path_label.setMaximumWidth(135)
         path_label.setStyleSheet("color: #f2f2f2; font-size: 11px; border: none;")
         
         text_layout.addWidget(title_label)
@@ -214,7 +215,7 @@ class VersionsPage(QWidget):
         
         layout.addWidget(text_widget)
         # layout.addSpacing(5)
-        layout.addStretch()
+        # layout.addStretch()
         
         # 删除图标（如果有）
         if has_delete:

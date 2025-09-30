@@ -61,7 +61,7 @@ class VersionsPages(QWidget):
         # 右侧堆叠内容
         self.version_stack = QStackedWidget()
         self.version_stack.setFixedWidth(926 - 178 - 62)
-        self.version_stack.setContentsMargins(10, 10, 10, 10)
+        self.version_stack.setContentsMargins(0, 0, 0, 0)
         # self.version_stack.setStyleSheet("background-color: #552299;")
 
         tab_container_layout.addWidget(self.tab_buttons_widget)

@@ -107,12 +107,14 @@ class SettingsManager:
             "minecraft": minecraft,
             "launcher": {
                 "visibility": "游戏启动后保持不变",
-                "process_priority": "中 (平衡)",
-                "window_size": "默认"
+                "process_priority": "平衡模式",
+                "window_size": "默认",
+                "debug": "否（推荐）"
             },
             "java": {
-                "version": "自动选择",
-                "path": None
+                "name": "使用推荐的 Java 版本",
+                "path": None,
+                "installations": []
             },
             "memory": {
                 "allocation": 1024,
@@ -121,9 +123,7 @@ class SettingsManager:
                 "launch_jvm_args": "",
                 "launch_args": "",
                 "launch_pre_command": ""
-            },
-            "gpu_enable": False,
-            "debug_endble": False
+            }
         }
         
         # 加载现有配置或使用默认配置
