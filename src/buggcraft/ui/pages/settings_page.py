@@ -369,14 +369,7 @@ class SettingsPage(BasePage):
         # 添加CollapsePanel的header
         collapse_container_layout.addWidget(self.update_collapse_panel.header)
         
-        # 创建分割线（在header和content之间）
-        self.divider = QFrame()
-        self.divider.setFrameShape(QFrame.HLine)
-        self.divider.setStyleSheet("background-color: #FFFFFF;")
-        self.divider.setFixedHeight(1)
-        self.divider.setFixedWidth(508)   
-        self.divider.hide()  
-        collapse_container_layout.addWidget(self.divider)
+
         
         # 添加CollapsePanel的content
         collapse_container_layout.addWidget(self.update_collapse_panel.content)
@@ -621,14 +614,7 @@ class SettingsPage(BasePage):
         # 添加CollapsePanel的header
         cache_collapse_container_layout.addWidget(self.cache_collapse_panel.header)
         
-        # 创建分割线（在路径显示和content之间）
-        self.cache_divider = QFrame()
-        self.cache_divider.setFrameShape(QFrame.HLine)
-        self.cache_divider.setStyleSheet("background-color: #FFFFFF;")
-        self.cache_divider.setFixedHeight(1)
-        self.cache_divider.setFixedWidth(508)
-        self.cache_divider.hide()   
-        cache_collapse_container_layout.addWidget(self.cache_divider)
+
         
         # 添加CollapsePanel的content
         cache_collapse_container_layout.addWidget(self.cache_collapse_panel.content)
@@ -1070,14 +1056,7 @@ class SettingsPage(BasePage):
         # 添加CollapsePanel的header
         download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.header)
         
-        # 创建分割线（在header和content之间）
-        self.download_source_divider = QFrame()
-        self.download_source_divider.setFrameShape(QFrame.HLine)
-        self.download_source_divider.setStyleSheet("background-color: #FFFFFF;")
-        self.download_source_divider.setFixedHeight(1)
-        self.download_source_divider.setFixedWidth(508)
-        self.download_source_divider.hide()  
-        download_source_collapse_container_layout.addWidget(self.download_source_divider)
+
         
         # 添加CollapsePanel的content
         download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.content)
@@ -1657,13 +1636,11 @@ class SettingsPage(BasePage):
             self.cache_expand_btn.setText("⌄")  # 向下箭头
     
     def on_collapse_changed(self, is_expanded):
-        """处理CollapsePanel折叠状态变化，控制分割线显示"""
-        self.divider.setVisible(is_expanded)
+        """处理CollapsePanel折叠状态变化"""
+        pass
     
     def on_cache_collapse_changed(self, is_expanded):
-        """处理缓存CollapsePanel折叠状态变化，控制分割线显示"""
-        self.cache_divider.setVisible(is_expanded)
-        
+        """处理缓存CollapsePanel折叠状态变化"""
         # 当展开时更新路径显示
         if is_expanded:
             self.update_cache_path_display()
@@ -1824,7 +1801,4 @@ class SettingsPage(BasePage):
     
     def on_download_source_collapse_changed(self, is_expanded):
         """处理下载源折叠面板状态变化"""
-        if is_expanded:
-            self.download_source_divider.show()
-        else:
-            self.download_source_divider.hide()
+        pass
