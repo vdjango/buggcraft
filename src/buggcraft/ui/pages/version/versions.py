@@ -31,10 +31,10 @@ class MinecraftSettingSignals(QObject):
 class VersionsPage(QWidget):
     """用户面板 - 可折叠"""
 
-    def __init__(self, resource_path, parent=None):
+    def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.resource_path = resource_path
+        self.resource_path = parent.resource_path
         
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
@@ -44,6 +44,14 @@ class VersionsPage(QWidget):
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
         self.init_ui()
+
+    def on_page_activate(self):
+        """当页面被激活时调用"""
+        print("页面被激活")
+    
+    def on_page_deactivate(self):
+        """当页面被隐藏时调用"""
+        print("页面被隐藏")
 
     def init_ui(self):
         """初始化用户界面"""
@@ -659,6 +667,8 @@ class VersionsPage(QWidget):
         
         version = item.property("version")
         print(f"打开版本设置: {version}")
+        self.on_version_clicked(item, None)
+        self.parent.settings_btn_clicked()
         
         # 这里可以打开版本设置对话框
 
@@ -721,6 +731,9 @@ class VersionsPage(QWidget):
             self.settings_manager.set_setting("minecraft.version.installed", version_ids)
             self.settings_manager.save_settings()
             self.signals.versions.emit(version_ids[0])
+
+            version = self.settings_manager.get_setting('minecraft.version.enable')
+            self.signals.versions.emit(version)
             logger.info(f"更新版本: {', '.join(version_ids)}")
         
         except Exception as e:

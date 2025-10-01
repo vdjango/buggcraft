@@ -15,21 +15,21 @@ from core.auth.microsoft import MicrosoftAuthenticator, MinecraftSignals
 
 class VersionNotFuilDialog(QDialog):
 
-    cancel_signal = Signal()  # 取消
-    reopen_signal = Signal()  # 重新打开浏览器
+    import_signal = Signal()  # 导入
+    download_signal = Signal()  # 下载
 
     def __init__(self, parent=None):
         """打开启动器没有发现版本时提示"""
         super().__init__(parent)
         self._parent = parent
 
-        self.title = '未找到可用的游戏版本'
-        self.message = "在开始前，请先下载任意版本游戏或导入游戏。"
-        self.message_text = "若已存在游戏，请选择下方游戏导入或安装新游戏"
+        self.title = '就差最后一步啦！'
+        self.message = "看起来您还没有安装任何 Minecraft 游戏版本！"
+        self.message_text = "在开始建造和探索之前，您需要先安装一个游戏版本。如果您之前玩过 Minecraft，可以导入现有游戏文件；或者直接下载一个新版本开始全新的冒险！"
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(650, 300)
+        self.setFixedSize(550, 300)
         
         # 设置窗口背景色 RGBA(39, 41, 55, 1)
         palette = self.palette()
@@ -48,14 +48,14 @@ class VersionNotFuilDialog(QDialog):
         header_widget = QWidget()
         header_widget.setStyleSheet("background-color: rgba(39, 41, 55, 1);")
         header_layout = QVBoxLayout(header_widget)
-        header_layout.setContentsMargins(25, 15, 25, 15)
+        header_layout.setContentsMargins(18, 15, 18, 15)
 
         title_layout = QHBoxLayout()
 
         self.title_label = QLabel(self.title)
         self.title_label.setStyleSheet("""
             color: rgba(220, 220, 220, 1);
-            font-size: 15px;
+            font-size: 16px;
             font-weight: bold;
         """)
         title_layout.addWidget(self.title_label)
@@ -77,7 +77,7 @@ class VersionNotFuilDialog(QDialog):
         content_widget = QWidget()
         content_widget.setStyleSheet("background-color: rgba(39, 41, 55, 1);")
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(28, 20, 28, 20)
+        content_layout.setContentsMargins(18, 10, 18, 10)
         content_layout.setSpacing(0)
         
         # 提示信息
@@ -85,15 +85,15 @@ class VersionNotFuilDialog(QDialog):
         self.message_label.setWordWrap(True)
         self.message_label.setStyleSheet("""
             color: #e0e0e0;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: bold;
         """)
         self.message_text_label = QLabel(self.message_text)
         self.message_text_label.setWordWrap(True)
-        self.message_text_label.setContentsMargins(0, 20, 0, 15)
+        self.message_text_label.setContentsMargins(0, 10, 0, 10)
         self.message_text_label.setStyleSheet("""
             color: #c0c0c0;
-            font-size: 12px;
+            font-size: 14px;
             font-weight: medium;
         """)
 
@@ -107,7 +107,7 @@ class VersionNotFuilDialog(QDialog):
         button_layout.setSpacing(20)
         button_layout.addStretch()
         
-        self.confirm_button = QPushButton("确认")
+        self.confirm_button = QPushButton("导入游戏")
         self.confirm_button.setFixedSize(100, 35)
         self.confirm_button.setStyleSheet("""
             QPushButton {
@@ -124,7 +124,27 @@ class VersionNotFuilDialog(QDialog):
                 background-color: #6A4FFF;
             }
         """)
-        self.confirm_button.clicked.connect(self.accept)
+        self.confirm_button.clicked.connect(self.on_import)
+        button_layout.addWidget(self.confirm_button)
+
+        self.confirm_button = QPushButton("下载游戏")
+        self.confirm_button.setFixedSize(100, 35)
+        self.confirm_button.setStyleSheet("""
+            QPushButton {
+                background-color: #7859FF;
+                color: #e0e0e0;
+                border: none;
+                font-size: 13px;
+                font-weight: medium;
+            }
+            QPushButton:hover {
+                background-color: #8A6FFF;
+            }
+            QPushButton:pressed {
+                background-color: #6A4FFF;
+            }
+        """)
+        self.confirm_button.clicked.connect(self.on_download)
         button_layout.addWidget(self.confirm_button)
         
         # 取消按钮  TODO 待加载背景图
@@ -152,18 +172,6 @@ class VersionNotFuilDialog(QDialog):
         main_layout.addWidget(content_widget)
         
         self.add_shadow_effect()
-    
-    def set_title(self, title):
-        self.title = title
-        self.title_label.setText(self.title)
-
-    def set_message(self, message):
-        self.message = message
-        self.message_label.setText(self.message)
-
-    def set_message_text(self, message_text):
-        self.message_text = message_text
-        self.message_text_label.setText(self.message_text)
 
     def add_shadow_effect(self):
         """添加自定义阴影效果"""
@@ -175,11 +183,24 @@ class VersionNotFuilDialog(QDialog):
         # 应用阴影效果
         self.main_widget.setContentsMargins(25, 25, 25, 25)  # 四周均匀的边距
         self.main_widget.setGraphicsEffect(shadow)
-    
-    def set_messages(self, mess):
-        """设置提示信息"""
-        self.message_label.setText(mess)
 
+    def set_title(self, name):
+        self.title_label.setText(name)
+    
+    def set_message(self, message):
+        self.message_label.setText(message)
+    
+    def set_message_text(self, message):
+        self.message_text_label.setText(message)
+        
+    def on_download(self):
+        self.download_signal.emit()
+        self.accept()
+    
+    def on_import(self):
+        self.import_signal.emit()
+        self.accept()
+    
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._is_dragging = True

@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QApplication
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QPixmap
@@ -102,10 +102,10 @@ class CollapsePanel(QWidget):
         title_layout.setSpacing(0)
         
         # 标题
-        title_label = QLabel(self.title)
-        title_label.setFont(QFont("Source Han Sans CN Heavy", self.text_font_size))
-        title_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
-        title_layout.addWidget(title_label)
+        self.title_label = QLabel(self.title)
+        self.title_label.setFont(QFont("Source Han Sans CN Heavy", self.text_font_size))
+        self.title_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
+        title_layout.addWidget(self.title_label)
 
         if self.messages:
             self.messages_label = QLabel(self.messages)
@@ -148,8 +148,14 @@ class CollapsePanel(QWidget):
         
         return container
     
+    def set_title(self, name):
+        self.title_label.setText(name)
+        self.update()
+        QApplication.processEvents()
+
     def set_messages(self, message):
         self.messages_label.setText(message)
+        self.update()
 
     def set_content(self, content):
         """设置内容组件"""
