@@ -77,6 +77,7 @@ class SettingsManager:
                 "installed": []
             },
             'isolation': True,  # 版本隔离
+            'version_setting': {},  # 游戏版本独立设置
             'auto_allocate_memory': True  # 自动分配内存
         }
 
