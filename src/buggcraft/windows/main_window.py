@@ -36,14 +36,11 @@ class MinecraftLauncher(QMainWindow):
         self.settings_manager = get_settings_manager(self.config_path)  # 获取配置管理器
         self.visibility_manager = LauncherVisibilityManager(self)  # 初始化可见性管理器
 
-        # ["StartedGame", "Settings", "VersionControl"]
-        self.tab_names = {
-            '开始': 'StartedGame',
-            '设置': 'Settings',
-            '版本选择': 'VersionList',
-            '版本管理': 'VersionControl'
-        }
-        self.current_tab = "StartedGame"
+        # 同步 TitleBar 菜单顺序，同时主页面添加堆叠页面顺序也需要同步
+        self.tab_names = [
+            '开始', "下载", '设置', '版本', '实例'
+        ]
+        self.current_tab = 0
         
         # 设置背景图片
         self.bg_image = None
@@ -97,6 +94,12 @@ class MinecraftLauncher(QMainWindow):
         self.started_page.started_changed.connect(self.started_page.started_game)  # 启动游戏，必须在主UI中进行
         self.content_stack.addWidget(self.started_page)
 
+        # 下载页面 TODO
+        self.started_page = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
+        self.started_page.login_success.connect(self.handle_login_success)
+        self.started_page.started_changed.connect(self.started_page.started_game)  # 启动游戏，必须在主UI中进行
+        self.content_stack.addWidget(self.started_page)
+
         # 设置页面
         self.settings_page = SettingsPage(
             self,
@@ -143,16 +146,9 @@ class MinecraftLauncher(QMainWindow):
         
     def switch_pages(self, name):
         """切换标签页"""
-        def remove_duplicates_preserve_order(sequence):
-            """移除重复项并保持顺序"""
-            seen = set()
-            return [x for x in sequence if not (x in seen or seen.add(x))]
-
-        tab_names = remove_duplicates_preserve_order(self.tab_names.values())
-        self.current_tab = self.tab_names[name]
-        index =  tab_names.index(self.current_tab)
-        print('switch_pages', tab_names, index, self.current_tab)
-        self.content_stack.setCurrentIndex(index)
+        self.current_tab =  self.tab_names.index(name)
+        self.content_stack.setCurrentIndex(self.current_tab)
+        print('switch_pages', self.tab_names, name)
     
     def load_background_image(self):
         """加载背景图片"""
