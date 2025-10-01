@@ -165,6 +165,25 @@ class CollapsePanel(QWidget):
         # 添加新内容
         layout.addWidget(content)
     
+    def set_disabled(self, disabled):
+        if disabled:
+            self.header.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {self.header_bg_color};
+                }}
+            """)
+            self.content.setStyleSheet(f"background-color: {self.content_bg_color};")
+        else:
+            self.header.setStyleSheet(f"""
+                QWidget {{
+                    background-color: rgba(148, 147, 158, 0.4);
+                }}
+            """)
+            self.content.setStyleSheet(f"background-color: rgba(148, 147, 158, 0.3);")
+    
+        self.setDisabled(not disabled)
+        self.update()
+
     def toggle_expand(self, event):
         """切换展开/折叠状态"""
         self.is_expanded = not self.is_expanded

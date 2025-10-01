@@ -144,3 +144,49 @@ class StepSlider(QSlider):
         
         # 确保在范围内
         return max(min_val, min(max_val, adjusted_value))
+
+    def set_disabled(self, disabled):
+        if disabled:
+            self.setStyleSheet("""
+                QSlider {
+                    background: transparent;
+                }
+                QSlider::groove:horizontal {
+                    height: 3px;
+                    background: rgba(94, 93, 104, 0.8);
+                }
+                QSlider::handle:horizontal {
+                    width: 11px;
+                    margin: -5px 0;
+                    border-radius: 6px;
+                    background: rgba(116, 146, 246, 0.8);
+                    border: 1px solid rgba(255, 255, 255, 0.9);
+                }
+                QSlider::sub-page:horizontal {
+                    border-radius: 2px;
+                    background: rgba(116, 146, 246, 0.7);
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QSlider {
+                    background: transparent;
+                }
+                QSlider::groove:horizontal {
+                    height: 3px;
+                    background: rgba(94, 93, 104, 0.8);
+                }
+                QSlider::handle:horizontal {
+                    width: 11px;
+                    margin: -5px 0;
+                    border-radius: 6px;
+                    background: rgba(148, 147, 158, 0.5);
+                    border: 1px solid rgba(255, 255, 255, 0.9);
+                }
+                QSlider::sub-page:horizontal {
+                    border-radius: 2px;
+                    background: rgba(148, 147, 158, 0.6);
+                }
+            """)
+        self.setDisabled(not disabled)
+        self.update()

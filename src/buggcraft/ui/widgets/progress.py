@@ -82,6 +82,19 @@ class MemoryProgressBar(QWidget):
         self.allocated_color = self.parse_color(allocated_color)
         self.update()
     
+    def set_disabled(self, disabled):
+        if disabled:
+            self.total_color = self.parse_color("rgba(75, 82, 107, 1)")
+            self.used_color = self.parse_color("rgba(103, 138, 255, 1)")
+            self.allocated_color = self.parse_color("rgba(255, 200, 100, 1)")
+        else:
+            self.total_color = self.parse_color("rgba(75, 75, 75, 1)")
+            self.used_color = self.parse_color("rgba(138, 138, 138, 1)")
+            self.allocated_color = self.parse_color("rgba(170, 170, 170, 1)")
+
+        self.setDisabled(not disabled)
+        self.update()
+
     def paintEvent(self, event):
         """绘制进度条 - 显示三种状态"""
         painter = QPainter(self)

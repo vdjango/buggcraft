@@ -28,7 +28,7 @@ class MemorySettingsPanel(QWidget):
         self.background_color = "rgba(190, 183, 255, 0.3)"
         self.settings_manager = get_settings_manager()
         self.memory_recommender = AdvancedMemoryRecommender(self.settings_manager)
-
+        self.is_disabled = True
         self.init_ui()
 
         auto_allocate_memory = self.settings_manager.get_setting("minecraft.auto_allocate_memory", True)
@@ -50,10 +50,10 @@ class MemorySettingsPanel(QWidget):
         main_layout.setSpacing(0)
 
         # 容器
-        container = QWidget()
-        container.setContentsMargins(0, 0, 0, 0)
-        container.setStyleSheet(f"background-color: {self.background_color};")
-        container_layout = QVBoxLayout(container)
+        self.container = QWidget()
+        self.container.setContentsMargins(0, 0, 0, 0)
+        self.container.setStyleSheet(f"background-color: {self.background_color};")
+        container_layout = QVBoxLayout(self.container)
         container_layout.setContentsMargins(15, 15, 15, 15)
         container_layout.setSpacing(0)
 
@@ -156,7 +156,7 @@ class MemorySettingsPanel(QWidget):
         info_layout.addWidget(self.available_value)
 
         container_layout.addWidget(info_container)
-        main_layout.addWidget(container, 1)
+        main_layout.addWidget(self.container, 1)
         
         # 连接信号
         self.memory_slider.valueChanged.connect(self.on_memory_slider_changed)
@@ -264,3 +264,22 @@ class MemorySettingsPanel(QWidget):
             self.settings_manager.set_setting("memory.allocation", recommended_memory)
         
         self.settings_manager.save_settings()
+
+    def set_disabled(self, disabled):
+        if disabled:
+            self.container.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {self.background_color};
+                }}
+            """)
+        else:
+            self.container.setStyleSheet(f"""
+                QWidget {{
+                    background-color: rgba(148, 147, 158, 0.4);
+                }}
+            """)
+        self.memory_slider.set_disabled(disabled)
+        self.memory_progress.set_disabled(disabled)
+        self.setDisabled(not disabled)
+        self.update()
+    
