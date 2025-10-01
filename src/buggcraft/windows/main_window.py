@@ -2,6 +2,8 @@
 
 import os
 import logging
+import webbrowser
+
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
@@ -9,12 +11,15 @@ from PySide6.QtCore import Qt, QSize, QPoint, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
 
 from utils.helpers import scale_component
+from config.javafinder import JavaPathFinder
 from config.settings import get_settings_manager
 from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
+from core.launcher import MinecraftLibLauncher
 from ui.widgets.titlebar import TitleBar
 from ui.pages import StartGamePage, SettingsPage, VersionsPages, VersionsListPages
 from ui.dialog.NotFuilMinecraftVersionDialog import VersionNotFuilDialog, QDialog
+from ui.dialog.NotFuilJavaDialog import JavaRuntimeNotFuilDialog
 
 import logging
 logger = logging.getLogger(__name__)
@@ -37,9 +42,22 @@ class MinecraftLauncher(QMainWindow):
         self.settings_manager = get_settings_manager(self.config_path)  # 获取配置管理器
         self.visibility_manager = LauncherVisibilityManager(self)  # 初始化可见性管理器
 
+        # 配置文件校验
+        java_path = self.settings_manager.get_setting('java.path', None)
+        if not (java_path and os.path.isfile(java_path)):
+            self.settings_manager.set_setting('java.path', None)
+            self.settings_manager.set_setting('java.installations', [])
+            self.settings_manager.save_settings()
+        
+        for i in self.settings_manager.get_setting('java.installations', []):
+            """校验格式"""
+            if len(i) != 3:
+                self.settings_manager.set_setting('java.installations', [])
+                self.settings_manager.save_settings()
+        
         # 同步 TitleBar 菜单顺序，同时主页面添加堆叠页面顺序也需要同步
         self.tab_names = [
-            '开始', "下载", '设置', '版本', '实例'
+            '开始', "下载", '设置', '实例'
         ]
         self.current_tab = 0
         
@@ -51,9 +69,14 @@ class MinecraftLauncher(QMainWindow):
         self.set_window_size_from_background()  # 根据背景图片尺寸设置窗口大小
         self.init_ui()
 
-        self.version_not_full = VersionNotFuilDialog()
-        QTimer.singleShot(1000, self.minecraft_not_installed_warning)
-        # self.minecraft_not_installed_warning()
+        self.version_not_number = 0
+        self.java_runtime_full = JavaRuntimeNotFuilDialog()
+        self.gamed_runtime_full = VersionNotFuilDialog()
+        self.java_runtime_full.download_signal.connect(self.on_java_download_signal)
+        self.gamed_runtime_full.download_signal.connect(self.on_gamed_download_signal)
+        self.gamed_runtime_full.import_signal.connect(self.on_gamed_import_signal)
+
+        QTimer.singleShot(500, self.minecraft_not_java_runtime)
 
     def init_ui(self):
         # 主布局
@@ -88,8 +111,13 @@ class MinecraftLauncher(QMainWindow):
     
     @property
     def user(self) -> MicrosoftAuthenticator:
-        # 用户角色信息
+        """用户角色信息"""
         return self.started_page.auth
+    
+    @property
+    def launcher(self) -> MinecraftLibLauncher:
+        """启动器核心"""
+        return self.started_page.launcher
     
     def create_pages(self):
         """创建所有页面"""
@@ -100,10 +128,10 @@ class MinecraftLauncher(QMainWindow):
         self.content_stack.addWidget(self.started_page)
 
         # 下载页面 TODO
-        self.started_page = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
-        self.started_page.login_success.connect(self.handle_login_success)
-        self.started_page.started_changed.connect(self.started_page.started_game)  # 启动游戏，必须在主UI中进行
-        self.content_stack.addWidget(self.started_page)
+        self.started_page1 = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
+        self.started_page1.login_success.connect(self.handle_login_success)
+        self.started_page1.started_changed.connect(self.started_page1.started_game)  # 启动游戏，必须在主UI中进行
+        self.content_stack.addWidget(self.started_page1)
 
         # 设置页面
         self.settings_page = SettingsPage(
@@ -114,54 +142,173 @@ class MinecraftLauncher(QMainWindow):
         )
         self.content_stack.addWidget(self.settings_page)
 
-        # 版本选择
-        self.version_list_page = VersionsListPages(
-            self,
-            cache_path=self.cache_path,
-            resource_path=self.resource_path
-        )
-        self.content_stack.addWidget(self.version_list_page)
-
         # 版本管理
-        self.version_control_page = VersionsPages(
+        self.version_page = VersionsPages(
             self,
             cache_path=self.cache_path,
             resource_path=self.resource_path
         )
-        self.content_stack.addWidget(self.version_control_page)
+        self.content_stack.addWidget(self.version_page)
 
         # 注册信号
-        def set_directory(v):
-            self.started_page.launcher.minecraft_directory = v
+        def on_directory_signal(minecraft_directory):
+            self.started_page.launcher.minecraft_directory = minecraft_directory
 
-        def set_version(v):
-            self.started_page.launcher.version = v
-            self.started_page.set_minecraft_version(v)
+        def on_version_signal(version):
+            self.started_page.launcher.version = version
+            self.started_page.set_minecraft_version(version)
 
-        self.version_list_page.signals.directory.connect(set_directory)
-        self.version_list_page.signals.versions.connect(set_version)
+        self.version_page.signals.directory.connect(on_directory_signal)
+        self.version_page.signals.versions.connect(on_version_signal)
 
         # 游戏日志信息回显
-        self.launcher = self.started_page.launcher
+        # self.launcher = self.started_page.launcher
         self.launcher.signals.output.connect(self.minecraft_handle_output)
         self.launcher.signals.started.connect(self.minecraft_handle_started)
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
         self.launcher.signals.progress.connect(self.minecraft_handle_progress)
     
-    def minecraft_not_installed_warning(self):
-        """打开启动器没有发现版本时提示"""
-        version = self.settings_manager.get_setting('minecraft.version.enable')
-        if version is None:
-            logger.warning('未发现游戏版本，请安装游戏')
-            if self.version_not_full.exec() == QDialog.Accepted:
-                self.switch_pages('实例')
+    def minecraft_not_java_runtime(self):
+        """打开启动器检查Java环境"""
+        if self.settings_manager.get_setting('java.path', None) is None:
+            # https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi
+            # 尝试本地搜索
+            self.load_java_path()
+            logger.warning('尝试本地搜索Java')
+            return
 
-    
+        if self.minecraft_not_java_version_runtime():
+            self.java_runtime_full.exec()
+            return
+
+        # 对于未安装Java环境时,只提示Java环境安装,
+        self.minecraft_not_gamed_runtime()
+
+    def minecraft_not_gamed_runtime(self):
+        """打开启动器检查游戏版本"""
+        if self.settings_manager.get_setting('minecraft.version.enable') is None:
+            logger.warning('未安装游戏版本，请安装游戏版本')
+            self.gamed_runtime_full.exec()
+
+    def load_java_path(self):
+        """自动加载系统中Java路径"""
+
+        # 在后台线程中执行搜索（避免阻塞UI）
+        from PySide6.QtCore import QThread, Signal, QObject
+        
+        class JavaSearchWorker(QObject):
+            finished = Signal(list)
+            error = Signal(str)
+            
+            def run(self):
+                try:
+                    finder = JavaPathFinder()
+                    java_installations = finder.find_all_java_installations()
+                    self.finished.emit(java_installations)
+                except Exception as e:
+                    self.error.emit(str(e))
+        
+        # 创建和工作线程
+        self.search_thread = QThread()
+        self.worker = JavaSearchWorker()
+        self.worker.moveToThread(self.search_thread)
+        
+        # 连接信号和槽
+        self.search_thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.on_java_search_finished)
+        self.worker.finished.connect(self.search_thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.on_java_search_error)
+        self.search_thread.finished.connect(self.search_thread.deleteLater)
+        
+        # 启动线程
+        self.search_thread.start()
+
+    def minecraft_not_java_version_runtime(self):
+        finder = JavaPathFinder()
+        
+        best_java = self.settings_manager.get_setting('java.path')
+        current_version = finder._get_java_version(best_java)[1][:2]
+        current_version = '.'.join(list(str(i) for i in current_version))
+        if finder.is_java_version_low(best_java):
+            """版本过低"""
+            logger.warning(f'版本过低 {best_java}')
+            self.java_runtime_full.set_title(f'Java版本过低')
+            self.java_runtime_full.set_message(f'当前Java版本 {current_version}，可能无法运行最新版Minecraft。')
+            return True
+
+        return False
+
+    def on_java_search_finished(self, java_installations):
+        """Java搜索完成处理"""
+        print('java_installations', java_installations)
+        if java_installations:
+            # 自动选择推荐的Java
+            finder = JavaPathFinder()
+            best_java = finder.recommend_best_java(java_installations)
+
+            self.settings_manager.set_setting('java.name', '使用推荐的 Java 版本')
+            self.settings_manager.set_setting('java.path', best_java)
+            self.settings_manager.set_setting('java.installations', java_installations)
+            self.settings_manager.save_settings()
+
+            if self.minecraft_not_java_version_runtime():
+                self.java_runtime_full.exec()
+                return
+        else:
+            logger.warning('未安装Java环境，请下载安装Java')
+            self.java_runtime_full.exec()
+            return
+        
+        
+
+    def on_java_search_error(self, error_message):
+        """Java搜索错误处理"""
+        print("搜索出错", f"错误信息: {error_message}")
+
+    def on_gamed_import_signal(self):
+        """用户选择了导入游戏向导"""
+        logger.info("用户选择了导入游戏向导")
+        self.switch_pages('实例')
+        self.title_bar.set_active_tab('实例')
+        QTimer.singleShot(100, lambda: self.version_page.versions_page.on_add_directory(None))
+        pass
+
+    def on_gamed_download_signal(self):
+        """用户选择了下载游戏向导"""
+        logger.info("用户选择了下载游戏向导")
+        pass
+
+    def on_java_download_signal(self):
+        """用户选择了下载Java向导"""
+        import sys
+        # https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi
+        logger.info("用户选择了下载Java向导")
+        webbrowser.open('https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi')
+        QTimer.singleShot(1000, sys.exit)
+        pass
+
     def switch_pages(self, name):
         """切换标签页"""
-        self.current_tab =  self.tab_names.index(name)
+        # 获取当前活动页面的索引
+        current_index = self.content_stack.currentIndex()
+        
+        # 如果当前有活动页面，调用其失活方法
+        if current_index >= 0:
+            current_widget = self.content_stack.widget(current_index)
+            if hasattr(current_widget, 'on_page_deactivate'):
+                current_widget.on_page_deactivate()
+        
+        # 切换到新页面
+        self.current_tab = self.tab_names.index(name)
         self.content_stack.setCurrentIndex(self.current_tab)
+        
+        # 调用新页面的激活方法
+        new_widget = self.content_stack.widget(self.current_tab)
+        if hasattr(new_widget, 'on_page_activate'):
+            new_widget.on_page_activate()
+        
         print('switch_pages', self.tab_names, name)
     
     def load_background_image(self):

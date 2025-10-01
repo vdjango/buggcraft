@@ -10,9 +10,9 @@ import logging
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QStackedWidget
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
-
+from core.launcher import MinecraftLibLauncher
 from config.settings import get_settings_manager
 from ui.pages.version import VersionsPage, SettingsPage
 
@@ -29,20 +29,25 @@ class VersionsPages(QWidget):
         self.cache_path = cache_path
         self.resource_path = resource_path
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
-        
-        self.tab_names = {
-            '版本列表': 'Versions',
-            '版本设置': 'Settings'
-        }
+        self.launcher: MinecraftLibLauncher = parent.launcher
+        self.tab_names = ['版本列表', '版本设置']
 
         # 版本列表
-        self.versions_page = VersionsPage(self.resource_path)
+        self.versions_page = VersionsPage(self)
         self.settings_page = SettingsPage(self)
 
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
         self.init_ui()
 
+    def on_page_activate(self):
+        """当页面被激活时调用"""
+        print("页面被激活")
+    
+    def on_page_deactivate(self):
+        """当页面被隐藏时调用"""
+        print("页面被隐藏")
+    
     def init_ui(self):
         """初始化用户界面"""
         main_layout = QVBoxLayout(self)
@@ -180,15 +185,23 @@ class VersionsPages(QWidget):
 
     def switch_pages(self, name):
         """切换标签页"""
-        def remove_duplicates_preserve_order(sequence):
-            """移除重复项并保持顺序"""
-            seen = set()
-            return [x for x in sequence if not (x in seen or seen.add(x))]
-
-        tab_names = remove_duplicates_preserve_order(self.tab_names.values())
-        index =  tab_names.index(self.tab_names[name])
-        print('switch_pages', tab_names, index, self.tab_names[name])
+        # 获取当前活动页面的索引
+        current_index = self.version_stack.currentIndex()
+        
+        # 如果当前有活动页面，调用其失活方法
+        if current_index >= 0:
+            current_widget = self.version_stack.widget(current_index)
+            if hasattr(current_widget, 'on_page_deactivate'):
+                current_widget.on_page_deactivate()
+        
+        # 切换到新页面
+        index = self.tab_names.index(name)
         self.version_stack.setCurrentIndex(index)
+        
+        # 调用新页面的激活方法
+        new_widget = self.version_stack.widget(index)
+        if hasattr(new_widget, 'on_page_activate'):
+            new_widget.on_page_activate()
 
     def paintEvent(self, event):
         """重绘事件 - 透明背景"""

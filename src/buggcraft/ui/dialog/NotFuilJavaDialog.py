@@ -13,23 +13,31 @@ from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap
 from core.auth.microsoft import MicrosoftAuthenticator, MinecraftSignals
 
 
-class VersionNotFuilDialog(QDialog):
+class JavaRuntimeNotFuilDialog(QDialog):
 
     import_signal = Signal()  # 导入
     download_signal = Signal()  # 下载
 
-    def __init__(self, parent=None):
-        """打开启动器没有发现版本时提示"""
+    def __init__(self, parent=None, width=550, heiht=350):
+        """打开启动器没有发现Java时提示"""
         super().__init__(parent)
         self._parent = parent
+        self.max_width = width
+        self.max_heiht = heiht
+        self.title = '准备 Java 环境'
+        self.message = "我们发现您的系统缺少必要的 Java 运行时环境！"
+        self.message_text = """要运行 Minecraft，您需要：
+1. 下载并安装 Java
+2. 确保 Java 已添加到系统环境变量
+3. 重新打开启动器即可开始游戏
 
-        self.title = '就差最后一步啦！'
-        self.message = "看起来您还没有安装任何 Minecraft 游戏版本！"
-        self.message_text = "在开始建造和探索之前，您需要先安装一个游戏版本。如果您之前玩过 Minecraft，可以导入现有游戏文件；或者直接下载一个新版本开始全新的冒险！"
+注意：在安装过程中，启动器将自动关闭。"""
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(550, 300)
+        self.setFixedSize(self.max_width, self.max_heiht)
+        # self.setMaximumWidth(self.max_width)
+        # self.setMaximumHeight(self.max_heiht)
         
         # 设置窗口背景色 RGBA(39, 41, 55, 1)
         palette = self.palette()
@@ -107,27 +115,7 @@ class VersionNotFuilDialog(QDialog):
         button_layout.setSpacing(20)
         button_layout.addStretch()
         
-        self.confirm_button = QPushButton("导入游戏")
-        self.confirm_button.setFixedSize(100, 35)
-        self.confirm_button.setStyleSheet("""
-            QPushButton {
-                background-color: #7859FF;
-                color: #e0e0e0;
-                border: none;
-                font-size: 13px;
-                font-weight: medium;
-            }
-            QPushButton:hover {
-                background-color: #8A6FFF;
-            }
-            QPushButton:pressed {
-                background-color: #6A4FFF;
-            }
-        """)
-        self.confirm_button.clicked.connect(self.on_import)
-        button_layout.addWidget(self.confirm_button)
-
-        self.confirm_button = QPushButton("下载游戏")
+        self.confirm_button = QPushButton("下载Java")
         self.confirm_button.setFixedSize(100, 35)
         self.confirm_button.setStyleSheet("""
             QPushButton {
@@ -192,7 +180,7 @@ class VersionNotFuilDialog(QDialog):
     
     def set_message_text(self, message):
         self.message_text_label.setText(message)
-        
+    
     def on_download(self):
         self.download_signal.emit()
         self.accept()

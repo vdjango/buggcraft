@@ -18,7 +18,15 @@ class MultiplayerPage(BasePage):
         self.servers = []  # 服务器列表
         self.init_ui()
         self.load_sample_servers()
-        
+    
+    def on_page_activate(self):
+        """当页面被激活时调用"""
+        print("页面被激活")
+    
+    def on_page_deactivate(self):
+        """当页面被隐藏时调用"""
+        print("页面被隐藏")
+    
     def init_ui(self):
         """初始化UI"""
         # 设置背景
