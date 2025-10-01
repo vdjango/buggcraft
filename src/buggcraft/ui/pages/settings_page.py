@@ -35,6 +35,30 @@ class SettingsPage(BasePage):
         self.init_ui()
         # self.load_settings_to_ui()  # 加载设置 - 方法不存在，暂时注释
         self.load_cache_settings()  # 加载缓存设置
+
+    def create_scaled_icon(self, icon_name, size=(20, 20)):
+        """
+        创建缩放后的图标
+        
+        Args:
+            icon_name: 图标文件名 
+            size: 目标尺寸 
+            
+        Returns:
+            QIcon: 缩放后的图标对象
+        """
+        from PySide6.QtGui import QIcon
+        
+        icon_path = os.path.join(self.resource_path, 'images', 'version', icon_name)
+        
+        if os.path.exists(icon_path):
+            pixmap = QPixmap(icon_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(size[0], size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                return QIcon(scaled_pixmap)
+        
+        # 如果图标不存在，返回空图标
+        return QIcon()
         
     def init_ui(self):
         """初始化UI"""
@@ -324,8 +348,6 @@ class SettingsPage(BasePage):
             content=version_content_widget,
             header_height=46,
             content_height=90,  
-            header_bg_color="#3E344F",
-            content_bg_color="#3E344F",
             expand_icon_size=16,
             text_font_size=12,
             messages_font_size=11
@@ -357,7 +379,7 @@ class SettingsPage(BasePage):
         collapse_container_layout.addWidget(self.divider)
         
         # 添加CollapsePanel的content
-        collapse_container_layout.addWidget(self.update_collapse_panel.content_area)
+        collapse_container_layout.addWidget(self.update_collapse_panel.content)
         
         # 连接折叠状态变化信号来控制分割线显示
         self.update_collapse_panel.collapse_changed.connect(self.on_collapse_changed)
@@ -433,24 +455,14 @@ class SettingsPage(BasePage):
                 background-color: transparent;
             }}
             QRadioButton::indicator {{
-                width: 16px;
-                height: 16px;
+                width: 20px;
+                height: 20px;
             }}
             QRadioButton::indicator:unchecked {{
-                border: 1px solid #FFFFFF;
-                background-color: #000000;
-                border-radius: 0px;
-                background-image: url({unselected_image_path});
-                background-repeat: no-repeat;
-                background-position: center;
+                image: url({unselected_image_path});
             }}
             QRadioButton::indicator:checked {{
-                border: none;
-                background-color: transparent;
-                background-image: url({selected_image_path});
-                background-repeat: no-repeat;
-                background-position: center;
-                border-radius: 0px;
+                image: url({selected_image_path});
             }}
         """)
         
@@ -493,9 +505,7 @@ class SettingsPage(BasePage):
             QRadioButton::indicator:checked {{
                 border: none;
                 background-color: transparent;
-                background-image: url({selected_image_path});
-                background-repeat: no-repeat;
-                background-position: center;
+                image: url({selected_image_path});
                 border-radius: 0px;
             }}
         """)
@@ -586,8 +596,6 @@ class SettingsPage(BasePage):
             content=cache_content_widget,
             header_height=46,
             content_height=90,
-            header_bg_color="#3E344F",
-            content_bg_color="#3E344F",
             expand_icon_size=16,
             text_font_size=12,
             messages_font_size=11
@@ -597,7 +605,7 @@ class SettingsPage(BasePage):
         self.cache_collapse_panel.setFixedWidth(508)
         
         # 调整CollapsePanel内容区域的上边距，减少与分割线的距离
-        content_area_layout = self.cache_collapse_panel.content_area.layout()
+        content_area_layout = self.cache_collapse_panel.content.layout()
         content_area_layout.setContentsMargins(15, 0, 15, 15) 
         
         # 自定义标题栏内容
@@ -623,7 +631,7 @@ class SettingsPage(BasePage):
         cache_collapse_container_layout.addWidget(self.cache_divider)
         
         # 添加CollapsePanel的content
-        cache_collapse_container_layout.addWidget(self.cache_collapse_panel.content_area)
+        cache_collapse_container_layout.addWidget(self.cache_collapse_panel.content)
         
         # 连接折叠状态变化信号来控制分割线显示
         self.cache_collapse_panel.collapse_changed.connect(self.on_cache_collapse_changed)
@@ -781,8 +789,6 @@ class SettingsPage(BasePage):
             content=language_content_widget,
             header_height=46,
             content_height=50,
-            header_bg_color="#3E344F",
-            content_bg_color="#3E344F",
             expand_icon_size=0,  
             text_font_size=12,
             messages_font_size=11
@@ -820,7 +826,7 @@ class SettingsPage(BasePage):
         language_collapse_container_layout.addWidget(self.language_divider)
         
         # 添加CollapsePanel的content
-        language_collapse_container_layout.addWidget(self.language_collapse_panel.content_area)
+        language_collapse_container_layout.addWidget(self.language_collapse_panel.content)
         
         # 连接折叠状态变化信号来控制分割线显示
         self.language_collapse_panel.collapse_changed.connect(self.on_language_collapse_changed)
@@ -1028,7 +1034,7 @@ class SettingsPage(BasePage):
                 border: 1px solid #FFFFFF;
                 background-color: #000000;
                 border-radius: 0px;
-                background-image: url({selected_image_path});
+                image: url({selected_image_path});
             }}
         """)
         
@@ -1043,8 +1049,6 @@ class SettingsPage(BasePage):
             content=download_source_content_widget,
             header_height=46,
             content_height=120,
-            header_bg_color="#3E344F",
-            content_bg_color="#3E344F",
             expand_icon_size=16,
             text_font_size=12,
             messages_font_size=11
@@ -1076,7 +1080,7 @@ class SettingsPage(BasePage):
         download_source_collapse_container_layout.addWidget(self.download_source_divider)
         
         # 添加CollapsePanel的content
-        download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.content_area)
+        download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.content)
         
         # 连接折叠状态变化信号来控制分割线显示
         self.download_source_collapse_panel.collapse_changed.connect(self.on_download_source_collapse_changed)
@@ -1584,9 +1588,7 @@ class SettingsPage(BasePage):
             QRadioButton::indicator:checked {{
                 border: none;
                 background-color: transparent;
-                background-image: url({selected_image_path});
-                background-repeat: no-repeat;
-                background-position: center;
+                image: url({selected_image_path});
                 border-radius: 0px;
             }}
         """)
@@ -1612,9 +1614,7 @@ class SettingsPage(BasePage):
             QRadioButton::indicator:checked {{
                 border: none;
                 background-color: transparent;
-                background-image: url({selected_image_path});
-                background-repeat: no-repeat;
-                background-position: center;
+                image: url({selected_image_path});
                 border-radius: 0px;
             }}
         """)
