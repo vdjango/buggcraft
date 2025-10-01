@@ -5,7 +5,7 @@ import logging
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
-from PySide6.QtCore import Qt, QSize, QPoint
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
 
 from utils.helpers import scale_component
@@ -14,6 +14,7 @@ from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
 from ui.widgets.titlebar import TitleBar
 from ui.pages import StartGamePage, SettingsPage, VersionsPages, VersionsListPages
+from ui.dialog.NotFuilMinecraftVersionDialog import VersionNotFuilDialog, QDialog
 
 import logging
 logger = logging.getLogger(__name__)
@@ -49,6 +50,10 @@ class MinecraftLauncher(QMainWindow):
         self.setWindowFlag(Qt.FramelessWindowHint)  # 移除默认标题栏
         self.set_window_size_from_background()  # 根据背景图片尺寸设置窗口大小
         self.init_ui()
+
+        self.version_not_full = VersionNotFuilDialog()
+        QTimer.singleShot(1000, self.minecraft_not_installed_warning)
+        # self.minecraft_not_installed_warning()
 
     def init_ui(self):
         # 主布局
@@ -143,7 +148,16 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
         self.launcher.signals.progress.connect(self.minecraft_handle_progress)
-        
+    
+    def minecraft_not_installed_warning(self):
+        """打开启动器没有发现版本时提示"""
+        version = self.settings_manager.get_setting('minecraft.version.enable')
+        if version is None:
+            logger.warning('未发现游戏版本，请安装游戏')
+            if self.version_not_full.exec() == QDialog.Accepted:
+                self.switch_pages('实例')
+
+    
     def switch_pages(self, name):
         """切换标签页"""
         self.current_tab =  self.tab_names.index(name)
