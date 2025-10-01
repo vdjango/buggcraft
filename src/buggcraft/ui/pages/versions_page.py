@@ -106,7 +106,7 @@ class VersionsPages(QWidget):
         
         # 正版选项卡按钮
         self.external_tab_btn = self.create_tab_button(
-            "游戏设置",
+            "版本设置",
             self.settings_btn_clicked,
             size=(155, 44), font_size=10
         )
@@ -118,7 +118,7 @@ class VersionsPages(QWidget):
             self.versions_btn_clicked,
             size=(155, 44), font_size=10
         )
-        tab_buttons_layout.addWidget(_tab_btn, 0, Qt.AlignCenter)
+        # tab_buttons_layout.addWidget(_tab_btn, 0, Qt.AlignCenter)
 
         # 离线选项卡按钮
         _tab_btn = self.create_tab_button(
@@ -126,7 +126,7 @@ class VersionsPages(QWidget):
             self.versions_btn_clicked,
             size=(155, 44), font_size=10
         )
-        tab_buttons_layout.addWidget(_tab_btn, 0, Qt.AlignCenter)
+        # tab_buttons_layout.addWidget(_tab_btn, 0, Qt.AlignCenter)
 
         tab_buttons_layout.addStretch()
         

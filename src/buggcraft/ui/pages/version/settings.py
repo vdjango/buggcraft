@@ -249,6 +249,8 @@ class SettingsPage(QWidget):
         self.cache_path = parent.cache_path
         self.resource_path = parent.resource_path
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
+
+        self.disabled = True
         
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
@@ -257,6 +259,12 @@ class SettingsPage(QWidget):
 
         if not self.available_java_versions:
             self.load_java_path()
+        
+        independent_setting = False
+        version = self.settings_manager.get_setting('minecraft.version.enable')
+        if version is not None:
+            independent_setting = self.settings_manager.get_setting(f"minecraft.version_setting.{version}.enable", False)
+        self.is_disabled(independent_setting)
 
     def init_ui(self):
         """初始化用户界面"""
@@ -278,6 +286,151 @@ class SettingsPage(QWidget):
 
         main_layout.addWidget(content_container)
 
+    def create_icon_label(self, icon_path, size=(30, 30), cursor=None):
+        """创建图标标签"""
+        label = QLabel()
+        label.setFixedSize(size[0] + 1, size[1] + 1)
+        label.setPixmap(QPixmap(icon_path).scaled(
+            size[0], size[1], 
+            Qt.IgnoreAspectRatio, 
+            Qt.SmoothTransformation
+        ))
+        
+        if cursor:
+            label.setCursor(cursor)
+        label.setStyleSheet("background-color: transparent; border: none;")
+        return label
+    
+    def create_version_item(self, version='1.21.8', description='asdasdadasdadasd', is_selected=False):
+        """创建版本项"""
+        version = self.settings_manager.get_setting('minecraft.version.enable')
+        description = self.settings_manager.get_setting('minecraft.directory.enable')
+        item = QWidget()
+        item.setStyleSheet('background-color: rgba(190, 183, 255, 0.25);')
+        item.setFixedHeight(68)
+        
+        layout = QHBoxLayout(item)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(0)
+        
+        # 选中图标
+        icon_name = "selected.png" if is_selected else "not-selected.png"
+        select_icon = self.create_icon_label(
+            os.path.join(self.resource_path, 'images', 'version', icon_name),
+            size=(30, 30)
+        )
+        layout.addSpacing(10)
+        layout.addWidget(select_icon)
+        layout.addSpacing(15)
+        
+        # 文本区域
+        text_widget = QWidget()
+        text_widget.setStyleSheet("background-color: transparent;")
+        text_layout = QVBoxLayout(text_widget)
+        text_layout.setContentsMargins(0, 14, 0, 14)
+        text_layout.setSpacing(5)
+        
+        version_label = QLabel(f'版本号：{version}')
+        version_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
+        
+        desc_label = QLabel(description)
+        desc_label.setMaximumWidth(200)
+        desc_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
+        
+        text_layout.addWidget(version_label, 0, Qt.AlignVCenter)
+        text_layout.addWidget(desc_label, 0, Qt.AlignVCenter)
+        
+        layout.addWidget(text_widget)
+        layout.addStretch(1)
+        
+        # 操作图标区域
+        icons_widget = QWidget()
+        icons_widget.setStyleSheet("background-color: transparent;")
+        icons_layout = QHBoxLayout(icons_widget)
+        icons_layout.setContentsMargins(10, 5, 15, 5)
+        icons_layout.setSpacing(15)
+        
+        # 设置图标
+        self.java_auto_button = QMRadioButton(
+            self,
+            "是否启用特定游戏设置",
+            None,
+            data_property='auto',
+            messages_max_heiht=100
+        )
+        icons_layout.addWidget(self.java_auto_button)
+        
+        # 文件夹图标
+        folder_icon = self.create_icon_label(
+            os.path.join(self.resource_path, 'images', 'version', 'folder.png'),
+            size=(18, 18),
+            cursor=Qt.PointingHandCursor
+        )
+        # folder_icon.mousePressEvent = lambda event: self.on_open_version_folder(item, event)
+        # icons_layout.addWidget(folder_icon)
+        
+        # 删除图标
+        delete_icon = self.create_icon_label(
+            os.path.join(self.resource_path, 'images', 'version', 'delete.png'),
+            size=(16, 16),
+            cursor=Qt.PointingHandCursor
+        )
+        # delete_icon.mousePressEvent = lambda event: self.on_delete_version(item, event)
+        # icons_layout.addWidget(delete_icon)
+        
+        layout.addWidget(icons_widget)
+        
+        # 添加版本项点击事件
+        # item.mousePressEvent = lambda event: self.on_version_clicked(item, event)
+        # item.setCursor(Qt.PointingHandCursor)
+
+        return item
+    
+    def create_version_independent(self):
+        """创建 版本隔离 设置内容"""
+        version = self.settings_manager.get_setting('minecraft.version.enable')
+        description = self.settings_manager.get_setting('minecraft.directory.enable')
+
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        button_group = QMRadioGroup()
+        
+        # 默认选择选项
+        independent_button = QMRadioButton(
+            self,
+            f'启用 {version} 独立版本设置',
+            f'单独启用设置：{description}',
+            data_property=True
+        )
+        layout.addWidget(independent_button)
+        button_group.add_button(independent_button)
+
+        default_button = QMRadioButton(
+            self,
+            f'跟随全局设置',
+            f'不在为版本 {version} 独立设置，将跟随全局设置',
+            data_property=False
+        )
+        layout.addWidget(default_button)
+        button_group.add_button(default_button)
+
+        # 设置默认选中
+        _isolation = default_button
+        if version is not None:
+            _isolation = {
+                False: default_button,
+                True: independent_button
+            }.get(self.settings_manager.get_setting(f"minecraft.version_setting.{version}.enable", False))
+        button_group.set_selected_button(_isolation)
+        button_group.button_selected.connect(self.is_disabled)
+        panel = CollapsePanel(self, f'启用 {version} 游戏版本设置', '启用后当前版本不受全局设置管控，不影响其他游戏设置', True, is_collaspe=False)
+        panel.set_content(content)
+        return panel
+    
     def create_settings_panel(self):
         # 容器
         panel = QWidget()
@@ -287,35 +440,39 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
 
+        # 当前选择版本信息
+        version = self.create_version_independent()
+        layout.addWidget(version, 1)
+        
         # 版本隔离
-        version_isolation = self.create_version_isolation()
-        layout.addWidget(version_isolation)
+        self.version_isolation = self.create_version_isolation()
+        layout.addWidget(self.version_isolation)
 
         # 游戏Java
-        java_content = self.create_java_content()
+        self.java_content = self.create_java_content()
         self.java_panel = CollapsePanel(self, '游戏Java', self.settings_manager.get_setting("java.name", '系统将自动选择最适合的 Java 版本'))
-        self.java_panel.set_content(java_content)
+        self.java_panel.set_content(self.java_content)
         layout.addWidget(self.java_panel)
 
         # 自动分配内存
-        minecraft_free = MemorySettingsPanel(self)  # self.create_minecraft_free()
-        layout.addWidget(minecraft_free)
+        self.minecraft_free = MemorySettingsPanel(self)  # self.create_minecraft_free()
+        layout.addWidget(self.minecraft_free)
 
         # 启动器可见性
-        launcher_visibility = self.create_launcher_visibility()
-        layout.addWidget(launcher_visibility)
+        self.launcher_visibility = self.create_launcher_visibility()
+        layout.addWidget(self.launcher_visibility)
 
         # 设置游戏窗口分辨率
-        minecraft_resolution = self.create_minecraft_resolution()
-        layout.addWidget(minecraft_resolution)
+        self.launcher_resolution = self.create_minecraft_resolution()
+        layout.addWidget(self.launcher_resolution)
 
         # 进程优先级
-        process_priority = self.create_process_priority()
-        layout.addWidget(process_priority)
+        self.minecraft_process_priority = self.create_process_priority()
+        layout.addWidget(self.minecraft_process_priority)
 
         # 游戏调试
-        minecraft_debug = self.create_minecraft_debug()
-        layout.addWidget(minecraft_debug)
+        self.minecraft_debug = self.create_minecraft_debug()
+        layout.addWidget(self.minecraft_debug)
 
         # 添加拉伸空间
         layout.addStretch(1)
@@ -661,6 +818,22 @@ class SettingsPage(QWidget):
         self.settings_manager.set_setting("java.path", best_java)
         self.settings_manager.save_settings()
         self.java_panel.set_messages(best_java)
+
+    def is_disabled(self, disabled):
+        """是否启用独立版本设置，启用后取消其他设置项的禁用状态"""
+        self.disabled = disabled
+        version = self.settings_manager.get_setting('minecraft.version.enable')
+        if version is not None:
+            self.on_setting_changed(f"minecraft.version_setting.{version}.enable", disabled)
+        
+        # 设置ui状态
+        self.version_isolation.set_disabled(self.disabled)
+        self.java_panel.set_disabled(self.disabled)
+        self.minecraft_free.set_disabled(self.disabled)
+        self.launcher_visibility.set_disabled(self.disabled)
+        self.launcher_resolution.set_disabled(self.disabled)
+        self.minecraft_process_priority.set_disabled(self.disabled)
+        self.minecraft_debug.set_disabled(self.disabled)
 
 
     def on_setting_changed(self, key: str, value: Any):
