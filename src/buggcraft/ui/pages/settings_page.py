@@ -36,6 +36,14 @@ class SettingsPage(BasePage):
         # self.load_settings_to_ui()  # 加载设置 - 方法不存在，暂时注释
         self.load_cache_settings()  # 加载缓存设置
 
+    def on_page_activate(self):
+        """当页面被激活时调用"""
+        print("设置页面被激活")
+    
+    def on_page_deactivate(self):
+        """当页面被隐藏时调用"""
+        print("设置页面被隐藏")
+
     def create_scaled_icon(self, icon_name, size=(20, 20)):
         """
         创建缩放后的图标
@@ -62,9 +70,6 @@ class SettingsPage(BasePage):
         
     def init_ui(self):
         """初始化UI"""
-        # 设置背景
-        self.set_background('images/minecraft_bg.png')
-        
         # 创建主布局
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -77,13 +82,11 @@ class SettingsPage(BasePage):
 
         # 创建选项卡按钮区域
         self.tab_buttons_widget = self.create_tab_buttons()
-        self.tab_buttons_widget.setStyleSheet("background-color: #225500;")
 
         # 创建选项卡内容区域
         self.tab_content = QWidget()
         self.tab_content.setFixedWidth(926 - 178 - 62)
         self.tab_content.setContentsMargins(25, 0, 25, 0)
-        self.tab_content.setStyleSheet("background-color: #552299;")
 
         tab_container_layout.addWidget(self.tab_buttons_widget)
         tab_container_layout.addSpacing(23)
