@@ -33,7 +33,7 @@ class SettingsPage(BasePage):
         super().__init__(parent, config_path, resource_path, scale_ratio)
         self.cache_path = parent.cache_path
         self.resource_path = parent.resource_path
-        self.settings_manager = get_settings_manager(self.parent.config_path)  # 获取配置管理器
+        self.settings_manager = get_settings_manager()  # 获取配置管理器
         
         # 通用设置
         self.general_page = GeneralSettingsPages(self)

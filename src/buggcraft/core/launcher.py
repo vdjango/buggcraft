@@ -95,7 +95,7 @@ class MinecraftLibLauncher(QObject):
     def __init__(self, config_path, parent=None):
         super().__init__(parent)
         self.signals = MinecraftSignals()
-        self.settings_manager = get_settings_manager(config_path)  # 获取配置管理器
+        self.settings_manager = get_settings_manager()  # 获取配置管理器
 
         self.process = None
         self.running = False

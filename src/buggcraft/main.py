@@ -3,6 +3,7 @@ import sys
 import logging
 
 from pathlib import Path
+from config.settings import get_settings_manager, get_conf_or_cache_manager
 
 
 class UTF8FileHandler(logging.FileHandler):
@@ -11,6 +12,7 @@ class UTF8FileHandler(logging.FileHandler):
         if encoding is None:
             encoding = 'utf-8'
         super().__init__(filename, mode, encoding, delay)
+
 
 # 配置日志
 logging.basicConfig(
@@ -24,11 +26,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 全局配置
-HOME_DIR = Path.cwd() / '.buggcraft'
-CACHE_DIR = HOME_DIR / 'cache'
-CONFIG_DIR = HOME_DIR / 'etc'
-RESOURCE_DIR = HOME_DIR / 'resources'  # 资源目录，存放字体、图标等
-DEPENDENCIES_DIR = HOME_DIR / 'dependencies'  # 依赖目录，存放PySide6等DLL
+BASE_DIR = Path.cwd()
+HOME_DIR = os.path.join(BASE_DIR, '.buggcraft')
+
+_, HOME_DIR = get_conf_or_cache_manager()
+
+CACHE_DIR = os.path.join(HOME_DIR, 'cache')
+CONFIG_DIR = os.path.join(HOME_DIR, 'etc')
+RESOURCE_DIR = os.path.join(HOME_DIR, 'resources')  # 资源目录，存放字体、图标等
+DEPENDENCIES_DIR = os.path.join(HOME_DIR, 'dependencies')  # 依赖目录，存放PySide6等DLL
 
 DOWNLOAD_URLS = {
     'resources': "https://pan.erguanmingmin.com/file/10007988/resources.zip",
@@ -89,12 +95,12 @@ def download_and_extract(url, download_dir, extract_dir):
 def setup_qt_environment():
     """设置Qt运行环境"""
     # 设置Qt插件路径
-    qt_plugins_dir = DEPENDENCIES_DIR / 'PySide6' / 'qt-plugins'
+    qt_plugins_dir = os.path.join(DEPENDENCIES_DIR, 'PySide6', 'qt-plugins')
     os.environ['QT_PLUGIN_PATH'] = str(qt_plugins_dir)
     logger.info(f"设置 QT_PLUGIN_PATH = {qt_plugins_dir}")
     
     # 设置Qt平台插件路径
-    platforms_dir = qt_plugins_dir / 'platforms'
+    platforms_dir = os.path.join(qt_plugins_dir, 'platforms')
     os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(platforms_dir)
     logger.info(f"设置 QT_QPA_PLATFORM_PLUGIN_PATH = {platforms_dir}")
     
@@ -120,24 +126,24 @@ def setup_qt_environment():
 def verify_qt_files(plugin_path):
     """验证必要的Qt文件是否存在"""
     # 检查平台插件
-    platforms_path = plugin_path / 'platforms'
-    if not platforms_path.exists():
+    platforms_path = os.path.join(plugin_path, 'platforms')
+    if not os.path.exists(platforms_path):
         logger.error(f"严重错误: 平台插件目录不存在: {platforms_path}")
         return False
     
     # 检查qwindows.dll
-    qwindows_dll = platforms_path / 'qwindows.dll'
-    if not qwindows_dll.exists():
+    qwindows_dll = os.path.join(platforms_path, 'qwindows.dll')
+    if not os.path.exists(qwindows_dll):
         logger.error(f"致命错误: qwindows.dll 不存在: {qwindows_dll}")
         return False
     
     # 检查其他关键DLL
     required_dlls = [
-        plugin_path / 'imageformats' / 'qjpeg.dll',
-        plugin_path / 'styles' / 'qmodernwindowsstyle.dll'
+        os.path.join(plugin_path, 'imageformats', 'qjpeg.dll'),
+        os.path.join(plugin_path, 'styles', 'qmodernwindowsstyle.dll')
     ]
     
-    missing_files = [dll for dll in required_dlls if not dll.exists()]
+    missing_files = [dll for dll in required_dlls if not os.path.exists(dll)]
     if missing_files:
         logger.warning("缺少以下文件:")
         for file in missing_files:
@@ -159,7 +165,7 @@ def send_notification(title, message, icon_path=None):
         notification = Notify()
         notification.title = title
         notification.message = message
-        notification.application_name='BUGG'
+        notification.application_name='Buggcraft Minecraft Launcher'
         print('icon_path', icon_path)
         if icon_path and Path(icon_path).exists():
             notification.icon = str(icon_path)
@@ -210,6 +216,7 @@ def initialize_application():
     
     # 创建并显示主窗口
     launcher = MinecraftLauncher(
+        base_path=BASE_DIR,
         cache_path=CACHE_DIR,
         config_path=CONFIG_DIR,
         resource_path=RESOURCE_DIR

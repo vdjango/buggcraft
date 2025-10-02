@@ -30,7 +30,7 @@ class SettingsPage(BasePage):
     
     def __init__(self, parent=None, config_path=None, resource_path=None, scale_ratio=1.0, ):
         super().__init__(parent, config_path, resource_path, scale_ratio)
-        # self.settings_manager = get_settings_manager(self.parent.config_path)  # 获取配置管理器
+        # self.settings_manager = get_settings_manager()  # 获取配置管理器
         
         self.init_ui()
         # self.load_settings_to_ui()  # 加载设置 - 方法不存在，暂时注释
@@ -1476,14 +1476,14 @@ class SettingsPage(BasePage):
     
     def save_cache_settings(self):
         """保存缓存设置到配置文件"""
-        settings_manager = get_settings_manager(self.config_path)
+        settings_manager = get_settings_manager()
         settings_manager.set_setting('cache_use_default', self.default_cache_checkbox.isChecked())
         settings_manager.set_setting('cache_custom_path', self.custom_cache_path.text())
         settings_manager.save_settings()
     
     def load_cache_settings(self):
         """从配置文件加载缓存设置"""
-        settings_manager = get_settings_manager(self.config_path)
+        settings_manager = get_settings_manager()
         
         # 加载设置，默认使用默认路径
         use_default = settings_manager.get_setting('cache_use_default', True)

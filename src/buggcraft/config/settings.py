@@ -3,6 +3,7 @@
 import json
 import os
 import platform
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import logging
@@ -50,7 +51,7 @@ class SettingsManager:
     使用JSON格式存储配置，支持中文和复杂数据结构
     """
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = Path.cwd() / 'cache'):
         """
         初始化配置管理器
         
@@ -349,9 +350,41 @@ class SettingsManager:
 # 单例模式：创建全局配置管理器实例
 _settings_manager_instance = None
 
-def get_settings_manager(path=None) -> SettingsManager:
+def get_settings_manager() -> SettingsManager:
     """获取全局配置管理器实例（单例模式）"""
     global _settings_manager_instance
+
+    name, path = get_conf_or_cache_manager()
     if _settings_manager_instance is None:
         _settings_manager_instance = SettingsManager(path)
+    
+    _settings_manager_instance.set_setting("settings.general.download.cache", name)
+    _settings_manager_instance.save_settings()
     return _settings_manager_instance
+
+def set_conf_manager(name):
+    """设置配置文件路径"""
+    conf_path = os.path.join(Path.cwd(), '.buggcraft')
+    if name == '~/.buggcraft/':
+        conf_path = os.path.join(Path.home(), '.buggcraft')
+    elif name == '.buggcraft/':
+        conf_path = os.path.join(Path.cwd(), '.buggcraft')
+    else:
+        conf_path = os.path.join(os.path.abspath(name), '.buggcraft')
+    
+    conf_setpath = Path.home() / '.buggcraft'
+    if not conf_setpath.exists():
+        Path(Path.home() / '.buggcraft').mkdir(exist_ok=True)
+    
+    with open(conf_setpath / 'conf', 'w', encoding='utf-8') as f:
+        f.write(json.dumps({'path': conf_path, 'name': name}))
+
+def get_conf_or_cache_manager():
+    """读取配置文件路径"""
+    conf_setpath = Path.home() / '.buggcraft' / 'conf'
+    if not conf_setpath.exists():
+        return '.buggcraft/', os.path.join(Path.cwd(), '.buggcraft')
+
+    with open(conf_setpath, 'r', encoding='utf-8') as f:
+        s = json.load(f)
+        return s.get('name', '.buggcraft/'), s.get('path', os.path.join(Path.cwd(), '.buggcraft'))

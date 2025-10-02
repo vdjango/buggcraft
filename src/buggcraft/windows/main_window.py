@@ -28,8 +28,9 @@ logger = logging.getLogger(__name__)
 class MinecraftLauncher(QMainWindow):
     """主启动器界面"""
 
-    def __init__(self, cache_path, config_path, resource_path):
+    def __init__(self, base_path, cache_path, config_path, resource_path):
         super().__init__()
+        self.base_path = base_path
         self.cache_path = cache_path
         self.config_path = config_path
         self.resource_path = resource_path
@@ -39,7 +40,7 @@ class MinecraftLauncher(QMainWindow):
         self.drag_position = QPoint()
 
         self.scale_ratio = scale_component(QSize(1280, 832), QSize(1280-1280/3, 832-832/3))
-        self.settings_manager = get_settings_manager(self.config_path)  # 获取配置管理器
+        self.settings_manager = get_settings_manager()  # 获取配置管理器
         self.visibility_manager = LauncherVisibilityManager(self)  # 初始化可见性管理器
 
         # 配置文件校验

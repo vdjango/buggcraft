@@ -17,7 +17,7 @@ class BasePage(QWidget):
         self.parent = parent
         self.config_path = config_path
         self.resource_path = resource_path
-        self.settings_manager = get_settings_manager(self.config_path)  # 获取配置管理器
+        self.settings_manager = get_settings_manager()  # 获取配置管理器
         self.scale_ratio = scale_ratio
         self.bg_image = None
         

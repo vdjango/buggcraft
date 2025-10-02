@@ -3,14 +3,14 @@
 """
 import os
 from typing import Any
-
+from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
 
-from config.settings import get_settings_manager
+from config.settings import get_settings_manager, set_conf_manager
 from ui.widgets.collapse import CollapsePanel
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from ui.widgets.ComboBox import QMComboBox
@@ -42,8 +42,8 @@ class GeneralSettingsPages(QWidget):
         ))
         # 文件下载缓存
         cache = self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/')
-        self.download_cache_group.set_selected_button(self.download_cache_proprty.get(cache))
-        self.download_cache.set_messages(f"缓存路径：{cache}")
+        self.launcher_cache_group.set_selected_button(self.launcher_cache_proprty.get(cache))
+        self.launcher_cache.set_messages(f"缓存路径：{cache}")
         # 启动器语言
         language = self.settings_manager.get_setting("settings.general.language", "简体中文")
         index = self.launcher_language_combo.findText(language)
@@ -96,8 +96,8 @@ class GeneralSettingsPages(QWidget):
         layout.addWidget(self.launcher_update, 1)
         
         # 文件下载缓存
-        self.download_cache = self.create_download_cache()
-        layout.addWidget(self.download_cache)
+        self.launcher_cache = self.create_launcher_cache()
+        layout.addWidget(self.launcher_cache)
 
         # 启动器语言
         self.launcher_language = self.create_launcher_language()
@@ -229,8 +229,8 @@ class GeneralSettingsPages(QWidget):
         panel.set_content(content)
         return panel
     
-    def create_download_cache(self):
-        """创建 文件下载缓存 设置内容"""
+    def create_launcher_cache(self):
+        """创建 文件缓存 设置内容"""
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
@@ -238,7 +238,7 @@ class GeneralSettingsPages(QWidget):
         layout.setSpacing(10)
 
         # 创建按钮组
-        self.download_cache_group = QMRadioGroup()
+        self.launcher_cache_group = QMRadioGroup()
         
         # 默认选择选项
         default_button = QMRadioButton(
@@ -248,7 +248,7 @@ class GeneralSettingsPages(QWidget):
             data_property='~/.buggcraft/'
         )
         layout.addWidget(default_button)
-        self.download_cache_group.add_button(default_button)
+        self.launcher_cache_group.add_button(default_button)
         # 当前路径
         launcher_button = QMRadioButton(
             self,
@@ -257,7 +257,7 @@ class GeneralSettingsPages(QWidget):
             data_property='.buggcraft/'
         )
         layout.addWidget(launcher_button)
-        self.download_cache_group.add_button(launcher_button)
+        self.launcher_cache_group.add_button(launcher_button)
 
         # 自定义
         custom_button = QMRadioButton(
@@ -270,27 +270,40 @@ class GeneralSettingsPages(QWidget):
             slot_desc=self.create_custom_folder()
         )
         layout.addWidget(custom_button)
-        self.download_cache_group.add_button(custom_button)
+        self.launcher_cache_group.add_button(custom_button)
 
+        desc_label = QLabel("注：此操作需要重启(自动关闭)，并且配置文件不保留。当需要多启动器实例可选择")
+        desc_label.setContentsMargins(10, 0, 10, 0)
+        desc_label.setFont(QFont("Source Han Sans CN Heavy", 10))
+        desc_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.6);
+                background-color: transparent;
+            }
+        """)
+        layout.addWidget(desc_label)
+        
         # 设置默认选中
-        self.download_cache_proprty = {
+        self.launcher_cache_proprty = {
             default_button.data_property: default_button,
             launcher_button.data_property: launcher_button,
             custom_button.data_property: custom_button
         }
-        self.download_cache_group.set_selected_button(
-            self.download_cache_proprty.get(self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/'))
+        self.launcher_cache_group.set_selected_button(
+            self.launcher_cache_proprty.get(self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/'))
         )
 
         panel = CollapsePanel(
-            self, '文件下载缓存',
+            self, '文件缓存路径',
             '缓存路径：{}'.format(
                 self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/')
             ), False
         )
         panel.set_content(content)
-        self.download_cache_group.button_selected.connect(lambda prop: self.on_setting_changed("settings.general.download.cache", prop))
-        self.download_cache_group.button_selected.connect(lambda prop: panel.set_messages(f"缓存路径：{prop}"))
+        self.launcher_cache_group.button_selected.connect(
+            lambda prop: self.on_setting_cache_changed(prop)
+        )
+        self.launcher_cache_group.button_selected.connect(lambda prop: panel.set_messages(f"缓存路径：{prop}"))
         return panel
 
     def create_launcher_language(self):
@@ -431,9 +444,19 @@ class GeneralSettingsPages(QWidget):
         """设置页面禁用状态，设置后无法操作其他设置项"""
         self.disabled = disabled
         self.launcher_update.set_disabled(self.disabled)
-        self.download_cache.set_disabled(self.disabled)
+        self.launcher_cache.set_disabled(self.disabled)
         self.launcher_language.set_disabled(self.disabled)
         self.language_download_source.set_disabled(self.disabled)
+    
+    def on_setting_cache_changed(self, value: str):
+        """文件缓存设置"""
+        if value == 'custom':
+            logger.warning('此功能未实现')
+            return
+        import sys
+        self.on_setting_changed("settings.general.download.cache", value)
+        set_conf_manager(value)
+        sys.exit(0)
     
     def on_setting_changed(self, key: str, value: Any):
         """处理设置改变，更新配置管理器并保存"""
