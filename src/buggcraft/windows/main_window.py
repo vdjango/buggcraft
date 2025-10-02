@@ -384,7 +384,7 @@ class MinecraftLauncher(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        self.settings_page.save_all_settings()  # 假设 settings_page 是 SettingsPage 实例
+        # self.settings_page.save_all_settings()  # 假设 settings_page 是 SettingsPage 实例
         super().closeEvent(event)
 
     # 窗口拖动功能
