@@ -77,7 +77,7 @@ class QMRadioButton(QWidget):
     """"""
     selected = Signal(bool, Any)  # 选中状态改变时发出信号
 
-    def __init__(self, parent, text, messages=None, text_font_size=11, messages_font_size=10, text_max_heiht=200, messages_max_heiht=350, slot_desc=None, data_property=None):
+    def __init__(self, parent, text, messages=None, text_font_size=11, messages_font_size=10, text_max_widht=200, messages_max_widht=350, slot_desc=None, data_property=None):
         """单选组件
         :param text: 标题
         :param messages: 副文本内容
@@ -93,8 +93,8 @@ class QMRadioButton(QWidget):
         self.slot_desc = slot_desc
         self.text_font_size = text_font_size
         self.messages_font_size = messages_font_size
-        self.text_max_heiht = text_max_heiht
-        self.messages_max_heiht = messages_max_heiht
+        self.text_max_widht = text_max_widht
+        self.messages_max_widht = messages_max_widht
         self.resource_path = parent.resource_path
         self.auto_radio_selected = False  # 当前选项状态
         self.init_ui()
@@ -126,7 +126,7 @@ class QMRadioButton(QWidget):
         main_layout.addWidget(icon_container)
         
         # 自动选择选项 - 使用 QLabel
-        self.auto_label = SmartLabel(self.text, self.text_max_heiht)
+        self.auto_label = SmartLabel(self.text, self.text_max_widht)
         self.auto_label.setFont(QFont("Source Han Sans CN", self.text_font_size))
         self.auto_label.setStyleSheet("color: #FFFFFF;")
         self.auto_label.setCursor(Qt.PointingHandCursor)  # 设置手型光标
@@ -141,7 +141,7 @@ class QMRadioButton(QWidget):
         if self.slot_desc:
             main_layout.addWidget(self.slot_desc, 1)
         elif self.messages:
-            desc_label = SmartLabel(self.messages, self.messages_max_heiht)
+            desc_label = SmartLabel(self.messages, self.messages_max_widht)
             desc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             desc_label.setFont(QFont("Source Han Sans CN", self.messages_font_size))
             desc_label.setStyleSheet("color: #888888;")
