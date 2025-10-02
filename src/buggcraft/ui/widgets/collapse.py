@@ -22,7 +22,8 @@ class CollapsePanel(QWidget):
         is_collaspe=True,
         expand_icon_size=16,
         text_font_size=11,
-        messages_font_size=10
+        messages_font_size=10,
+        custom_button=None
     ):
         """
         初始化可折叠面板
@@ -39,6 +40,7 @@ class CollapsePanel(QWidget):
         :param expand_icon_size: 展开/折叠图标大小
         :param text_font_size: 标题字体大小
         :param messages_font_size: 描述字体大小
+        :param custom_button: 自定义按钮 (可选)
         """
         super().__init__(parent)
         self.title = title
@@ -52,6 +54,7 @@ class CollapsePanel(QWidget):
         self.expand_icon_size = expand_icon_size
         self.text_font_size = text_font_size
         self.messages_font_size = messages_font_size
+        self.custom_button = custom_button
         
         self.resource_path = parent.resource_path
         self.is_expanded = False  # 初始状态为折叠
@@ -116,6 +119,10 @@ class CollapsePanel(QWidget):
         
         # 添加标题容器到布局
         layout.addWidget(title_container, 1)
+        
+        # 添加自定义按钮
+        if self.custom_button:
+            layout.addWidget(self.custom_button)
         
         # 展开/折叠图标
         if self.is_collaspe:

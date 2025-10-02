@@ -1,5 +1,5 @@
 """设置
- - 全局设置
+ - 通用设置
 """
 import os
 from typing import Any
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class GeneralSettingsPages(QWidget):
-    """全局设置"""
+    """通用设置"""
 
     def __init__(self, parent):
         super().__init__(parent)

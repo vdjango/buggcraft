@@ -248,11 +248,33 @@ class SettingsPage(BasePage):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 隐藏垂直滚动条但保留滚动功能
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setStyleSheet("""
             QScrollArea {
                 background-color: transparent;
                 border: none;
+            }
+            
+            QScrollArea > QWidget > QWidget {
+                background-color: transparent;
+            }
+                                  
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
         """)
 
@@ -264,45 +286,14 @@ class SettingsPage(BasePage):
         main_layout.setStyleSheet("background-color: transparent;")
 
         layout = QVBoxLayout(main_layout)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 0)  
+        layout.setSpacing(10)   
+        layout.setContentsMargins(15, 15, 15, 15)   
         
         # 启动器更新 区域 - 使用可复用的CollapsePanel
-        # 创建主容器，使用边距来控制整体位置
         update_container = QWidget()
-        update_container.setContentsMargins(13, 0, 0, 0)  
         update_container_layout = QVBoxLayout(update_container)
         update_container_layout.setContentsMargins(0, 0, 0, 0)
-        update_container_layout.setSpacing(0)
-        
-        # 创建水平布局来放置标题和内容
-        update_main_layout = QHBoxLayout()
-        update_main_layout.setContentsMargins(0, 0, 0, 0)
-        update_main_layout.setSpacing(0)
-        
-        # 左侧标题区域 - 尺寸94x26px
-        title_widget = QWidget()
-        title_widget.setFixedSize(94, 26)
-        title_layout = QVBoxLayout(title_widget)
-        title_layout.setContentsMargins(0, 0, 0, 0)  
-        title_layout.setSpacing(0)
-        
-        # 标题标签
-        title_label = QLabel("启动器更新:")
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #f0f0f0;
-                font-size: 12px;
-                font-weight: bold;
-                text-align: left;
-                background-color: transparent;
-            }
-        """)
-        title_layout.addWidget(title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        
-        # 内容区域 - 距离标题左侧25px  
-        content_spacer = QWidget()
-        content_spacer.setFixedWidth(25)  
+        update_container_layout.setSpacing(0)  
         
         # 创建版本选择内容组件
         version_content_widget = self.create_version_selection_content()
@@ -340,113 +331,41 @@ class SettingsPage(BasePage):
             }
         """)
         
-        # 创建标题栏的自定义内容 
-        header_content_widget = QWidget()
-        header_content_layout = QHBoxLayout(header_content_widget)
-        header_content_layout.setContentsMargins(0, 0, 0, 0)
-        header_content_layout.setSpacing(0)
-        
-        # 版本信息标签
-        version_label = QLabel("发现更新 最新版本为：3.6.17")
-        version_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: bold;
-                background-color: transparent;
-            }
-        """)
-        
-        # 添加到标题栏布局 
-        header_content_layout.addWidget(version_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        header_content_layout.addWidget(QWidget())   
-        
-        # 使用CollapsePanel 折叠面板
+        # 使用CollapsePanel 折叠面板，并传入刷新按钮
         self.update_collapse_panel = CollapsePanel(
             parent=self,
-            title="",   
+            title="启动器更新",   
+            messages="发现更新 最新版本为：3.6.17",
             content=version_content_widget,
-            header_height=46,
+            header_height=60,
             content_height=90,  
             expand_icon_size=16,
             text_font_size=12,
-            messages_font_size=11
+            messages_font_size=11,
+            is_collaspe=True,
+            custom_button=refresh_btn
         )
-        
-        # 设置宽度
-        self.update_collapse_panel.setFixedWidth(508)
-        
-        # 自定义标题栏内容
-        self.update_collapse_panel.header.layout().insertWidget(0, header_content_widget, 1)
-        
-        # 创建包含分割线的容器
-        collapse_container = QWidget()
-        collapse_container.setFixedWidth(508)   
-        collapse_container_layout = QVBoxLayout(collapse_container)
-        collapse_container_layout.setContentsMargins(0, 0, 0, 0)
-        collapse_container_layout.setSpacing(0)
-        
-        # 添加CollapsePanel的header
-        collapse_container_layout.addWidget(self.update_collapse_panel.header)
-        
-
-        
-        # 添加CollapsePanel的content
-        collapse_container_layout.addWidget(self.update_collapse_panel.content)
         
         # 连接折叠状态变化信号来控制分割线显示
         self.update_collapse_panel.collapse_changed.connect(self.on_collapse_changed)
         
-        # 创建水平布局，将CollapsePanel和刷新按钮并排放置
-        collapse_with_button_layout = QHBoxLayout()
-        collapse_with_button_layout.setContentsMargins(0, 0, 0, 0)
-        collapse_with_button_layout.setSpacing(0)
-        
-        # 添加CollapsePanel容器
-        collapse_with_button_layout.addWidget(collapse_container)
-        
-        collapse_with_button_layout.addSpacing(-80)
-        
-        refresh_container = QWidget()
-        refresh_container_layout = QVBoxLayout(refresh_container)
-        refresh_container_layout.setContentsMargins(0, 10, 0, 0)   
-        refresh_container_layout.setSpacing(0)
-        refresh_container_layout.addWidget(refresh_btn)
-        refresh_container_layout.addStretch()  
-        
-        collapse_with_button_layout.addWidget(refresh_container, 0, Qt.AlignTop | Qt.AlignLeft)
-        collapse_with_button_layout.addStretch()
-        
-        # 组装主布局
-        update_main_layout.addWidget(title_widget, 0, Qt.AlignTop)   
-        update_main_layout.addWidget(content_spacer)
-        update_main_layout.addLayout(collapse_with_button_layout, 0)   
-        update_main_layout.addStretch()
-        
-        # 将水平布局添加到容器
-        update_container_layout.addLayout(update_main_layout)
-        
-        # 将容器添加到主布局
-        layout.addWidget(update_container)
-        
-        spacer_after_update = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        layout.addItem(spacer_after_update)
+        # 直接添加CollapsePanel到主布局，不使用水平布局
+        layout.addWidget(self.update_collapse_panel)
 
         # 2. 文件下载缓存区域 - 使用CollapsePanel
         
         # 创建缓存内容区域
         cache_content_widget = QWidget()
-        cache_content_widget.setFixedSize(508, 90)
         cache_content_widget.setStyleSheet("""
             QWidget {
-                background-color: #3E344F;
+                background-color: transparent;
                 border: none;
             }
         """)
         
         cache_content_layout = QVBoxLayout(cache_content_widget)
-        cache_content_layout.setContentsMargins(16, 0, 16, 10)  
-        cache_content_layout.setSpacing(10)
+        cache_content_layout.setContentsMargins(16, 2, 16, 10)  
+        cache_content_layout.setSpacing(8)
         
         # 默认缓存选项
         default_cache_layout = QHBoxLayout()
@@ -483,7 +402,7 @@ class SettingsPage(BasePage):
         default_path_label.setStyleSheet("""
             QLabel {
                 color: #AAAAAA;
-                font-size: 11px;
+                font-size: 13px;
                 background-color: transparent;
                 padding-left: 10px;
             }
@@ -530,7 +449,7 @@ class SettingsPage(BasePage):
                 border: 1px solid #555555;
                 border-radius: 4px;
                 color: #FFFFFF;
-                font-size: 11px;
+                font-size: 13px;
                 padding: 4px 8px;
                 min-width: 200px;
             }
@@ -581,52 +500,24 @@ class SettingsPage(BasePage):
         self.default_cache_checkbox.toggled.connect(self.on_cache_option_changed)
         self.custom_cache_checkbox.toggled.connect(self.on_cache_option_changed)
         
-        # 创建标题栏的自定义内容
-        cache_header_content_widget = QWidget()
-        cache_header_content_layout = QHBoxLayout(cache_header_content_widget)
-        cache_header_content_layout.setContentsMargins(0, 0, 0, 0)
-        cache_header_content_layout.setSpacing(0)
-        
-        # 路径信息标签 - 动态显示路径
-        self.cache_path_label = QLabel()
-        self.cache_path_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: bold;
-                background-color: transparent;
-            }
-        """)
-        
-        # 添加到标题栏布局
-        cache_header_content_layout.addWidget(self.cache_path_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        cache_header_content_layout.addWidget(QWidget())
+        # 获取当前缓存路径用于显示
+        current_cache_path = self.get_default_cache_path()
         
         # 使用CollapsePanel 折叠面板
         self.cache_collapse_panel = CollapsePanel(
             parent=self,
-            title="",
+            title="文件下载缓存",
+            messages=current_cache_path,
             content=cache_content_widget,
-            header_height=46,
+            header_height=60,
             content_height=90,
             expand_icon_size=16,
             text_font_size=12,
             messages_font_size=11
         )
         
-        # 设置宽度
-        self.cache_collapse_panel.setFixedWidth(508)
-        
-        # 调整CollapsePanel内容区域的上边距，减少与分割线的距离
-        content_area_layout = self.cache_collapse_panel.content.layout()
-        content_area_layout.setContentsMargins(15, 0, 15, 15) 
-        
-        # 自定义标题栏内容
-        self.cache_collapse_panel.header.layout().insertWidget(0, cache_header_content_widget, 1)
-        
         # 创建包含分割线的容器
         cache_collapse_container = QWidget()
-        cache_collapse_container.setFixedWidth(508)
         cache_collapse_container_layout = QVBoxLayout(cache_collapse_container)
         cache_collapse_container_layout.setContentsMargins(0, 0, 0, 0)
         cache_collapse_container_layout.setSpacing(0)
@@ -642,56 +533,12 @@ class SettingsPage(BasePage):
         # 连接折叠状态变化信号来控制分割线显示
         self.cache_collapse_panel.collapse_changed.connect(self.on_cache_collapse_changed)
         
-        # 创建标题
-        cache_title_widget = QWidget()
-        cache_title_widget.setFixedSize(94, 26)
-        cache_title_widget.setStyleSheet("""
-            QWidget {
-                background-color: transparent;
-            }
-        """)
-        
-        cache_title_layout = QVBoxLayout(cache_title_widget)
-        cache_title_layout.setContentsMargins(0, 0, 0, 0)   
-        cache_title_layout.setSpacing(0)
-        
-        cache_title_label = QLabel("文件下载缓存:")
-        cache_title_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: bold;
-                background-color: transparent;
-            }
-        """)
-        
-        cache_title_layout.addWidget(cache_title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        
-        cache_spacer = QWidget()
-        cache_spacer.setFixedWidth(22)
-        
-        # 创建水平布局，将标题和CollapsePanel并排放置
-        cache_with_title_layout = QHBoxLayout()
-        cache_with_title_layout.setContentsMargins(15, 0, 0, 0)
-        cache_with_title_layout.setSpacing(0)
-
-        # 添加标题
-        cache_with_title_layout.addWidget(cache_title_widget, 0, Qt.AlignTop | Qt.AlignLeft)
-        
-        cache_with_title_layout.addWidget(cache_spacer)
-
-        # 添加CollapsePanel容器
-        cache_with_title_layout.addWidget(cache_collapse_container)
-        cache_with_title_layout.addStretch()
-        
-        # 创建文件下载缓存的主布局
+        # 创建主布局，直接添加CollapsePanel容器
         cache_main_layout = QVBoxLayout()
-        cache_main_layout.setContentsMargins(0, 0, 0, 0)
+        cache_main_layout.setContentsMargins(13, 0, 0, 0)   
         cache_main_layout.setSpacing(0)
         
-        # 组装主布局
-        cache_main_layout.addLayout(cache_with_title_layout, 0)
-        cache_main_layout.addStretch()
+        cache_main_layout.addWidget(cache_collapse_container)
         
         # 添加到下载页面布局
         cache_container = QWidget()
@@ -701,216 +548,107 @@ class SettingsPage(BasePage):
         cache_container_layout.addLayout(cache_main_layout)
         
         layout.addWidget(cache_container)
-        
-        spacer_after_cache = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        layout.addItem(spacer_after_cache)
 
-        # 3. 语言设置区域 - 使用CollapsePanel 
+        # 3. 语言设置区域 - 使用CollapsePanel组件
         
-        # 创建语言设置内容区域
         language_content_widget = QWidget()
-        language_content_widget.setFixedSize(508, 50)
         language_content_widget.setStyleSheet("""
             QWidget {
-                background-color: #3E344F;
+                background-color: transparent;
                 border: none;
             }
         """)
         
         language_content_layout = QVBoxLayout(language_content_widget)
-        language_content_layout.setContentsMargins(16, 10, 16, 10)
-        language_content_layout.setSpacing(10)
+        language_content_layout.setContentsMargins(16, 0, 16, 10)  
+        language_content_layout.setSpacing(0)
+        
+        # 创建"跟随系统语言"选择框布局（作为二级标题）
+        follow_system_layout = QHBoxLayout()
+        follow_system_layout.setContentsMargins(0, 0, 0, 0)
+        follow_system_layout.setSpacing(0)
         
         # 语言选择下拉框
         self.language_combo = QComboBox()
         self.language_combo.addItems(["跟随系统语言", "简体中文", "繁体中文", "English"])
-        self.language_combo.setCurrentText("简体中文")  # 默认选中简体中文
+        self.language_combo.setCurrentText("跟随系统语言")  # 默认选中跟随系统语言
+        self.language_combo.setFixedSize(140, 29)   
         self.language_combo.setStyleSheet("""
             QComboBox {
-                background-color: #4A90E2;
-                border: 1px solid #4A90E2;
-                border-radius: 4px;
-                padding: 8px;
+                background-color: transparent;
                 color: #FFFFFF;
-                font-size: 12px;
-                min-width: 200px;
-            }
-            QComboBox:hover {
-                background-color: #5BA0F2;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
             }
             QComboBox::drop-down {
                 border: none;
                 width: 20px;
             }
             QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #FFFFFF;
-                margin-right: 5px;
+                image: url(resources/icons/dropdown_arrow.png);
+                width: 12px;
+                height: 12px;
             }
             QComboBox QAbstractItemView {
-                background-color: rgba(60, 60, 60, 0.95);
-                border: 1px solid #555;
-                selection-background-color: #4A90E2;
+                background-color: #2A2A2A;
                 color: #FFFFFF;
+                border: 1px solid #555555;
+                selection-background-color: #3A3A3A;
+                font-size: 13px;
             }
         """)
         
-        language_content_layout.addWidget(self.language_combo, 0, Qt.AlignLeft)
+        follow_system_layout.addWidget(self.language_combo, 0, Qt.AlignLeft)
+        follow_system_layout.addStretch()
         
-        # 创建标题栏内容（只包含下拉框，不显示左侧文字）
-        language_header_content_widget = QWidget()
-        language_header_content_widget.setStyleSheet("""
-            QWidget {
-                background-color: transparent;
-            }
-        """)
+        language_content_layout.addLayout(follow_system_layout)
         
-        language_header_content_layout = QHBoxLayout(language_header_content_widget)
-        language_header_content_layout.setContentsMargins(10, 0, 0, 0)   
-        language_header_content_layout.setSpacing(0)
-        
-        # 语言选择下拉框（内嵌在标题栏中）
-        self.language_combo_in_header = QComboBox()
-        self.language_combo_in_header.setFixedSize(187, 26)   
-        self.language_combo_in_header.addItems(["跟随系统语言", "简体中文", "繁体中文", "English"])  # 更新选项列表
-        self.language_combo_in_header.setCurrentText("跟随系统语言")   
-        
-        # 初始化下拉框样式（默认显示expand.png）
-        self.update_language_combo_style(False)
-        
-        # 连接下拉框的显示/隐藏事件来切换图标
-        self.language_combo_in_header.showPopup = self.on_language_combo_show_popup
-        self.language_combo_in_header.hidePopup = self.on_language_combo_hide_popup
-        
-        # 添加到标题栏布局 
-        language_header_content_layout.addWidget(self.language_combo_in_header, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        language_header_content_layout.addStretch()  
-        
-        # 使用CollapsePanel样式但隐藏折叠按钮
+        # 创建CollapsePanel
         self.language_collapse_panel = CollapsePanel(
             parent=self,
-            title="",
+            title="语言(重启后生效)",
             content=language_content_widget,
-            header_height=46,
+            header_height=60,
             content_height=50,
-            expand_icon_size=0,  
+            expand_icon_size=16,
             text_font_size=12,
             messages_font_size=11
         )
         
         # 设置宽度
-        self.language_collapse_panel.setFixedWidth(508)
-        
-        # 自定义标题栏内容
-        self.language_collapse_panel.header.layout().insertWidget(0, language_header_content_widget, 1)
-        
-        # 隐藏折叠图标
-        self.language_collapse_panel.expand_icon.hide()
-        
-        # 禁用点击切换功能
-        self.language_collapse_panel.header.mousePressEvent = lambda event: None
-        
-        # 创建包含分割线的容器
-        language_collapse_container = QWidget()
-        language_collapse_container.setFixedWidth(508)
-        language_collapse_container_layout = QVBoxLayout(language_collapse_container)
-        language_collapse_container_layout.setContentsMargins(0, 0, 0, 0)
-        language_collapse_container_layout.setSpacing(0)
-        
-        # 添加CollapsePanel的header
-        language_collapse_container_layout.addWidget(self.language_collapse_panel.header)
-        
-        # 创建分割线（在header和content之间）
-        self.language_divider = QFrame()
-        self.language_divider.setFrameShape(QFrame.HLine)
-        self.language_divider.setStyleSheet("background-color: #FFFFFF;")
-        self.language_divider.setFixedHeight(1)
-        self.language_divider.setFixedWidth(508)
-        self.language_divider.hide()  
-        language_collapse_container_layout.addWidget(self.language_divider)
-        
-        # 添加CollapsePanel的content
-        language_collapse_container_layout.addWidget(self.language_collapse_panel.content)
-        
-        # 连接折叠状态变化信号来控制分割线显示
+        # 连接折叠状态变化信号
         self.language_collapse_panel.collapse_changed.connect(self.on_language_collapse_changed)
         
-        # 连接语言选择变化信号来更新功能（使用标题栏中的下拉框）
-        self.language_combo_in_header.currentTextChanged.connect(self.on_language_changed)
-        
-        # 创建标题
-        language_title_widget = QWidget()
-        language_title_widget.setFixedSize(110, 26)
-        language_title_widget.setStyleSheet("""
-            QWidget {
-                background-color: transparent;
-            }
-        """)
-        
-        language_title_layout = QVBoxLayout(language_title_widget)
-        language_title_layout.setContentsMargins(0, 0, 0, 0)   
-        language_title_layout.setSpacing(0)
-        
-        language_title_label = QLabel("语言(重启后生效):")
-        language_title_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: bold;
-                background-color: transparent;
-            }
-        """)
-        
-        language_title_layout.addWidget(language_title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        
-        language_spacer = QWidget()
-        language_spacer.setFixedWidth(5)
-        
-        # 创建水平布局，将标题和CollapsePanel并排放置
-        language_with_title_layout = QHBoxLayout()
-        language_with_title_layout.setContentsMargins(15, 0, 0, 0)
-        language_with_title_layout.setSpacing(0)
-
-        # 添加标题
-        language_with_title_layout.addWidget(language_title_widget, 0, Qt.AlignTop | Qt.AlignLeft)
-        
-        language_with_title_layout.addWidget(language_spacer)
-
-        # 添加CollapsePanel容器
-        language_with_title_layout.addWidget(language_collapse_container)
-        language_with_title_layout.addStretch()
+        # 连接语言选择变化信号
+        self.language_combo.currentTextChanged.connect(self.on_language_changed)
         
         # 创建语言设置的主布局
         language_main_layout = QVBoxLayout()
-        language_main_layout.setContentsMargins(0, 0, 0, 0)
-        language_main_layout.setSpacing(0)
+        language_main_layout.setContentsMargins(15, 15, 15, 15)
+        language_main_layout.setSpacing(10)
         
-        # 组装主布局
-        language_main_layout.addLayout(language_with_title_layout, 0)
+        # 直接添加CollapsePanel
+        language_main_layout.addWidget(self.language_collapse_panel)
         language_main_layout.addStretch()
         
-        # 添加到下载页面布局
+        # 添加到语言页面布局
         language_container = QWidget()
         language_container_layout = QVBoxLayout(language_container)
-        language_container_layout.setContentsMargins(0, 0, 0, 0)   
+        language_container_layout.setContentsMargins(0, 0, 0, 0)
         language_container_layout.setSpacing(0)
         language_container_layout.addLayout(language_main_layout)
         
         layout.addWidget(language_container)
-        
-        spacer_after_language = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        layout.addItem(spacer_after_language)
 
         # 4. 下载源设置区域 - 使用CollapsePanel重新设计
         
         # 创建下载源内容区域
         download_source_content_widget = QWidget()
-        download_source_content_widget.setFixedSize(508, 120)
         download_source_content_widget.setStyleSheet("""
             QWidget {
-                background-color: #3E344F;
+                background-color: transparent;
                 border: none;
             }
         """)
@@ -1003,19 +741,13 @@ class SettingsPage(BasePage):
         bmclapi_layout.addStretch()
         download_source_content_layout.addLayout(bmclapi_layout)
         
-        # 创建标题栏内容（显示当前选择的下载源）
-        download_source_header_content_widget = QWidget()
-        download_source_header_content_layout = QHBoxLayout(download_source_header_content_widget)
-        download_source_header_content_layout.setContentsMargins(0, 0, 0, 0)
-        download_source_header_content_layout.setSpacing(10)
-        
         # 构建选中和未选中状态图片的完整路径
         selected_image_path = os.path.join(self.resource_path, 'images', 'version', 'selected1.png')
         unselected_image_path = os.path.join(self.resource_path, 'images', 'version', 'not-selected1.png')
         selected_image_path = selected_image_path.replace('\\', '/')
         unselected_image_path = unselected_image_path.replace('\\', '/')
         
-        # 在header左边添加单选框按钮
+        # 创建自动选择下载源的单选框
         self.header_auto_select_checkbox = QRadioButton("自动选择下载源")
         self.header_auto_select_checkbox.setChecked(True)
         self.header_auto_select_checkbox.setStyleSheet(f"""
@@ -1044,97 +776,40 @@ class SettingsPage(BasePage):
             }}
         """)
         
-        # 添加到标题栏布局
-        download_source_header_content_layout.addWidget(self.header_auto_select_checkbox, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        download_source_header_content_layout.addWidget(QWidget())
+        # 将单选框添加到内容区域的顶部
+        auto_select_layout = QHBoxLayout()
+        auto_select_layout.setContentsMargins(0, 0, 0, 0)
+        auto_select_layout.setSpacing(0)
+        auto_select_layout.addWidget(self.header_auto_select_checkbox, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        auto_select_layout.addStretch()
+        
+        # 在内容区域顶部插入单选框
+        download_source_content_layout.insertLayout(0, auto_select_layout)
         
         # 使用CollapsePanel 折叠面板
         self.download_source_collapse_panel = CollapsePanel(
             parent=self,
-            title="",
+            title="下载源",
             content=download_source_content_widget,
-            header_height=46,
-            content_height=120,
+            header_height=60,
+            content_height=140,  
             expand_icon_size=16,
             text_font_size=12,
             messages_font_size=11
         )
         
-        # 设置宽度
-        self.download_source_collapse_panel.setFixedWidth(508)
-        
-        # 自定义标题栏内容
-        self.download_source_collapse_panel.header.layout().insertWidget(0, download_source_header_content_widget, 1)
-        
-        # 创建包含分割线的容器
-        download_source_collapse_container = QWidget()
-        download_source_collapse_container.setFixedWidth(508)
-        download_source_collapse_container_layout = QVBoxLayout(download_source_collapse_container)
-        download_source_collapse_container_layout.setContentsMargins(0, 0, 0, 0)
-        download_source_collapse_container_layout.setSpacing(0)
-        
-        # 添加CollapsePanel的header
-        download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.header)
-        
-
-        
-        # 添加CollapsePanel的content
-        download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.content)
-        
         # 连接折叠状态变化信号来控制分割线显示
         self.download_source_collapse_panel.collapse_changed.connect(self.on_download_source_collapse_changed)
         
-        # 创建标题
-        download_source_title_widget = QWidget()
-        download_source_title_widget.setFixedSize(94, 26)
-        download_source_title_widget.setStyleSheet("""
-            QWidget {
-                background-color: transparent;
-            }
-        """)
-        
-        download_source_title_layout = QVBoxLayout(download_source_title_widget)
-        download_source_title_layout.setContentsMargins(0, 0, 0, 0)   
-        download_source_title_layout.setSpacing(0)
-        
-        download_source_title_label = QLabel("下载源:")
-        download_source_title_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: bold;
-                background-color: transparent;
-            }
-        """)
-        
-        download_source_title_layout.addWidget(download_source_title_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        
-        download_source_spacer = QWidget()
-        download_source_spacer.setFixedWidth(22)
-        
-        # 创建水平布局，将标题和CollapsePanel并排放置
-        download_source_with_title_layout = QHBoxLayout()
-        download_source_with_title_layout.setContentsMargins(15, 0, 0, 0)
-        download_source_with_title_layout.setSpacing(0)
-
-        # 添加标题
-        download_source_with_title_layout.addWidget(download_source_title_widget, 0, Qt.AlignTop | Qt.AlignLeft)
-        
-        download_source_with_title_layout.addWidget(download_source_spacer)
-
-        # 添加CollapsePanel容器
-        download_source_with_title_layout.addWidget(download_source_collapse_container)
-        download_source_with_title_layout.addStretch()
-        
         # 创建下载源设置的主布局
         download_source_main_layout = QVBoxLayout()
-        download_source_main_layout.setContentsMargins(0, 0, 0, 0)
-        download_source_main_layout.setSpacing(0)
+        download_source_main_layout.setContentsMargins(15, 15, 15, 15)
+        download_source_main_layout.setSpacing(10)
         
-        
-        # 组装主布局
-        download_source_main_layout.addLayout(download_source_with_title_layout, 0)
-        download_source_main_layout.addStretch()
+        # 直接添加CollapsePanel
+        download_source_main_layout.addWidget(self.download_source_collapse_panel)
+     
+        download_source_main_layout.addStretch(1)
         
         # 添加到下载页面布局
         download_source_container = QWidget()
@@ -1145,7 +820,8 @@ class SettingsPage(BasePage):
         
         layout.addWidget(download_source_container)
         
-        spacer_after_download_source = QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        # 增加底部空间，为展开内容提供足够空间
+        spacer_after_download_source = QSpacerItem(0, 200, QSizePolicy.Minimum, QSizePolicy.Expanding)
         layout.addItem(spacer_after_download_source)
        
 
@@ -1554,6 +1230,11 @@ class SettingsPage(BasePage):
         返回包含版本选择功能的QWidget
         """
         content_widget = QWidget()
+        content_widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
+        """)
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(15, 5, 15, 8)  
         content_layout.setSpacing(5)  
@@ -1666,12 +1347,11 @@ class SettingsPage(BasePage):
             self.update_cache_path_display()
     
     def on_language_collapse_changed(self, is_expanded):
-        """处理语言CollapsePanel折叠状态变化，控制分割线显示"""
-        self.language_divider.setVisible(is_expanded)
+        """处理语言CollapsePanel折叠状态变化"""
+        pass
     
     def on_language_changed(self, text):
         """处理语言选择变化"""
-        # 由于下拉框已经嵌入到标题栏中，不需要更新其他标签
         # 这里可以添加语言切换的实际逻辑
         print(f"语言已切换为: {text}")
     
@@ -1749,15 +1429,15 @@ class SettingsPage(BasePage):
         if self.default_cache_checkbox.isChecked():
             # 显示默认路径
             default_path = self.get_default_cache_path()
-            self.cache_path_label.setText(default_path)
+            self.cache_collapse_panel.set_messages(default_path)
         elif self.custom_cache_checkbox.isChecked():
             # 显示自定义路径
             custom_path = self.custom_cache_path.text()
-            self.cache_path_label.setText(custom_path)
+            self.cache_collapse_panel.set_messages(custom_path)
         else:
             # 如果都没选中，显示默认路径
             default_path = self.get_default_cache_path()
-            self.cache_path_label.setText(default_path)
+            self.cache_collapse_panel.set_messages(default_path)
     
     def on_cache_option_changed(self):
         """处理缓存选项变化"""
