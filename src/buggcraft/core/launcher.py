@@ -21,6 +21,7 @@ from config.settings import get_settings_manager
 
 logger = logging.getLogger(__name__)
 
+
 class MinecraftSignals(QObject):
     """Minecraft 信号类"""
     output = Signal(str)
@@ -101,15 +102,18 @@ class MinecraftLibLauncher(QObject):
         self.stopping = False
         self.output_thread = None
         self.start_thread = None
+        
         self.minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
-        self.language = "zh_cn"  # 默认语言
-        self.version = self.settings_manager.get_setting('minecraft.version.enable')
-        self.username = "Player"
-        self.server = None
-        self.memory = 4096
-        self.width = 854
-        self.height = 480
-        self.fullscreen = False  # 最大化
+        self.minecraft_isolation_directory = self.settings_manager.get_minecraft_isolation_directory()
+        self.minecraft_version = self.settings_manager.get_setting('minecraft.version.enable')
+        
+        self.minecraft_username = "Player"
+        self.minecraft_language = "zh_cn"  # 默认语言
+        self.minecraft_server = None
+        self.minecraft_memory = 2048
+        self.minecraft_width = 854
+        self.minecraft_height = 480
+        self.minecraft_fullscreen = False  # 最大化
 
         self.languages = {
             "English": "en_us",
@@ -125,13 +129,12 @@ class MinecraftLibLauncher(QObject):
     
     def set_language(self, language='简体中文'):
         """设置游戏语言"""
-        self.language = self.languages[language]
+        self.minecraft_language = self.languages[language]
 
     def set_options(self,
-        minecraft_directory=None,
-        version=None,
         uuid=None,
         username="Player",
+        version=None,
         token=None,
         server=None,
         memory=4096,
@@ -151,15 +154,14 @@ class MinecraftLibLauncher(QObject):
             fullscreen (bool, optional): 是否以全屏模式启动游戏。默认为 False。
         """
         self.uuid = uuid
-        self.username = username
+        self.minecraft_username = username
         self.token = token
-        self.server = server
-        self.memory = memory
-        self.width = width
-        self.height = height
-        self.fullscreen = fullscreen
-        self.version = version
-        
+        self.minecraft_server = server
+        self.minecraft_memory = memory
+        self.minecraft_width = width
+        self.minecraft_height = height
+        self.minecraft_fullscreen = fullscreen
+        self.minecraft_version = version
 
     def start(self):
         """启动 Minecraft 游戏"""
@@ -181,7 +183,7 @@ class MinecraftLibLauncher(QObject):
         """在工作线程中启动游戏"""
         try:
             self.minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
-            self.version = self.settings_manager.get_setting('minecraft.version.enable')
+            self.minecraft_version = self.settings_manager.get_setting('minecraft.version.enable')
             
             # 准备启动环境
             if not os.path.exists(self.minecraft_directory):
@@ -190,11 +192,11 @@ class MinecraftLibLauncher(QObject):
             # 确保游戏语言设置文件正确配置
             self._ensure_language_setting()
 
-            java_path = self.settings_manager.get_setting("java.path", None)
-            memory = self.settings_manager.get_setting("memory.allocation", "自动选择合适的Java")
-            launch_jvm_args: str = self.settings_manager.get_setting('game.launch_jvm_args', "").split()
-            launch_args: str = self.settings_manager.get_setting('game.launch_args', "").split()
-            launch_pre_command: str = self.settings_manager.get_setting('game.launch_pre_command', "").split()
+            java_path = self.settings_manager.get_version_setting("java.path", None)
+            memory = self.settings_manager.get_version_setting("memory.allocation", "自动选择合适的Java")
+            launch_jvm_args: str = self.settings_manager.get_version_setting('game.launch_jvm_args', "").split()
+            launch_args: str = self.settings_manager.get_version_setting('game.launch_args', "").split()
+            launch_pre_command: str = self.settings_manager.get_version_setting('game.launch_pre_command', "").split()
 
             logger.info(f'[JavaRunTime] -> {java_path}')
         
@@ -220,10 +222,10 @@ class MinecraftLibLauncher(QObject):
             # 准备通用设置
             options = {
                 "executablePath": java_path,
-                "username": self.username,
-                "server": self.server,
-                "gameDirectory": self.minecraft_directory,
-                "version": self.version,
+                "username": self.minecraft_username,
+                "server": self.minecraft_server,
+                "gameDirectory": self.minecraft_isolation_directory,
+                "version": self.minecraft_version,
                 "jvmArguments": list(set(jvmArguments)),
                 "launcherName": "BuggCraft Launcher",
                 "launcherVersion": "1.0",
@@ -233,14 +235,14 @@ class MinecraftLibLauncher(QObject):
 
             if self.token:
                 options['token'] = self.token
-                self.signals.output.emit(f"使用离线账户: {self.username}")
+                self.signals.output.emit(f"使用离线账户: {self.minecraft_username}")
 
-            if self.server: self.signals.output.emit(f"连接服务器: {self.server}")
+            if self.minecraft_server: self.signals.output.emit(f"连接服务器: {self.minecraft_server}")
             
             # 安装游戏库文件
             self.signals.output.emit("正在安装游戏库文件...")
             minecraft_launcher_lib.install.install_minecraft_version(
-                self.version, 
+                self.minecraft_version, 
                 self.minecraft_directory,
                 callback={
                     "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
@@ -251,15 +253,15 @@ class MinecraftLibLauncher(QObject):
 
             # 获取启动命令
             command: list[str] = minecraft_launcher_lib.command.get_minecraft_command(
-                self.version, 
+                self.minecraft_version, 
                 self.minecraft_directory,
                 options
             )
-
+            
             # 设置窗口大小
-            if not self.fullscreen:
-                size = ['--width', str(self.width), '--height', str(self.height)]
-                if self.width is not None and self.height is not None:
+            if not self.minecraft_fullscreen:
+                size = ['--width', str(self.minecraft_width), '--height', str(self.minecraft_height)]
+                if self.minecraft_width is not None and self.minecraft_height is not None:
                     for i in size:
                         command.append(i)
             else:
@@ -283,8 +285,8 @@ class MinecraftLibLauncher(QObject):
             # 创建环境变量副本
             env = os.environ.copy()
             # 设置环境变量确保使用UTF-8
-            env['LANG'] = self.language + '.UTF-8'
-            env['LC_ALL'] = self.language + '.UTF-8'
+            env['LANG'] = self.minecraft_language + '.UTF-8'
+            env['LC_ALL'] = self.minecraft_language + '.UTF-8'
             env['JAVA_OPTS'] = '-Dfile.encoding=UTF-8'
 
             try:
@@ -315,7 +317,7 @@ class MinecraftLibLauncher(QObject):
 
             # 获取用户在你的 ComboBox 中选择的优先级文本
             # 假设你有一个方法来获取设置，例如从你的设置管理器
-            priority_setting = self.settings_manager.get_setting("launcher.process_priority") # 例如返回 "高 (优先保证游戏运行，但可能造成其他程序卡顿)"
+            priority_setting = self.settings_manager.get_version_setting("launcher.process_priority") # 例如返回 "高 (优先保证游戏运行，但可能造成其他程序卡顿)"
 
             # 根据用户选择映射到系统的优先级值
             # 注意：psutil 的优先级常量在不同系统上可能不同，以下是一个通用映射尝试
@@ -360,7 +362,7 @@ class MinecraftLibLauncher(QObject):
 
     def _ensure_language_setting(self):
         """确保游戏语言设置文件正确配置"""
-        options_file = os.path.join(self.minecraft_directory, "options.txt")
+        options_file = os.path.join(self.settings_manager.get_minecraft_isolation_directory(), "options.txt")
         
         try:
             # 读取现有选项
@@ -373,14 +375,14 @@ class MinecraftLibLauncher(QObject):
                             options[key.strip()] = value.strip()
             
             # 强制设置语言选项
-            options['lang'] = self.language
+            options['lang'] = self.minecraft_language
             
             # 写入新选项
             with open(options_file, 'w', encoding='utf-8') as f:
                 for key, value in options.items():
                     f.write(f"{key}:{value}\n")
             
-            self.signals.output.emit(f"已设置游戏语言: {self.language}")
+            self.signals.output.emit(f"已设置游戏语言: {self.minecraft_language}")
         except Exception as e:
             self.signals.error.emit(f"设置游戏语言时出错: {str(e)}")
 
@@ -388,7 +390,7 @@ class MinecraftLibLauncher(QObject):
         """处理输出消息"""
         # 检查语言设置是否生效
         if "Setting user: " in message:
-            self.signals.output.emit(f"语言设置: {self.language}")
+            self.signals.output.emit(f"语言设置: {self.minecraft_language}")
         
         # 发送消息
         if is_stdout:

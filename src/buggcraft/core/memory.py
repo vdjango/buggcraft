@@ -1,7 +1,7 @@
 import os
 import psutil
 import math
-
+from config.settings import SettingsManager
 
 class MemoryRecommender:
     """内存推荐器"""
@@ -100,7 +100,7 @@ class AdvancedMemoryRecommender(MemoryRecommender):
     
     def __init__(self, settings_manager):
         super().__init__()
-        self.settings_manager = settings_manager
+        self.settings_manager: SettingsManager = settings_manager
     
     def _minecraft_optimized(self, memory_mb):
         """Minecraft优化 - 增强版"""
@@ -128,16 +128,16 @@ class AdvancedMemoryRecommender(MemoryRecommender):
     def _is_modded(self):
         """检测是否为模组版"""
         # 检查mods文件夹
-        minecraft_dir = self.settings_manager.get_setting("minecraft.directory.enable", "")
+        minecraft_dir = self.settings_manager.get_minecraft_isolation_directory()
         if not minecraft_dir:
             return False
-            
+        
         mods_dir = os.path.join(minecraft_dir, "mods")
         return os.path.exists(mods_dir) and any(os.scandir(mods_dir))
     
     def _is_high_version(self):
         """检测是否为高版本（1.13+）"""
-        version = self.settings_manager.get_setting("minecraft.version", "1.12.2")
+        version = self.settings_manager.get_setting("minecraft.version.enable", None)
         print('version', version)
         try:
             parts = version.split('.')
@@ -149,7 +149,7 @@ class AdvancedMemoryRecommender(MemoryRecommender):
     
     def _performance_mode(self):
         """性能模式因子"""
-        mode = self.settings_manager.get_setting("performance.mode", "balanced")
+        mode = self.settings_manager.get_version_setting("performance.mode", "balanced")
         if mode == "high_performance":
             return 1.1
         elif mode == "power_saving":
@@ -158,7 +158,7 @@ class AdvancedMemoryRecommender(MemoryRecommender):
     
     def _modpack_optimization(self, memory_mb):
         """特定整合包优化"""
-        modpack = self.settings_manager.get_setting("modpack.name", "").lower()
+        modpack = self.settings_manager.get_version_setting("modpack.name", "").lower()
         if "all the mods" in modpack:
             return max(memory_mb, 6144)  # ATM至少6GB
         elif "rlcraft" in modpack:
