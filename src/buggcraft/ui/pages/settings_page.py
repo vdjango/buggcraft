@@ -104,6 +104,14 @@ class SettingsPage(BasePage):
         )
         tab_buttons_layout.addWidget(self.general_tab_btn, 0, Qt.AlignCenter)
         
+        # 游戏全局设置按钮
+        self.global_tab_btn = self.create_tab_button(
+            "全局设置",
+            self.global_tab_btn_clicked,
+            size=(155, 44), font_size=10
+        )
+        tab_buttons_layout.addWidget(self.global_tab_btn, 0, Qt.AlignCenter)
+        
         # Java管理按钮
         self.java_tab_btn = self.create_tab_button(
             "Java管理",
@@ -111,14 +119,6 @@ class SettingsPage(BasePage):
             size=(155, 44), font_size=10
         )
         tab_buttons_layout.addWidget(self.java_tab_btn, 0, Qt.AlignCenter)
-        
-        # 下载按钮
-        self.download_tab_btn = self.create_tab_button(
-            "下载",
-            self.download_tab_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.download_tab_btn, 0, Qt.AlignCenter)
         
         # 关于按钮
         self.about_tab_btn = self.create_tab_button(
@@ -152,10 +152,10 @@ class SettingsPage(BasePage):
         """更新选项卡按钮样式 """
         if tab_name == "通用设置":
             btn = self.general_tab_btn
+        elif tab_name == "全局设置":
+            btn = self.global_tab_btn
         elif tab_name == "Java管理":
             btn = self.java_tab_btn
-        elif tab_name == "下载":
-            btn = self.download_tab_btn
         elif tab_name == "关于":
             btn = self.about_tab_btn
         else:
@@ -173,32 +173,33 @@ class SettingsPage(BasePage):
         """通用设置按钮点击事件"""
         self.settings_stack.setCurrentIndex(0)
         self.update_tab_button_style("通用设置", True)
+        self.update_tab_button_style("全局设置", False)
         self.update_tab_button_style("Java管理", False)
-        self.update_tab_button_style("下载", False)
+        
         self.update_tab_button_style("关于", False)
 
     def java_tab_btn_clicked(self):
         """Java管理按钮点击事件"""
         self.settings_stack.setCurrentIndex(1)
         self.update_tab_button_style("通用设置", False)
+        self.update_tab_button_style("全局设置", False)
         self.update_tab_button_style("Java管理", True)
-        self.update_tab_button_style("下载", False)
         self.update_tab_button_style("关于", False)
 
-    def download_tab_btn_clicked(self):
-        """下载按钮点击事件"""
+    def global_tab_btn_clicked(self):
+        """全局设置按钮点击事件"""
         self.settings_stack.setCurrentIndex(2)
         self.update_tab_button_style("通用设置", False)
+        self.update_tab_button_style("全局设置", True)
         self.update_tab_button_style("Java管理", False)
-        self.update_tab_button_style("下载", True)
         self.update_tab_button_style("关于", False)
 
     def about_tab_btn_clicked(self):
         """关于按钮点击事件"""
         self.settings_stack.setCurrentIndex(3)
         self.update_tab_button_style("通用设置", False)
+        self.update_tab_button_style("全局设置", False)
         self.update_tab_button_style("Java管理", False)
-        self.update_tab_button_style("下载", False)
         self.update_tab_button_style("关于", True)
 
     def paintEvent(self, event):
