@@ -16,8 +16,6 @@ from config.settings import get_settings_manager
 from config.javafinder import JavaPathFinder
 from core.visibility import VisibilitySettings
 from ui.widgets.collapse import CollapsePanel
-from ui.pages.settings import GeneralSettingsPages
-
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,15 +30,11 @@ class SettingsPage(BasePage):
     
     def __init__(self, parent=None, config_path=None, resource_path=None, scale_ratio=1.0, ):
         super().__init__(parent, config_path, resource_path, scale_ratio)
-        self.cache_path = parent.cache_path
-        self.resource_path = parent.resource_path
+        # self.settings_manager = get_settings_manager(self.parent.config_path)  # 获取配置管理器
         
-        self.settings_manager = get_settings_manager(self.parent.config_path)  # 获取配置管理器
-        
-        self.general_page = GeneralSettingsPages(self)
         self.init_ui()
         # self.load_settings_to_ui()  # 加载设置 - 方法不存在，暂时注释
-        # self.load_cache_settings()  # 加载缓存设置
+        self.load_cache_settings()  # 加载缓存设置
 
     def on_page_activate(self):
         """当页面被激活时调用"""
@@ -73,39 +67,8 @@ class SettingsPage(BasePage):
         
         # 如果图标不存在，返回空图标
         return QIcon()
-    
+        
     def init_ui(self):
-        """初始化用户界面"""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # 创建选项卡容器
-        self.tab_container = QWidget()
-        tab_container_layout = QHBoxLayout(self.tab_container)
-        tab_container_layout.setContentsMargins(15, 0, 15, 25)
-        
-        # 创建选项卡按钮区域
-        self.tab_buttons_widget = self.create_tab_buttons()
-        # self.tab_buttons_widget.setStyleSheet("background-color: #225500;")
-
-        # 右侧堆叠内容
-        self.settings_stack = QStackedWidget()
-        self.settings_stack.setFixedWidth(926 - 178 - 62)
-        self.settings_stack.setContentsMargins(0, 0, 0, 0)
-        # self.settings_stack.setStyleSheet("background-color: #552299;")
-
-        tab_container_layout.addWidget(self.tab_buttons_widget)
-        tab_container_layout.addSpacing(22)
-        tab_container_layout.addWidget(self.settings_stack)
-        
-        # 版本列表/版本设置
-        self.settings_stack.addWidget(self.general_page)
-        # self.settings_stack.addWidget(self.settings_page)
-
-        main_layout.addWidget(self.tab_container)
-        
-    def init_uix(self):
         """初始化UI"""
         # 创建主布局
         main_layout = QVBoxLayout(self)
@@ -280,9 +243,6 @@ class SettingsPage(BasePage):
         self.update_tab_button_style("关于", True)
     
     def create_launch_settings(self):
-        pass
-    
-    def create_launch_settingsx(self):
         """创建通用设置设置页面"""
         # 创建滚动区域以容纳所有设置
         scroll_area = QScrollArea()
@@ -328,7 +288,7 @@ class SettingsPage(BasePage):
         title_layout.setSpacing(0)
         
         # 标题标签
-        title_label = QLabel("启动器更新")
+        title_label = QLabel("启动器更新:")
         title_label.setStyleSheet("""
             QLabel {
                 color: #f0f0f0;
@@ -1557,7 +1517,10 @@ class SettingsPage(BasePage):
             logger.info("所有设置已保存")
         else:
             logger.info("保存设置失败")
-    
+           
+            
+
+
     def paintEvent(self, event):
         """重绘事件 - 绘制背景图片与主窗口渲染方式一致"""
         if self.bg_image:
