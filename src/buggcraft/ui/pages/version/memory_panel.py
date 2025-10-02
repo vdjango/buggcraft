@@ -30,9 +30,7 @@ class MemorySettingsPanel(QWidget):
         self.memory_recommender = AdvancedMemoryRecommender(self.settings_manager)
         self.is_disabled = True
         self.init_ui()
-
-        auto_allocate_memory = self.settings_manager.get_setting("minecraft.auto_allocate_memory", True)
-        self.auto_isolation.set_selected(auto_allocate_memory)
+        self.load_default()
         
         # 初始化内存值
         self.update_memory_values()
@@ -200,7 +198,7 @@ class MemorySettingsPanel(QWidget):
         available_memory = mem.available // (1024 * 1024)
         
         # 获取设置中的内存分配值/更新内存显示
-        allocated_memory = self.settings_manager.get_setting("memory.allocation", 2048)
+        allocated_memory = self.settings_manager.get_version_setting("memory.allocation", 2048)
         self.update_memory_display(allocated_memory, used_memory, total_memory, available_memory)
 
         # 设置滑块范围/滑块值/更新进度条
@@ -241,7 +239,7 @@ class MemorySettingsPanel(QWidget):
         
         # 更新进度条/保存设置
         self.memory_progress.set_allocated_memory(value)
-        self.settings_manager.set_setting("memory.allocation", value)
+        self.settings_manager.set_version_setting("memory.allocation", value)
         self.settings_manager.save_settings()
         
         # 更新内存显示
@@ -253,7 +251,7 @@ class MemorySettingsPanel(QWidget):
         
         # 禁用或启用内存设置组件
         self.memory_container.setEnabled(not enabled)
-        self.settings_manager.set_setting("minecraft.auto_allocate_memory", enabled)
+        self.settings_manager.set_version_setting("minecraft.auto_allocate_memory", enabled)
 
         # 如果是自动分配，计算并设置内存值
         if enabled:
@@ -261,7 +259,7 @@ class MemorySettingsPanel(QWidget):
             recommended_memory, _ = self.memory_recommender.calculate()
             self.memory_slider.setValue(recommended_memory)
             self.memory_progress.set_allocated_memory(recommended_memory)
-            self.settings_manager.set_setting("memory.allocation", recommended_memory)
+            self.settings_manager.set_version_setting("memory.allocation", recommended_memory)
         
         self.settings_manager.save_settings()
 
@@ -283,3 +281,9 @@ class MemorySettingsPanel(QWidget):
         self.setDisabled(not disabled)
         self.update()
     
+    def load_default(self):
+        """从配置文件加载设置"""
+        self.auto_isolation.set_selected(
+            self.settings_manager.get_version_setting("minecraft.auto_allocate_memory", True)
+        )
+        self.set_initial_values()
