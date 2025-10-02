@@ -15,6 +15,7 @@
 ![](docs/images/1.png)
 ![](docs/images/2.png)
 ![](docs/images/3.png)
+![](docs/images/4.png)
 
 虽然市面上已有功能强大的启动器，也存在 ​​Lunar Client​​ 等专注于特定场景（如PVP优化）的启动器
 ，但我们的项目旨在探索一条**​​不同的路径**​​，专注于解决一些**我们认为尚未被完美满足的核心体验**：
