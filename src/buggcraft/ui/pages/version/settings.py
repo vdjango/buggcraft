@@ -262,24 +262,49 @@ class SettingsPage(QWidget):
         self.available_java_versions = self.settings_manager.get_setting("java.installations", [])
         # 页面被激活时 刷新Java列表
         self.on_java_search_finished(self.available_java_versions)
-        
         version = self.settings_manager.get_setting('minecraft.version.enable')
 
-        # 切换版本后 更新UI
-        default = self.setting_radio_group_proprty.get(False)
-        if version is not None:
-            default = self.setting_radio_group_proprty.get(
-                self.settings_manager.get_setting(f"minecraft.version_setting.{version}.enable", False)
-            )
-        self.setting_button_group.set_selected_button(default)
+        # 游戏版本设置
         self.version_panel.set_title(f'启用 {version} 游戏版本设置')
-
+        self.setting_button_group.set_selected_button(
+            self.setting_version_independent_proprty.get(self.settings_manager.get_version_setting_enable())
+        )
+        # 版本隔离
+        self.version_isolation_button_group.set_selected_button(
+            self.setting_version_isolation_proprty.get(self.settings_manager.get_version_setting("minecraft.isolation", True))
+        )
+        # Java设置
+        self.java_button_group.set_selected_button(
+            self.setting_java_proprty.get(self.settings_manager.get_version_setting("java.name", '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本'))
+        )
+        # 内存
+        self.minecraft_free.load_default()
+        # 启动器可见性
+        index = self.launcher_visibility_combo.findText(
+            self.settings_manager.get_version_setting("launcher.visibility", "游戏启动后保持不变")
+        )
+        if index >= 0:
+            self.launcher_visibility_combo.setCurrentIndex(index)
+        # 游戏分辨率
+        index = self.minecraft_resolution.findText(
+            self.settings_manager.get_version_setting("launcher.window_size", "默认")
+        )
+        if index >= 0:
+            self.minecraft_resolution.setCurrentIndex(index)
+        # 进程优先级
+        self.process_priority_button_group.set_selected_button(
+            self.setting_process_priority_proprty.get(self.settings_manager.get_version_setting("launcher.process_priority", '平衡模式'))
+        )
+        # 调试模式
+        self.minecraft_debug_group.set_selected_button(
+            self.setting_debug_proprty.get(self.settings_manager.get_version_setting("launcher.debug", '否（推荐）'))
+        )
+        
         independent_setting = False
         if version is not None:
-            independent_setting = self.settings_manager.get_setting(f"minecraft.version_setting.{version}.enable", False)
+            independent_setting = self.settings_manager.get_version_setting_enable()
         
         self.is_disabled(independent_setting)
-
         print("settings 页面被激活", version)
     
     def on_page_deactivate(self):
@@ -407,10 +432,8 @@ class SettingsPage(QWidget):
         return item
     
     def create_version_independent(self):
-        """创建 版本隔离 设置内容"""
+        """创建 游戏版本设置 设置内容"""
         version = self.settings_manager.get_setting('minecraft.version.enable')
-        description = self.settings_manager.get_setting('minecraft.directory.enable')
-
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
@@ -439,18 +462,17 @@ class SettingsPage(QWidget):
         self.setting_button_group.add_button(default_button)
 
         # 设置默认选中
-        default = default_button
-        self.setting_radio_group_proprty = {
+        self.setting_version_independent_proprty = {
             False: default_button,
             True: independent_button
         }
         
-        if version is not None:
-            default = self.setting_radio_group_proprty.get(
-                self.settings_manager.get_setting(f"minecraft.version_setting.{version}.enable", False)
-            )
-        self.setting_button_group.set_selected_button(default)
+        self.setting_button_group.set_selected_button(self.setting_version_independent_proprty.get(
+            self.settings_manager.get_version_setting_enable()
+        ))
         self.setting_button_group.button_selected.connect(self.is_disabled)
+        self.setting_button_group.button_selected.connect(self.on_page_activate)
+        
         panel = CollapsePanel(self, f'启用 {version} 游戏版本设置', '启用后当前版本不受全局设置管控，不影响其他游戏设置', True, is_collaspe=False)
         panel.set_content(content)
         return panel
@@ -474,7 +496,7 @@ class SettingsPage(QWidget):
 
         # 游戏Java
         self.java_content = self.create_java_content()
-        self.java_panel = CollapsePanel(self, '游戏Java', self.settings_manager.get_setting("java.name", '系统将自动选择最适合的 Java 版本'))
+        self.java_panel = CollapsePanel(self, '游戏Java', self.settings_manager.get_version_setting("java.name", '系统将自动选择最适合的 Java 版本'))
         self.java_panel.set_content(self.java_content)
         layout.addWidget(self.java_panel)
 
@@ -545,8 +567,8 @@ class SettingsPage(QWidget):
         layout.setSpacing(10)
 
         # 创建按钮组
-        button_group = QMRadioGroup()
-        button_group.button_selected.connect(self.on_isolate_selected)
+        self.version_isolation_button_group = QMRadioGroup()
+        self.version_isolation_button_group.button_selected.connect(self.on_isolate_selected)
 
         # 默认选择选项
         default_button = QMRadioButton(
@@ -556,7 +578,7 @@ class SettingsPage(QWidget):
             data_property=False
         )
         layout.addWidget(default_button)
-        button_group.add_button(default_button)
+        self.version_isolation_button_group.add_button(default_button)
 
         # 版本独立选择选项
         isolate_button = QMRadioButton(
@@ -568,14 +590,16 @@ class SettingsPage(QWidget):
             messages_max_heiht=400
         )
         layout.addWidget(isolate_button)
-        button_group.add_button(isolate_button)
+        self.version_isolation_button_group.add_button(isolate_button)
 
         # 设置默认选中
-        _isolation = {
+        self.setting_version_isolation_proprty = {
             False: default_button,
             True: isolate_button
-        }.get(self.settings_manager.get_setting("minecraft.isolation", True))
-        button_group.set_selected_button(_isolation)
+        }
+        self.version_isolation_button_group.set_selected_button(
+            self.setting_version_isolation_proprty.get(self.settings_manager.get_version_setting("minecraft.isolation", True))
+        )
 
         panel = CollapsePanel(self, '版本隔离', '默认 (".minecraft/")', True)
         panel.set_content(content)
@@ -590,18 +614,18 @@ class SettingsPage(QWidget):
         layout.setSpacing(10)
         
         # 创建按钮组
-        _launlation = {}
+        self.setting_java_proprty = {}
         self.java_button_group = QMRadioGroup()
         
         self.java_auto_button = QMRadioButton(
             self,
             "使用推荐的 Java 版本",
             "系统将自动选择最适合的 Java 版本",
-            data_property='auto'
+            data_property=['auto', "使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本"]
         )
         layout.addWidget(self.java_auto_button)
         self.java_button_group.add_button(self.java_auto_button)
-        _launlation.update({"使用推荐的 Java 版本": self.java_auto_button})
+        self.setting_java_proprty.update({"使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本": self.java_auto_button})
         
         # 版本选项
         for java_path, version_desc, version in self.available_java_versions:
@@ -609,26 +633,29 @@ class SettingsPage(QWidget):
             version_button = QMRadioButton(
                 self,
                 version,
-                java_path
+                java_path,
+                data_property=[java_path, f"{version}|{java_path}"]
             )
             layout.addWidget(version_button)
             self.java_button_group.add_button(version_button)
-            _launlation.update({version: version_button})
+            self.setting_java_proprty.update({f"{version}|{java_path}": version_button})
         
         # 自定义选项
         custom_button = QMRadioButton(
             self,
             "自定义 Java 路径",
             None,
-            data_property='custom',
+            data_property=['custom', "自定义 Java 路径|None"],
             slot_desc=self.create_custom_java_button()
         )
         layout.addWidget(custom_button)
         self.java_button_group.add_button(custom_button)
-        _launlation.update({"自定义 Java 路径": custom_button})
+        self.setting_java_proprty.update({"自定义 Java 路径|None": custom_button})
 
         # 设置默认选中
-        self.java_button_group.set_selected_button(_launlation.get(self.settings_manager.get_setting("java.name", '使用推荐的 Java 版本')))
+        self.java_button_group.set_selected_button(
+            self.setting_java_proprty.get(self.settings_manager.get_version_setting("java.name", '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本'))
+        )
         self.java_button_group.button_selected.connect(lambda item: self.on_java_changed(item))
         return content
 
@@ -691,7 +718,7 @@ class SettingsPage(QWidget):
             lambda t: self.on_setting_changed("launcher.visibility", t)
         )
         # 默认选择选项 设置当前选中的选项
-        visibility = self.settings_manager.get_setting("launcher.visibility", "游戏启动后保持不变")
+        visibility = self.settings_manager.get_version_setting("launcher.visibility", "游戏启动后保持不变")
         index = self.launcher_visibility_combo.findText(visibility)
         if index >= 0:
             self.launcher_visibility_combo.setCurrentIndex(index)
@@ -717,7 +744,7 @@ class SettingsPage(QWidget):
             lambda t: self.on_setting_changed("launcher.window_size", t)
         )
         # 默认选择选项 设置当前选中的选项
-        visibility = self.settings_manager.get_setting("launcher.window_size", "默认")
+        visibility = self.settings_manager.get_version_setting("launcher.window_size", "默认")
         index = self.minecraft_resolution.findText(visibility)
         if index >= 0:
             self.minecraft_resolution.setCurrentIndex(index)
@@ -736,9 +763,9 @@ class SettingsPage(QWidget):
         layout.setSpacing(10)
 
         # 创建按钮组
-        _launlation = {}
-        button_group = QMRadioGroup()
-        button_group.button_selected.connect(lambda t: self.on_setting_changed("launcher.process_priority", t))
+        self.setting_process_priority_proprty = {}
+        self.process_priority_button_group = QMRadioGroup()
+        self.process_priority_button_group.button_selected.connect(lambda t: self.on_setting_changed("launcher.process_priority", t))
 
         # 选择选项
         for item, desc in [
@@ -754,12 +781,13 @@ class SettingsPage(QWidget):
                 messages_max_heiht=420
             )
             layout.addWidget(default_button)
-            button_group.add_button(default_button)
-            _launlation.update({item: default_button})
+            self.process_priority_button_group.add_button(default_button)
+            self.setting_process_priority_proprty.update({item: default_button})
 
         # 设置默认选中
-        button_group.set_selected_button(_launlation.get(self.settings_manager.get_setting("launcher.process_priority", '平衡模式')))
-    
+        self.process_priority_button_group.set_selected_button(
+            self.setting_process_priority_proprty.get(self.settings_manager.get_version_setting("launcher.process_priority", '平衡模式'))
+        )
         panel = CollapsePanel(self, '进程优先级', '系统将优先处理游戏进程，减少卡顿和延迟，提供最佳游戏性能', True)
         panel.set_content(content)
         return panel
@@ -773,9 +801,9 @@ class SettingsPage(QWidget):
         layout.setSpacing(10)
 
         # 创建按钮组
-        _launlation = {}
-        button_group = QMRadioGroup()
-        button_group.button_selected.connect(lambda t: self.on_setting_changed("launcher.debug", t))
+        self.setting_debug_proprty = {}
+        self.minecraft_debug_group = QMRadioGroup()
+        self.minecraft_debug_group.button_selected.connect(lambda t: self.on_setting_changed("launcher.debug", t))
 
         # 选择选项
         for item, desc in [
@@ -789,11 +817,13 @@ class SettingsPage(QWidget):
                 data_property=item
             )
             layout.addWidget(default_button)
-            button_group.add_button(default_button)
-            _launlation.update({item: default_button})
+            self.minecraft_debug_group.add_button(default_button)
+            self.setting_debug_proprty.update({item: default_button})
 
         # 设置默认选中
-        button_group.set_selected_button(_launlation.get(self.settings_manager.get_setting("launcher.debug", '否（推荐）')))
+        self.minecraft_debug_group.set_selected_button(
+            self.setting_debug_proprty.get(self.settings_manager.get_version_setting("launcher.debug", '否（推荐）'))
+        )
     
         panel = CollapsePanel(self, '游戏调试模式', '提供额外的诊断信息，用于问题排查和整合包开发测试。无特殊需求建议保持关闭状态', True)
         panel.set_content(content)
@@ -804,18 +834,14 @@ class SettingsPage(QWidget):
         java_avail = self.settings_manager.get_setting("java.installations", [])
         finder = JavaPathFinder()
         best_java = finder.recommend_best_java(java_avail)
-
-        self.settings_manager.set_setting("java.name", '使用推荐的 Java 版本')
-        self.settings_manager.set_setting("java.path", best_java)
-        self.settings_manager.save_settings()
-        self.java_panel.set_messages(best_java)
-
+        return best_java
+    
     def is_disabled(self, disabled):
         """是否启用独立版本设置，启用后取消其他设置项的禁用状态"""
         self.disabled = disabled
         version = self.settings_manager.get_setting('minecraft.version.enable')
         if version is not None:
-            self.on_setting_changed(f"minecraft.version_setting.{version}.enable", disabled)
+            self.settings_manager.set_version_setting_enable(disabled)
         
         # 设置ui状态
         self.version_isolation.set_disabled(self.disabled)
@@ -829,31 +855,31 @@ class SettingsPage(QWidget):
     def on_setting_changed(self, key: str, value: Any):
         """处理设置改变，更新配置管理器并保存"""
         # 更新配置管理器
-        self.settings_manager.set_setting(key, value)
+        self.settings_manager.set_version_setting(key, value)
         self.settings_manager.save_settings()
     
     def on_isolate_selected(self, proprty):
         """处理自动选择标签点击事件"""
         print('处理自动选择标签点击事件', proprty)
-        self.settings_manager.set_setting("minecraft.isolation", proprty)
+        self.settings_manager.set_version_setting("minecraft.isolation", proprty)
         self.settings_manager.save_settings()
 
     def on_java_changed(self, java):
         """"""
-        if isinstance(java, tuple):
-            name, path = java
-            self.java_panel.set_messages(name)
-            self.settings_manager.set_setting("java.name", name)
-            self.settings_manager.set_setting("java.path", path)
-            self.settings_manager.save_settings()
-        elif isinstance(java, str) and java == 'auto':
-            """自动选择"""
-            self.java_panel.set_messages('请稍后，正在搜索...')
-            self.auto_search_java()
-        elif isinstance(java, str) and java == 'auto':
+        path, name = java
+        if path == 'custom':
             """手动选择"""
-            self.java_panel.set_messages(java)
-            # self.auto_search_java()
+            self.java_panel.set_messages('请手动选择Java路径')
+            return
+        
+        if path == 'auto':
+            """自动选择"""
+            path = self.auto_search_java()
+
+        self.java_panel.set_messages(path)
+        self.settings_manager.set_version_setting("java.name", name)
+        self.settings_manager.set_version_setting("java.path", path)
+        self.settings_manager.save_settings()
 
     def clear_java_options(self):
         """清除现有的Java选项 - 在主线程中执行"""
@@ -874,10 +900,11 @@ class SettingsPage(QWidget):
             self,
             "使用推荐的 Java 版本",
             "系统将自动选择最适合的 Java 版本",
-            data_property='auto'
+            data_property=['auto', "使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本"]
         )
         self.java_panel.content.layout().addWidget(self.java_auto_button)
         self.java_button_group.add_button(self.java_auto_button)
+        self.setting_java_proprty.update({"使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本": self.java_auto_button})
         
         # 添加找到的Java版本
         for java_path, version_desc, version in java_installations:
@@ -889,24 +916,25 @@ class SettingsPage(QWidget):
                 self,
                 f"{version}",
                 f"路径: {java_path}",
-                data_property=java_path
+                data_property=[java_path, f"{version}|{java_path}"]
             )
             self.java_panel.content.layout().addWidget(java_button)
             self.java_button_group.add_button(java_button)
+            self.setting_java_proprty.update({f"{version}|{java_path}": java_button})
         
         # 自定义选项
         custom_button = QMRadioButton(
             self,
             "自定义 Java 路径",
             None,
-            data_property='custom',
+            data_property=['custom', "自定义 Java 路径|None"],
             slot_desc=self.create_custom_java_button()
         )
         self.java_panel.content.layout().addWidget(custom_button)
         self.java_button_group.add_button(custom_button)
+        self.setting_java_proprty.update({"自定义 Java 路径|None": custom_button})
 
         # 设置默认选中
-        self.java_button_group.set_selected_button(self.java_auto_button)
         self.java_button_group.button_selected.connect(lambda item: self.on_java_changed(item))
 
     def on_java_search_finished(self, java_installations):

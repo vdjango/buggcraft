@@ -43,9 +43,9 @@ class MinecraftLauncher(QMainWindow):
         self.visibility_manager = LauncherVisibilityManager(self)  # 初始化可见性管理器
 
         # 配置文件校验
-        java_path = self.settings_manager.get_setting('java.path', None)
+        java_path = self.settings_manager.get_version_setting('java.path', None)
         if not (java_path and os.path.isfile(java_path)):
-            self.settings_manager.set_setting('java.path', None)
+            self.settings_manager.set_version_setting('java.path', None)
             self.settings_manager.set_setting('java.installations', [])
             self.settings_manager.save_settings()
         
@@ -155,7 +155,7 @@ class MinecraftLauncher(QMainWindow):
             self.started_page.launcher.minecraft_directory = minecraft_directory
 
         def on_version_signal(version):
-            self.started_page.launcher.version = version
+            self.started_page.launcher.minecraft_version = version
             self.started_page.set_minecraft_version(version)
 
         self.version_page.signals.directory.connect(on_directory_signal)
@@ -171,7 +171,7 @@ class MinecraftLauncher(QMainWindow):
     
     def minecraft_not_java_runtime(self):
         """打开启动器检查Java环境"""
-        if self.settings_manager.get_setting('java.path', None) is None:
+        if self.settings_manager.get_version_setting('java.path', None) is None:
             # https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi
             # 尝试本地搜索
             self.load_java_path()
@@ -228,7 +228,7 @@ class MinecraftLauncher(QMainWindow):
     def minecraft_not_java_version_runtime(self):
         finder = JavaPathFinder()
         
-        best_java = self.settings_manager.get_setting('java.path')
+        best_java = self.settings_manager.get_version_setting('java.path')
         current_version = finder._get_java_version(best_java)[1][:2]
         current_version = '.'.join(list(str(i) for i in current_version))
         if finder.is_java_version_low(best_java):
@@ -248,8 +248,8 @@ class MinecraftLauncher(QMainWindow):
             finder = JavaPathFinder()
             best_java = finder.recommend_best_java(java_installations)
 
-            self.settings_manager.set_setting('java.name', '使用推荐的 Java 版本')
-            self.settings_manager.set_setting('java.path', best_java)
+            self.settings_manager.set_version_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
+            self.settings_manager.set_version_setting('java.path', best_java)
             self.settings_manager.set_setting('java.installations', java_installations)
             self.settings_manager.save_settings()
 
@@ -261,8 +261,6 @@ class MinecraftLauncher(QMainWindow):
             self.java_runtime_full.exec()
             return
         
-        
-
     def on_java_search_error(self, error_message):
         """Java搜索错误处理"""
         print("搜索出错", f"错误信息: {error_message}")
@@ -346,7 +344,7 @@ class MinecraftLauncher(QMainWindow):
         """游戏启动处理"""
         logger.info('minecraft_handle_started 游戏已启动')
         # 应用可见性设置
-        self.visibility_manager.apply_setting(self.settings_manager.get_setting('launcher.visibility', "游戏启动后保持不变"))
+        self.visibility_manager.apply_setting(self.settings_manager.get_version_setting('launcher.visibility', "游戏启动后保持不变"))
     
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""

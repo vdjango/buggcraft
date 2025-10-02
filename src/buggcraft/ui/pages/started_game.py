@@ -68,15 +68,15 @@ class StartGamePage(QWidget):
         """启动游戏"""
         print('self.auth_manager.is_authenticated()', self.auth_manager.is_authenticated(), self.auth_manager.current.username)
         if not self.auth_manager.is_authenticated():
-            self.launch_btn.set_texts(f"请先设置角色", self.launcher.version)
+            self.launch_btn.set_texts(f"请先设置角色", self.launcher.minecraft_version)
             return
         
         if not self.current_client:
             # 游戏未启动 - 启动过程
             self.launch_btn.setEnabled(False)
-            self.launch_btn.set_texts(f"启动中...", self.launcher.version)
+            self.launch_btn.set_texts(f"启动中...", self.launcher.minecraft_version)
             self.launcher.set_language('简体中文')
-            size = self.settings_manager.get_setting("launcher.window_size", "默认")
+            size = self.settings_manager.get_version_setting("launcher.window_size", "默认")
 
             # ["默认", "与启动器一致", "最大化"]
             fullscreen = False
@@ -95,9 +95,8 @@ class StartGamePage(QWidget):
                 username=self.auth_manager.current.username,
                 token=self.auth_manager.current.token,
                 server=None,
-                version=self.launcher.version,
-                # minecraft_directory=self.minecraft_directory,
-                memory=1024,
+                version=self.launcher.minecraft_version,
+                memory=self.settings_manager.get_version_setting("memory.allocation", 2048),
                 width=w,
                 height=h,
                 fullscreen=fullscreen
@@ -108,13 +107,13 @@ class StartGamePage(QWidget):
         else:
             # 游戏已启动 - 停止过程
             from PySide6.QtWidgets import QApplication
-            self.launch_btn.set_texts(f"正在停止游戏...", self.launcher.version)
+            self.launch_btn.set_texts(f"正在停止游戏...", self.launcher.minecraft_version)
             QApplication.processEvents()
             self.launcher.stop()
 
     def set_minecraft_version(self, version):
         """设置Minecraft版本"""
-        self.launcher.version = version
+        self.launcher.minecraft_version = version
         if self.launch_btn:
             version_text = f"{version}" if version else "未找到对应游戏"
             self.launch_btn.set_texts('启动游戏', version_text)
@@ -124,7 +123,7 @@ class StartGamePage(QWidget):
         from PySide6.QtCore import QTimer
 
         def handle_status():
-            self.launch_btn.set_texts(f"停止游戏", self.launcher.version)
+            self.launch_btn.set_texts(f"停止游戏", self.launcher.minecraft_version)
             self.launch_btn.set_start_style()
             self.launch_btn.setEnabled(True)
             self.current_client = True  # 游戏启动状态：已启动
@@ -137,7 +136,7 @@ class StartGamePage(QWidget):
         from PySide6.QtCore import QTimer
 
         def handle_status(code):
-            self.launch_btn.set_texts("启动游戏", self.launcher.version)
+            self.launch_btn.set_texts("启动游戏", self.launcher.minecraft_version)
             self.launch_btn.set_start_style()
             self.launch_btn.setEnabled(True)
             self.current_client = False  # 游戏启动状态：未启动
@@ -231,9 +230,9 @@ class StartGamePage(QWidget):
         tab_content_layout.addWidget(self.offline_content)
         tab_content_layout.addSpacing(40)
         
-        # 创建启动游戏按钮 
+        # 创建启动游戏按钮
         self.launch_btn = QMStartButton(resource_path=self.resource_path)
-        self.launch_btn.set_texts('启动游戏', f"{self.launcher.version}" if self.launcher.version else "未找到对应游戏")
+        self.launch_btn.set_texts('启动游戏', f"{self.launcher.minecraft_version}" if self.launcher.minecraft_version else "未找到对应游戏")
         self.launch_btn.clicked.connect(self.started_changed.emit)
         tab_content_layout.addWidget(self.launch_btn, 0, Qt.AlignCenter)
 

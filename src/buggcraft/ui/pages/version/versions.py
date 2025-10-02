@@ -452,10 +452,10 @@ class VersionsPage(QWidget):
     def load_directory_data(self):
         """从配置文件加载目录数据"""
         # 获取当前启用的目录
-        enable_directory = self.settings_manager.get_setting('minecraft', {}).get("directory", {}).get("enable", None)
+        enable_directory = self.settings_manager.get_setting('minecraft.directory.enable')
         
         # 获取所有已安装目录
-        installed_directories = self.settings_manager.get_setting('minecraft', {}).get("directory", {}).get("installed", [])
+        installed_directories = self.settings_manager.get_setting('minecraft.directory.installed', [])
         
         # 准备目录数据
         directory_data = []
@@ -573,7 +573,7 @@ class VersionsPage(QWidget):
         if self.version_delete_dialog.exec() == QDialog.Accepted:
             delete_minecraft_directory(path)
 
-            installed_directories: list = self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("installed", [])
+            installed_directories: list = self.settings_manager.get_setting('minecraft.directory.installed', [])
             if not path in installed_directories:
                 return
             
@@ -589,7 +589,7 @@ class VersionsPage(QWidget):
                 item.deleteLater()
                 
                 # 如果删除的是当前选中的目录，选择第一个目录
-                if self.settings_manager.get_setting("minecraft.directory.enable") == path and self.directory_items:
+                if self.settings_manager.get_setting('minecraft.directory.enable') == path and self.directory_items:
                     self.on_directory_clicked(self.directory_items[0], None)
 
     def on_add_directory(self, event):
@@ -605,7 +605,7 @@ class VersionsPage(QWidget):
         if not directory:
             return
         
-        installed_directories = self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("installed", [])
+        installed_directories = self.settings_manager.get_setting('minecraft.directory.installed', [])
         if directory in installed_directories:
             return
         
@@ -677,7 +677,7 @@ class VersionsPage(QWidget):
         # 阻止事件冒泡
         event.accept()
         minecraft_version = item.property("version")
-        minecraft_directory = self.settings_manager.get_setting("minecraft.directory.enable")
+        minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
         minecraft_path = os.path.abspath(os.path.join(minecraft_directory, "versions", minecraft_version))
         open_folder(minecraft_path)
         logger.info(f"打开版本文件夹: {minecraft_path}")
@@ -694,11 +694,11 @@ class VersionsPage(QWidget):
         self.version_delete_dialog.set_message_text(f"当前游戏版本已开启版本隔离，将删除 存档、资源包、光影、Mod等文件！")
         if self.version_delete_dialog.exec() == QDialog.Accepted:
             delete_minecraft_version(
-                self.settings_manager.get_setting("minecraft", {}).get("directory", {}).get("enable", None), 
+                self.settings_manager.get_setting('minecraft.directory.enable'),
                 version
             )
             # 获取现有版本列表
-            installed_versions: list = self.settings_manager.get_setting("minecraft", {}).get("version", {}).get("installed", [])
+            installed_versions: list = self.settings_manager.get_setting("minecraft.version.installed", [])
             
             # 移除版本
             if version in installed_versions:
