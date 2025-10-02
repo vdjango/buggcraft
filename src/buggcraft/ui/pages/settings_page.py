@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QFrame, QPushButton, QStackedWidget, QLineEdit, QComboBox, QSlider,
     QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QSpacerItem, QSizePolicy
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QPixmap, QPainter
+from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
+from PySide6.QtCore import Qt, Signal, QSize
 from .base_page import BasePage
 from utils.helpers import MemorySliderManager
 from config.settings import get_settings_manager
@@ -35,6 +35,14 @@ class SettingsPage(BasePage):
         self.init_ui()
         # self.load_settings_to_ui()  # 加载设置 - 方法不存在，暂时注释
         self.load_cache_settings()  # 加载缓存设置
+
+    def on_page_activate(self):
+        """当页面被激活时调用"""
+        print("设置页面被激活")
+    
+    def on_page_deactivate(self):
+        """当页面被隐藏时调用"""
+        print("设置页面被隐藏")
 
     def create_scaled_icon(self, icon_name, size=(20, 20)):
         """
@@ -62,9 +70,6 @@ class SettingsPage(BasePage):
         
     def init_ui(self):
         """初始化UI"""
-        # 设置背景
-        self.set_background('images/minecraft_bg.png')
-        
         # 创建主布局
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -77,13 +82,11 @@ class SettingsPage(BasePage):
 
         # 创建选项卡按钮区域
         self.tab_buttons_widget = self.create_tab_buttons()
-        self.tab_buttons_widget.setStyleSheet("background-color: #225500;")
 
         # 创建选项卡内容区域
         self.tab_content = QWidget()
         self.tab_content.setFixedWidth(926 - 178 - 62)
         self.tab_content.setContentsMargins(25, 0, 25, 0)
-        self.tab_content.setStyleSheet("background-color: #552299;")
 
         tab_container_layout.addWidget(self.tab_buttons_widget)
         tab_container_layout.addSpacing(23)
@@ -305,18 +308,35 @@ class SettingsPage(BasePage):
         version_content_widget = self.create_version_selection_content()
         
         # 创建刷新按钮组件
-        refresh_btn = QPushButton("@")
+        refresh_btn = QPushButton()
         refresh_btn.setFixedSize(20, 20)
+        
+        # 加载刷新图标
+        reload_icon_path = os.path.join(self.resource_path, 'settings', 'reload.png')
+        if os.path.exists(reload_icon_path):
+            reload_pixmap = QPixmap(reload_icon_path)
+            if not reload_pixmap.isNull():
+                # 使用现有的压缩方法将图片调整为20x20大小
+                scaled_pixmap = reload_pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                refresh_btn.setIcon(QIcon(scaled_pixmap))
+                refresh_btn.setIconSize(QSize(20, 20))
+                print(f"成功加载图片: {reload_icon_path}")
+            else:
+                print(f"图片加载失败，pixmap为空: {reload_icon_path}")
+                refresh_btn.setText("@")
+        else:
+            # 如果图片不存在，直接使用文字 "@" 作为图标
+            print(f"图片文件不存在: {reload_icon_path}")
+            refresh_btn.setText("@")
+        
         refresh_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(70, 70, 70, 0.8);
-                border: 1px solid #555;
+                background-color: transparent;
+                border: none;
                 border-radius: 10px;
-                color: #FFFFFF;
-                font-size: 12px;
             }
             QPushButton:hover {
-                background-color: rgba(90, 90, 90, 0.8);
+                background-color: rgba(90, 90, 90, 0.3);
             }
         """)
         
@@ -369,14 +389,7 @@ class SettingsPage(BasePage):
         # 添加CollapsePanel的header
         collapse_container_layout.addWidget(self.update_collapse_panel.header)
         
-        # 创建分割线（在header和content之间）
-        self.divider = QFrame()
-        self.divider.setFrameShape(QFrame.HLine)
-        self.divider.setStyleSheet("background-color: #FFFFFF;")
-        self.divider.setFixedHeight(1)
-        self.divider.setFixedWidth(508)   
-        self.divider.hide()  
-        collapse_container_layout.addWidget(self.divider)
+
         
         # 添加CollapsePanel的content
         collapse_container_layout.addWidget(self.update_collapse_panel.content)
@@ -621,14 +634,7 @@ class SettingsPage(BasePage):
         # 添加CollapsePanel的header
         cache_collapse_container_layout.addWidget(self.cache_collapse_panel.header)
         
-        # 创建分割线（在路径显示和content之间）
-        self.cache_divider = QFrame()
-        self.cache_divider.setFrameShape(QFrame.HLine)
-        self.cache_divider.setStyleSheet("background-color: #FFFFFF;")
-        self.cache_divider.setFixedHeight(1)
-        self.cache_divider.setFixedWidth(508)
-        self.cache_divider.hide()   
-        cache_collapse_container_layout.addWidget(self.cache_divider)
+
         
         # 添加CollapsePanel的content
         cache_collapse_container_layout.addWidget(self.cache_collapse_panel.content)
@@ -1070,14 +1076,7 @@ class SettingsPage(BasePage):
         # 添加CollapsePanel的header
         download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.header)
         
-        # 创建分割线（在header和content之间）
-        self.download_source_divider = QFrame()
-        self.download_source_divider.setFrameShape(QFrame.HLine)
-        self.download_source_divider.setStyleSheet("background-color: #FFFFFF;")
-        self.download_source_divider.setFixedHeight(1)
-        self.download_source_divider.setFixedWidth(508)
-        self.download_source_divider.hide()  
-        download_source_collapse_container_layout.addWidget(self.download_source_divider)
+
         
         # 添加CollapsePanel的content
         download_source_collapse_container_layout.addWidget(self.download_source_collapse_panel.content)
@@ -1657,13 +1656,11 @@ class SettingsPage(BasePage):
             self.cache_expand_btn.setText("⌄")  # 向下箭头
     
     def on_collapse_changed(self, is_expanded):
-        """处理CollapsePanel折叠状态变化，控制分割线显示"""
-        self.divider.setVisible(is_expanded)
+        """处理CollapsePanel折叠状态变化"""
+        pass
     
     def on_cache_collapse_changed(self, is_expanded):
-        """处理缓存CollapsePanel折叠状态变化，控制分割线显示"""
-        self.cache_divider.setVisible(is_expanded)
-        
+        """处理缓存CollapsePanel折叠状态变化"""
         # 当展开时更新路径显示
         if is_expanded:
             self.update_cache_path_display()
@@ -1824,7 +1821,4 @@ class SettingsPage(BasePage):
     
     def on_download_source_collapse_changed(self, is_expanded):
         """处理下载源折叠面板状态变化"""
-        if is_expanded:
-            self.download_source_divider.show()
-        else:
-            self.download_source_divider.hide()
+        pass
