@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QFrame, QPushButton, QStackedWidget, QLineEdit, QComboBox, QSlider,
     QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QSpacerItem, QSizePolicy
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QPixmap, QPainter
+from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
+from PySide6.QtCore import Qt, Signal, QSize
 from .base_page import BasePage
 from utils.helpers import MemorySliderManager
 from config.settings import get_settings_manager
@@ -308,18 +308,35 @@ class SettingsPage(BasePage):
         version_content_widget = self.create_version_selection_content()
         
         # 创建刷新按钮组件
-        refresh_btn = QPushButton("@")
+        refresh_btn = QPushButton()
         refresh_btn.setFixedSize(20, 20)
+        
+        # 加载刷新图标
+        reload_icon_path = os.path.join(self.resource_path, 'settings', 'reload.png')
+        if os.path.exists(reload_icon_path):
+            reload_pixmap = QPixmap(reload_icon_path)
+            if not reload_pixmap.isNull():
+                # 使用现有的压缩方法将图片调整为20x20大小
+                scaled_pixmap = reload_pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                refresh_btn.setIcon(QIcon(scaled_pixmap))
+                refresh_btn.setIconSize(QSize(20, 20))
+                print(f"成功加载图片: {reload_icon_path}")
+            else:
+                print(f"图片加载失败，pixmap为空: {reload_icon_path}")
+                refresh_btn.setText("@")
+        else:
+            # 如果图片不存在，直接使用文字 "@" 作为图标
+            print(f"图片文件不存在: {reload_icon_path}")
+            refresh_btn.setText("@")
+        
         refresh_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(70, 70, 70, 0.8);
-                border: 1px solid #555;
+                background-color: transparent;
+                border: none;
                 border-radius: 10px;
-                color: #FFFFFF;
-                font-size: 12px;
             }
             QPushButton:hover {
-                background-color: rgba(90, 90, 90, 0.8);
+                background-color: rgba(90, 90, 90, 0.3);
             }
         """)
         
