@@ -74,9 +74,7 @@ class VersionsPage(QWidget):
         self.version_list_panel = self.create_version_list_panel()
         container_layout.addWidget(self.version_list_panel, 1)
         main_layout.addWidget(content_container)
-        
-
-
+    
     def create_image_button(self, text, image_path, click_handler, width, height, font_size=11):
         """创建图片按钮"""
         button = QLabel()
