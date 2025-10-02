@@ -77,7 +77,7 @@ class SettingsManager:
                 "installed": []
             },
             'isolation': True,  # 版本隔离
-            'version_setting': {},  # 游戏版本独立设置
+            'setting': {},  # 游戏版本独立设置
             'auto_allocate_memory': True  # 自动分配内存
         }
 
@@ -113,7 +113,7 @@ class SettingsManager:
                 "debug": "否（推荐）"
             },
             "java": {
-                "name": "使用推荐的 Java 版本",
+                "name": "使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本",
                 "path": None,
                 "installations": []
             },
@@ -193,6 +193,43 @@ class SettingsManager:
             logger.info(f"保存配置时出错: {e}")
             return False
     
+    def get_version_setting_enable(self):
+        """获取独立版本设置状态"""
+        version = self.get_setting("minecraft.version.enable", None)
+        if version and version is not None:
+            return self.get_setting(f"minecraft.setting.{version}.enable", False)
+        return False
+
+    def get_minecraft_isolation_directory(self):
+        """获取版本隔离游戏工作路径-比如启用了独立版本"""
+        directory = self.get_setting('minecraft.directory.enable', None)
+        if self.get_version_setting_enable():
+            version = self.get_setting('minecraft.version.enable', None)
+            return os.path.join(directory, 'versions', version)
+        
+        return directory
+    
+    def get_version_setting(self, key: str, default: Any = None):
+        """
+        获取版本配置值，支持点分隔的嵌套键（如 "launcher.visibility"）
+        
+        Args:
+            key: 配置键，支持嵌套结构
+            default: 如果键不存在时返回的默认值
+        
+        Returns:
+            Any: 配置值
+        """
+        version = self.get_setting("minecraft.version.enable", None)
+        if version and version is not None:
+            enable = self.get_setting(f"minecraft.setting.{version}.enable", False)
+            if enable and enable is not None:
+                # 启用了独立版本设置
+                return self.get_setting(f"minecraft.setting.{version}.{key}", default)
+        
+        # 未启用独立版本设置
+        return self.get_setting(key, default)
+
     def get_setting(self, key: str, default: Any = None) -> Any:
         """
         获取配置值，支持点分隔的嵌套键（如 "launcher.visibility"）
@@ -214,6 +251,36 @@ class SettingsManager:
         except (KeyError, TypeError):
             return default
     
+    def set_version_setting_enable(self, value: bool = True):
+        """启用独立版本设置"""
+        version = self.get_setting("minecraft.version.enable", None)
+        if version and version is not None:
+            self.set_setting(f"minecraft.setting.{version}.enable", value)
+            self.save_settings()
+            return True
+        return False
+    
+    def set_version_setting(self, key: str, value: Any):
+        """
+        设置版本配置值，支持点分隔的嵌套键（如 "launcher.visibility"）
+        
+        Args:
+            key: 配置键，支持嵌套结构
+            value: 要设置的值
+        
+        Returns:
+            bool: 是否成功设置
+        """
+        version = self.get_setting("minecraft.version.enable", None)
+        if version and version is not None:
+            enable = self.get_setting(f"minecraft.setting.{version}.enable", False)
+            if enable and enable is not None:
+                # 启用了独立版本设置
+                return self.set_setting(f"minecraft.setting.{version}.{key}", value)
+            
+        # 未启用独立版本设置
+        return self.set_setting(key, value)
+
     def set_setting(self, key: str, value: Any) -> bool:
         """
         设置配置值，支持点分隔的嵌套键（如 "launcher.visibility"）
