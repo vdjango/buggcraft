@@ -17,6 +17,7 @@ from config.javafinder import JavaPathFinder
 from core.visibility import VisibilitySettings
 from ui.widgets.collapse import CollapsePanel
 from ui.pages.settings import GeneralSettingsPages
+from ui.pages.settings.java import JavaManagementPage
 
 
 import logging
@@ -37,6 +38,8 @@ class SettingsPage(BasePage):
         
         # 通用设置
         self.general_page = GeneralSettingsPages(self)
+        # Java管理页面
+        self.java_page = JavaManagementPage(self)
         self.init_ui()
 
     def on_page_activate(self):
@@ -74,6 +77,7 @@ class SettingsPage(BasePage):
         
         # 通用设置/全局设置/Java管理/关于
         self.settings_stack.addWidget(self.general_page)
+        self.settings_stack.addWidget(self.java_page)
         # self.settings_stack.addWidget(self.settings_page)
 
         main_layout.addWidget(self.tab_container)
