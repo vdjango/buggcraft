@@ -216,9 +216,6 @@ def initialize_application():
 
     # 创建Qt应用
     app = QApplication(sys.argv)
-    # 设置高DPI支持[7](@ref)
-    app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     # 注释掉字体加载功能，使用系统默认字体
     # load_custom_font(RESOURCE_DIR)
     
