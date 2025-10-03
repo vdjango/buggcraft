@@ -5,10 +5,10 @@ import os
 from typing import Any
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon
 
 from config.settings import get_settings_manager, set_conf_manager
 from ui.widgets.collapse import CollapsePanel
@@ -225,7 +225,10 @@ class GeneralSettingsPages(QWidget):
         ))
         self.launcher_update_group.button_selected.connect(lambda prop: self.on_setting_changed("settings.general.update", prop))
 
-        panel = CollapsePanel(self, f'启动器更新', '发现更新 最新版本为：3.6.17', True, is_collaspe=False)
+        # 创建reload按钮
+        reload_btn = self.create_reload_button()
+        
+        panel = CollapsePanel(self, f'启动器更新', '发现更新 最新版本为：3.6.17', True, is_collaspe=False, custom_button=reload_btn)
         panel.set_content(content)
         return panel
     
@@ -481,6 +484,42 @@ class GeneralSettingsPages(QWidget):
     def resizeEvent(self, event):
         """窗口大小变化事件 - 确保布局自适应"""
         super().resizeEvent(event)
+
+    def create_reload_button(self):
+        """创建reload按钮"""
+        reload_btn = QPushButton()
+        reload_btn.setFixedSize(QSize(20, 20))
+        
+        # 加载reload图标
+        reload_icon_path = os.path.join(self.resource_path, "settings", "reload.png")
+        if os.path.exists(reload_icon_path):
+            pixmap = QPixmap(reload_icon_path)
+            # 缩放到20x20像素
+            scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            reload_btn.setIcon(QIcon(scaled_pixmap))
+            reload_btn.setIconSize(QSize(20, 20))
+        
+        # 设置按钮样式 - 透明背景，悬停时半透明灰色
+        reload_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 10px;
+            }
+            QPushButton:hover {
+                background-color: rgba(128, 128, 128, 0.3);
+            }
+        """)
+        
+        # 连接点击事件（可以在这里添加刷新逻辑）
+        reload_btn.clicked.connect(self.on_reload_clicked)
+        
+        return reload_btn
+    
+    def on_reload_clicked(self):
+        """reload按钮点击事件处理"""
+        logger.info("Reload button clicked - 启动器更新刷新")
+        # 这里可以添加具体的刷新逻辑
 
     def moveEvent(self, event):
         """重写 moveEvent 以跟踪位置变化"""
