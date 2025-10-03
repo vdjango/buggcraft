@@ -18,6 +18,7 @@ from core.visibility import VisibilitySettings
 from ui.widgets.collapse import CollapsePanel
 from ui.pages.settings import GeneralSettingsPages
 from ui.pages.settings.java import JavaManagementPage
+from ui.pages.settings.about import AboutPage
 
 
 import logging
@@ -40,6 +41,8 @@ class SettingsPage(BasePage):
         self.general_page = GeneralSettingsPages(self)
         # Java管理页面
         self.java_page = JavaManagementPage(self)
+        # 关于页面
+        self.about_page = AboutPage(self)
         self.init_ui()
 
     def on_page_activate(self):
@@ -74,9 +77,10 @@ class SettingsPage(BasePage):
         tab_container_layout.addWidget(self.tab_buttons_widget)
         tab_container_layout.addWidget(self.settings_stack)
         
-        # 通用设置/全局设置/Java管理/关于
-        self.settings_stack.addWidget(self.general_page)
-        self.settings_stack.addWidget(self.java_page)
+        # 通用设置/Java管理/关于
+        self.settings_stack.addWidget(self.general_page)  # 索引0
+        self.settings_stack.addWidget(self.java_page)     # 索引1
+        self.settings_stack.addWidget(self.about_page)    # 索引2
         # self.settings_stack.addWidget(self.settings_page)
 
         main_layout.addWidget(self.tab_container)
@@ -190,8 +194,8 @@ class SettingsPage(BasePage):
         self.update_tab_button_style("关于", False)
 
     def global_tab_btn_clicked(self):
-        """全局设置按钮点击事件"""
-        self.settings_stack.setCurrentIndex(2)
+        """全局设置按钮点击事件 - 不显示任何页面"""
+        # 全局设置页面未实现，不切换页面
         self.update_tab_button_style("通用设置", False)
         self.update_tab_button_style("全局设置", True)
         self.update_tab_button_style("Java管理", False)
@@ -199,7 +203,7 @@ class SettingsPage(BasePage):
 
     def about_tab_btn_clicked(self):
         """关于按钮点击事件"""
-        self.settings_stack.setCurrentIndex(3)
+        self.settings_stack.setCurrentIndex(2)
         self.update_tab_button_style("通用设置", False)
         self.update_tab_button_style("全局设置", False)
         self.update_tab_button_style("Java管理", False)
