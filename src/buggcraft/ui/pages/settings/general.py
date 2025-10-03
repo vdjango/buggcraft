@@ -204,7 +204,7 @@ class GeneralSettingsPages(QWidget):
         desc_layout.setSpacing(10)
         
         desc_label = QLabel("开发版与预览版包含更多的功能以及错误修复，但也可能会包含其他的问题。")
-        desc_label.setFont(QFont("Source Han Sans CN Heavy", 10))
+        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -277,7 +277,7 @@ class GeneralSettingsPages(QWidget):
 
         desc_label = QLabel("注：此操作需要重启(自动关闭)，并且配置文件不保留。当需要多启动器实例可选择")
         desc_label.setContentsMargins(10, 0, 10, 0)
-        desc_label.setFont(QFont("Source Han Sans CN Heavy", 10))
+        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -325,7 +325,7 @@ class GeneralSettingsPages(QWidget):
         layout.addWidget(self.launcher_language_combo)
         
         desc_label = QLabel("当前启动器语言并未实现，预计下个Beta版本实现")
-        desc_label.setFont(QFont("Source Han Sans CN Heavy", 10))
+        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -373,7 +373,7 @@ class GeneralSettingsPages(QWidget):
         layout.addWidget(self.launcher_download_source_combo)
         
         desc_label = QLabel("通过启动器安装新游戏或启动游戏文件缺失下载文件时所使用的下载地址被称之为下载源")
-        desc_label.setFont(QFont("Source Han Sans CN Heavy", 10))
+        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -423,7 +423,7 @@ class GeneralSettingsPages(QWidget):
         text_layout.setSpacing(5)
 
         title_label = QLabel('C:\\Program Files\\Java\\jdk-21.0.7')
-        title_label.setFont(QFont("Source Han Sans CN", 11))
+        title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
         text_layout.addWidget(title_label)

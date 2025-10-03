@@ -2,15 +2,16 @@ from PySide6.QtWidgets import (
     QLabel, QSizePolicy
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontMetrics
+from PySide6.QtGui import QFontMetrics, QFont
 
 
 class SmartLabel(QLabel):
     """智能文本标签 - 自动截断长文本并显示工具提示"""
     
-    def __init__(self, text="", min_widht=50, max_heiht=300, parent=None):
+    def __init__(self, text="", font_size=10, font_weight=QFont.Weight.Normal, min_widht=50, max_heiht=300, parent=None):
         super().__init__(text, parent)
         self.full_text = text
+        self.setFont(QFont("Source Han Sans CN Normal", font_size, font_weight))
         self.setWordWrap(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setMinimumWidth(min_widht)  # 最小宽度

@@ -461,7 +461,7 @@ class SettingsPage(QWidget):
         text_layout.setSpacing(5)
 
         title_label = QLabel('C:\\Program Files\\Java\\jdk-21.0.7')
-        title_label.setFont(QFont("Source Han Sans CN", 11))
+        title_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
         text_layout.addWidget(title_label)

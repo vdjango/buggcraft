@@ -77,7 +77,7 @@ class QMRadioButton(QWidget):
     """"""
     selected = Signal(bool, Any)  # 选中状态改变时发出信号
 
-    def __init__(self, parent, text, messages=None, text_font_size=11, messages_font_size=10, text_max_widht=200, messages_max_widht=350, slot_desc=None, data_property=None):
+    def __init__(self, parent, text, messages=None, text_font_size=10, messages_font_size=9, text_max_widht=200, messages_max_widht=350, slot_desc=None, data_property=None):
         """单选组件
         :param text: 标题
         :param messages: 副文本内容
@@ -127,7 +127,7 @@ class QMRadioButton(QWidget):
         
         # 自动选择选项 - 使用 QLabel
         self.auto_label = SmartLabel(self.text, self.text_max_widht)
-        self.auto_label.setFont(QFont("Source Han Sans CN", self.text_font_size))
+        self.auto_label.setFont(QFont("Source Han Sans CN Normal", self.text_font_size, QFont.Weight.Normal))
         self.auto_label.setStyleSheet("color: #FFFFFF;")
         self.auto_label.setCursor(Qt.PointingHandCursor)  # 设置手型光标
         
@@ -143,7 +143,7 @@ class QMRadioButton(QWidget):
         elif self.messages:
             desc_label = SmartLabel(self.messages, self.messages_max_widht)
             desc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            desc_label.setFont(QFont("Source Han Sans CN", self.messages_font_size))
+            desc_label.setFont(QFont("Source Han Sans CN Normal", self.messages_font_size, QFont.Weight.Normal))
             desc_label.setStyleSheet("color: #888888;")
             main_layout.addWidget(desc_label, 1)
 

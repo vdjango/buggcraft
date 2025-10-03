@@ -222,7 +222,7 @@ class StartGamePage(QWidget):
 
         # 用户名标签
         self.username_label = QLabel("未登录")
-        self.username_label.setFont(QFont("Source Han Sans CN Heavy", 8))
+        self.username_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         self.username_label.setAlignment(Qt.AlignCenter)
         self.username_label.setStyleSheet("color: #f8f8f8;")
         tab_content_layout.addWidget(self.username_label, 0, Qt.AlignCenter)
@@ -239,14 +239,14 @@ class StartGamePage(QWidget):
         tab_content_layout.addSpacing(20)
         
         # 创建启动游戏按钮
-        self.launch_btn = QMStartButton(resource_path=self.resource_path)
+        self.launch_btn = QMStartButton(resource_path=self.resource_path, parent=self)
         self.launch_btn.set_texts('启动游戏', f"{self.launcher.minecraft_version}" if self.launcher.minecraft_version else "未找到对应游戏")
         self.launch_btn.clicked.connect(self.started_changed.emit)
         tab_content_layout.addWidget(self.launch_btn, 0, Qt.AlignCenter)
 
         # 创建进入联机大厅按钮
         self.multiplayer_lobby_btn = QLabel("进入联机大厅")
-        self.multiplayer_lobby_btn.setFont(QFont("Source Han Sans CN Heavy", 8))
+        self.multiplayer_lobby_btn.setFont(QFont("Source Han Sans CN Normal", 8, QFont.Weight.Normal))
         self.multiplayer_lobby_btn.setAlignment(Qt.AlignCenter)
         self.multiplayer_lobby_btn.setStyleSheet("""
             QLabel {
@@ -323,7 +323,7 @@ class StartGamePage(QWidget):
         
         # 添加文本
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
         text_label.setGeometry(0, 0, *size)   
@@ -378,7 +378,7 @@ class StartGamePage(QWidget):
         username_layout.setSpacing(0)
         self.offline_username_input = QLineEdit()
         self.offline_username_input.setPlaceholderText("请输入用户名")
-        self.offline_username_input.setFont(QFont("Source Han Sans CN Heavy", 10))
+        self.offline_username_input.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         self.offline_username_input.setFixedSize(192, 40)
         self.offline_username_input.setStyleSheet("""
             QLineEdit {
@@ -396,7 +396,7 @@ class StartGamePage(QWidget):
         
         # 离线登录按钮
         self.offline_login_btn = QLabel("确认")
-        self.offline_login_btn.setFont(QFont("Source Han Sans CN Heavy", 10))
+        self.offline_login_btn.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         self.offline_login_btn.setAlignment(Qt.AlignCenter)
         self.offline_login_btn.setFixedSize(50, 40)
         self.offline_login_btn.setStyleSheet("""
@@ -470,7 +470,7 @@ class StartGamePage(QWidget):
         layout.addWidget(icon_label)
         
         text_label = QLabel(text)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", 10))
+        text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         text_label.setStyleSheet("background: transparent; border: none; color: #FFFFFF;")
         layout.addWidget(text_label)
         
@@ -492,7 +492,7 @@ class StartGamePage(QWidget):
                 button.setPixmap(pixmap.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setGeometry(0, 0, width, height)

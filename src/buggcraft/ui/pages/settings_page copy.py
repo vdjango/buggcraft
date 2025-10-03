@@ -181,7 +181,7 @@ class SettingsPage(BasePage):
         
         # 添加文本
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", font_size))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
         text_label.setGeometry(0, 0, *size)   

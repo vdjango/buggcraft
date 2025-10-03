@@ -183,7 +183,7 @@ class TitleBar(QWidget):
         
         # 添加文本
         text_label = QLabel(text, content_container)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setContentsMargins(0, 0, 0, 0)
@@ -236,7 +236,7 @@ class TitleBar(QWidget):
         
         # 添加文本
         text_label = QLabel(text, content_container)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setContentsMargins(0, 0, 0, 0)
@@ -289,7 +289,7 @@ class TitleBar(QWidget):
         
         # 添加文本
         text_label = QLabel(text, content_container)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setContentsMargins(0, 0, 0, 0)

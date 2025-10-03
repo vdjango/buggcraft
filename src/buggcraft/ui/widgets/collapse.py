@@ -21,8 +21,8 @@ class CollapsePanel(QWidget):
         content_height=None,
         is_collaspe=True,
         expand_icon_size=16,
-        text_font_size=11,
-        messages_font_size=10,
+        text_font_size=10,
+        messages_font_size=9,
         custom_button=None
     ):
         """
@@ -106,13 +106,13 @@ class CollapsePanel(QWidget):
         
         # 标题
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Source Han Sans CN Heavy", self.text_font_size))
+        self.title_label.setFont(QFont("Source Han Sans CN Normal", self.text_font_size, QFont.Weight.Bold)) 
         self.title_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
         title_layout.addWidget(self.title_label)
 
         if self.messages:
             self.messages_label = QLabel(self.messages)
-            self.messages_label.setFont(QFont("Source Han Sans CN", self.messages_font_size))
+            self.messages_label.setFont(QFont("Source Han Sans CN Normal", self.messages_font_size, QFont.Weight.Normal))
             self.messages_label.setStyleSheet("color: #AAAAAA; background-color: transparent;")
             self.messages_label.setAlignment(Qt.AlignVCenter)
             title_layout.addWidget(self.messages_label)

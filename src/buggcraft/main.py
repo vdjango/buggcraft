@@ -1,6 +1,8 @@
 import os
 import sys
 import logging
+from PySide6.QtGui import QFontDatabase, QFont
+from PySide6.QtCore import QFile, QIODevice
 
 from pathlib import Path
 from config.settings import get_settings_manager, get_conf_or_cache_manager
@@ -49,6 +51,41 @@ NOTIFICATION_MESSAGES = {
 }
 
 RESOURCE_DIR = Path.cwd() / 'resources'
+
+def load_custom_font(resource_dir):
+    """
+    加载自定义字体文件
+    :param resource_dir: 资源目录路径
+    :return: 字体家族名称列表，用于后续设置字体
+    """
+    font_families = []
+    fonts_dir = os.path.join(resource_dir, 'fonts')
+    
+    if not os.path.exists(fonts_dir):
+        logger.warning(f"字体目录不存在: {fonts_dir}")
+        return font_families
+    
+    # 支持的字体文件扩展名
+    font_extensions = ['.ttf', '.otf', '.woff', '.woff2']
+    
+    for file_name in os.listdir(fonts_dir):
+        if any(file_name.lower().endswith(ext) for ext in font_extensions):
+            font_path = os.path.join(fonts_dir, file_name)
+            
+            try:
+                # 方法1: 使用文件路径加载
+                font_id = QFontDatabase.addApplicationFont(font_path)
+                if font_id != -1:
+                    families = QFontDatabase.applicationFontFamilies(font_id)
+                    font_families.extend(families)
+                    logger.info(f"成功加载字体: {file_name} -> {families}")
+                else:
+                    logger.warning(f"字体加载失败: {file_name}")
+                    
+            except Exception as e:
+                logger.error(f"加载字体时出错 {file_name}: {e}")
+    
+    return font_families
 
 
 def download_and_extract(url, download_dir, extract_dir):
@@ -217,7 +254,7 @@ def initialize_application():
     # 创建Qt应用
     app = QApplication(sys.argv)
     # 注释掉字体加载功能，使用系统默认字体
-    # load_custom_font(RESOURCE_DIR)
+    load_custom_font(RESOURCE_DIR)
     
     # 设置应用样式
     app.setStyle('Fusion')

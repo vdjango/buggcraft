@@ -75,14 +75,12 @@ class VersionsPage(QWidget):
         container_layout.addWidget(self.version_list_panel, 1)
         main_layout.addWidget(content_container)
     
-    def create_image_button(self, text, image_path, click_handler, width, height, font_size=11):
+    def create_image_button(self, text, image_path, click_handler, width, height, font_size=10):
         """创建图片按钮"""
         button = QLabel()
         button.mousePressEvent = lambda event: click_handler()
         button.setCursor(Qt.PointingHandCursor)
         button.setFixedSize(width, height)
-        # button.setMaximumWidth(width)
-        # button.setMaximumHeight(height)
         
         if image_path and os.path.exists(image_path):
             pixmap = QPixmap(image_path)
@@ -90,7 +88,7 @@ class VersionsPage(QWidget):
                 button.setPixmap(pixmap.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Heavy", font_size))
+        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setGeometry(0, 0, width, height)
@@ -100,8 +98,6 @@ class VersionsPage(QWidget):
         """创建左侧游戏安装路径面板"""
         # 容器
         panel = QWidget()
-        # panel.setMaximumWidth(260)
-        # panel.setContentsMargins(10, 0, 10, 0)
         panel.setStyleSheet("background-color: rgba(92, 90, 152, 0.25);")
         
         # 布局
@@ -133,8 +129,7 @@ class VersionsPage(QWidget):
             "安装新游戏", 
             os.path.join(self.resource_path, 'images', 'user', 'legal_login_btn.png'),
             lambda: print('安装新游戏'),
-            235, 40,
-            font_size=10
+            235, 40
         )
         layout.addWidget(install_button)
         
@@ -209,19 +204,16 @@ class VersionsPage(QWidget):
         text_layout.setContentsMargins(0, 10, 0, 10)
         text_layout.setSpacing(5)
         
-        title_label = SmartLabel(title, max_heiht=140)
-        title_label.setStyleSheet("color: #f2f2f2; font-size: 14px; font-weight: bold; border: none;")
+        title_label = SmartLabel(title, font_size=11, font_weight=QFont.Weight.Bold, max_heiht=140)
+        title_label.setStyleSheet("color: #f2f2f2; border: none;")
         
-        path_label = SmartLabel(path, max_heiht=140)
-        # path_label.setMaximumWidth(135)
-        path_label.setStyleSheet("color: #f2f2f2; font-size: 11px; border: none;")
+        path_label = SmartLabel(path, font_size=9, max_heiht=140)
+        path_label.setStyleSheet("color: #f2f2f2; border: none;")
         
         text_layout.addWidget(title_label)
         text_layout.addWidget(path_label)
         
         layout.addWidget(text_widget)
-        # layout.addSpacing(5)
-        # layout.addStretch()
         
         # 删除图标（如果有）
         if has_delete:
@@ -268,7 +260,8 @@ class VersionsPage(QWidget):
         
         # 文本
         text_label = QLabel('添加游戏文件夹')
-        text_label.setStyleSheet("color: rgba(209, 204, 255, 1); font-weight: bold; font-size: 13px; border: none;")
+        text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        text_label.setStyleSheet("color: rgba(209, 204, 255, 1); border: none;")
         
         layout.addStretch()
         layout.addWidget(add_icon, 0, Qt.AlignCenter)
@@ -378,11 +371,13 @@ class VersionsPage(QWidget):
         text_layout.setSpacing(5)
         
         version_label = QLabel(f'版本号：{version}')
-        version_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
+        version_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        version_label.setStyleSheet("color: #f2f2f2;")
         
         desc_label = QLabel(description)
         desc_label.setMaximumWidth(200)
-        desc_label.setStyleSheet("color: #f2f2f2; font-size: 13px;")
+        desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         
         text_layout.addWidget(version_label, 0, Qt.AlignVCenter)
         text_layout.addWidget(desc_label, 0, Qt.AlignVCenter)

@@ -69,7 +69,8 @@ class QMButton(QLabel):
         
         # 创建文本标签
         self.text_label = QLabel(self._text)
-        self.text_label.setFont(QFont("Source Han Sans CN Heavy", self.font_size * self.scale_ratio))  # self.font_size
+        self.text_label.setFont(QFont("Source Han Sans CN Normal", self.font_size, QFont.Weight.Bold))  # self.font_size
+        
         self.text_label.setStyleSheet(f"color: #f2f2f2; background-color: transparent;")
         self.text_label.setAlignment(Qt.AlignCenter)
         
@@ -177,12 +178,11 @@ class QMStartButton(QWidget):
         
         # 第一行文本标签
         self.line1_label = QLabel(line1)
+        self.line1_label.setFont(QFont("CKTKingKong", 13, QFont.Weight.Bold))
         self.line1_label.setAlignment(Qt.AlignCenter)
         self.line1_label.setStyleSheet(f"""
             QLabel {{
                 color: #6D6FFE;
-                font-size: 14px;
-                font-weight: bold;
                 margin: 0;
                 padding: 0;
                 background: transparent;
@@ -191,11 +191,11 @@ class QMStartButton(QWidget):
         
         # 第二行文本标签
         self.line2_label = QLabel(line2)
+        self.line2_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         self.line2_label.setAlignment(Qt.AlignCenter)
         self.line2_label.setStyleSheet(f"""
             QLabel {{
                 color: #6D6FFE;
-                font-size: 10px;
                 margin: 0;
                 padding: 0;
                 background: transparent;
