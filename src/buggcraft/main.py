@@ -202,12 +202,23 @@ def initialize_application():
         send_notification("启动失败", "Qt环境设置失败")
         return 1
     
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
     from windows.main_window import MinecraftLauncher
 
+    # 设置渲染
+    # 软件渲染（兼容性最好，推荐尝试）
+    QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL)
+    # OpenGL ES（通过ANGLE）
+    # QApplication.setAttribute(Qt.AA_UseOpenGLES)
+    # OpenGL（性能最好，但需要显卡支持）
+    # QApplication.setAttribute(Qt.AA_UseDesktopOpenGL)
+
     # 创建Qt应用
     app = QApplication(sys.argv)
-    
+    # 设置高DPI支持[7](@ref)
+    app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     # 注释掉字体加载功能，使用系统默认字体
     # load_custom_font(RESOURCE_DIR)
     
@@ -229,9 +240,6 @@ def initialize_application():
 
 def main():
     """应用程序主入口"""
-    # 初始化目录结构
-    # setup_directories()
-    
     # 下载必要资源
     if not download_resources():
         logger.error("资源下载失败，无法继续")

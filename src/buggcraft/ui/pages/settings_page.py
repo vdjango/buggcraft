@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QSpacerItem, QSizePolicy
 )
 from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QRect
 from .base_page import BasePage
 from utils.helpers import MemorySliderManager
 from config.settings import get_settings_manager
@@ -56,7 +56,7 @@ class SettingsPage(BasePage):
         # 创建选项卡容器
         self.tab_container = QWidget()
         tab_container_layout = QHBoxLayout(self.tab_container)
-        tab_container_layout.setContentsMargins(15, 0, 15, 25)
+        tab_container_layout.setContentsMargins(15, 0, 15, 0)
         
         # 创建选项卡按钮区域
         self.tab_buttons_widget = self.create_tab_buttons()
@@ -69,7 +69,6 @@ class SettingsPage(BasePage):
         # self.settings_stack.setStyleSheet("background-color: #552299;")
 
         tab_container_layout.addWidget(self.tab_buttons_widget)
-        tab_container_layout.addSpacing(22)
         tab_container_layout.addWidget(self.settings_stack)
         
         # 通用设置/全局设置/Java管理/关于
@@ -81,10 +80,10 @@ class SettingsPage(BasePage):
     def create_tab_buttons(self):
         """创建选项卡按钮区域  """
         tab_buttons_widget = QWidget()
-        tab_buttons_widget.setFixedWidth(178)
+        tab_buttons_widget.setFixedWidth(178 + 21)
         tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
         tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
-        tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        tab_buttons_layout.setContentsMargins(0, 0, 21, 0)
         tab_buttons_layout.addSpacing(20)   
 
         # 创建紫色分隔线
@@ -202,29 +201,10 @@ class SettingsPage(BasePage):
         self.update_tab_button_style("Java管理", False)
         self.update_tab_button_style("关于", True)
 
-    def paintEvent(self, event):
-        """重绘事件 - 绘制背景图片与主窗口渲染方式一致"""
-        if self.bg_image:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
-            
-            widget_width = self.width()
-            widget_height = self.height()
-            
-            scale_x = widget_width / self.bg_image.width()
-            scale_y = widget_height / self.bg_image.height()
-            scale = min(scale_x, scale_y)   
-            
-            scaled_width = int(self.bg_image.width() * scale)
-            scaled_height = int(self.bg_image.height() * scale)
-            
-            x = (widget_width - scaled_width) // 2
-            y = (widget_height - scaled_height) // 2
-            
-            scaled_pixmap = self.bg_image.scaled(
-                scaled_width, scaled_height,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            painter.drawPixmap(x, y, scaled_pixmap)
-        super().paintEvent(event)
+    def toggle_menu(self, menu_collapsed=False):
+        """左侧菜单折叠"""
+        if menu_collapsed:
+            self.tab_buttons_widget.hide()
+        else:
+            self.tab_buttons_widget.show()
+        pass

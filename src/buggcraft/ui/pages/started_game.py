@@ -200,9 +200,9 @@ class StartGamePage(QWidget):
                 logger.error(f"MINECRAFT图片加载失败: {minecraft_logo_path}")
         else:
             logger.error(f"MINECRAFT图片文件不存在: {minecraft_logo_path}")
-        tab_content_layout.addSpacing(20)
+        tab_content_layout.addSpacing(10)
         tab_content_layout.addWidget(minecraft_logo, 0, Qt.AlignCenter)
-        tab_content_layout.addSpacing(20)  # MINECRAFT图片与头像间距
+        tab_content_layout.addSpacing(10)  # MINECRAFT图片与头像间距
 
         # 头像
         self.avatar = QLabel()
@@ -218,7 +218,7 @@ class StartGamePage(QWidget):
         self.username_label.setAlignment(Qt.AlignCenter)
         self.username_label.setStyleSheet("color: #f8f8f8;")
         tab_content_layout.addWidget(self.username_label, 0, Qt.AlignCenter)
-        tab_content_layout.addSpacing(20)
+        tab_content_layout.addSpacing(10)
 
         # 创建正版登录内容
         self.external_content = self.create_external_content()
@@ -228,7 +228,7 @@ class StartGamePage(QWidget):
         self.offline_content = self.create_offline_content()
         self.offline_content.hide()
         tab_content_layout.addWidget(self.offline_content)
-        tab_content_layout.addSpacing(40)
+        tab_content_layout.addSpacing(20)
         
         # 创建启动游戏按钮
         self.launch_btn = QMStartButton(resource_path=self.resource_path)
@@ -257,7 +257,6 @@ class StartGamePage(QWidget):
         tab_content_layout.addStretch(1)
 
         tab_container_layout.addWidget(self.tab_buttons_widget)
-        tab_container_layout.addSpacing(23)
         tab_container_layout.addWidget(self.tab_content)
 
         main_layout.addWidget(self.tab_container)
@@ -268,10 +267,10 @@ class StartGamePage(QWidget):
     def create_tab_buttons(self):
         """创建选项卡按钮区域"""
         tab_buttons_widget = QWidget()
-        tab_buttons_widget.setFixedWidth(178)
+        tab_buttons_widget.setFixedWidth(178 + 21)
         tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
         tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
-        tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        tab_buttons_layout.setContentsMargins(0, 0, 21, 0)
         tab_buttons_layout.addSpacing(20)   
 
         # 创建紫色分隔线
@@ -492,6 +491,14 @@ class StartGamePage(QWidget):
         
         return button
 
+    def toggle_menu(self, menu_collapsed=False):
+        """左侧菜单折叠"""
+        if menu_collapsed:
+            self.tab_buttons_widget.hide()
+        else:
+            self.tab_buttons_widget.show()
+        pass
+    
     def set_default_avatar(self):
         """设置默认头像"""
         self.avatar.setStyleSheet("background-color: #2b2b2b; border: none;")

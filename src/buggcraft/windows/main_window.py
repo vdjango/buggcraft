@@ -5,9 +5,9 @@ import logging
 import webbrowser
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QStackedWidget, QVBoxLayout
+    QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QPushButton
 )
-from PySide6.QtCore import Qt, QSize, QPoint, QTimer
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
 
 from utils.helpers import scale_component
@@ -63,12 +63,33 @@ class MinecraftLauncher(QMainWindow):
         self.current_tab = 0
         
         # 设置背景图片
-        self.bg_image = None
-        self.load_background_image()
-
+        self.menu_width = 178 + 27  # 左侧菜单宽度
+        self.menu_collapsed = False  # 折叠状态
+        self.is_animating = False
+        
+        # 加载背景图片
+        self.original_bg_image = QPixmap(
+            os.path.abspath(os.path.join(self.resource_path, 'images', 'minecraft_bg.png'))
+        )
+        self.bg_image = self.original_bg_image.scaled(
+            self.original_bg_image.width(),
+            self.original_bg_image.height()-55,
+            Qt.IgnoreAspectRatio,
+            Qt.SmoothTransformation
+        )
+        
+        # 预缓存
+        self.cache_expanded = QPixmap()
+        self.cache_collapsed = QPixmap()
+        # 启用双缓冲
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground, False)
         self.setWindowFlag(Qt.FramelessWindowHint)  # 移除默认标题栏
+        
         self.set_window_size_from_background()  # 根据背景图片尺寸设置窗口大小
         self.init_ui()
+        # QTimer.singleShot(500, self.initialize_caches)
+        self.initialize_caches()
 
         self.version_not_number = 0
         self.java_runtime_full = JavaRuntimeNotFuilDialog()
@@ -82,10 +103,10 @@ class MinecraftLauncher(QMainWindow):
     def init_ui(self):
         # 主布局
         main_widget = QWidget()
-        
+        main_widget.setContentsMargins(0, 0, 0, 0)
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(0, 0, 0, 23)
         main_layout.setSpacing(0)
         
         # 自定义标题栏
@@ -109,6 +130,9 @@ class MinecraftLauncher(QMainWindow):
         # 添加页面
         self.create_pages()
         main_layout.addWidget(content_widget)
+        
+        # 折叠测试
+        self.started_page.multiplayer_lobby_btn.mousePressEvent = lambda t: self.toggle_menu()
     
     @property
     def user(self) -> MicrosoftAuthenticator:
@@ -309,34 +333,15 @@ class MinecraftLauncher(QMainWindow):
             new_widget.on_page_activate()
         
         print('switch_pages', self.tab_names, name)
-    
-    def load_background_image(self):
-        """加载背景图片"""
-        bg_path = os.path.abspath(os.path.join(self.resource_path, 'images', 'minecraft_bg.png'))
-        if os.path.exists(bg_path):
-            self.bg_image = QPixmap(bg_path)
-            logger.info(f"主窗口背景图片加载成功: {bg_path}")
-            logger.info(f"背景图片尺寸: {self.bg_image.width()}x{self.bg_image.height()}")
-        else:
-            logger.error(f"主窗口背景图片不存在: {bg_path}")
 
     def set_window_size_from_background(self):
         """根据背景图片尺寸设置窗口大小"""
-        if self.bg_image and not self.bg_image.isNull():
-            # 使用背景图片的实际尺寸
-            bg_width = self.bg_image.width()
-            bg_height = self.bg_image.height()
-            self.setFixedWidth(bg_width)
-            self.setFixedHeight(bg_height)
-            logger.info(f"窗口大小已调整为背景图片尺寸: {bg_width}x{bg_height}")
-        else:
-            # 如果背景图片加载失败，使用默认尺寸
-            default_width = int(1280 * self.scale_ratio)
-            default_height = int(832 * self.scale_ratio)
-            self.setFixedWidth(default_width)
-            self.setFixedHeight(default_height)
-            logger.warning(f"背景图片未加载，使用默认窗口尺寸: {default_width}x{default_height}")
-
+        bg_width = self.bg_image.width()
+        bg_height = self.bg_image.height()
+        self.resize(bg_width, bg_height)
+        self.setMinimumSize(bg_width - self.menu_width, bg_height)
+        self.setMaximumSize(bg_width, bg_height)
+        
     def minecraft_handle_output(self, message):
         """处理输出"""
         logger.info(f'minecraft_handle_output {message}')
@@ -364,28 +369,102 @@ class MinecraftLauncher(QMainWindow):
     def handle_login_success(self, data, login_type):
         """处理登录成功事件"""
         pass
+    
+    def initialize_caches(self):
+        """初始化预缓存 - 修正了QSize运算错误"""
+        logger.info("开始初始化预缓存...")
+        
+        # 生成菜单展开状态的缓存
+        expanded_size = self.bg_image.size()
+        self.cache_expanded = QPixmap(expanded_size)
+        self.cache_expanded.fill(Qt.transparent)
+        
+        painter = QPainter(self.cache_expanded)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.drawPixmap(0, 0, self.bg_image)
+        painter.setPen(QPen(QColor("#565656"), 1))
+        painter.drawRect(self.cache_expanded.rect().adjusted(0, 0, -1, -1))
+        painter.end()
 
+        original_size = self.cache_expanded.size()
+        collapsed_width = original_size.width() - self.menu_width
+        collapsed_height = original_size.height()
+        collapsed_size = QSize(collapsed_width, collapsed_height)
+        
+        self.cache_collapsed = QPixmap(collapsed_size)
+        self.cache_collapsed.fill(Qt.transparent)
+        
+        painter = QPainter(self.cache_collapsed)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # 只绘制右侧内容部分
+        content_rect = QRect(0, 0, collapsed_width, collapsed_height)
+        source_rect = QRect(self.menu_width, 0, collapsed_width, collapsed_height)
+        painter.drawPixmap(content_rect, self.bg_image, source_rect)
+        painter.setPen(QPen(QColor("#565656"), 1))
+        painter.drawRect(self.cache_collapsed.rect().adjusted(0, 0, -1, -1))
+        painter.end()
+        
+        logger.info("预缓存初始化完成。")
+
+    def toggle_menu(self):
+        """切换菜单状态"""
+        if self.is_animating:
+            return
+            
+        self.is_animating = True
+        self.started_page.tab_buttons_widget.setEnabled(False)
+        
+        current_geometry = self.frameGeometry()
+        current_pos = current_geometry.topLeft()
+        current_width = current_geometry.width()
+        current_height = current_geometry.height()
+        
+        if self.menu_collapsed:
+            new_width = current_width + self.menu_width
+            new_pos = QPoint(current_pos.x() - self.menu_width, current_pos.y())
+        else:
+            new_width = current_width - self.menu_width
+            new_pos = QPoint(current_pos.x() + self.menu_width, current_pos.y())
+        
+        self.setGeometry(new_pos.x(), new_pos.y(), new_width, current_height)
+        self.menu_collapsed = not self.menu_collapsed
+        
+        self.title_bar.toggle_menu(self.menu_collapsed)
+        self.started_page.toggle_menu(self.menu_collapsed)
+        self.settings_page.toggle_menu(self.menu_collapsed)
+        self.version_page.toggle_menu(self.menu_collapsed)
+        
+        # 更新状态和触发重绘
+        self.update() # 触发paintEvent
+        # 延迟后重新启用交互
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, self.enable_interaction)
+    
+    def enable_interaction(self):
+        self.is_animating = False
+        self.started_page.tab_buttons_widget.setEnabled(True)
+    
     def paintEvent(self, event):
-        """重绘事件 - 绘制背景图片"""
+        """绘制事件 - 使用预缓存"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-
-        if self.bg_image:
-            # 直接绘制原始尺寸的背景图片，不进行缩放
-            painter.drawPixmap(0, 0, self.bg_image)
         
-        # 绘制白色边框
-        painter.setPen(QPen(QColor("#565656"), 1))  # 2像素宽的白色边框
-        painter.drawRect(self.rect().adjusted(1, 1, -1, -1))  # 向内调整1像素，避免边框被裁剪
-
+        if self.menu_collapsed:
+            target_pixmap = self.cache_collapsed
+        else:
+            target_pixmap = self.cache_expanded
+        
+        if not target_pixmap.isNull():
+            painter.drawPixmap(0, 0, target_pixmap)
+        
         super().paintEvent(event)
-    
+
     def resizeEvent(self, event):
         """窗口大小改变事件处理"""
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        # self.settings_page.save_all_settings()  # 假设 settings_page 是 SettingsPage 实例
         super().closeEvent(event)
 
     # 窗口拖动功能

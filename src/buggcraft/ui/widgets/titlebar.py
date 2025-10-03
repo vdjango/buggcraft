@@ -26,7 +26,7 @@ class TitleBar(QWidget):
         self.active_tab = 0
         
         # 设置高度
-        self.setFixedHeight(55)
+        self.setFixedHeight(50)
         
         # 创建布局
         self.init_ui()
@@ -34,9 +34,9 @@ class TitleBar(QWidget):
     def init_ui(self):
         """初始化 UI - 使用正常布局"""
         # 主水平布局
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(270, 0, 11, 0)
-        main_layout.setSpacing(0)
+        self.main_layout = QHBoxLayout(self)
+        self.main_layout.setContentsMargins(270, 0, 11, 0)
+        self.main_layout.setSpacing(0)
         
         # 创建标签按钮容器
         tab_container = QWidget()
@@ -56,13 +56,13 @@ class TitleBar(QWidget):
         tab_layout.addStretch()
         
         # 将容器添加到主布局
-        main_layout.addWidget(tab_container)
-        main_layout.addStretch(1)
+        self.main_layout.addWidget(tab_container)
+        self.main_layout.addStretch(1)
         
         container = QWidget()
         container.setStyleSheet("background: transparent;")
         container_layout = QHBoxLayout(container)
-        container_layout.setContentsMargins(0, 10, 0, 0)
+        container_layout.setContentsMargins(0, 7, 0, 0)
         container_layout.setSpacing(0)
 
         # 创建版本选择按钮
@@ -93,7 +93,7 @@ class TitleBar(QWidget):
         close_btn.mousePressEvent = lambda e: self.parent.close()
         container_layout.addWidget(close_btn)
 
-        main_layout.addWidget(container)
+        self.main_layout.addWidget(container)
         # 设置初始选中状态
         self.set_active_tab('开始')
 
@@ -109,7 +109,7 @@ class TitleBar(QWidget):
             self.resource_path, 'images', 'version', image_name
         ))
 
-    def create_image_button(self, text, width=110, height=45, font_size=11, icon_size=20):
+    def create_image_button(self, text, width=100, height=40, font_size=11, icon_size=20):
         """
         创建带图标和文本的图片按钮
         :param text: 按钮文本
@@ -159,7 +159,7 @@ class TitleBar(QWidget):
 
         return button, icon_label
 
-    def create_version_settings_button(self, text, width=128, height=33, font_size=11, icon_size=20):
+    def create_version_settings_button(self, text, width=128, height=32, font_size=11, icon_size=20):
         """
         创建版本设置按钮
         :param text: 按钮文本
@@ -212,7 +212,7 @@ class TitleBar(QWidget):
 
         return button, (content_container, icon_label)
     
-    def create_version_selection_button(self, text, width=128, height=33, font_size=11, icon_size=12):
+    def create_version_selection_button(self, text, width=128, height=32, font_size=11, icon_size=12):
         """
         创建版本选择按钮 - 带下拉箭头
         :param text: 按钮文本
@@ -272,10 +272,11 @@ class TitleBar(QWidget):
         
         # 创建按钮
         control_btn = QLabel()
-        control_btn.setFixedSize(30, 33)
+        control_btn.setFixedSize(30, 30)
+        control_btn.setCursor(Qt.PointingHandCursor)
         
         # 设置背景图片
-        pixmap = QPixmap(bg_path).scaled(30, 33, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        pixmap = QPixmap(bg_path).scaled(30, 30, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
         control_btn.setPixmap(pixmap)
         return control_btn
     
@@ -308,7 +309,7 @@ class TitleBar(QWidget):
                 else:
                     tab_bg.setStyleSheet('background-color: rgba(110, 99, 255, 0.5);')
                 
-                tab_button.setPixmap(QPixmap(active_bg).scaled(110, 33, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+                tab_button.setPixmap(QPixmap(active_bg).scaled(110, 32, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
                 icon_label.setPixmap(QPixmap(active_icon).scaled(18, 18, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
             else:
                 active_bg = active_bg_path
@@ -318,13 +319,21 @@ class TitleBar(QWidget):
                     active_bg = inactive_bg_path
                     active_icon = inactive_icon_path
 
-                tab_button.setPixmap(QPixmap(active_bg).scaled(128, 45, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+                tab_button.setPixmap(QPixmap(active_bg).scaled(128, 40, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
                 icon_label.setPixmap(QPixmap(active_icon).scaled(20, 20, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
 
     def on_tab_clicked(self, name):
         """标签点击事件处理"""
         self.set_active_tab(name)
         self.tab_switch_clicked.emit(name)
+    
+    def toggle_menu(self, menu_collapsed=False):
+        """左侧菜单折叠"""
+        if menu_collapsed:
+            self.main_layout.setContentsMargins(65, 0, 11, 0)
+        else:
+            self.main_layout.setContentsMargins(270, 0, 11, 0)
+        pass
     
     # 保留原有的窗口拖动功能
     def mousePressEvent(self, event: QMouseEvent):

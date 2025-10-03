@@ -57,7 +57,7 @@ class VersionsPages(QWidget):
         # 创建选项卡容器
         self.tab_container = QWidget()
         tab_container_layout = QHBoxLayout(self.tab_container)
-        tab_container_layout.setContentsMargins(15, 0, 15, 25)
+        tab_container_layout.setContentsMargins(15, 0, 15, 0)
         
         # 创建选项卡按钮区域
         self.tab_buttons_widget = self.create_tab_buttons()
@@ -70,7 +70,6 @@ class VersionsPages(QWidget):
         # self.version_stack.setStyleSheet("background-color: #552299;")
 
         tab_container_layout.addWidget(self.tab_buttons_widget)
-        tab_container_layout.addSpacing(22)
         tab_container_layout.addWidget(self.version_stack)
         
         # 版本列表/版本设置
@@ -86,11 +85,11 @@ class VersionsPages(QWidget):
     def create_tab_buttons(self):
         """创建选项卡按钮区域"""
         tab_buttons_widget = QWidget()
-        tab_buttons_widget.setFixedWidth(178)
-        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)
+        tab_buttons_widget.setFixedWidth(178 + 21)
+        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
         tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
-        tab_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        tab_buttons_layout.addSpacing(20)
+        tab_buttons_layout.setContentsMargins(0, 0, 21, 0)
+        tab_buttons_layout.addSpacing(20)  
         
         # 添加下划线（水平分隔线）
         shared_separator = QFrame()
@@ -203,11 +202,13 @@ class VersionsPages(QWidget):
         if hasattr(new_widget, 'on_page_activate'):
             new_widget.on_page_activate()
 
-    def paintEvent(self, event):
-        """重绘事件 - 透明背景"""
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), self.background_color)    
-        super().paintEvent(event)
+    def toggle_menu(self, menu_collapsed=False):
+        """左侧菜单折叠"""
+        if menu_collapsed:
+            self.tab_buttons_widget.hide()
+        else:
+            self.tab_buttons_widget.show()
+        pass
 
     def setBackgroundColor(self, color):
         """设置新的背景颜色并更新界面"""
