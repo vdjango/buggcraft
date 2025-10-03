@@ -10,17 +10,21 @@ class TitleBar(QWidget):
     """标题栏 - 保留原有样式和功能"""
     
     tab_switch_clicked = Signal(str)
+    menu_toggle_signal = Signal(bool)
     
     def __init__(self, parent, resource_path):
         super().__init__(parent)
         self.parent = parent
-        self.resource_path = resource_path
         self.setObjectName("TitleBar")
+        
+        self.resource_path = resource_path
         self.dragging = False
         self.drag_position = QPoint()
         
-        # 标签页配置
-        self.tab_names = ["开始", "下载", "设置"]
+        self.menu_collapsed = False
+        self.is_animating = False
+        
+        self.tab_names = ["开始", "下载", "设置"]  # 标签页配置
         # 版本 没有添加，因为版本 是下拉选项 不是单独页面
         self.tab_version_names = ["实例"]
         self.active_tab = 0
@@ -35,7 +39,7 @@ class TitleBar(QWidget):
         """初始化 UI - 使用正常布局"""
         # 主水平布局
         self.main_layout = QHBoxLayout(self)
-        self.main_layout.setContentsMargins(270, 0, 11, 0)
+        self.main_layout.setContentsMargins(215, 0, 11, 0)
         self.main_layout.setSpacing(0)
         
         # 创建标签按钮容器
@@ -45,6 +49,11 @@ class TitleBar(QWidget):
         tab_layout = QHBoxLayout(tab_container)
         tab_layout.setContentsMargins(0, 0, 0, 6)
         tab_layout.setSpacing(0)
+        
+        # 折叠按钮
+        toggle_button, self.icon_toggle = self.create_toggle_button()
+        tab_layout.addWidget(toggle_button, 0, Qt.AlignCenter)
+        tab_layout.addSpacing(15)
         
         # 创建标签按钮
         self.tab_buttons = []
@@ -68,24 +77,18 @@ class TitleBar(QWidget):
         # 创建版本选择按钮
         version_selection_btn= self.create_version_selection_button("版本", 125)
         container_layout.addWidget(version_selection_btn, 0, Qt.AlignCenter)
-        
-        # 版本按钮之间的间距
         container_layout.addSpacing(5)
         
         # 创建版本设置按钮
         version_settings_btn, (content_container, icon_label) = self.create_version_settings_button("实例", 110)
         container_layout.addWidget(version_settings_btn, 0, Qt.AlignCenter)
-        self.tab_buttons.append((version_settings_btn, content_container, icon_label))
-        
-        # 版本按钮和控制按钮之间的间距
         container_layout.addSpacing(5)
+        self.tab_buttons.append((version_settings_btn, content_container, icon_label))
         
         # 创建最小化按钮
         minimize_btn = self.create_control_button("最小化", "min.png")
         minimize_btn.mousePressEvent = lambda e: self.parent.showMinimized()
         container_layout.addWidget(minimize_btn)
-        
-        # 控制按钮之间的间距
         container_layout.addSpacing(5)
         
         # 创建关闭按钮
@@ -108,6 +111,40 @@ class TitleBar(QWidget):
         return os.path.abspath(os.path.join(
             self.resource_path, 'images', 'version', image_name
         ))
+
+    def create_toggle_button(self, width=40, height=45, icon_size=20):
+        """
+        创建带图标和文本的图片按钮
+        :param text: 按钮文本
+        :param width: 按钮宽度
+        :param height: 按钮高度
+        :param font_size: 字体大小
+        :param icon_size: 图标大小
+        """
+        # 设置背景图片
+        icon_path = self.get_image_path('ic.png')
+
+        # 创建内容容器
+        content = QWidget()
+        content.setFixedHeight(height)
+        content.setContentsMargins(0, 0, 0, 0)
+
+        # 创建图标布局
+        layout = QHBoxLayout(content)
+        layout.setContentsMargins(0, 15, 0, 0)
+        layout.setSpacing(0)
+        
+        # 添加图标
+        icon_label = QLabel()
+        icon_label.setCursor(Qt.PointingHandCursor)
+        icon_pixmap = QPixmap(icon_path).scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # icon_label.setPixmap(icon_pixmap)
+        icon_label.setStyleSheet('background-color: rgba(0, 137, 77, 0.6);')  # rgba(169, 137, 77, 1)
+        icon_label.setFixedSize(40, 30)  # 40, 21
+        icon_label.mousePressEvent = lambda e: self.toggle_menu()
+        layout.addWidget(icon_label,)
+        
+        return content, icon_label
 
     def create_image_button(self, text, width=100, height=40, font_size=11, icon_size=20):
         """
@@ -327,14 +364,31 @@ class TitleBar(QWidget):
         self.set_active_tab(name)
         self.tab_switch_clicked.emit(name)
     
-    def toggle_menu(self, menu_collapsed=False):
+    def toggle_menu(self, n=0):
         """左侧菜单折叠"""
-        if menu_collapsed:
-            self.main_layout.setContentsMargins(65, 0, 11, 0)
+        if self.is_animating:
+            return
+        
+        self.is_animating = True
+        self.icon_toggle.setEnabled(False)
+        
+        self.menu_collapsed = not self.menu_collapsed
+        if self.menu_collapsed:
+            self.main_layout.setContentsMargins(10, 0, 11, 0)
+            self.icon_toggle.setStyleSheet('background-color: rgba(128, 0, 77, 0.6);')  # rgba(169, 137, 77, 1)
         else:
-            self.main_layout.setContentsMargins(270, 0, 11, 0)
-        pass
-    
+            self.main_layout.setContentsMargins(215, 0, 11, 0)
+            self.icon_toggle.setStyleSheet('background-color: rgba(0, 137, 77, 0.6);')  # rgba(169, 137, 77, 1)
+            
+        self.menu_toggle_signal.emit(self.menu_collapsed)
+        # 延迟后重新启用交互
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, self.enable_interaction)
+
+    def enable_interaction(self):
+        self.is_animating = False
+        self.icon_toggle.setEnabled(True)
+        
     # 保留原有的窗口拖动功能
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:

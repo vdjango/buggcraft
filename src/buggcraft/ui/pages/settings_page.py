@@ -46,13 +46,21 @@ class SettingsPage(BasePage):
         self.init_ui()
 
     def on_page_activate(self):
-        """当页面被激活时调用"""
+        """事件：页面被激活时"""
         print("设置页面被激活")
     
     def on_page_deactivate(self):
-        """当页面被隐藏时调用"""
+        """事件：页面被隐藏时"""
         print("设置页面被隐藏")
 
+    def toggle_menu(self, menu_collapsed=False):
+        """事件：左侧菜单折叠"""
+        if menu_collapsed:
+            self.tab_buttons_widget.hide()
+        else:
+            self.tab_buttons_widget.show()
+        pass
+    
     def init_ui(self):
         """初始化用户界面"""
         main_layout = QVBoxLayout(self)
@@ -208,11 +216,3 @@ class SettingsPage(BasePage):
         self.update_tab_button_style("全局设置", False)
         self.update_tab_button_style("Java管理", False)
         self.update_tab_button_style("关于", True)
-
-    def toggle_menu(self, menu_collapsed=False):
-        """左侧菜单折叠"""
-        if menu_collapsed:
-            self.tab_buttons_widget.hide()
-        else:
-            self.tab_buttons_widget.show()
-        pass

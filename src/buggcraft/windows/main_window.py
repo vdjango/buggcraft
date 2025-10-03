@@ -65,7 +65,6 @@ class MinecraftLauncher(QMainWindow):
         # 设置背景图片
         self.menu_width = 178 + 27  # 左侧菜单宽度
         self.menu_collapsed = False  # 折叠状态
-        self.is_animating = False
         
         # 加载背景图片
         self.original_bg_image = QPixmap(
@@ -85,13 +84,11 @@ class MinecraftLauncher(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground, False)
         self.setWindowFlag(Qt.FramelessWindowHint)  # 移除默认标题栏
-        
-        self.set_window_size_from_background()  # 根据背景图片尺寸设置窗口大小
-        self.init_ui()
-        # QTimer.singleShot(500, self.initialize_caches)
         self.initialize_caches()
-
-        self.version_not_number = 0
+        self.set_window_size()  # 根据背景图片尺寸设置窗口大小
+        
+        self.init_ui()
+        
         self.java_runtime_full = JavaRuntimeNotFuilDialog()
         self.gamed_runtime_full = VersionNotFuilDialog()
         self.java_runtime_full.download_signal.connect(self.on_java_download_signal)
@@ -132,7 +129,7 @@ class MinecraftLauncher(QMainWindow):
         main_layout.addWidget(content_widget)
         
         # 折叠测试
-        self.started_page.multiplayer_lobby_btn.mousePressEvent = lambda t: self.toggle_menu()
+        self.title_bar.menu_toggle_signal.connect(self.toggle_menu)
     
     @property
     def user(self) -> MicrosoftAuthenticator:
@@ -334,7 +331,7 @@ class MinecraftLauncher(QMainWindow):
         
         print('switch_pages', self.tab_names, name)
 
-    def set_window_size_from_background(self):
+    def set_window_size(self):
         """根据背景图片尺寸设置窗口大小"""
         bg_width = self.bg_image.width()
         bg_height = self.bg_image.height()
@@ -409,12 +406,6 @@ class MinecraftLauncher(QMainWindow):
 
     def toggle_menu(self):
         """切换菜单状态"""
-        if self.is_animating:
-            return
-            
-        self.is_animating = True
-        self.started_page.tab_buttons_widget.setEnabled(False)
-        
         current_geometry = self.frameGeometry()
         current_pos = current_geometry.topLeft()
         current_width = current_geometry.width()
@@ -429,21 +420,15 @@ class MinecraftLauncher(QMainWindow):
         
         self.setGeometry(new_pos.x(), new_pos.y(), new_width, current_height)
         self.menu_collapsed = not self.menu_collapsed
+
+        for i in reversed(range(self.content_stack.layout().count())):
+            # 收起/打开所有页面菜单
+            item = self.content_stack.layout().itemAt(i)
+            widget = item.widget()
+            if widget and hasattr(widget, 'toggle_menu'):
+                widget.toggle_menu(self.menu_collapsed)
         
-        self.title_bar.toggle_menu(self.menu_collapsed)
-        self.started_page.toggle_menu(self.menu_collapsed)
-        self.settings_page.toggle_menu(self.menu_collapsed)
-        self.version_page.toggle_menu(self.menu_collapsed)
-        
-        # 更新状态和触发重绘
         self.update() # 触发paintEvent
-        # 延迟后重新启用交互
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(100, self.enable_interaction)
-    
-    def enable_interaction(self):
-        self.is_animating = False
-        self.started_page.tab_buttons_widget.setEnabled(True)
     
     def paintEvent(self, event):
         """绘制事件 - 使用预缓存"""

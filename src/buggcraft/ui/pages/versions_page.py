@@ -41,12 +41,20 @@ class VersionsPages(QWidget):
         self.init_ui()
 
     def on_page_activate(self):
-        """当页面被激活时调用"""
+        """事件：页面被激活时"""
         print("页面被激活")
     
     def on_page_deactivate(self):
-        """当页面被隐藏时调用"""
+        """事件：页面被隐藏时"""
         print("页面被隐藏")
+    
+    def toggle_menu(self, menu_collapsed=False):
+        """事件：左侧菜单折叠"""
+        if menu_collapsed:
+            self.tab_buttons_widget.hide()
+        else:
+            self.tab_buttons_widget.show()
+        pass
     
     def init_ui(self):
         """初始化用户界面"""
@@ -103,7 +111,7 @@ class VersionsPages(QWidget):
         # 离线选项卡按钮
         self.offline_tab_btn = self.create_tab_button(
             "版本列表",
-            self.versions_btn_clicked,
+            self.on_versions_clicked,
             size=(155, 44), font_size=10
         )
         tab_buttons_layout.addWidget(self.offline_tab_btn, 0, Qt.AlignCenter)
@@ -111,7 +119,7 @@ class VersionsPages(QWidget):
         # 正版选项卡按钮
         self.external_tab_btn = self.create_tab_button(
             "版本设置",
-            self.settings_btn_clicked,
+            self.on_settings_clicked,
             size=(155, 44), font_size=10
         )
         tab_buttons_layout.addWidget(self.external_tab_btn, 0, Qt.AlignCenter)
@@ -119,7 +127,7 @@ class VersionsPages(QWidget):
         # 离线选项卡按钮
         _tab_btn = self.create_tab_button(
             "模组管理",
-            self.versions_btn_clicked,
+            self.on_versions_clicked,
             size=(155, 44), font_size=10
         )
         # tab_buttons_layout.addWidget(_tab_btn, 0, Qt.AlignCenter)
@@ -127,7 +135,7 @@ class VersionsPages(QWidget):
         # 离线选项卡按钮
         _tab_btn = self.create_tab_button(
             "世界管理",
-            self.versions_btn_clicked,
+            self.on_versions_clicked,
             size=(155, 44), font_size=10
         )
         # tab_buttons_layout.addWidget(_tab_btn, 0, Qt.AlignCenter)
@@ -156,13 +164,13 @@ class VersionsPages(QWidget):
         
         return button
 
-    def settings_btn_clicked(self):
+    def on_settings_clicked(self):
         """版本列表按钮点击事件"""
         self.update_button_style("版本列表", True)
         self.update_button_style("版本设置", False)
         self.switch_pages("版本设置")
 
-    def versions_btn_clicked(self):
+    def on_versions_clicked(self):
         """版本设置按钮点击事件"""
         self.update_button_style("版本列表", False)
         self.update_button_style("版本设置", True)
@@ -201,14 +209,6 @@ class VersionsPages(QWidget):
         new_widget = self.version_stack.widget(index)
         if hasattr(new_widget, 'on_page_activate'):
             new_widget.on_page_activate()
-
-    def toggle_menu(self, menu_collapsed=False):
-        """左侧菜单折叠"""
-        if menu_collapsed:
-            self.tab_buttons_widget.hide()
-        else:
-            self.tab_buttons_widget.show()
-        pass
 
     def setBackgroundColor(self, color):
         """设置新的背景颜色并更新界面"""
