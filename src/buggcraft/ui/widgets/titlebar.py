@@ -6,6 +6,34 @@ from PySide6.QtGui import QFont, QPixmap, QMouseEvent
 from PySide6.QtCore import Qt, QPoint, Signal
 
 
+from PySide6.QtWidgets import QLabel
+from PySide6.QtGui import QPixmap, QPainter
+from PySide6.QtCore import Qt
+
+
+class DoubleBufferedLabel(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current_pixmap = QPixmap()  # 用于存储当前显示的图片
+
+    def setPixmapSmoothly(self, pixmap):
+        """使用双缓冲方式平滑设置像素图"""
+        self._current_pixmap = pixmap
+        # 调用update()触发paintEvent，而不是直接操作屏幕
+        self.update()
+
+    def paintEvent(self, event):
+        """重写绘制事件，实现双缓冲"""
+        if self._current_pixmap.isNull():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)  # 设置抗锯齿
+
+        # 将缓存的图片绘制到控件上
+        painter.drawPixmap(0, 0, self._current_pixmap)
+        
+
 class TitleBar(QWidget):
     """标题栏 - 保留原有样式和功能"""
     
@@ -112,21 +140,21 @@ class TitleBar(QWidget):
             self.resource_path, 'images', 'version', image_name
         ))
 
-    def create_toggle_button(self, width=40, height=45, icon_size=20):
+    def create_toggle_button(self):
         """
-        创建带图标和文本的图片按钮
+        创建图标按钮
         :param text: 按钮文本
         :param width: 按钮宽度
         :param height: 按钮高度
         :param font_size: 字体大小
         :param icon_size: 图标大小
         """
-        # 设置背景图片
-        icon_path = self.get_image_path('ic.png')
+        icon_right_path = self.get_image_path('toggle-right.png')  # toggle-left.png
 
         # 创建内容容器
         content = QWidget()
-        content.setFixedHeight(height)
+        content.setStyleSheet("background: transparent;")
+        content.setFixedHeight(45)
         content.setContentsMargins(0, 0, 0, 0)
 
         # 创建图标布局
@@ -135,14 +163,14 @@ class TitleBar(QWidget):
         layout.setSpacing(0)
         
         # 添加图标
-        icon_label = QLabel()
-        icon_label.setCursor(Qt.PointingHandCursor)
-        icon_pixmap = QPixmap(icon_path).scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        # icon_label.setPixmap(icon_pixmap)
-        icon_label.setStyleSheet('background-color: rgba(0, 137, 77, 0.6);')  # rgba(169, 137, 77, 1)
-        icon_label.setFixedSize(40, 30)  # 40, 21
+        icon_label = DoubleBufferedLabel()
+        icon_label.setPixmapSmoothly(
+            QPixmap(icon_right_path).scaled(40, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        icon_label.setFixedSize(40, 30)
         icon_label.mousePressEvent = lambda e: self.toggle_menu()
-        layout.addWidget(icon_label,)
+     
+        layout.addWidget(icon_label)
         
         return content, icon_label
 
@@ -372,23 +400,34 @@ class TitleBar(QWidget):
         self.is_animating = True
         self.icon_toggle.setEnabled(False)
         
+        # 关键修改：在切换前临时禁用可能的焦点效果
+        # self.icon_toggle.setFocusPolicy(Qt.NoFocus)
+    
+        icon_right_path = self.get_image_path('toggle-right.png')  # toggle-left.png
+        icon_left_path = self.get_image_path('toggle-left.png')  # toggle-left.png
+        
         self.menu_collapsed = not self.menu_collapsed
         if self.menu_collapsed:
             self.main_layout.setContentsMargins(10, 0, 11, 0)
-            self.icon_toggle.setStyleSheet('background-color: rgba(128, 0, 77, 0.6);')  # rgba(169, 137, 77, 1)
+            self.icon_toggle.setPixmapSmoothly(
+                QPixmap(icon_left_path).scaled(40, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
         else:
             self.main_layout.setContentsMargins(215, 0, 11, 0)
-            self.icon_toggle.setStyleSheet('background-color: rgba(0, 137, 77, 0.6);')  # rgba(169, 137, 77, 1)
+            self.icon_toggle.setPixmapSmoothly(
+                QPixmap(icon_right_path).scaled(40, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
             
         self.menu_toggle_signal.emit(self.menu_collapsed)
         # 延迟后重新启用交互
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(100, self.enable_interaction)
+        QTimer.singleShot(100, self.enable_toggle_interaction)
 
-    def enable_interaction(self):
+    def enable_toggle_interaction(self):
+        """恢复交互状态"""
         self.is_animating = False
         self.icon_toggle.setEnabled(True)
-        
+
     # 保留原有的窗口拖动功能
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:

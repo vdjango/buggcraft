@@ -204,7 +204,7 @@ class VersionsPage(QWidget):
         text_layout.setContentsMargins(0, 10, 0, 10)
         text_layout.setSpacing(5)
         
-        title_label = SmartLabel(title, font_size=11, font_weight=QFont.Weight.Bold, max_heiht=140)
+        title_label = SmartLabel(title, font_size=10, font_weight=QFont.Weight.Bold, max_heiht=140)
         title_label.setStyleSheet("color: #f2f2f2; border: none;")
         
         path_label = SmartLabel(path, font_size=9, max_heiht=140)
