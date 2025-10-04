@@ -15,15 +15,17 @@ class CollapsePanel(QWidget):
         parent,
         title,
         messages=None,
-        expanded = False,
-        content=None, 
+        expanded=False,
+        is_collaspe=True,
+        margins=[15, 15, 15, 15],
         header_height=60,
         content_height=None,
-        is_collaspe=True,
         expand_icon_size=16,
         text_font_size=10,
         messages_font_size=9,
-        custom_button=None
+        content=None,
+        custom_button=None,
+        content_bg_color = "rgba(190, 183, 255, 0.2)"
     ):
         """
         初始化可折叠面板
@@ -50,17 +52,19 @@ class CollapsePanel(QWidget):
         self.header_height = header_height
         self.content_height = content_height
         self.header_bg_color = "rgba(190, 183, 255, 0.3)"
-        self.content_bg_color = "rgba(190, 183, 255, 0.2)"
+        self.content_bg_color = content_bg_color
         self.expand_icon_size = expand_icon_size
         self.text_font_size = text_font_size
         self.messages_font_size = messages_font_size
         self.custom_button = custom_button
         
+        self.margins = margins
         self.resource_path = parent.resource_path
         self.is_expanded = False  # 初始状态为折叠
+        self.default_expanded = expanded
         self.init_ui()
 
-        if expanded and self.is_collaspe:
+        if self.default_expanded and self.is_collaspe:
             self.toggle_expand(False)
         
     def init_ui(self):
@@ -77,28 +81,30 @@ class CollapsePanel(QWidget):
         # 内容区域
         self.content = self.create_content_area()
         main_layout.addWidget(self.content)
-        if self.is_collaspe:
+        
+        if not self.is_collaspe and not self.default_expanded:
             self.content.hide()  # 初始隐藏内容区域
         
     def create_header(self):
         """创建标题栏"""
-        header = QWidget()
-        header.setFixedHeight(self.header_height)
-        header.setStyleSheet(f"""
+        headers = QWidget()
+        headers.setFixedHeight(self.header_height)
+        headers.setStyleSheet(f"""
             QWidget {{
                 background-color: {self.header_bg_color};
             }}
         """)
         if self.is_collaspe:
-            header.setCursor(Qt.PointingHandCursor)
-            header.mousePressEvent = self.toggle_expand  # 点击切换展开/折叠
+            headers.setCursor(Qt.PointingHandCursor)
+            headers.mousePressEvent = self.toggle_expand  # 点击切换展开/折叠
         
         # 布局
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(25, 10, 25, 10)
+        layout = QHBoxLayout(headers)
+        layout.setContentsMargins(0, 0, 0, 0)
         
         # 标题容器
         title_container = QWidget()
+        title_container.setContentsMargins(25, 10, 25, 10)
         title_container.setStyleSheet("background-color: transparent;")
         title_layout = QVBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
@@ -132,7 +138,7 @@ class CollapsePanel(QWidget):
             self.update_expand_icon()
             layout.addWidget(self.expand_icon)
         
-        return header
+        return headers
     
     def create_content_area(self):
         """创建内容区域"""
@@ -146,7 +152,7 @@ class CollapsePanel(QWidget):
         
         # 创建布局
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setContentsMargins(*self.margins)  # .setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(5)
         
         # 添加内容组件
@@ -164,6 +170,18 @@ class CollapsePanel(QWidget):
         self.messages_label.setText(message)
         self.update()
 
+    def set_header(self, head):
+        """设置header内容组件"""
+        # 清除现有内容
+        layout = self.header.layout()
+        for i in reversed(range(layout.count())):
+            # 移除所有子部件
+            item = layout.itemAt(i)
+            layout.removeItem(item)
+
+        # 添加新内容
+        layout.addWidget(head)
+        
     def set_content(self, content):
         """设置内容组件"""
         # 清除现有内容
