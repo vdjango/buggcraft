@@ -14,27 +14,36 @@ logger = logging.getLogger(__name__)
 class QMComboBox(QComboBox):
     """自定义下拉框"""
     
-    def __init__(self, parent):
+    def __init__(self, parent, height=None):
         super().__init__(parent)
         self.resource_path = parent.resource_path
         self.is_expanded = False
         self.expanded_icon = None
         self.collapsed_icon = None
         self.icon_label = None
+        self.custom_height = height  # 存储自定义高度
         self.init_ui()
     
     def init_ui(self):
         """初始化 UI"""
-        # 设置样式
-        self.setStyleSheet("""
+        # 设置样式 - 根据高度动态调整
+        style_sheet = """
             QComboBox {
                 background-color: rgba(0, 0, 0, 0.3);
                 color: rgba(255, 255, 255, 1);
                 border-radius: 0px;
                 padding: 5px;
                 padding-left: 10px;
-                min-height: 30px;
                 padding-right: 30px;  /* 为图标留出空间 */
+        """
+        
+        # 如果设置了自定义高度，添加到样式表中
+        if self.custom_height:
+            style_sheet += f"min-height: {self.custom_height}px; height: {self.custom_height}px;"
+        else:
+            style_sheet += "min-height: 30px;"
+        
+        style_sheet += """
             }
             
             QComboBox:hover {
@@ -44,8 +53,17 @@ class QMComboBox(QComboBox):
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: center right;
-                height: 30px;  /* 增加宽度 */
+                width: 30px;  /* 增加宽度 */
                 border-left: none;  /* 移除左边框 */
+        """
+        
+        # 根据高度调整下拉按钮的高度
+        if self.custom_height:
+            style_sheet += f"height: {self.custom_height}px;"
+        else:
+            style_sheet += "height: 30px;"
+        
+        style_sheet += """
             }
             
             QComboBox::down-arrow {
@@ -53,7 +71,6 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox QAbstractItemView {
-                min-height: 30px;
                 background-color: rgba(0, 0, 0, 0.3);
                 color: rgba(255, 255, 255, 1);
                 border: 1px solid rgba(120, 89, 255, 0.5);
@@ -64,9 +81,17 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox QAbstractItemView::item {
-                height: 30px;  /* 设置每一项的高度 */
                 padding: 5px 10px;
                 border-bottom: 1px solid rgba(60, 60, 70, 0.5);
+        """
+        
+        # 根据高度调整下拉项的高度
+        if self.custom_height:
+            style_sheet += f"height: {self.custom_height}px;"
+        else:
+            style_sheet += "height: 30px;"
+        
+        style_sheet += """
             }
             
             QComboBox QAbstractItemView::item:last {
@@ -76,7 +101,13 @@ class QMComboBox(QComboBox):
             QComboBox QAbstractItemView::item:hover {
                 background-color: rgba(120, 89, 255, 0.3);
             }
-        """)
+        """
+        
+        self.setStyleSheet(style_sheet)
+        
+        # 如果设置了自定义高度，应用它
+        if self.custom_height:
+            self.setFixedHeight(self.custom_height)
         
         # 加载图标
         self.load_icons()
@@ -91,6 +122,70 @@ class QMComboBox(QComboBox):
         
         # 安装事件过滤器
         self.view().installEventFilter(self)
+    
+    def setHeight(self, height):
+        """设置自定义高度"""
+        self.custom_height = height
+        
+        # 重新应用样式
+        style_sheet = """
+            QComboBox {
+                background-color: rgba(0, 0, 0, 0.3);
+                color: rgba(255, 255, 255, 1);
+                border-radius: 0px;
+                padding: 5px;
+                padding-left: 10px;
+                padding-right: 30px;
+                min-height: %dpx;
+                height: %dpx;
+            }
+            
+            QComboBox:hover {
+                background-color: rgba(0, 0, 0, 0.2);
+            }
+            
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 30px;
+                height: %dpx;
+                border-left: none;
+            }
+            
+            QComboBox::down-arrow {
+                image: none;
+            }
+            
+            QComboBox QAbstractItemView {
+                background-color: rgba(0, 0, 0, 0.3);
+                color: rgba(255, 255, 255, 1);
+                border: 1px solid rgba(120, 89, 255, 0.5);
+                selection-background-color: rgba(120, 89, 255, 0.9);
+                selection-color: rgba(255, 255, 255, 1);
+                outline: none;
+                padding: 5px;
+            }
+            
+            QComboBox QAbstractItemView::item {
+                height: %dpx;
+                padding: 5px 10px;
+                border-bottom: 1px solid rgba(60, 60, 70, 0.5);
+            }
+            
+            QComboBox QAbstractItemView::item:last {
+                border-bottom: none;
+            }
+            
+            QComboBox QAbstractItemView::item:hover {
+                background-color: rgba(120, 89, 255, 0.3);
+            }
+        """ % (height, height, height, height)
+        
+        self.setStyleSheet(style_sheet)
+        self.setFixedHeight(height)
+        
+        # 更新图标位置
+        self.update_icon_position()
     
     def load_icons(self):
         """加载图标文件 - 带详细日志"""
