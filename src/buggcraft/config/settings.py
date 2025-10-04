@@ -204,7 +204,7 @@ class SettingsManager:
     def get_minecraft_isolation_directory(self):
         """获取版本隔离游戏工作路径-比如启用了独立版本"""
         directory = self.get_setting('minecraft.directory.enable', None)
-        if self.get_version_setting_enable():
+        if self.get_version_setting_enable() and directory is not None:
             version = self.get_setting('minecraft.version.enable', None)
             return os.path.join(directory, 'versions', version)
         

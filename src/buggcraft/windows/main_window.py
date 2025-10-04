@@ -17,7 +17,7 @@ from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
 from core.launcher import MinecraftLibLauncher
 from ui.widgets.titlebar import TitleBar
-from ui.pages import StartGamePage, SettingsPage, VersionsPages, VersionsListPages
+from ui.pages import StartGamePage, SettingsPage, VersionsPages, DownloadPages
 from ui.dialog.NotFuilMinecraftVersionDialog import VersionNotFuilDialog, QDialog
 from ui.dialog.NotFuilJavaDialog import JavaRuntimeNotFuilDialog
 
@@ -150,10 +150,12 @@ class MinecraftLauncher(QMainWindow):
         self.content_stack.addWidget(self.started_page)
 
         # 下载页面 TODO
-        self.started_page1 = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
-        self.started_page1.login_success.connect(self.handle_login_success)
-        self.started_page1.started_changed.connect(self.started_page1.started_game)  # 启动游戏，必须在主UI中进行
-        self.content_stack.addWidget(self.started_page1)
+        self.download_page = DownloadPages(
+            self,
+            resource_path=self.resource_path,
+            cache_path=self.cache_path
+        )
+        self.content_stack.addWidget(self.download_page)
 
         # 设置页面
         self.settings_page = SettingsPage(

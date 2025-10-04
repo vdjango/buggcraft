@@ -2,11 +2,12 @@
 from .started_game import StartGamePage
 from .settings_page import SettingsPage
 from .versions_page import VersionsPages
-from .versions_list_page import VersionsListPages
+from .download_page import DownloadPages
+
 
 __all__ = [
     'StartGamePage',
     'SettingsPage',
-    'VersionsListPages',
     'VersionsPages',
+    'DownloadPages'
 ]
