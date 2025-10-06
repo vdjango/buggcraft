@@ -317,7 +317,7 @@ class MinecraftLibLauncher(QObject):
 
             # 获取用户在你的 ComboBox 中选择的优先级文本
             # 假设你有一个方法来获取设置，例如从你的设置管理器
-            priority_setting = self.settings_manager.get_version_setting("launcher.process_priority") # 例如返回 "高 (优先保证游戏运行，但可能造成其他程序卡顿)"
+            priority_setting = self.settings_manager.get_version_setting("launcher.process_priority", "平衡模式") # 例如返回 "高 (优先保证游戏运行，但可能造成其他程序卡顿)"
 
             # 根据用户选择映射到系统的优先级值
             # 注意：psutil 的优先级常量在不同系统上可能不同，以下是一个通用映射尝试

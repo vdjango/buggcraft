@@ -661,7 +661,7 @@ class VersionsPage(QWidget):
         version = item.property("version")
         print(f"打开版本设置: {version}")
         self.on_version_clicked(item, None)
-        self.parent.settings_btn_clicked()
+        self.parent.on_settings_clicked()
         
         # 这里可以打开版本设置对话框
 

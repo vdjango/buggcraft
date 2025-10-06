@@ -1,16 +1,11 @@
-import os
 import json
-import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Dict, Optional
-import zipfile
-
 
 
 class OptiFineInstaller:
-    """OptiFine 安装器 - 修复版本 JSON 问题"""
+    """OptiFine 安装器"""
     
     def __init__(self, minecraft_dir: str):
         self.minecraft_dir = Path(minecraft_dir)

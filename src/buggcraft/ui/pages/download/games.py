@@ -15,11 +15,47 @@ from config.settings import get_settings_manager
 from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
 from ui.widgets.collapse import CollapsePanel
 from ui.widgets.ComboBox import QMComboBox
-
+from core.minecraft_forge import CrossPlatformMinecraftInstaller, MirrorSource, InstallerCallback
 
 logger = logging.getLogger(__name__)
 
 
+from PySide6.QtCore import QThreadPool, QRunnable, Slot
+import time
+
+
+from PySide6.QtCore import QTimer
+import time
+
+from PySide6.QtCore import QThreadPool, QRunnable, Slot
+from functools import wraps
+import time
+
+def run_in_thread(func):
+    """真正的线程装饰器"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # 获取实例（如果是方法）
+        instance = args[0] if args else None
+        
+        class ThreadedTask(QRunnable):
+            @Slot()
+            def run(self):
+                try:
+                    result = func(*args, **kwargs)
+                    if instance and hasattr(instance, 'on_thread_result'):
+                        instance.on_thread_result(result)
+                except Exception as e:
+                    if instance and hasattr(instance, 'on_thread_error'):
+                        instance.on_thread_error(str(e))
+        
+        # 提交到线程池
+        task = ThreadedTask()
+        QThreadPool.globalInstance().start(task)
+    
+    return wrapper
+
+    
 class MinecraftDownloadSignals(QObject):
     """游戏完成时传递信号"""
     download = Signal(str)   # 下载时的信号
@@ -29,14 +65,143 @@ class MinecraftDownloadSignals(QObject):
 class GamesPage(QWidget):
     """游戏下载"""
 
+    update_signal = Signal()  # 游戏列表更新
+    
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
         self.resource_path = parent.resource_path
         
+        self.update_signal.connect(self.on_games_finished)
+        # 初始化设置管理器
+        self.settings_manager = get_settings_manager()
+        
         self.signals = MinecraftDownloadSignals()
         self.version_delete_dialog = VersionDeleteDialog()
-
+        # 创建线程池并执行任务
+        self.thread_pool = QThreadPool.globalInstance()
+        # 创建安装器实例
+        self.installer = CrossPlatformMinecraftInstaller(
+            game_dir=self.settings_manager.get_setting('minecraft.directory.enable'),  # 使用默认Minecraft目录
+            mirror=MirrorSource.BMCLAPI,
+            max_workers=15,
+            callback=InstallerCallback()
+        )
+        # 游戏版本列表
+        self.minecraft_versions = [
+            {
+                "id": "1.4.1",
+                "type": "snapshot",
+                "url": "https://piston-meta.mojang.com/v1/packages/14c3ba517b5baabdfc61b60eb49d9aa7da012906/1.4.1.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-11-22T22:00:00+00:00",
+                "sha1": "14c3ba517b5baabdfc61b60eb49d9aa7da012906",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.4",
+                "type": "snapshot",
+                "url": "https://piston-meta.mojang.com/v1/packages/d979a4671611bf8704c0a2a0cf09964ca25eefd7/1.4.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-11-18T22:00:00+00:00",
+                "sha1": "d979a4671611bf8704c0a2a0cf09964ca25eefd7",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.3.2",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/598eedd6f67db4aefbae6ed119029e3d7373ecf5/1.3.2.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-08-15T22:00:00+00:00",
+                "sha1": "598eedd6f67db4aefbae6ed119029e3d7373ecf5",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.3.1",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/637aa8466c4dac462b88682caaf753290f37798f/1.3.1.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-07-31T22:00:00+00:00",
+                "sha1": "637aa8466c4dac462b88682caaf753290f37798f",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.3",
+                "type": "snapshot",
+                "url": "https://piston-meta.mojang.com/v1/packages/b384219c6d4879e56b92eea01a0d986e20d55dea/1.3.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-07-25T22:00:00+00:00",
+                "sha1": "b384219c6d4879e56b92eea01a0d986e20d55dea",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.2.5",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/5158765caf1ca14958cb6c45d52c8e09ed9b046c/1.2.5.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-03-29T22:00:00+00:00",
+                "sha1": "5158765caf1ca14958cb6c45d52c8e09ed9b046c",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.2.4",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/69a67fcf11ed1298c6b43a00d64461908a318749/1.2.4.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-03-21T22:00:00+00:00",
+                "sha1": "69a67fcf11ed1298c6b43a00d64461908a318749",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.2.3",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/2f7eaec33e3017a413c677eefa59df2e5919e536/1.2.3.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-03-01T22:00:00+00:00",
+                "sha1": "2f7eaec33e3017a413c677eefa59df2e5919e536",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.2.2",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/4e2e449ba0b8b5da7055f0decea1a3257b282f17/1.2.2.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-02-29T22:00:01+00:00",
+                "sha1": "4e2e449ba0b8b5da7055f0decea1a3257b282f17",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.2.1",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/1a45c035ebb969dbac4e0c39582e974ad7f74a9e/1.2.1.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-02-29T22:00:00+00:00",
+                "sha1": "1a45c035ebb969dbac4e0c39582e974ad7f74a9e",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.1",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/c0cb9368dbdbb1e8dbcb9363a28d8da74cf6fc5e/1.1.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2012-01-11T22:00:00+00:00",
+                "sha1": "c0cb9368dbdbb1e8dbcb9363a28d8da74cf6fc5e",
+                "complianceLevel": 0
+            },
+            {
+                "id": "1.0",
+                "type": "release",
+                "url": "https://piston-meta.mojang.com/v1/packages/75062586b830dd5160f13f1c9130eb365e01f1b9/1.0.json",
+                "time": "2022-03-10T09:51:38+00:00",
+                "releaseTime": "2011-11-17T22:00:00+00:00",
+                "sha1": "75062586b830dd5160f13f1c9130eb365e01f1b9",
+                "complianceLevel": 0
+            }
+        ]
+        # self.minecraft_versions = []
+        # 创建安装器实例
+        # self.optifine_installer = OptiFineInstaller(minecraft_dir)
+    
         self.menu_panel = [
             {
                 'title': '游戏',
@@ -56,13 +221,22 @@ class GamesPage(QWidget):
             },
             
         ]
-        # 初始化设置管理器
-        self.settings_manager = get_settings_manager()
+        
         self.init_ui()
+        self.on_page_activate()  # 加载游戏版本列表数据
 
+    @run_in_thread
+    def get_games_version(self):
+        import json
+        self.minecraft_versions = self.installer.get_available_versions()
+        print(json.dumps(self.minecraft_versions, indent=2))
+        self.update_signal.emit()
+    
     def on_page_activate(self):
         """当页面被激活时调用"""
+        import json
         print("页面被激活")
+        self.get_games_version()
     
     def on_page_deactivate(self):
         """当页面被隐藏时调用"""
@@ -268,73 +442,11 @@ class GamesPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # 如果找到选中的目录，加载该目录的版本数据
-        version_data = [
-            {
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },{
-                'name': '1.21.9',
-                'desc': '描述信息12343211'
-            },
-        ]
-        
         # 添加版本项
-        for data in version_data:
+        for data in self.minecraft_versions:
             item = self.create_download_item(
-                data["name"],
-                data["desc"],
+                data["id"],
+                f"{data['type']} {data['releaseTime']}",
                 data.get('is_selected', False)
             )
             layout.addWidget(item)
@@ -440,6 +552,32 @@ class GamesPage(QWidget):
         label.setStyleSheet("background-color: transparent; border: none;")
         return label
 
+    def clear_games_list(self):
+        """清除现有的游戏版本列表"""
+        layout = self.version_list_panel.widget().layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+    
+    def add_games_list(self):
+        """添加游戏版本"""
+        # 添加版本项
+        for data in self.minecraft_versions:
+            item = self.create_download_item(
+                data["id"],
+                f"{data['type']} {data['releaseTime']}",
+                data.get('is_selected', False)
+            )
+            self.version_list_panel.widget().layout().addWidget(item)
+            self.version_list_panel.widget().layout().addSpacing(10)
+            
+    def on_games_finished(self):
+        """刷新游戏列表"""
+        self.clear_games_list()
+        self.add_games_list()
+    
     def on_tabs_clicked(self, item, event):
         """处理目录项点击事件 - 更新配置文件并刷新版本列表"""
         # 更新所有目录项的选中状态
