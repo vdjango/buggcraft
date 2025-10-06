@@ -137,6 +137,7 @@ class CollapsePanel(QWidget):
             self.expand_icon.setStyleSheet("color: #AAAAAA; background-color: transparent;")
             self.update_expand_icon()
             layout.addWidget(self.expand_icon)
+            layout.addSpacing(25)
         
         return headers
     
