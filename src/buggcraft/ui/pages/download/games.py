@@ -15,6 +15,7 @@ from config.settings import get_settings_manager
 from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
 from ui.widgets.collapse import CollapsePanel
 from ui.widgets.ComboBox import QMComboBox
+from ui.dialog.MinecraftInstallDialog import MinecraftInstallDialog
 from core.minecraft_forge import CrossPlatformMinecraftInstaller, MirrorSource, InstallerCallback
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class GamesPage(QWidget):
         
         self.signals = MinecraftDownloadSignals()
         self.version_delete_dialog = VersionDeleteDialog()
+        self.install_dialog = MinecraftInstallDialog(self)
         # 创建线程池并执行任务
         self.thread_pool = QThreadPool.globalInstance()
         # 创建安装器实例
@@ -223,7 +225,7 @@ class GamesPage(QWidget):
         ]
         
         self.init_ui()
-        self.on_page_activate()  # 加载游戏版本列表数据
+        # self.on_page_activate()  # 加载游戏版本列表数据
 
     @run_in_thread
     def get_games_version(self):
@@ -594,5 +596,8 @@ class GamesPage(QWidget):
     def on_version_clicked(self, item, event):
         """点击某版本事件"""
         # 更新所有版本项的选中状态
+        print('property', item.property("version"), f"{item.property('description')}")
+        self.install_dialog.set_version(item.property("version"), f"{item.property('description')}")
+        self.install_dialog.exec()
         pass
     
