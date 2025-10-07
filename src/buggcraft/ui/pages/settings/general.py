@@ -11,9 +11,10 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon
 
 from config.settings import get_settings_manager, set_conf_manager
-from ui.widgets.collapse import CollapsePanel
-from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from ui.widgets.ComboBox import QMComboBox
+from ui.widgets.radio import QMRadioButton, QMRadioGroup
+from ui.widgets.collapse import CollapsePanel
+from ui.pages.settings.version_settings import GlobalVersionSettingsPage
 
 
 import logging
@@ -56,6 +57,9 @@ class GeneralSettingsPages(QWidget):
         if index >= 0:
             self.launcher_download_source_combo.setCurrentIndex(index)
         self.language_download_source.set_messages(mirrors)
+        
+        # 激活全局版本设置页面
+        self.global_version_settings.on_page_activate()
         
         print("GeneralSettings 页面被激活")
     
@@ -106,6 +110,10 @@ class GeneralSettingsPages(QWidget):
         # 下载源
         self.language_download_source = self.create_launcher_download_source()
         layout.addWidget(self.language_download_source)
+        
+        # 全局版本设置
+        self.global_version_settings = GlobalVersionSettingsPage(self)
+        layout.addWidget(self.global_version_settings)
         
         # 添加拉伸空间
         layout.addStretch(1)
