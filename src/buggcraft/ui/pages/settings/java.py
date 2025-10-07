@@ -149,7 +149,9 @@ class JavaManagementPage(QWidget):
             f'已检测到 {len(java_versions)} 个Java版本', 
             True, 
             is_collaspe=False, 
-            custom_button=button_group
+            custom_button=button_group,
+            margins=[0, 0, 0, 0],   
+            content_bg_color="transparent"   
         )
         panel.set_content(content)
         return panel
@@ -160,15 +162,15 @@ class JavaManagementPage(QWidget):
         item_widget.setStyleSheet("""
             QWidget {
                 background-color: rgba(255, 255, 255, 0.05);
-                border-radius: 8px;
-                padding: 10px;
-                margin: 2px;
+                border-radius: 0px;  
+                padding: 5px;  
+                margin: 0px;  
             }
         """)
         
         layout = QVBoxLayout(item_widget)
-        layout.setContentsMargins(15, 10, 15, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(25, 5, 25, 5)  
+        layout.setSpacing(3)   
         
         # 第一行：版本名称和操作按钮
         header_layout = QHBoxLayout()
@@ -179,7 +181,7 @@ class JavaManagementPage(QWidget):
         name_label.setStyleSheet("""
             QLabel {
                 color: #FFFFFF;
-                font-size: 16px;
+                font-size: 14px;  
                 font-weight: bold;
                 background-color: transparent;
             }
@@ -191,7 +193,7 @@ class JavaManagementPage(QWidget):
         info_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.7);
-                font-size: 12px;
+                font-size: 11px;   
                 background-color: transparent;
             }
         """)
@@ -215,7 +217,7 @@ class JavaManagementPage(QWidget):
         path_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
-                font-size: 11px;
+                font-size: 10px;  
                 background-color: transparent;
             }
         """)
