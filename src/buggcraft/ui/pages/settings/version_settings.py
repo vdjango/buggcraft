@@ -508,7 +508,7 @@ class GlobalVersionSettingsPage(QWidget):
 
         layout.addWidget(self.launcher_visibility_combo)
 
-        panel = CollapsePanel(self, '启动器可见性', None, is_collaspe=False, header_height=50)
+        panel = CollapsePanel(self, '启动器可见性', None, is_collaspe=False, header_height=50, expanded=True)
         panel.set_content(content)
         return panel
 
@@ -533,7 +533,7 @@ class GlobalVersionSettingsPage(QWidget):
             self.minecraft_resolution.setCurrentIndex(index)
 
         layout.addWidget(self.minecraft_resolution)
-        panel = CollapsePanel(self, '游戏窗口分辨率', None, is_collaspe=False, header_height=50)
+        panel = CollapsePanel(self, '游戏窗口分辨率', None, is_collaspe=False, header_height=50, expanded=True)
         panel.set_content(content)
         return panel
 
