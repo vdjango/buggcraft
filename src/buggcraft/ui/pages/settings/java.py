@@ -14,7 +14,7 @@ from config.settings import get_settings_manager
 from ui.widgets.collapse import CollapsePanel
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from ui.widgets.ComboBox import QMComboBox
-
+from ui.widgets.lable import SmartLabel
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,6 +32,24 @@ class JavaManagementPage(QWidget):
         self.background_color = QColor(0, 0, 0, 0)   
 
         self.settings_manager = get_settings_manager()
+        """
+        {
+            "name": "JDK21.0.8",
+            "arch": "x86-64",
+            "vendor": "Microsoft",
+            "path": "C:\\Program Files\\Microsoft\\jdk-21.0.8.9-hotspot\\bin\\java.exe"
+        },
+        """
+        self.java_managers = []
+        self.java_versions = self.settings_manager.get_setting('java.installations')
+        for jav in self.java_versions:
+            self.java_managers.append({
+                "name": self.java_name_format(jav),
+                "version": self.java_version_format(jav),
+                "vendor": "Microsoft",
+                "path": jav[0]
+            })
+
         self.init_ui()
 
     def on_page_activate(self):
@@ -111,6 +129,24 @@ class JavaManagementPage(QWidget):
         scroll_area.setWidget(panel)
         return scroll_area
 
+    def java_name_format(self, java):
+        """
+        获取Java 名称
+        TODO: 需重构到Java列表获取方法，后期直接读取配置文件
+        """
+        r = str(java[1]).split(' ')[0]
+        if r == 'openjdk':
+            return 'OpenJDK'
+        return r
+    
+    def java_version_format(self, java):
+        """
+        获取Java 版本号
+        TODO: 需重构到Java列表获取方法，后期直接读取配置文件
+        """
+        v = [str(i) for i in java[2]]
+        return '.'.join(v)
+    
     def create_java_versions_panel(self):
         """创建Java版本列表面板"""
         content = QWidget()
@@ -119,24 +155,7 @@ class JavaManagementPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # 示例Java版本数据
-        java_versions = [
-            {
-                "name": "JDK21.0.8",
-                "arch": "x86-64",
-                "vendor": "Microsoft",
-                "path": "C:\\Program Files\\Microsoft\\jdk-21.0.8.9-hotspot\\bin\\java.exe"
-            },
-            {
-                "name": "JDK17.0.2",
-                "arch": "x86-64", 
-                "vendor": "Oracle",
-                "path": "C:\\Program Files\\Java\\jdk-17.0.2\\bin\\java.exe"
-            }
-           
-        ]
-
-        for java_info in java_versions:
+        for java_info in self.java_managers:
             java_item = self.create_java_item(java_info)
             layout.addWidget(java_item)
 
@@ -144,14 +163,14 @@ class JavaManagementPage(QWidget):
         button_group = self.create_action_button_group()
 
         panel = CollapsePanel(
-            self, 
-            'Java版本列表', 
-            f'已检测到 {len(java_versions)} 个Java版本', 
-            True, 
-            is_collaspe=False, 
+            self,
+            'Java版本列表',
+            f'已检测到 {len(self.java_managers)} 个Java版本',
+            True,
+            is_collaspe=False,
             custom_button=button_group,
-            margins=[0, 0, 0, 0],   
-            content_bg_color="transparent"   
+            margins=[0, 0, 0, 0],
+            content_bg_color = "rgba(190, 183, 255, 0.1)"
         )
         panel.set_content(content)
         return panel
@@ -161,7 +180,7 @@ class JavaManagementPage(QWidget):
         item_widget = QWidget()
         item_widget.setStyleSheet("""
             QWidget {
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: rgba(255, 255, 255, 0.1);
                 border-radius: 0px;  
                 padding: 5px;  
                 margin: 0px;  
@@ -178,22 +197,21 @@ class JavaManagementPage(QWidget):
         
         # 版本名称
         name_label = QLabel(java_info["name"])
+        name_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
         name_label.setStyleSheet("""
             QLabel {
-                color: #FFFFFF;
-                font-size: 14px;  
-                font-weight: bold;
+                color: rgba(255, 255, 255, 0.9);
                 background-color: transparent;
             }
         """)
         header_layout.addWidget(name_label)
         
         # 架构和供应商信息
-        info_label = QLabel(f"架构: {java_info['arch']}    供应商: {java_info['vendor']}")
+        info_label = QLabel(f"版本: {java_info['version']}    供应商: {java_info['vendor']}")
+        info_label.setFont(QFont("Source Han Sans CN Normal", 8, QFont.Weight.Normal))
         info_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.7);
-                font-size: 11px;   
                 background-color: transparent;
             }
         """)
@@ -213,11 +231,11 @@ class JavaManagementPage(QWidget):
         layout.addLayout(header_layout)
         
         # 第二行：路径
-        path_label = QLabel(java_info["path"])
+        path_label = SmartLabel(java_info["path"])
+        info_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
         path_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
-                font-size: 10px;  
                 background-color: transparent;
             }
         """)
