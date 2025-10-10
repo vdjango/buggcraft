@@ -164,6 +164,7 @@ class TitleBar(QWidget):
         
         # 添加图标
         icon_label = DoubleBufferedLabel()
+        icon_label.setCursor(Qt.PointingHandCursor)
         icon_label.setPixmapSmoothly(
             QPixmap(icon_right_path).scaled(40, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         )
