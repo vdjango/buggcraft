@@ -110,11 +110,7 @@ class GeneralSettingsPages(QWidget):
         # 下载源
         self.language_download_source = self.create_launcher_download_source()
         layout.addWidget(self.language_download_source)
-        
-        # 全局版本设置
-        self.global_version_settings = GlobalVersionSettingsPage(self)
-        layout.addWidget(self.global_version_settings)
-        
+
         # 添加拉伸空间
         layout.addStretch(1)
 
