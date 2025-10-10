@@ -129,6 +129,7 @@ class CollapsePanel(QWidget):
         # 添加自定义按钮
         if self.custom_button:
             layout.addWidget(self.custom_button)
+            layout.addSpacing(20)  # 按钮向左移动
         
         # 展开/折叠图标
         if self.is_collaspe:
