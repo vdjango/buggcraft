@@ -147,13 +147,21 @@ class AboutPage(QWidget):
         # 左侧图标 
         if icon_path:
             icon_label = QLabel()
-            icon_label.setFixedSize(32, 32)
-            icon_label.setStyleSheet("""
-                QLabel {
-                    background-color: #4A4A5A;
-                    border-radius: 16px;
-                }
-            """)
+            icon_label.setFixedSize(40, 40)
+            
+            # 加载图片
+            full_icon_path = os.path.join(self.resource_path, "settings", icon_path)
+            if os.path.exists(full_icon_path):
+                pixmap = QPixmap(full_icon_path)
+                scaled_pixmap = pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                icon_label.setPixmap(scaled_pixmap)
+            else:
+                icon_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #4A4A5A;
+                        border-radius: 0px;
+                    }
+                """)
             item_layout.addWidget(icon_label)
         
         # 中间文本内容
@@ -187,16 +195,25 @@ class AboutPage(QWidget):
         
         # 右侧外部链接图标
         if has_external_link:
-            link_icon = QLabel("↗")
-            link_icon.setStyleSheet("""
-                QLabel {
-                    color: #E0E0E5;
-                    font-size: 16px;
-                    font-weight: bold;
-                }
-            """)
+            link_icon = QLabel()
             link_icon.setFixedSize(20, 20)
             link_icon.setAlignment(Qt.AlignCenter)
+            
+            # 加载分享图标
+            share_icon_path = os.path.join(self.resource_path, "settings", "share.png")
+            if os.path.exists(share_icon_path):
+                pixmap = QPixmap(share_icon_path)
+                scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                link_icon.setPixmap(scaled_pixmap)
+            else:
+                link_icon.setText("↗")
+                link_icon.setStyleSheet("""
+                    QLabel {
+                        color: #E0E0E5;
+                        font-size: 16px;
+                        font-weight: bold;
+                    }
+                """)
             item_layout.addWidget(link_icon)
         
         # 设置整体样式
@@ -250,7 +267,7 @@ class AboutPage(QWidget):
         
         # 版本信息
         version_item = self.create_list_item(
-            icon_path="game_icon.png",
+            icon_path="About1.png",
             title="1.21.8",
             subtitle="最新正式版本，发布于2025/07/17 20:12",
             has_external_link=True
@@ -259,7 +276,7 @@ class AboutPage(QWidget):
         
         # 开发者信息
         developer_item = self.create_list_item(
-            icon_path="developer_icon.png",
+            icon_path="About2.png",
             title="huanghongxun",
             subtitle="12isahdlaosd@ashjdhad",
             has_external_link=True
@@ -281,7 +298,7 @@ class AboutPage(QWidget):
         
         # 鸣谢项目
         acknowledgement_item = self.create_list_item(
-            icon_path="game_icon.png",
+            icon_path="About3.png",
             title="yushijinhun",
             subtitle="提供 authlib-injector 相关支持",
             has_external_link=True
