@@ -248,3 +248,8 @@ https://afdian.com/a/buggicu
 
 * Minecraft Launcher Lib - 强大的 Minecraft 启动核心库。
 
+## 🚞 关于联机服务
+
+本项目使用如下项目提供联机服务支持
+
+https://github.com/vdjango/minecraft-tunnel
