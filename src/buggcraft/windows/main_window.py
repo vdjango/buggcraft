@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QPushButton
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect
-from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
+from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor, QIcon
 
 from utils.helpers import scale_component
 from config.javafinder import JavaPathFinder
@@ -25,6 +25,21 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def get_app_icon(RESOURCE_DIR) -> QIcon:
+    """获取应用程序图标"""
+
+    # 尝试从系统图标主题加载
+    icon = QIcon.fromTheme("app")
+    if icon.isNull():
+        # 如果主题中没有，则从绝对路径加载
+        icon = QIcon()
+        icon_path = os.path.abspath(os.path.join(RESOURCE_DIR, 'icons', 'app.ico'))
+        if os.path.exists(icon_path):
+            icon = QIcon(icon_path)
+
+    return icon
+
+
 class MinecraftLauncher(QMainWindow):
     """主启动器界面"""
 
@@ -34,6 +49,7 @@ class MinecraftLauncher(QMainWindow):
         self.cache_path = cache_path
         self.config_path = config_path
         self.resource_path = resource_path
+        self.setWindowIcon(get_app_icon(self.resource_path))
 
         # 窗口拖动
         self.dragging = False

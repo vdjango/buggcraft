@@ -1,11 +1,18 @@
 import os
 import sys
 import logging
-from PySide6.QtGui import QFontDatabase, QFont
-from PySide6.QtCore import QFile, QIODevice
-
+import platform
+from PySide6.QtGui import QFontDatabase, QIcon
 from pathlib import Path
-from config.settings import get_settings_manager, get_conf_or_cache_manager
+from config.settings import get_conf_or_cache_manager
+
+if platform.system().lower() == "linux":
+    # 设置环境变量（关键！）
+    os.environ["QT_IM_MODULE"] = "fcitx"
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+    os.environ["XLIB_SKIP_ARGB_VISUALS"] = "1"
+    os.environ["XMODIFIERS"] = "@im=fcitx"
+    os.environ["DISPLAY"] = ":0.0"  # 显式设置DISPLAY
 
 
 class UTF8FileHandler(logging.FileHandler):
@@ -51,6 +58,21 @@ NOTIFICATION_MESSAGES = {
 }
 
 RESOURCE_DIR = Path.cwd() / 'resources'
+
+def get_app_icon(RESOURCE_DIR) -> QIcon:
+    """获取应用程序图标"""
+
+    # 尝试从系统图标主题加载
+    icon = QIcon.fromTheme("app")
+    if icon.isNull():
+        # 如果主题中没有，则从绝对路径加载
+        icon = QIcon()
+        icon_path = os.path.abspath(os.path.join(RESOURCE_DIR, 'icons', 'app.ico'))
+        if os.path.exists(icon_path):
+            icon = QIcon(icon_path)
+
+    return icon
+
 
 def load_custom_font(resource_dir):
     """
@@ -242,6 +264,17 @@ def initialize_application():
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
     from windows.main_window import MinecraftLauncher
+    
+
+    # Windows 特定设置
+    if os.name == 'nt':
+        try:
+            from ctypes import windll
+            # 设置唯一的应用程序 ID
+            myappid = 'bugg.icu'  # 替换为你的应用标识
+            windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except ImportError:
+            pass
 
     # 设置渲染
     # 软件渲染（兼容性最好，推荐尝试）
@@ -256,6 +289,7 @@ def initialize_application():
     # 注释掉字体加载功能，使用系统默认字体
     load_custom_font(RESOURCE_DIR)
     
+    app.setWindowIcon(get_app_icon(RESOURCE_DIR))
     # 设置应用样式
     app.setStyle('Fusion')
     
