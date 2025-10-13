@@ -288,7 +288,7 @@ class MinecraftInstallDialog(QDialog):
         label.setFixedSize(size[0] + 1, size[1] + 1)
         label.setPixmap(QPixmap(icon_path).scaled(
             size[0], size[1], 
-            Qt.IgnoreAspectRatio, 
+            Qt.KeepAspectRatio, 
             Qt.SmoothTransformation
         ))
         
@@ -312,10 +312,9 @@ class MinecraftInstallDialog(QDialog):
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(0)
         
-        # 选中图标
-        icon_name = "not-selected.png"
+        # 选中图标 - 使用InstallNewGame.png 
         select_icon = self.create_icon_label(
-            os.path.join(self._parent.resource_path, 'images', 'version', icon_name),
+            os.path.join(self._parent.resource_path, 'images', 'Install', 'InstallNewGame.png'),
             size=(40, 40)
         )
         layout.addSpacing(10)
@@ -365,10 +364,9 @@ class MinecraftInstallDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(0)
         
-        # 图标
-        icon_name = "not-selected.png"
+        # 图标 - 使用InstallNewGame.png 
         select_icon = self.create_icon_label(
-            os.path.join(self._parent.resource_path, 'images', 'version', icon_name),
+            os.path.join(self._parent.resource_path, 'images', 'Install', 'InstallNewGame.png'),
             size=(50, 50)
         )
         layout.addSpacing(5)
