@@ -175,6 +175,14 @@ class MinecraftInstallDialog(QDialog):
 
         title_layout = QHBoxLayout()
 
+        # 添加logo图标
+        logo_icon = self.create_icon_label(
+            os.path.join(self._parent.resource_path, 'images', 'Install', 'InstallLogo.png'),
+            size=(14, 14)
+        )
+        title_layout.addWidget(logo_icon)
+        title_layout.addSpacing(5)  # logo和标题之间的间距
+
         self.title_label = QLabel(self.title)
         self.title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: rgba(220, 220, 220, 1); font-weight: bold;  background-color: transparent;")
