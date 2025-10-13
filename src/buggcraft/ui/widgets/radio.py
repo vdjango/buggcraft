@@ -106,6 +106,9 @@ class QMRadioButton(QWidget):
         """初始化 UI"""
         # 主布局
         self.setStyleSheet("background-color: transparent;")
+        # 为整个组件设置手型光标
+        self.setCursor(Qt.PointingHandCursor)
+        
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(5, 0, 5, 0)
         main_layout.setSpacing(5)
@@ -120,11 +123,7 @@ class QMRadioButton(QWidget):
         # 创建图标标签
         self.auto_icon = QLabel()
         self.auto_icon.setFixedSize(20, 20)
-        self.auto_icon.setCursor(Qt.PointingHandCursor)  
         self.update_icon(self.auto_radio_selected)  # 初始状态
-        
-        # 添加图标点击事件
-        self.auto_icon.mousePressEvent = lambda e: self.toggle_selection()
         
         icon_layout.addWidget(self.auto_icon)
         
@@ -134,10 +133,6 @@ class QMRadioButton(QWidget):
         self.auto_label = SmartLabel(self.text, self.text_max_widht)
         self.auto_label.setFont(QFont("Source Han Sans CN Normal", self.text_font_size, QFont.Weight.Normal))
         self.auto_label.setStyleSheet("color: #FFFFFF;")
-        self.auto_label.setCursor(Qt.PointingHandCursor)  # 设置手型光标
-        
-        # 添加点击事件
-        self.auto_label.mousePressEvent = lambda e: self.toggle_selection()
         
         main_layout.addWidget(self.auto_label)
         main_layout.addStretch()
@@ -152,6 +147,11 @@ class QMRadioButton(QWidget):
             desc_label.setStyleSheet("color: #888888;")
             main_layout.addWidget(desc_label, 1)
 
+    def mousePressEvent(self, event):
+        """处理整个组件的鼠标点击事件"""
+        self.toggle_selection()
+        super().mousePressEvent(event)
+    
     def toggle_selection(self):
         """切换选中状态"""
         self.set_selected(not self.auto_radio_selected)
