@@ -4,8 +4,9 @@ from PySide6.QtWidgets import (
     QLabel, QComboBox, QStyledItemDelegate, QStyle
 )
 from PySide6.QtCore import Qt, QPoint, QEvent
-from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon
+from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon, QPalette
 
+from .CustomStyle import CustomComboBoxStyle
 
 import logging
 logger = logging.getLogger(__name__)
@@ -45,11 +46,16 @@ class QMComboBox(QComboBox):
     
     def init_ui(self):
         """初始化 UI"""
+        # 应用自定义样式来解决边框问题
+        custom_style = CustomComboBoxStyle()
+        self.setStyle(custom_style)
+        
         # 设置样式 - 根据高度动态调整
         style_sheet = """
             QComboBox {
                 background-color: #1A1923;
                 color: rgba(255, 255, 255, 1);
+                border: none;
                 border-radius: 0px;
                 padding: 5px;
                 padding-left: 10px;
@@ -92,13 +98,24 @@ class QMComboBox(QComboBox):
             QComboBox QAbstractItemView {
                 background-color: #565564;
                 color: rgba(255, 255, 255, 1);
-                border: 1px solid rgba(120, 89, 255, 0.5);
+                border: none;
+                border-radius: 0px;
                 outline: none;
-                padding: 5px;
+                padding: 0px;
+                margin: 0px;
+                min-height: 100%;
+                selection-background-color: #7455FF;
+            }
+            
+            QComboBox QAbstractItemView::viewport {
+                background-color: #565564;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }
             
             QComboBox QAbstractItemView::item {
-                padding: 5px 10px;
+                padding: 8px 10px;
                 border-bottom: 1px solid rgba(60, 60, 70, 0.5);
                 background-color: transparent;
         """
@@ -148,21 +165,60 @@ class QMComboBox(QComboBox):
         # 更新图标
         self.update_icon()
         
+        # 解决QComboBoxPrivateContainer系统原生边框问题
+        # 设置下拉框父容器的窗口属性
+        view = self.view()
+        parent_widget = view.parentWidget()
+        if parent_widget:
+            # 设置窗口标志，移除原生边框
+            parent_widget.setWindowFlags(parent_widget.windowFlags() | Qt.FramelessWindowHint)
+            # 设置背景色
+            parent_palette = parent_widget.palette()
+            parent_palette.setColor(parent_widget.backgroundRole(), QColor(86, 85, 100))  # #565564
+            parent_widget.setPalette(parent_palette)
+            parent_widget.setAutoFillBackground(True)
+        
         # 安装事件过滤器
-        self.view().installEventFilter(self)
+        view.installEventFilter(self)
         
         self.custom_delegate = CustomComboBoxDelegate()
         self.view().setItemDelegate(self.custom_delegate)
+        
+        # 直接设置视图属性来解决白边问题
+        view = self.view()
+        view.setContentsMargins(0, 0, 0, 0)
+        view.setSpacing(0)
+        if hasattr(view, 'setFrameStyle'):
+            view.setFrameStyle(0)  # 移除边框
+        if hasattr(view, 'setLineWidth'):
+            view.setLineWidth(0)
+        if hasattr(view, 'setMidLineWidth'):
+            view.setMidLineWidth(0)
+        
+        # 设置视口属性
+        viewport = view.viewport()
+        if viewport:
+            viewport.setContentsMargins(0, 0, 0, 0)
+            viewport.setAutoFillBackground(True)
+            # 设置背景色
+            palette = viewport.palette()
+            palette.setColor(viewport.backgroundRole(), QColor(86, 85, 100))  # #565564
+            viewport.setPalette(palette)
     
     def setHeight(self, height):
         """设置自定义高度"""
         self.custom_height = height
+        
+        # 重新应用自定义样式来解决边框问题
+        custom_style = CustomComboBoxStyle()
+        self.setStyle(custom_style)
         
         # 重新应用样式
         style_sheet = """
             QComboBox {
                 background-color: #1A1923;
                 color: rgba(255, 255, 255, 1);
+                border: none;
                 border-radius: 0px;
                 padding: 5px;
                 padding-left: 10px;
@@ -190,28 +246,51 @@ class QMComboBox(QComboBox):
             QComboBox QAbstractItemView {
                 background-color: #565564;
                 color: rgba(255, 255, 255, 1);
-                border: 1px solid rgba(120, 89, 255, 0.5);
+                border: none;
+                border-radius: 0px;
                 outline: none;
-                padding: 5px;
+                padding: 0px;
+                margin: 0px;
+                min-height: 100%;
+                selection-background-color: #7455FF;
             }
             
             QComboBox QListView {
                 background-color: #565564;
                 color: rgba(255, 255, 255, 1);
-                border: 1px solid rgba(120, 89, 255, 0.5);
+                border: none;
+                border-radius: 0px;
                 outline: none;
+                padding: 0px;
+                margin: 0px;
+                min-height: 100%;
+                selection-background-color: #7455FF;
+            }
+            
+            QComboBox QAbstractItemView::viewport {
+                background-color: #565564;
+                border: none;
+                margin: 0px;
+                padding: 0px;
+            }
+            
+            QComboBox QListView::viewport {
+                background-color: #565564;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }
             
             QComboBox QAbstractItemView::item {
                 height: %dpx;
-                padding: 5px 10px;
+                padding: 8px 10px;
                 border-bottom: 1px solid rgba(60, 60, 70, 0.5);
                 background-color: #565564;
             }
             
             QComboBox QListView::item {
                 height: %dpx;
-                padding: 5px 10px;
+                padding: 8px 10px;
                 border-bottom: 1px solid rgba(60, 60, 70, 0.5);
                 background-color: #565564;
                 color: rgba(255, 255, 255, 1);
@@ -248,6 +327,38 @@ class QMComboBox(QComboBox):
         
         self.setStyleSheet(style_sheet)
         self.setFixedHeight(height)
+        
+        # 直接设置视图属性来解决白边问题
+        view = self.view()
+        view.setContentsMargins(0, 0, 0, 0)
+        view.setSpacing(0)
+        if hasattr(view, 'setFrameStyle'):
+            view.setFrameStyle(0)  # 移除边框
+        if hasattr(view, 'setLineWidth'):
+            view.setLineWidth(0)
+        if hasattr(view, 'setMidLineWidth'):
+            view.setMidLineWidth(0)
+        
+        # 设置视口属性
+        viewport = view.viewport()
+        if viewport:
+            viewport.setContentsMargins(0, 0, 0, 0)
+            viewport.setAutoFillBackground(True)
+            # 设置背景色
+            palette = viewport.palette()
+            palette.setColor(viewport.backgroundRole(), QColor(86, 85, 100))  # #565564
+            viewport.setPalette(palette)
+        
+        # 设置下拉框父容器的窗口属性
+        parent_widget = view.parentWidget()
+        if parent_widget:
+            # 设置窗口标志，移除原生边框
+            parent_widget.setWindowFlags(parent_widget.windowFlags() | Qt.FramelessWindowHint)
+            # 设置背景色
+            parent_palette = parent_widget.palette()
+            parent_palette.setColor(parent_widget.backgroundRole(), QColor(86, 85, 100))  # #565564
+            parent_widget.setPalette(parent_palette)
+            parent_widget.setAutoFillBackground(True)
         
         # 更新图标位置
         self.update_icon_position()
