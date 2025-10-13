@@ -2,7 +2,7 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame, QApplication
 )
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect, QPoint
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect, QPoint, QEvent
 from PySide6.QtGui import QFont, QPixmap, QMouseEvent, QPalette, QColor, QPainter, QBrush
 
 
@@ -242,6 +242,9 @@ class VersionPopup(QWidget):
         self.init_ui()
         self.setup_animation()
         
+        # 安装全局事件过滤器来检测外部点击
+        QApplication.instance().installEventFilter(self)
+        
     def init_ui(self):
         """初始化UI"""
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -426,3 +429,27 @@ class VersionPopup(QWidget):
             self.popup_closed.emit()
         super().keyPressEvent(event)
         
+    def eventFilter(self, obj, event):
+        """
+        全局事件过滤器，用于检测点击外部区域
+        """
+        if event.type() == QEvent.Type.MouseButtonPress and self.is_visible:
+            # 获取点击位置
+            click_pos = event.globalPosition().toPoint()
+            
+            # 检查点击是否在弹出框内部
+            popup_rect = self.geometry()
+            if not popup_rect.contains(click_pos):
+                # 检查点击是否在触发按钮上（避免点击按钮时关闭弹出框）
+                trigger_rect = self.trigger_widget.geometry()
+                trigger_global_rect = QRect(
+                    self.trigger_widget.mapToGlobal(trigger_rect.topLeft()),
+                    trigger_rect.size()
+                )
+                
+                if not trigger_global_rect.contains(click_pos):
+                    # 点击在弹出框和触发按钮外部，关闭弹出框
+                    self.hide_popup()
+                    return True
+        
+        return super().eventFilter(obj, event)
