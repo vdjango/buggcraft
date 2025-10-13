@@ -224,6 +224,17 @@ class JavaManagementPage(QWidget):
         folder_btn.clicked.connect(lambda: self.on_open_folder_clicked(java_info["path"]))
         header_layout.addWidget(folder_btn)
         
+        # 添加垂直分割线
+        separator = QLabel()
+        separator.setFixedSize(1, 20)
+        separator.setStyleSheet("""
+            QLabel {
+                background-color: rgba(255, 255, 255, 0.3);
+                border: none;
+            }
+        """)
+        header_layout.addWidget(separator)
+        
         delete_btn = self.create_icon_button("delete.png")
         delete_btn.clicked.connect(lambda: self.on_delete_clicked(java_info["name"]))
         header_layout.addWidget(delete_btn)
@@ -252,7 +263,7 @@ class JavaManagementPage(QWidget):
         button_layout.setSpacing(8)
         
         # 刷新按钮
-        refresh_btn = self.create_action_button("刷新", "reload.png")
+        refresh_btn = self.create_action_button("刷新", "refresh.png")
         refresh_btn.clicked.connect(self.on_refresh_clicked)
         button_layout.addWidget(refresh_btn)
         
@@ -275,18 +286,12 @@ class JavaManagementPage(QWidget):
         button.setCursor(Qt.PointingHandCursor)
         button.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
+                background-color: #413F6B;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 0px;
                 font-size: 11px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.2);
             }
         """)
         
@@ -298,7 +303,7 @@ class JavaManagementPage(QWidget):
             button.setIconSize(QSize(16, 16))
         else:
             # 如果图标不存在，使用文本符号作为备选
-            if icon_name == "reload.png":
+            if icon_name == "refresh.png":
                 button.setText("🔄 " + text)
             elif icon_name == "download.png":
                 button.setText("⬇ " + text)
@@ -314,15 +319,9 @@ class JavaManagementPage(QWidget):
         button.setCursor(Qt.PointingHandCursor)
         button.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.1);
+                background-color: transparent;
                 border: none;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.3);
+                border-radius: 0px;
             }
         """)
         
