@@ -245,42 +245,62 @@ class MinecraftInstallDialog(QDialog):
         button_layout.addStretch()
 
         self.confirm_button = QPushButton("安装")
-        self.confirm_button.setFixedSize(70, 35)
-        self.confirm_button.setStyleSheet("""
-            QPushButton {
-                background-color: #7859FF;
+        self.confirm_button.setFixedSize(72, 35)
+        # 使用Install.png背景图片
+        install_bg_path = os.path.join(self._parent.resource_path, 'images', 'Install', 'Install.png').replace('\\', '/')
+        self.confirm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-image: url({install_bg_path});
+                background-repeat: no-repeat;
+                background-position: center;
                 color: #e0e0e0;
                 border: none;
                 font-size: 13px;
                 font-weight: medium;
-            }
-            QPushButton:hover {
-                background-color: #8A6FFF;
-            }
-            QPushButton:pressed {
-                background-color: #6A4FFF;
-            }
+            }}
+            QPushButton:hover {{
+                background-image: url({install_bg_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                opacity: 0.8;
+            }}
+            QPushButton:pressed {{
+                background-image: url({install_bg_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                opacity: 0.6;
+            }}
         """)
         self.confirm_button.clicked.connect(self.on_installed)
         button_layout.addWidget(self.confirm_button)
         
-        # 取消按钮  TODO 待加载背景图
+        # 取消按钮 - 使用Cancel.png背景图片
         self.cancel_button = QPushButton("取消")
-        self.cancel_button.setFixedSize(70, 35)
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2F2E4B;
+        self.cancel_button.setFixedSize(72, 35)
+        # 使用Cancel.png背景图片
+        cancel_bg_path = os.path.join(self._parent.resource_path, 'images', 'Install', 'Cancel.png').replace('\\', '/')
+        self.cancel_button.setStyleSheet(f"""
+            QPushButton {{
+                background-image: url({cancel_bg_path});
+                background-repeat: no-repeat;
+                background-position: center;
                 color: #e0e0e0;
                 border: none;
                 font-size: 13px;
                 font-weight: medium;
-            }
-            QPushButton:hover {
-                background-color: #3F3E5B;
-            }
-            QPushButton:pressed {
-                background-color: #1F1E3B;
-            }
+            }}
+            QPushButton:hover {{
+                background-image: url({cancel_bg_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                opacity: 0.8;
+            }}
+            QPushButton:pressed {{
+                background-image: url({cancel_bg_path});
+                background-repeat: no-repeat;
+                background-position: center;
+                opacity: 0.6;
+            }}
         """)
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
