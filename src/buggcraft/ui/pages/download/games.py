@@ -6,7 +6,7 @@ import os
 import logging
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QStackedWidget
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QStackedWidget, QLineEdit
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap
@@ -402,23 +402,68 @@ class GamesPage(QWidget):
         search_icon.setStyleSheet("background-color: transparent;")
         layout.addWidget(search_icon)
         
-        # 搜索提示信息
-        title_label = QLabel('请输入名称或关键词')
-        title_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
-        title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
-        title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
-        layout.addWidget(title_label, 1)
+        # 搜索输入框 - 替换原来的QLabel为QLineEdit
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText('请输入名称或关键词')
+        self.search_input.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                color: rgba(255, 255, 255, 0.9); 
+                background-color: transparent;
+                border: none;
+                padding: 0px 5px;
+            }
+            QLineEdit::placeholder {
+                color: rgba(255, 255, 255, 0.7);
+            }
+        """)
+        # 连接回车键事件到搜索功能
+        self.search_input.returnPressed.connect(self.on_search_clicked)
+        layout.addWidget(self.search_input, 1)
         
-        # 搜索按钮
-        search = QLabel('搜索')
-        search.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
-        search.setFixedSize(80, 35)
-        search.setAlignment(Qt.AlignCenter)
-        search.setStyleSheet("color: rgba(255, 255, 255, 0.8); background-color: rgba(120, 89, 255, 0.8);")
-        search.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(search)
+        # 搜索按钮 - 替换背景为Search.png图片
+        self.search_button = QLabel('搜索')
+        self.search_button.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.search_button.setFixedSize(78, 35)  # 调整为图片尺寸78x35
+        self.search_button.setAlignment(Qt.AlignCenter)
+        
+        # 构建Search.png图片路径
+        search_bg_path = os.path.join(self.resource_path, 'images', 'Install', 'Search.png').replace('\\', '/')
+        print(f"搜索按钮背景图片路径: {search_bg_path}")
+        
+        self.search_button.setStyleSheet(f"""
+            QLabel {{
+                color: rgba(255, 255, 255, 0.9);
+                background-image: url("{search_bg_path}");
+                background-repeat: no-repeat;
+                background-position: center;
+                border: none;
+            }}
+            QLabel:hover {{
+                opacity: 0.8;
+            }}
+            QLabel:pressed {{
+                opacity: 0.6;
+            }}
+        """)
+        self.search_button.setCursor(Qt.PointingHandCursor)
+        
+        # 添加搜索按钮点击事件
+        self.search_button.mousePressEvent = lambda event: self.on_search_clicked()
+        
+        layout.addWidget(self.search_button)
         return container
     
+    def on_search_clicked(self):
+        """处理搜索按钮点击事件"""
+        search_text = self.search_input.text().strip()
+        if search_text:
+            print(f"搜索关键词: {search_text}")
+            # TODO: 在这里实现实际的搜索逻辑
+            # 可以根据search_text过滤游戏版本列表
+        else:
+            print("请输入搜索关键词")
+
     def create_menu_item(self, is_selected, title):
         """创建Tab项"""
         # 容器
