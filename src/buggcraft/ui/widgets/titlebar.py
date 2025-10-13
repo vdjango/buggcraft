@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont, QPixmap, QMouseEvent
 from PySide6.QtCore import Qt, QPoint, Signal
+from .VersionPopup import VersionPopup
 
 
 from PySide6.QtWidgets import QLabel
@@ -51,6 +52,8 @@ class TitleBar(QWidget):
         
         self.menu_collapsed = False
         self.is_animating = False
+        self.version_popup = None  # 版本弹出框
+        self.version_button = None  # 版本选择按钮
         
         self.tab_names = ["开始", "下载", "设置"]  # 标签页配置
         # 版本 没有添加，因为版本 是下拉选项 不是单独页面
@@ -103,9 +106,13 @@ class TitleBar(QWidget):
         container_layout.setSpacing(0)
 
         # 创建版本选择按钮
-        version_selection_btn= self.create_version_selection_button("版本", 125)
-        container_layout.addWidget(version_selection_btn, 0, Qt.AlignCenter)
+        self.version_button = self.create_version_selection_button("版本", 125)
+        self.version_button.mousePressEvent = lambda e: self.on_version_button_clicked()
+        container_layout.addWidget(self.version_button, 0, Qt.AlignCenter)
         container_layout.addSpacing(5)
+        
+        # 创建版本弹出框
+        self.setup_version_popup()
         
         # 创建版本设置按钮
         version_settings_btn, (content_container, icon_label) = self.create_version_settings_button("实例", 110)
@@ -330,6 +337,60 @@ class TitleBar(QWidget):
         layout.addStretch()
 
         return button
+    
+    def setup_version_popup(self):
+        """设置版本弹出框"""
+        if self.version_button:
+            self.version_popup = VersionPopup(self.version_button, self.resource_path, self.parent)
+            self.version_popup.version_selected.connect(self.on_version_selected)
+            
+            # 添加示例版本数据
+            self.add_sample_versions()
+    
+    def add_sample_versions(self):
+        """添加示例版本数据"""
+        if not self.version_popup:
+            return
+            
+        versions_data = [
+            {
+                "version_id": "1.0.0",
+                "description": ["aklsdaldjald", "aksdjlakda"],
+                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
+            },
+            {
+                "version_id": "1.1.0", 
+                "description": ["aklsdaldjald", "aksdjlakda"],
+                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
+            },
+            {
+                "version_id": "1.2.0",
+                "description": ["aklsdaldjald", "aksdilakda"], 
+                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
+            },
+            {
+                "version_id": "1.3.0",
+                "description": ["aklsdaldjald", "aksdjlakda"],
+                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
+            }
+        ]
+        
+        for version_data in versions_data:
+            self.version_popup.add_version_item(
+                version_data["version_id"],
+                version_data["description"],
+                version_data["icon_path"]
+            )
+    
+    def on_version_button_clicked(self):
+        """处理版本按钮点击事件"""
+        if self.version_popup:
+            self.version_popup.toggle_popup()
+    
+    def on_version_selected(self, version_id):
+        """处理版本选择事件"""
+        print(f"选中版本: {version_id}")
+        # 这里可以添加版本切换的逻辑
     
     def create_control_button(self, name, bg_image):
         """创建控制按钮 - 使用 QLabel 和背景图片"""
