@@ -6,7 +6,7 @@ import os
 import logging
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap
@@ -284,10 +284,27 @@ class GamesPage(QWidget):
         self.header_used_panel.set_content(used)
         container_layout.addWidget(self.header_used_panel)
         
-        # 游戏列表
-        self.version_list_panel = self.create_games_list()
+        # 创建内容切换器
+        self.content_stack = QStackedWidget()
+        self.content_stack.setContentsMargins(0, 0, 0, 0)
+        self.content_stack.setStyleSheet("background-color: transparent;")
         
-        used_layout.addWidget(self.version_list_panel)
+        # 为每个tab创建独立的内容组件
+        self.games_content = self.create_games_list()  # 游戏内容
+        self.mods_content = self.create_mods_list()    # 模组内容
+        self.resource_content = self.create_resource_list()  # 资源包内容
+        self.shader_content = self.create_shader_list()      # 光影包内容
+        
+        # 添加到堆栈中
+        self.content_stack.addWidget(self.games_content)    # 索引0：游戏
+        self.content_stack.addWidget(self.mods_content)     # 索引1：模组
+        self.content_stack.addWidget(self.resource_content) # 索引2：资源包
+        self.content_stack.addWidget(self.shader_content)   # 索引3：光影包
+        
+        # 默认显示游戏内容
+        self.content_stack.setCurrentIndex(0)
+        
+        used_layout.addWidget(self.content_stack)
         main_layout.addWidget(content_container)
 
     def create_header_panel(self):
@@ -592,6 +609,17 @@ class GamesPage(QWidget):
                 tab.setStyleSheet('color: rgba(120, 89, 255, 1); border-bottom: 2px solid rgba(120, 89, 255, 1);')
             else:
                 tab.setStyleSheet('color: #f2f2f2; border-bottom: none;')
+        
+        # 根据点击的tab切换内容
+        clicked_title = item.property("title")
+        if clicked_title == "游戏":
+            self.content_stack.setCurrentIndex(0)
+        elif clicked_title == "模组":
+            self.content_stack.setCurrentIndex(1)
+        elif clicked_title == "资源包":
+            self.content_stack.setCurrentIndex(2)
+        elif clicked_title == "光影包":
+            self.content_stack.setCurrentIndex(3)
 
     def on_version_clicked(self, item, event):
         """点击某版本事件"""
@@ -600,4 +628,160 @@ class GamesPage(QWidget):
         self.install_dialog.set_version(item.property("version"), f"{item.property('description')}")
         self.install_dialog.exec()
         pass
+
+    def create_mods_list(self):
+        """创建模组列表内容（暂时复制游戏列表结构）"""
+        panel = QWidget()
+        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setStyleSheet("background-color: transparent;")
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 添加版本项 
+        for data in self.minecraft_versions:
+            item = self.create_download_item(
+                data["id"],
+                f"模组 {data['type']} {data['releaseTime']}",
+                data.get('is_selected', False)
+            )
+            layout.addWidget(item)
+            layout.addSpacing(10)
+
+        # 添加拉伸空间
+        layout.addStretch()
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll_area.setWidget(panel)
+        return scroll_area
+
+    def create_resource_list(self):
+        """创建资源包列表内容（暂时复制游戏列表结构）"""
+        panel = QWidget()
+        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setStyleSheet("background-color: transparent;")
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 添加版本项 
+        for data in self.minecraft_versions:
+            item = self.create_download_item(
+                data["id"],
+                f"资源包 {data['type']} {data['releaseTime']}",
+                data.get('is_selected', False)
+            )
+            layout.addWidget(item)
+            layout.addSpacing(10)
+
+        # 添加拉伸空间
+        layout.addStretch()
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll_area.setWidget(panel)
+        return scroll_area
+
+    def create_shader_list(self):
+        """创建光影包列表内容（暂时复制游戏列表结构）"""
+        panel = QWidget()
+        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setStyleSheet("background-color: transparent;")
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 添加版本项 
+        for data in self.minecraft_versions:
+            item = self.create_download_item(
+                data["id"],
+                f"光影包 {data['type']} {data['releaseTime']}",
+                data.get('is_selected', False)
+            )
+            layout.addWidget(item)
+            layout.addSpacing(10)
+
+        # 添加拉伸空间
+        layout.addStretch()
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0.2);
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120, 89, 255, 0.7);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(120, 89, 255, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll_area.setWidget(panel)
+        return scroll_area
     
