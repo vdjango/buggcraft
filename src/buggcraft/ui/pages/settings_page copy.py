@@ -575,7 +575,7 @@ class SettingsPage(BasePage):
         self.language_combo.setFixedSize(140, 29)   
         self.language_combo.setStyleSheet("""
             QComboBox {
-                background-color: transparent;
+                background-color: #1A1923;
                 color: #FFFFFF;
                 border: 1px solid #555555;
                 border-radius: 4px;
@@ -592,11 +592,39 @@ class SettingsPage(BasePage):
                 height: 12px;
             }
             QComboBox QAbstractItemView {
-                background-color: #2A2A2A;
+                background-color: #565564;
                 color: #FFFFFF;
                 border: 1px solid #555555;
-                selection-background-color: #3A3A3A;
                 font-size: 13px;
+            }
+            QComboBox QListView {
+                background-color: #565564;
+                color: #FFFFFF;
+                border: 1px solid #555555;
+                font-size: 13px;
+            }
+            QComboBox QAbstractItemView::item {
+                background-color: #565564;
+            }
+            QComboBox QListView::item {
+                background-color: #565564;
+                color: #FFFFFF;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QListView::item:hover {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QListView::item:selected {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
             }
         """)
         
@@ -677,7 +705,7 @@ class SettingsPage(BasePage):
         self.version_source_combo.setFixedSize(280, 24)
         self.version_source_combo.setStyleSheet("""
             QComboBox {
-                background-color: #4A90E2;
+                background-color: #1A1923;
                 border: 1px solid #4A90E2;
                 border-radius: 0px;
                 padding: 4px 8px;
@@ -685,7 +713,7 @@ class SettingsPage(BasePage):
                 font-size: 11px;
             }
             QComboBox:hover {
-                background-color: #5BA0F2;
+                background-color: #1A1923;
             }
             QComboBox::drop-down {
                 border: none;
@@ -699,10 +727,37 @@ class SettingsPage(BasePage):
                 margin-right: 5px;
             }
             QComboBox QAbstractItemView {
-                background-color: rgba(60, 60, 60, 0.95);
+                background-color: #565564;
                 border: 1px solid #555;
-                selection-background-color: #4A90E2;
                 color: #FFFFFF;
+            }
+            QComboBox QListView {
+                background-color: #565564;
+                border: 1px solid #555;
+                color: #FFFFFF;
+            }
+            QComboBox QAbstractItemView::item {
+                background-color: #565564;
+            }
+            QComboBox QListView::item {
+                background-color: #565564;
+                color: #FFFFFF;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QListView::item:hover {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QListView::item:selected {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
             }
         """)
         
@@ -1366,7 +1421,7 @@ class SettingsPage(BasePage):
         
         self.language_combo_in_header.setStyleSheet(f"""
             QComboBox {{
-                background-color: rgba(255, 255, 255, 0.1);
+                background-color: #1A1923;
                 border: 1px solid rgba(255, 255, 255, 0.3);
                 border-radius: 0px;
                 padding: 4px 30px 4px 8px;
@@ -1377,7 +1432,7 @@ class SettingsPage(BasePage):
                 background-position: right;
             }}
             QComboBox:hover {{
-                background-color: rgba(255, 255, 255, 0.15);
+                background-color: #1A1923;
                 border: 1px solid rgba(255, 255, 255, 0.5);
             }}
             QComboBox::drop-down {{
@@ -1390,10 +1445,37 @@ class SettingsPage(BasePage):
                 border: none;
             }}
             QComboBox QAbstractItemView {{
-                background-color: #3E344F;
+                background-color: #565564;
                 border: 1px solid rgba(255, 255, 255, 0.3);
-                selection-background-color: rgba(255, 255, 255, 0.2);
                 color: #FFFFFF;
+            }}
+            QComboBox QListView {{
+                background-color: #565564;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                color: #FFFFFF;
+            }}
+            QComboBox QAbstractItemView::item {{
+                background-color: #565564;
+            }}
+            QComboBox QListView::item {{
+                background-color: #565564;
+                color: #FFFFFF;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }}
+            QComboBox QListView::item:hover {{
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }}
+            QComboBox QListView::item:selected {{
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
             }}
         """)
     

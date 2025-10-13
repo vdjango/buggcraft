@@ -1,7 +1,7 @@
 import os
-
+import sys
 from PySide6.QtWidgets import (
-    QLabel, QComboBox
+    QLabel, QComboBox, QStyledItemDelegate, QStyle
 )
 from PySide6.QtCore import Qt, QPoint, QEvent
 from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon
@@ -9,6 +9,25 @@ from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class CustomComboBoxDelegate(QStyledItemDelegate):    
+    def paint(self, painter, option, index):
+        """重写绘制方法，设置悬浮背景颜色"""
+        # 检查是否为悬浮状态
+        if option.state & QStyle.State_MouseOver:
+            painter.fillRect(option.rect, QColor("#7455FF"))
+            painter.setPen(QColor("#FFFFFF"))
+        elif option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, QColor("#7455FF"))
+            painter.setPen(QColor("#FFFFFF"))
+        else:
+            painter.fillRect(option.rect, QColor("#565564"))
+            painter.setPen(QColor("#FFFFFF"))
+        
+        text = index.data()
+        if text:
+            painter.drawText(option.rect.adjusted(10, 0, -10, 0), Qt.AlignLeft | Qt.AlignVCenter, text)
 
 
 class QMComboBox(QComboBox):
@@ -29,7 +48,7 @@ class QMComboBox(QComboBox):
         # 设置样式 - 根据高度动态调整
         style_sheet = """
             QComboBox {
-                background-color: rgba(0, 0, 0, 0.3);
+                background-color: #1A1923;
                 color: rgba(255, 255, 255, 1);
                 border-radius: 0px;
                 padding: 5px;
@@ -47,7 +66,7 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox:hover {
-                background-color: rgba(0, 0, 0, 0.2);
+                background-color: #1A1923;
             }
             
             QComboBox::drop-down {
@@ -71,11 +90,9 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox QAbstractItemView {
-                background-color: rgba(0, 0, 0, 0.3);
+                background-color: #565564;
                 color: rgba(255, 255, 255, 1);
                 border: 1px solid rgba(120, 89, 255, 0.5);
-                selection-background-color: rgba(120, 89, 255, 0.9);
-                selection-color: rgba(255, 255, 255, 1);
                 outline: none;
                 padding: 5px;
             }
@@ -83,6 +100,7 @@ class QMComboBox(QComboBox):
             QComboBox QAbstractItemView::item {
                 padding: 5px 10px;
                 border-bottom: 1px solid rgba(60, 60, 70, 0.5);
+                background-color: transparent;
         """
         
         # 根据高度调整下拉项的高度
@@ -99,7 +117,13 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox QAbstractItemView::item:hover {
-                background-color: rgba(120, 89, 255, 0.3);
+                background-color: #7455FF !important;
+                color: rgba(255, 255, 255, 1) !important;
+            }
+            
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #7455FF !important;
+                color: rgba(255, 255, 255, 1) !important;
             }
         """
         
@@ -126,6 +150,9 @@ class QMComboBox(QComboBox):
         
         # 安装事件过滤器
         self.view().installEventFilter(self)
+        
+        self.custom_delegate = CustomComboBoxDelegate()
+        self.view().setItemDelegate(self.custom_delegate)
     
     def setHeight(self, height):
         """设置自定义高度"""
@@ -134,7 +161,7 @@ class QMComboBox(QComboBox):
         # 重新应用样式
         style_sheet = """
             QComboBox {
-                background-color: rgba(0, 0, 0, 0.3);
+                background-color: #1A1923;
                 color: rgba(255, 255, 255, 1);
                 border-radius: 0px;
                 padding: 5px;
@@ -145,7 +172,7 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox:hover {
-                background-color: rgba(0, 0, 0, 0.2);
+                background-color: #1A1923;
             }
             
             QComboBox::drop-down {
@@ -161,27 +188,61 @@ class QMComboBox(QComboBox):
             }
             
             QComboBox QAbstractItemView {
-                background-color: rgba(0, 0, 0, 0.3);
+                background-color: #565564;
                 color: rgba(255, 255, 255, 1);
                 border: 1px solid rgba(120, 89, 255, 0.5);
-                selection-background-color: rgba(120, 89, 255, 0.9);
-                selection-color: rgba(255, 255, 255, 1);
                 outline: none;
                 padding: 5px;
+            }
+            
+            QComboBox QListView {
+                background-color: #565564;
+                color: rgba(255, 255, 255, 1);
+                border: 1px solid rgba(120, 89, 255, 0.5);
+                outline: none;
             }
             
             QComboBox QAbstractItemView::item {
                 height: %dpx;
                 padding: 5px 10px;
                 border-bottom: 1px solid rgba(60, 60, 70, 0.5);
+                background-color: #565564;
+            }
+            
+            QComboBox QListView::item {
+                height: %dpx;
+                padding: 5px 10px;
+                border-bottom: 1px solid rgba(60, 60, 70, 0.5);
+                background-color: #565564;
+                color: rgba(255, 255, 255, 1);
             }
             
             QComboBox QAbstractItemView::item:last {
                 border-bottom: none;
             }
             
+            QComboBox QListView::item:last {
+                border-bottom: none;
+            }
+            
             QComboBox QAbstractItemView::item:hover {
-                background-color: rgba(120, 89, 255, 0.3);
+                background-color: #7455FF !important;
+                color: rgba(255, 255, 255, 1) !important;
+            }
+            
+            QComboBox QListView::item:hover {
+                background-color: #7455FF !important;
+                color: rgba(255, 255, 255, 1) !important;
+            }
+            
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #7455FF !important;
+                color: rgba(255, 255, 255, 1) !important;
+            }
+            
+            QComboBox QListView::item:selected {
+                background-color: #7455FF !important;
+                color: rgba(255, 255, 255, 1) !important;
             }
         """ % (height, height, height, height)
         

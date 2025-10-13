@@ -85,6 +85,65 @@ class VisibilitySettingsWidget(QWidget):
             VisibilitySettings.CLOSE
         ])
         self.visibility_combo.currentTextChanged.connect(self.on_setting_changed)
+        
+        # 设置下拉框样式
+        self.visibility_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #1A1923;
+                color: #FFFFFF;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #FFFFFF;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #565564;
+                color: #FFFFFF;
+                border: 1px solid #555555;
+                font-size: 11px;
+            }
+            QComboBox QListView {
+                background-color: #565564;
+                color: #FFFFFF;
+                border: 1px solid #555555;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView::item {
+                background-color: #565564;
+            }
+            QComboBox QListView::item {
+                background-color: #565564;
+                color: #FFFFFF;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QListView::item:hover {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+            QComboBox QListView::item:selected {
+                background-color: #7455FF !important;
+                color: #FFFFFF !important;
+            }
+        """)
+        
         layout.addWidget(self.visibility_combo)
     
     def on_setting_changed(self, text):
