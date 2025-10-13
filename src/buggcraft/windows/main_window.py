@@ -20,6 +20,7 @@ from ui.widgets.titlebar import TitleBar
 from ui.pages import StartGamePage, SettingsPage, VersionsPages, DownloadPages
 from ui.dialog.NotFuilMinecraftVersionDialog import VersionNotFuilDialog, QDialog
 from ui.dialog.NotFuilJavaDialog import JavaRuntimeNotFuilDialog
+from ui.dialog.NoVersionDialog import NoVersionDialog
 
 import logging
 logger = logging.getLogger(__name__)
@@ -107,9 +108,11 @@ class MinecraftLauncher(QMainWindow):
         
         self.java_runtime_full = JavaRuntimeNotFuilDialog()
         self.gamed_runtime_full = VersionNotFuilDialog()
+        self.no_version_dialog = NoVersionDialog(self.resource_path)  # 不传递parent，使其成为独立窗口
         self.java_runtime_full.download_signal.connect(self.on_java_download_signal)
         self.gamed_runtime_full.download_signal.connect(self.on_gamed_download_signal)
         self.gamed_runtime_full.import_signal.connect(self.on_gamed_import_signal)
+        self.no_version_dialog.download_signal.connect(self.on_no_version_download_signal)
 
         QTimer.singleShot(500, self.minecraft_not_java_runtime)
 
@@ -229,7 +232,8 @@ class MinecraftLauncher(QMainWindow):
         """打开启动器检查游戏版本"""
         if self.settings_manager.get_setting('minecraft.version.enable') is None:
             logger.warning('未安装游戏版本，请安装游戏版本')
-            self.gamed_runtime_full.exec()
+            # 显示独立的NoVersionDialog窗口
+            self.no_version_dialog.show()  # 使用show()显示独立窗口
 
     def load_java_path(self):
         """自动加载系统中Java路径"""
@@ -325,6 +329,13 @@ class MinecraftLauncher(QMainWindow):
         logger.info("用户选择了下载Java向导")
         webbrowser.open('https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi')
         QTimer.singleShot(1000, sys.exit)
+        pass
+
+    def on_no_version_download_signal(self):
+        """用户从NoVersionDialog选择了下载游戏"""
+        logger.info("用户从NoVersionDialog选择了下载游戏")
+        # 切换到下载页面
+        self.switch_pages("下载")
         pass
 
     def switch_pages(self, name):
