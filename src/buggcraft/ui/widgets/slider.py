@@ -13,6 +13,7 @@ class StepSlider(QSlider):
         :param step: 步长值
         """
         super().__init__(*args, **kwargs)
+        self.setCursor(Qt.PointingHandCursor)   
         self.setStyleSheet("""
             QSlider {
                 background: transparent;

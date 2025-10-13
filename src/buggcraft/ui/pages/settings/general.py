@@ -437,10 +437,23 @@ class GeneralSettingsPages(QWidget):
         folder_icon = QLabel()
         folder_icon.setFixedSize(25, 25)
         folder_icon.setAlignment(Qt.AlignCenter)
-        folder_icon.setPixmap(QPixmap(
-            os.path.join(self.resource_path, 'images', 'version', 'folder.png')
-        ).scaled(12, 12, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1);')
+        
+        # 添加安全检查，防止空指针错误
+        icon_path = os.path.join(self.resource_path, 'images', 'version', 'folder.png')
+        icon_pixmap = QPixmap(icon_path)
+        
+        if not icon_pixmap.isNull():
+            folder_icon.setPixmap(icon_pixmap.scaled(12, 12, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            # 如果图标加载失败，使用默认文本
+            folder_icon.setText("📁")
+            folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1); font-size: 12px;')
+        
+        if icon_pixmap.isNull():
+            folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1); font-size: 12px;')
+        else:
+            folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1);')
+        
         folder_icon.setCursor(Qt.PointingHandCursor)
         # folder_icon.mousePressEvent = self.browse_java_path
         layout.addWidget(folder_icon)
@@ -514,6 +527,9 @@ class GeneralSettingsPages(QWidget):
                 background-color: rgba(128, 128, 128, 0.3);
             }
         """)
+        
+        # 设置手型光标
+        reload_btn.setCursor(Qt.PointingHandCursor)
         
         # 连接点击事件（可以在这里添加刷新逻辑）
         reload_btn.clicked.connect(self.on_reload_clicked)

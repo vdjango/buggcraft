@@ -117,6 +117,10 @@ class QMComboBox(QComboBox):
         self.icon_label.setFixedSize(16, 16)
         self.icon_label.setStyleSheet("background-color: transparent;")
         
+        # 设置手型光标
+        self.setCursor(Qt.PointingHandCursor)
+        self.icon_label.setCursor(Qt.PointingHandCursor)
+        
         # 更新图标
         self.update_icon()
         

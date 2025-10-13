@@ -198,6 +198,7 @@ class AboutPage(QWidget):
             link_icon = QLabel()
             link_icon.setFixedSize(20, 20)
             link_icon.setAlignment(Qt.AlignCenter)
+            link_icon.setCursor(Qt.PointingHandCursor)
             
             # 加载分享图标
             share_icon_path = os.path.join(self.resource_path, "settings", "share.png")

@@ -248,6 +248,7 @@ class StartGamePage(QWidget):
         self.multiplayer_lobby_btn = QLabel("进入联机大厅")
         self.multiplayer_lobby_btn.setFont(QFont("Source Han Sans CN Normal", 8, QFont.Weight.Normal))
         self.multiplayer_lobby_btn.setAlignment(Qt.AlignCenter)
+        self.multiplayer_lobby_btn.setFixedWidth(80)  # 根据文字长度设置宽度
         self.multiplayer_lobby_btn.setStyleSheet("""
             QLabel {
                 color: #4A5666;
@@ -261,7 +262,7 @@ class StartGamePage(QWidget):
         """)
         # self.multiplayer_lobby_btn.mousePressEvent = lambda event: self.show_multiplayer_dialog()
         self.multiplayer_lobby_btn.setCursor(Qt.PointingHandCursor)
-        tab_content_layout.addWidget(self.multiplayer_lobby_btn)
+        tab_content_layout.addWidget(self.multiplayer_lobby_btn, 0, Qt.AlignCenter)
         tab_content_layout.addStretch(1)
 
         tab_container_layout.addWidget(self.tab_buttons_widget)

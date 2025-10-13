@@ -272,6 +272,7 @@ class JavaManagementPage(QWidget):
         """创建操作按钮"""
         button = QPushButton(text)
         button.setFixedSize(60, 30)
+        button.setCursor(Qt.PointingHandCursor)
         button.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -310,6 +311,7 @@ class JavaManagementPage(QWidget):
         """创建图标按钮"""
         button = QPushButton()
         button.setFixedSize(30, 30)
+        button.setCursor(Qt.PointingHandCursor)
         button.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 0.1);

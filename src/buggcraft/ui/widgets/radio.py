@@ -120,7 +120,12 @@ class QMRadioButton(QWidget):
         # 创建图标标签
         self.auto_icon = QLabel()
         self.auto_icon.setFixedSize(20, 20)
+        self.auto_icon.setCursor(Qt.PointingHandCursor)  
         self.update_icon(self.auto_radio_selected)  # 初始状态
+        
+        # 添加图标点击事件
+        self.auto_icon.mousePressEvent = lambda e: self.toggle_selection()
+        
         icon_layout.addWidget(self.auto_icon)
         
         main_layout.addWidget(icon_container)
