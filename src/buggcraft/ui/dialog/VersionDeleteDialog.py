@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QWidget, QApplication, QFrame, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap
+from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap, QFont
 
 from core.auth.microsoft import MicrosoftAuthenticator, MinecraftSignals
 
@@ -18,13 +18,18 @@ class VersionDeleteDialog(QDialog):
     cancel_signal = Signal()  # 取消
     reopen_signal = Signal()  # 重新打开浏览器
 
-    def __init__(self, parent=None):
+    def __init__(self, resource_path=None, parent=None):
         super().__init__(parent)
         self._parent = parent
+        self.resource_path = resource_path
 
         self.title = '版本删除确认'
         self.message = "您确认要删除 {} 游戏版本吗？"
         self.message_text = "当前游戏版本已开启版本隔离，将删除 存档、资源包、光影、Mod等文件！"
+
+        # 初始化拖拽相关属性
+        self._is_dragging = False
+        self._drag_position = None
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -76,25 +81,30 @@ class VersionDeleteDialog(QDialog):
         content_widget = QWidget()
         content_widget.setStyleSheet("background-color: rgba(39, 41, 55, 1);")
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(28, 20, 28, 20)
-        content_layout.setSpacing(0)
+        content_layout.setContentsMargins(28, 25, 28, 25)
+        content_layout.setSpacing(10)
         
         # 提示信息
         self.message_label = QLabel(self.message)
         self.message_label.setWordWrap(True)
+        self.message_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
         self.message_label.setStyleSheet("""
-            color: #e0e0e0;
-            font-size: 16px;
-            font-weight: bold;
+            color: #f2f2f2;
+            line-height: 1.4;
+            padding: 5px 0px;
         """)
+        self.message_label.setMinimumHeight(50)
+        
         self.message_text_label = QLabel(self.message_text)
         self.message_text_label.setWordWrap(True)
-        self.message_text_label.setContentsMargins(0, 20, 0, 15)
+        self.message_text_label.setContentsMargins(0, 15, 0, 15)
+        self.message_text_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
         self.message_text_label.setStyleSheet("""
-            color: #c0c0c0;
-            font-size: 14px;
-            font-weight: medium;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.5;
+            padding: 8px 0px;
         """)
+        self.message_text_label.setMinimumHeight(60)
 
         content_layout.addWidget(self.message_label)
         content_layout.addWidget(self.message_text_label)
@@ -106,44 +116,73 @@ class VersionDeleteDialog(QDialog):
         button_layout.setSpacing(20)
         button_layout.addStretch()
         
+        # 确认按钮 - 使用Install.png背景图
         self.confirm_button = QPushButton("确认")
-        self.confirm_button.setFixedSize(100, 35)
-        self.confirm_button.setStyleSheet("""
-            QPushButton {
-                background-color: #7859FF;
-                color: #e0e0e0;
-                border: none;
-                font-size: 13px;
-                font-weight: medium;
-            }
-            QPushButton:hover {
-                background-color: #8A6FFF;
-            }
-            QPushButton:pressed {
-                background-color: #6A4FFF;
-            }
-        """)
+        self.confirm_button.setFixedSize(72, 35)
+        if self.resource_path:
+            install_bg_path = os.path.join(self.resource_path, 'images', 'Install', 'Install.png').replace('\\', '/')
+            self.confirm_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-image: url({install_bg_path});
+                    background-repeat: no-repeat;
+                    background-position: center;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 13px;
+                    font-weight: medium;
+                }}
+                QPushButton:hover {{
+                    background-color: rgba(255, 255, 255, 0.1);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba(255, 255, 255, 0.2);
+                }}
+            """)
+        else:
+            self.confirm_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #7859FF;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 13px;
+                    font-weight: medium;
+                }
+            """)
         self.confirm_button.clicked.connect(self.accept)
         button_layout.addWidget(self.confirm_button)
         
-        # 取消按钮  TODO 待加载背景图
+        # 取消按钮 - 使用Cancel.png背景图
         self.cancel_button = QPushButton("取消")
-        self.cancel_button.setFixedSize(100, 35)
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2F2E4B;
-                color: #e0e0e0;
-                border: none;
-                font-size: 13px;
-                font-weight: medium;
-            }
-            QPushButton:hover {
-                background-color: #3F3E5B;
-            }
-            QPushButton:pressed {
-                background-color: #1F1E3B;
-            }
-        """)
+        self.cancel_button.setFixedSize(72, 35)
+        if self.resource_path:
+            cancel_bg_path = os.path.join(self.resource_path, 'images', 'Install', 'Cancel.png').replace('\\', '/')
+            self.cancel_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-image: url({cancel_bg_path});
+                    background-repeat: no-repeat;
+                    background-position: center;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 13px;
+                    font-weight: medium;
+                }}
+                QPushButton:hover {{
+                    background-color: rgba(255, 255, 255, 0.1);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba(255, 255, 255, 0.2);
+                }}
+            """)
+        else:
+            self.cancel_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #2F2E4B;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 13px;
+                    font-weight: medium;
+                }
+            """)
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
 

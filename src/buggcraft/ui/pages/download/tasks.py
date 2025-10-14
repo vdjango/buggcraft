@@ -35,7 +35,7 @@ class TasksPage(QWidget):
         self.resource_path = parent.resource_path
         
         self.signals = MinecraftDownloadSignals()
-        self.version_delete_dialog = VersionDeleteDialog()
+        self.version_delete_dialog = VersionDeleteDialog(resource_path=self.resource_path)
 
         self.menu_panel = [
             {

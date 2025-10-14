@@ -7,7 +7,7 @@ import logging
 import minecraft_launcher_lib
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QDialog, QScrollArea
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QDialog, QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
@@ -39,7 +39,7 @@ class VersionsPage(QWidget):
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
         self.signals = MinecraftSettingSignals()
-        self.version_delete_dialog = VersionDeleteDialog()
+        self.version_delete_dialog = VersionDeleteDialog(resource_path=self.resource_path)
 
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
@@ -400,6 +400,21 @@ class VersionsPage(QWidget):
         )
         setting_icon.mousePressEvent = lambda event: self.on_version_settings(item, event)
         icons_layout.addWidget(setting_icon)
+        
+        # 垂直分割线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFrameShadow(QFrame.Plain)
+        separator.setFixedWidth(2)
+        separator.setFixedHeight(40)
+        separator.setStyleSheet("""
+            QFrame {
+                background-color: rgba(255, 255, 255, 0.3);
+                border: none;
+                margin: 2px 0px;
+            }
+        """)
+        icons_layout.addWidget(separator)
         
         # 文件夹图标
         folder_icon = self.create_icon_label(

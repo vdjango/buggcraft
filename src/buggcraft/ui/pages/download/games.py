@@ -78,7 +78,7 @@ class GamesPage(QWidget):
         self.settings_manager = get_settings_manager()
         
         self.signals = MinecraftDownloadSignals()
-        self.version_delete_dialog = VersionDeleteDialog()
+        self.version_delete_dialog = VersionDeleteDialog(resource_path=self.resource_path)
         self.install_dialog = MinecraftInstallDialog(self)
         # 创建线程池并执行任务
         self.thread_pool = QThreadPool.globalInstance()
