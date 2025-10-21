@@ -4,6 +4,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont, QPixmap, QMouseEvent
 from PySide6.QtCore import Qt, QPoint, Signal
+
+from config.settings import SettingsManager
 from .VersionPopup import VersionPopup
 
 
@@ -46,6 +48,7 @@ class TitleBar(QWidget):
         self.parent = parent
         self.setObjectName("TitleBar")
         
+        self.settings_manager: SettingsManager = parent.settings_manager
         self.resource_path = resource_path
         self.dragging = False
         self.drag_position = QPoint()
@@ -348,39 +351,24 @@ class TitleBar(QWidget):
             self.add_sample_versions()
     
     def add_sample_versions(self):
-        """添加示例版本数据"""
+        """添加版本数据"""
         if not self.version_popup:
             return
-            
+        
         versions_data = [
             {
-                "version_id": "1.0.0",
-                "description": ["aklsdaldjald", "aksdjlakda"],
+                "version_id": i,
                 "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
-            },
-            {
-                "version_id": "1.1.0", 
-                "description": ["aklsdaldjald", "aksdjlakda"],
-                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
-            },
-            {
-                "version_id": "1.2.0",
-                "description": ["aklsdaldjald", "aksdilakda"], 
-                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
-            },
-            {
-                "version_id": "1.3.0",
-                "description": ["aklsdaldjald", "aksdjlakda"],
-                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
-            }
+            } for i in self.settings_manager.get_setting('minecraft.version.installed')
         ]
         
         for version_data in versions_data:
             self.version_popup.add_version_item(
                 version_data["version_id"],
-                version_data["description"],
                 version_data["icon_path"]
             )
+        
+        self.version_popup.selected(self.settings_manager.get_setting('minecraft.version.enable'))
     
     def on_version_button_clicked(self):
         """处理版本按钮点击事件"""
@@ -390,7 +378,8 @@ class TitleBar(QWidget):
     def on_version_selected(self, version_id):
         """处理版本选择事件"""
         print(f"选中版本: {version_id}")
-        # 这里可以添加版本切换的逻辑
+        self.settings_manager.set_setting('minecraft.version.enable', version_id)
+        self.settings_manager.save_settings()
     
     def create_control_button(self, name, bg_image):
         """创建控制按钮 - 使用 QLabel 和背景图片"""

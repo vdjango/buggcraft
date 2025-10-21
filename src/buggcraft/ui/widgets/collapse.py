@@ -64,8 +64,8 @@ class CollapsePanel(QWidget):
         self.default_expanded = expanded
         self.init_ui()
 
-        if self.default_expanded and self.is_collaspe:
-            self.toggle_expand(False)
+        if self.is_collaspe:
+            self.toggle_expand(self.default_expanded)
         
     def init_ui(self):
         """初始化 UI"""

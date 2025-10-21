@@ -104,19 +104,6 @@ class LazyGameLoader(QObject):
         
         # 通知UI更新
         self.items_added.emit(start_idx, end_idx)
-        
-        # 如果还有更多内容，检查是否需要立即加载
-        if self.loaded_count < len(self.minecraft_versions):
-            # 检查当前滚动位置，如果已经在底部附近，则继续加载
-            scroll_bar = self.scroll_area.verticalScrollBar()
-            scroll_pos = scroll_bar.value()
-            scroll_max = scroll_bar.maximum()
-            
-            # print(scroll_pos, scroll_max)
-            # if scroll_pos >= scroll_max - 100:
-            #     # 已经在底部附近，继续加载下一批
-            #     QTimer.singleShot(50, self.load_next_batch)
-        
         self.loading_finished.emit()
     
     def check_scroll_position(self):

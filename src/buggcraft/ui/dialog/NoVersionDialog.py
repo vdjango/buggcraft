@@ -61,13 +61,8 @@ class NoVersionDialog(QDialog):
         
         # 标题文本 - "无可用版本"
         self.title_label = QLabel("无可用版本")
-        self.title_label.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Medium))
-        self.title_label.setStyleSheet("""
-            color: #FFFFFF;
-            font-size: 12px;
-            font-weight: 500;
-            background-color: transparent;
-        """)
+        self.title_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
         self.title_label.setAlignment(Qt.AlignCenter)
         container_layout.addWidget(self.title_label)
         
@@ -98,15 +93,17 @@ class NoVersionDialog(QDialog):
             "若有已存在的游戏，请在左边的列表中选择添加文件夹，选\n"
             "择.minecraft文件夹将其导入。"
         )
-        self.description_label.setFixedSize(300, 60)  # 增加高度以适应新的行间距
-        self.description_label.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Medium))
-        self.description_label.setStyleSheet("""
-            color: #FFFFFF;
-            font-size: 10px;
-            font-weight: 500;
-            line-height: 15px;
-            background-color: transparent;
-        """)
+        # self.description_label.setFixedSize(300, 60)  # 增加高度以适应新的行间距
+        self.description_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Medium))
+        self.description_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
+        # self.description_label.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Medium))
+        # self.description_label.setStyleSheet("""
+        #     color: #FFFFFF;
+        #     font-size: 10px;
+        #     font-weight: 500;
+        #     line-height: 15px;
+        #     background-color: transparent;
+        # """)
         self.description_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)  # 文字内部左对齐
         self.description_label.setWordWrap(True)
         

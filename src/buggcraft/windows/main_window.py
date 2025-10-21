@@ -107,12 +107,10 @@ class MinecraftLauncher(QMainWindow):
         self.init_ui()
         
         self.java_runtime_full = JavaRuntimeNotFuilDialog()
-        self.gamed_runtime_full = VersionNotFuilDialog()
-        self.no_version_dialog = NoVersionDialog(self.resource_path)  # 不传递parent，使其成为独立窗口
+        self.gamed_version_full = VersionNotFuilDialog()
         self.java_runtime_full.download_signal.connect(self.on_java_download_signal)
-        self.gamed_runtime_full.download_signal.connect(self.on_gamed_download_signal)
-        self.gamed_runtime_full.import_signal.connect(self.on_gamed_import_signal)
-        self.no_version_dialog.download_signal.connect(self.on_no_version_download_signal)
+        self.gamed_version_full.download_signal.connect(self.on_gamed_download_signal)
+        self.gamed_version_full.import_signal.connect(self.on_gamed_import_signal)
 
         QTimer.singleShot(500, self.minecraft_not_java_runtime)
 
@@ -130,7 +128,7 @@ class MinecraftLauncher(QMainWindow):
 
         # 连接标签页点击信号
         self.title_bar.tab_switch_clicked.connect(self.switch_pages)
-
+        
         main_layout.addWidget(self.title_bar)
         
         # 主内容区域
@@ -166,6 +164,7 @@ class MinecraftLauncher(QMainWindow):
         self.started_page = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
         self.started_page.login_success.connect(self.handle_login_success)
         self.started_page.started_changed.connect(self.started_page.started_game)  # 启动游戏，必须在主UI中进行
+        self.title_bar.version_popup.version_selected.connect(self.started_page.set_minecraft_version)
         self.content_stack.addWidget(self.started_page)
 
         # 下载页面 TODO
@@ -232,8 +231,7 @@ class MinecraftLauncher(QMainWindow):
         """打开启动器检查游戏版本"""
         if self.settings_manager.get_setting('minecraft.version.enable') is None:
             logger.warning('未安装游戏版本，请安装游戏版本')
-            # 显示独立的NoVersionDialog窗口
-            self.no_version_dialog.show()  # 使用show()显示独立窗口
+            self.gamed_version_full.exec()  # 使用show()显示独立窗口
 
     def load_java_path(self):
         """自动加载系统中Java路径"""
@@ -320,6 +318,7 @@ class MinecraftLauncher(QMainWindow):
     def on_gamed_download_signal(self):
         """用户选择了下载游戏向导"""
         logger.info("用户选择了下载游戏向导")
+        self.switch_pages("下载")
         pass
 
     def on_java_download_signal(self):
@@ -329,13 +328,6 @@ class MinecraftLauncher(QMainWindow):
         logger.info("用户选择了下载Java向导")
         webbrowser.open('https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi')
         QTimer.singleShot(1000, sys.exit)
-        pass
-
-    def on_no_version_download_signal(self):
-        """用户从NoVersionDialog选择了下载游戏"""
-        logger.info("用户从NoVersionDialog选择了下载游戏")
-        # 切换到下载页面
-        self.switch_pages("下载")
         pass
 
     def switch_pages(self, name):

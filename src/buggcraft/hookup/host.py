@@ -24,11 +24,10 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 class TunnelHost:
-    def __init__(self, server_host='127.0.0.1', control_port=3333, server_port=3333, 
+    def __init__(self, server_host='81.68.225.236', control_port=3333,
                  game_host='127.0.0.1', game_port=25565, host_id=1):
         self.control_port = control_port
         self.server_host = server_host
-        self.server_port = server_port
         self.game_host = game_host
         self.game_port = game_port
         self.host_id = host_id
@@ -49,7 +48,7 @@ class TunnelHost:
 
         # 连接到服务端的数据端口
         data_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        data_conn.settimeout(10)
+        # data_conn.settimeout(10)
         data_conn.connect((self.server_host, port))  # 数据端口
         
         # 连接到游戏服务器
@@ -71,7 +70,7 @@ class TunnelHost:
                     data = game_conn.recv(4096)
                     if not data:
                         break
-                    data_conn.sendall(data)
+                    data_conn.send(data)
             except:
                 pass
         
@@ -81,7 +80,7 @@ class TunnelHost:
                     data = data_conn.recv(4096)
                     if not data:
                         break
-                    game_conn.sendall(data)
+                    game_conn.send(data)
             except:
                 pass
         
@@ -190,7 +189,13 @@ class TunnelHost:
                 pass
         logger.info("主机端已关闭")
 
+# 81.68.225.236
 if __name__ == '__main__':
-    host = TunnelHost(server_host='127.0.0.1', control_port=3333, server_port=3333, 
-                     game_host='127.0.0.1', game_port=25565, host_id=1)
+    host = TunnelHost(
+        server_host='81.68.225.236',
+        control_port=3333,
+        game_host='127.0.0.1',
+        game_port=25565,
+        host_id=1
+    )
     host.start()

@@ -18,6 +18,7 @@ class MirrorSource(Enum):
     """下载源枚举"""
     MOJANG = "mojang"
     BMCLAPI = "bmclapi"
+    MODRINTH = "modrinth"
 
 
 class OSPlatform(Enum):
@@ -65,6 +66,12 @@ class CrossPlatformMinecraftInstaller:
         },
         MirrorSource.BMCLAPI: {
             "root": "https://bmclapi2.bangbang93.com",
+            "assets": "https://bmclapi2.bangbang93.com/assets",
+            "libraries": "https://bmclapi2.bangbang93.com/maven",
+            "version_manifest": "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"
+        },
+        MirrorSource.MODRINTH: {
+            "root": "https://staging-api.modrinth.com/v2/tag/game_version",
             "assets": "https://bmclapi2.bangbang93.com/assets",
             "libraries": "https://bmclapi2.bangbang93.com/maven",
             "version_manifest": "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"
@@ -239,6 +246,7 @@ class CrossPlatformMinecraftInstaller:
             response.raise_for_status()
             return response.json()
         except Exception as e:
+            print('获取版本清单失败: {e}')
             self.callback.set_status(f"获取版本清单失败: {e}")
             return None
     
@@ -1141,6 +1149,7 @@ class CrossPlatformMinecraftInstaller:
 
     def get_available_versions(self) -> List[Dict]:
         """获取所有可用版本列表"""
+        # https://staging-api.modrinth.com/v2/tag/game_version
         manifest = self.get_version_manifest()
         if not manifest:
             return []

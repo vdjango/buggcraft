@@ -49,7 +49,7 @@ class IDGenerator:
             id = self._next_id
             self._next_id += 1
             return self.uidx(str(name) + str(id) + self.randint() + self.sample()).hex
-        
+    
 class SessionManager:
     """会话管理器，处理多主机多客户端映射"""
     def __init__(self):
@@ -129,7 +129,7 @@ class TunnelServer:
                     if not data:
                         logger.info(f"会话{session_id}: {description} 连接关闭")
                         break
-                    dst_conn.sendall(data)
+                    dst_conn.send(data)
                 except ConnectionResetError:
                     logger.info(f"会话{session_id}: {description} 连接被重置")
                     break
@@ -273,6 +273,7 @@ class TunnelServer:
                 try:
                     response = conn.recv(2048)
                 except:
+                    logger.info(f"[控制] 错误 {response}")
                     break
 
                 if not response:
@@ -318,6 +319,7 @@ class TunnelServer:
                     if action == "connect":
                         # 客户端请求与主机建立连接
                         with self.conn_lock:
+                            logger.info(f"[控制] 客户端{type_id}: 请求连接")
                             host_control_conn = self.control_connections.get(target_host_id)
                             if not host_control_conn:
                                 # 检查主机是否在线
@@ -336,6 +338,7 @@ class TunnelServer:
                                 "target_client_id": type_id,            # 客户端唯一ID，表示当前客户端要与主机建立连接
                                 "forward_port": self.forward_port       # 主机需要与此端口建立连接
                             }).encode('utf-8'))
+                            logger.info(f"[控制] 通知主机{type_id}: 建立数据通道")
                             
                             # 通知客户端开始连接数据端口
                             # 发送主机端ID给客户端 并通知客户端与数据端口进行连接
@@ -346,9 +349,10 @@ class TunnelServer:
                                 "target_host_id": target_host_id,       # 与目标主机建立连接 主机唯一ID
                                 "forward_port": self.forward_port       # 主机需要与此端口建立连接
                             }).encode('utf-8'))
+                            logger.info(f"[控制] 通知客户{type_id}: 建立数据通道")
                             
                             self.heartbeat(type_id, typec)
-                            logger.info(f"[控制] 客户端{type_id}: 请求连接")
+                            logger.info(f"[控制] 客户端{type_id}: 连接已建立")
                     elif action == "forward":
                         target_host_id = command.get('target_host_id')
                         print("self.forward(target_host_id, type_id)")
@@ -562,5 +566,5 @@ class TunnelServer:
         logger.info("服务器关闭完成")
 
 if __name__ == '__main__':
-    server = TunnelServer(host='0.0.0.0', control_port=3333, forward_port=4444)
+    server = TunnelServer(host='0.0.0.0', control_port=3333, forward_port=3334)
     server.start()

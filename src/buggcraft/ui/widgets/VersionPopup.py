@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect, QPoint, QEvent
 from PySide6.QtGui import QFont, QPixmap, QMouseEvent, QPalette, QColor, QPainter, QBrush
 
+from ui.widgets.lable import SmartLabel
+
 
 class DiamondWidget(QWidget):
     """绘制菱形图案的自定义组件"""
@@ -41,7 +43,7 @@ class VersionItem(QWidget):
     """版本项组件 - 按组显示（版本号+描述为一组）"""
     clicked = Signal(str)  # 发送版本号信号
     
-    def __init__(self, version_id, description_lines, resource_path, icon_path=None, parent=None):
+    def __init__(self, version_id, description, resource_path, icon_path=None, height=59, parent=None):
         """
         初始化版本项目
         :param version_id: 版本号
@@ -51,8 +53,9 @@ class VersionItem(QWidget):
         :param parent: 父组件
         """
         super().__init__(parent)
+        self._height = height
         self.version_id = version_id
-        self.description_lines = description_lines
+        self.description = description
         self.resource_path = resource_path
         self.icon_path = icon_path
         self.is_hovered = False
@@ -61,7 +64,7 @@ class VersionItem(QWidget):
         
     def init_ui(self):
         """初始化UI"""
-        self.setFixedHeight(59)  # 设置固定高度 
+        self.setFixedHeight(self._height)  # 设置固定高度
         
         # 主布局
         main_layout = QHBoxLayout(self)
@@ -76,47 +79,23 @@ class VersionItem(QWidget):
         text_widget = QWidget()
         text_layout = QVBoxLayout(text_widget)
         text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(2)  # 减少垂直间距
+        text_layout.setSpacing(5)  # 减少垂直间距
         
         # 添加上方弹性空间
         text_layout.addStretch()
         
         # 版本号标签（第一行）
-        version_label = QLabel(f"版本号：{self.version_id}")
-        version_label.setStyleSheet("""
-            QLabel {
-                color: white;
-                font-size: 8px;
-                font-weight: bold;
-                background: transparent;
-                border: none;
-                padding: 0px;
-                margin: 0px;
-            }
-        """)
+        version_label = SmartLabel(f"版本号：{self.version_id}", font_size=9, font_weight=QFont.Weight.Bold, max_heiht=130)
+        version_label.setStyleSheet("color: white; background-color: transparent;")
         version_label.setAlignment(Qt.AlignLeft)
         text_layout.addWidget(version_label)
         
-        # 描述行（第二行和第三行）
-        # 显示两行描述，如果不足则用空行补充
-        desc_lines = self.description_lines[:2] if len(self.description_lines) >= 2 else self.description_lines + [""] * (2 - len(self.description_lines))
-        
-        for line in desc_lines:
-            desc_label = QLabel(line if line.strip() else "")
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: white;
-                    font-size: 7px;
-                    background: transparent;
-                    border: none;
-                    padding: 0px;
-                    margin: 0px;
-                }
-            """)
+        if self.description:
+            desc_label = SmartLabel(self.description, font_size=8, font_weight=QFont.Weight.Normal, max_heiht=130)
+            desc_label.setStyleSheet("color: white; background-color: transparent;")
             desc_label.setAlignment(Qt.AlignLeft)
             text_layout.addWidget(desc_label)
         
-        # 添加下方弹性空间使文字垂直居中
         text_layout.addStretch()
         
         # 将文字区域添加到主布局，并设置为可扩展
@@ -198,25 +177,29 @@ class VersionItem(QWidget):
             self.setPalette(palette)
             self.setAutoFillBackground(False)
         super().leaveEvent(event)
-        
+    
+    def selected(self):
+        # 设置选中状态和背景颜色
+        self.is_selected = True
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #3D3A53 !important;
+                border: none;
+                border-radius: 4px;
+            }
+        """)
+        # 同时使用QPalette设置背景色
+        palette = self.palette()
+        palette.setColor(QPalette.Window, QColor("#3D3A53"))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+        self.clicked.emit(self.version_id)
+
     def mousePressEvent(self, event: QMouseEvent):
         """处理鼠标点击事件"""
         if event.button() == Qt.LeftButton:
-            # 设置选中状态和背景颜色
-            self.is_selected = True
-            self.setStyleSheet("""
-                QWidget {
-                    background-color: #3D3A53 !important;
-                    border: none;
-                    border-radius: 4px;
-                }
-            """)
-            # 同时使用QPalette设置背景色
-            palette = self.palette()
-            palette.setColor(QPalette.Window, QColor("#3D3A53"))
-            self.setPalette(palette)
-            self.setAutoFillBackground(True)
-            self.clicked.emit(self.version_id)
+            self.selected()
+        
         super().mousePressEvent(event)
 
 
@@ -233,12 +216,14 @@ class VersionPopup(QWidget):
         :param parent: 父组件
         """
         super().__init__(parent)
+        self.width_offset = 100
         self.trigger_widget = trigger_widget
+        self.trigger_width = self.trigger_widget.width() + self.width_offset
+        
         self.resource_path = resource_path
         self.version_items = []
         self.is_visible = False
         
-         
         self.init_ui()
         self.setup_animation()
         
@@ -251,15 +236,14 @@ class VersionPopup(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         
         # 获取触发组件的宽度
-        trigger_width = self.trigger_widget.width()
-        self.setFixedWidth(trigger_width)
+        self.setFixedWidth(self.trigger_width)
         
         # 主容器 - 正方形矩形 
         main_frame = QFrame(self)
         main_frame.setStyleSheet("""
             QFrame {
                 background-color: #1D1C28;
-                border: 1px solid #7455FF;
+                border: 1px solid rgba(39, 41, 55, 1);
                 border-radius: 0px;
             }
         """)
@@ -319,28 +303,33 @@ class VersionPopup(QWidget):
         self.animation.setDuration(200)
         self.animation.setEasingCurve(QEasingCurve.OutCubic)
         
-    def add_version_item(self, version_id, description_lines, icon_path=None):
+    def add_version_item(self, version_id, icon_path=None):
         """
         添加版本项目
         :param version_id: 版本号
         :param description_lines: 描述文字列表
         :param icon_path: 图标路径
         """
-        version_item = VersionItem(version_id, description_lines, self.resource_path, icon_path)
+        version_item = VersionItem(version_id, None, self.resource_path, icon_path)
         version_item.clicked.connect(self.on_version_selected)
         self.version_items.append(version_item)
         self.versions_layout.addWidget(version_item)
         
         # 更新弹出框高度
         self.update_popup_height()
-        
+    
     def update_popup_height(self):
         """更新弹出框高度"""
         item_count = len(self.version_items)
         if item_count == 0:
             return
-            
-        total_height = 256 + 2  
+        
+        total_height = sum([i.height() for i in self.version_items])
+        if total_height < 5:
+            total_height = 59 + 2
+        else:
+            total_height += 2
+        
         self.setFixedHeight(total_height)
         
     def show_popup(self):
@@ -350,7 +339,7 @@ class VersionPopup(QWidget):
             
         # 计算位置
         trigger_pos = self.trigger_widget.mapToGlobal(self.trigger_widget.rect().bottomLeft())
-        popup_x = trigger_pos.x()
+        popup_x = trigger_pos.x() - self.width_offset
         popup_y = trigger_pos.y() + 2  # 小间距
         
         # 设置初始位置和大小
@@ -397,10 +386,25 @@ class VersionPopup(QWidget):
             self.hide_popup()
         else:
             self.show_popup()
-            
+    
+    def selected(self, version):
+        """选择某选项"""
+        if not version: return
+        for item in self.version_items:
+            if item.version_id == version:
+                item.selected()
+                palette = self.palette()
+                palette.setColor(QPalette.Window, QColor("#3D3A53"))
+                item.setPalette(palette)
+                item.setAutoFillBackground(True)
+        
+        self.on_version_selected(version)
+        
+    
     def on_version_selected(self, version_id):
         """处理版本选择事件"""
         # 清除所有版本项的选中状态
+        print('on_version_selected', version_id)
         for item in self.version_items:
             if item.version_id != version_id:
                 item.is_selected = False

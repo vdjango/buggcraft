@@ -8,8 +8,7 @@ from PySide6.QtWidgets import (
     QWidget, QApplication, QFrame, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap
-
+from PySide6.QtGui import QColor, QPalette, QMouseEvent, QFont
 from core.auth.microsoft import MicrosoftAuthenticator, MinecraftSignals
 
 
@@ -53,11 +52,9 @@ class VersionNotFuilDialog(QDialog):
         title_layout = QHBoxLayout()
 
         self.title_label = QLabel(self.title)
-        self.title_label.setStyleSheet("""
-            color: rgba(220, 220, 220, 1);
-            font-size: 16px;
-            font-weight: bold;
-        """)
+        self.title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); background-color: transparent;")
+
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
         header_layout.addLayout(title_layout)
@@ -82,20 +79,15 @@ class VersionNotFuilDialog(QDialog):
         
         # 提示信息
         self.message_label = QLabel(self.message)
+        self.message_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Black))
+        self.message_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); background-color: transparent;")
         self.message_label.setWordWrap(True)
-        self.message_label.setStyleSheet("""
-            color: #e0e0e0;
-            font-size: 14px;
-            font-weight: bold;
-        """)
+
         self.message_text_label = QLabel(self.message_text)
         self.message_text_label.setWordWrap(True)
         self.message_text_label.setContentsMargins(0, 10, 0, 10)
-        self.message_text_label.setStyleSheet("""
-            color: #c0c0c0;
-            font-size: 14px;
-            font-weight: medium;
-        """)
+        self.message_text_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Medium))
+        self.message_text_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); background-color: transparent;")
 
         content_layout.addWidget(self.message_label)
         content_layout.addWidget(self.message_text_label)

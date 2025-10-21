@@ -304,7 +304,7 @@ class GeneralSettingsPages(QWidget):
             self, '文件缓存路径',
             '缓存路径：{}'.format(
                 self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/')
-            ), False
+            ), True
         )
         panel.set_content(content)
         self.launcher_cache_group.button_selected.connect(
