@@ -106,6 +106,8 @@ class GameSessions(QObject):
     def _stopped(self, record, code):
         record['phase'] = 'exited'
         record['exit_code'] = code
+        if self.selected_id == record['id']:
+            self.selected_id = self.sessions[-1]['id'] if self.sessions else None
         self.changed.emit()
         self.signals.stopped.emit(code)
 

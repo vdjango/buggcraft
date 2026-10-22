@@ -90,6 +90,7 @@ class GameSessionTests(unittest.TestCase):
         self.wait_for(lambda: first_process.poll() is not None and len(self.sessions.sessions) == 1)
         self.assertIsNone(second_process.poll())
         self.assertTrue(self.sessions.running)
+        self.assertEqual(self.sessions.selected_id, second['id'])
         self.assertFalse(self.native_directories[0].exists())
         self.assertTrue(self.native_directories[1].exists())
         self.assertEqual(self.sessions.running_instance, second['instance'])
