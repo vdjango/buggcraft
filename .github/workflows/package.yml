@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: package-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   package:
