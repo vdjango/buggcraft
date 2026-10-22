@@ -15,6 +15,7 @@
 - [账号与源站安全边界](technical/node-accounts-security.md)
 - [QML 界面结构](technical/qml-interface.md)
 - [Windows 打包](technical/windows-packaging.md)
+- [macOS 打包与 Qt 官方工具](technical/macos-packaging.md)
 
 ## 验证记录
 

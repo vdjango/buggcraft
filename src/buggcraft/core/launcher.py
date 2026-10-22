@@ -19,6 +19,9 @@ from secrets import token_urlsafe
 from PySide6.QtCore import Signal, QObject, QThread
 
 from config.settings import get_settings_manager
+from core.launch_options import split_arguments, redacted_command
+from core.downloads import verified_installation
+from core.memory import AdvancedMemoryRecommender
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +75,6 @@ class OutputHandlerThread(QThread):
 
 class StartGameThread(QThread):
     """启动游戏的 Qt 线程"""
-    finished = Signal()
     error = Signal(str)
     
     def __init__(self, launcher):
@@ -87,8 +89,6 @@ class StartGameThread(QThread):
             self.error.emit(f"启动错误: {str(e)}")
             import traceback
             traceback.print_exc()
-        finally:
-            self.finished.emit()
 
 
 class MinecraftLibLauncher(QObject):
@@ -167,7 +167,7 @@ class MinecraftLibLauncher(QObject):
 
     def start(self):
         """启动 Minecraft 游戏"""
-        if self.running:
+        if self.running or (self.start_thread and self.start_thread.isRunning()):
             self.signals.error.emit("游戏已经在运行中")
             return
         
@@ -186,8 +186,11 @@ class MinecraftLibLauncher(QObject):
         try:
             self.minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
             self.minecraft_version = self.settings_manager.get_setting('minecraft.version.enable')
+            self.minecraft_isolation_directory = self.settings_manager.get_minecraft_isolation_directory()
             
             # 准备启动环境
+            if not self.minecraft_directory or not self.minecraft_version:
+                raise ValueError('请先选择有效的游戏目录与版本')
             if not os.path.exists(self.minecraft_directory):
                 os.makedirs(self.minecraft_directory, exist_ok=True)
 
@@ -195,20 +198,25 @@ class MinecraftLibLauncher(QObject):
             self._ensure_language_setting()
 
             java_path = self.settings_manager.get_version_setting("java.path", None)
-            memory = self.settings_manager.get_version_setting("memory.allocation", "自动选择合适的Java")
-            launch_jvm_args: str = self.settings_manager.get_version_setting('game.launch_jvm_args', "").split()
-            launch_args: str = self.settings_manager.get_version_setting('game.launch_args', "").split()
-            launch_pre_command: str = self.settings_manager.get_version_setting('game.launch_pre_command', "").split()
+            memory = int(self.settings_manager.get_version_setting("memory.allocation", 2048))
+            if self.settings_manager.get_version_setting('minecraft.auto_allocate_memory', True):
+                memory, reason = AdvancedMemoryRecommender(self.settings_manager).calculate()
+                memory = int(memory)
+                self.signals.output.emit(f'自动分配内存: {memory} MiB；{reason}')
+            if not 256 <= memory <= 1048576:
+                raise ValueError('游戏内存配置无效，至少需要 256 MiB')
+            launch_jvm_args = split_arguments(self.settings_manager.get_version_setting('game.launch_jvm_args', ""))
+            launch_args = split_arguments(self.settings_manager.get_version_setting('game.launch_args', ""))
+            launch_pre_command = split_arguments(self.settings_manager.get_version_setting('game.launch_pre_command', ""))
 
             logger.info(f'[JavaRunTime] -> {java_path}')
         
             if not java_path:
-                logger.info('请安装Java环境')  # TODO
-                return
+                raise ValueError('请在设置中选择有效的 Java 可执行文件')
             
             jvmArguments = [
                 f"-Xmx{memory}M", 
-                f"-Xms{memory}M",
+                f"-Xms{min(memory, 512)}M",
                 f"-Dfile.encoding=UTF-8",
                 "-XX:+UseG1GC",
                 "-XX:-UseAdaptiveSizePolicy",
@@ -225,40 +233,44 @@ class MinecraftLibLauncher(QObject):
             options = {
                 "executablePath": java_path,
                 "username": self.minecraft_username,
-                "server": self.minecraft_server,
                 "gameDirectory": self.minecraft_isolation_directory,
                 "version": self.minecraft_version,
-                "jvmArguments": list(set(jvmArguments)),
+                "jvmArguments": jvmArguments,
                 "launcherName": "BuggCraft Launcher",
                 "launcherVersion": "1.0",
             }
             
             if self.uuid: options['uuid'] = self.uuid
             metadata_path = Path(self.minecraft_directory) / 'versions' / self.minecraft_version / (self.minecraft_version + '.json')
-            metadata = json.loads(metadata_path.read_text(encoding='utf-8')) if metadata_path.is_file() else {}
-            if isinstance(metadata.get('buggcraftModpack'), dict):
+            metadata = json.loads(metadata_path.read_text(encoding='utf8')) if metadata_path.is_file() else {}
+            if isinstance(metadata.get('buggcraftRoom'), dict) or isinstance(metadata.get('buggcraftModpack'), dict):
                 native_version = metadata.get('jar', self.minecraft_version)
                 if not isinstance(native_version, str) or Path(native_version).name != native_version:
-                    raise ValueError('\u6e38\u620f\u539f\u751f\u5e93\u76ee\u5f55\u65e0\u6548')
+                    raise ValueError('游戏原生库目录无效')
                 options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / native_version / 'natives')
+            if self.minecraft_server:
+                from core.launch_options import configure_room_join
+                configure_room_join(options, self.minecraft_server, self.minecraft_directory,
+                                    self.minecraft_version)
 
             if self.token:
                 options['token'] = self.token
-                self.signals.output.emit(f"使用离线账户: {self.minecraft_username}")
+                self.signals.output.emit(f"使用游戏角色: {self.minecraft_username}")
 
             if self.minecraft_server: self.signals.output.emit(f"连接服务器: {self.minecraft_server}")
             
             # 安装游戏库文件
             self.signals.output.emit("正在安装游戏库文件...")
-            minecraft_launcher_lib.install.install_minecraft_version(
-                self.minecraft_version, 
-                self.minecraft_directory,
-                callback={
-                    "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
-                    "setProgress": lambda progress: self.signals.progress.emit(progress),
-                    "setMax": lambda max_value: self.signals.output.emit(f"[最大] {max_value}")
-                }
-            )
+            if not verified_installation(self.minecraft_directory, self.minecraft_version):
+                minecraft_launcher_lib.install.install_minecraft_version(
+                    self.minecraft_version,
+                    self.minecraft_directory,
+                    callback={
+                        "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
+                        "setProgress": lambda progress: self.signals.progress.emit(progress),
+                        "setMax": lambda max_value: self.signals.output.emit(f"[最大] {max_value}")
+                    }
+                )
 
             # 获取启动命令
             command: list[str] = minecraft_launcher_lib.command.get_minecraft_command(
@@ -284,7 +296,8 @@ class MinecraftLibLauncher(QObject):
             command = [arg for arg in command if arg != "None" and arg is not None]
 
             # 打印命令用于调试
-            self.signals.output.emit(f"启动命令: {' '.join(command)}")
+            safe_command = redacted_command(command, self.token)
+            self.signals.output.emit(f"启动命令: {' '.join(safe_command)}")
 
             # 启动游戏进程
             startup_flags = 0
@@ -298,23 +311,33 @@ class MinecraftLibLauncher(QObject):
             env['LC_ALL'] = self.minecraft_language + '.UTF-8'
             env['JAVA_OPTS'] = '-Dfile.encoding=UTF-8'
 
-            try:
-                for com in launch_pre_command:
-                    subprocess.Popen(
-                        com,
-                        cwd=self.minecraft_directory,
+            if launch_pre_command:
+                try:
+                    pre_command = subprocess.run(
+                        launch_pre_command,
+                        cwd=self.minecraft_isolation_directory or self.minecraft_directory,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
-                        stdin=subprocess.PIPE,
+                        stdin=subprocess.DEVNULL,
                         creationflags=startup_flags,
-                        env=env
+                        env=env,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        timeout=120,
+                        check=False,
                     )
-            except Exception as e:
-                logger.info('[启动前指令]', e.args)
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError('启动前命令超过 120 秒，已取消游戏启动') from error
+                if pre_command.stdout:
+                    for line in pre_command.stdout.splitlines():
+                        self.signals.output.emit(f'[启动前命令] {line}')
+                if pre_command.returncode:
+                    raise RuntimeError(f'启动前命令失败（退出码 {pre_command.returncode}），已取消游戏启动')
 
             self.process = subprocess.Popen(
                 command,
-                cwd=self.minecraft_directory,
+                cwd=self.minecraft_isolation_directory or self.minecraft_directory,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.PIPE,
@@ -330,9 +353,9 @@ class MinecraftLibLauncher(QObject):
 
             # 根据用户选择映射到系统的优先级值
             # 注意：psutil 的优先级常量在不同系统上可能不同，以下是一个通用映射尝试
-            if "高" in priority_setting:
+            if priority_setting == '游戏性能优先' or "高" in priority_setting:
                 target_priority = psutil.HIGH_PRIORITY_CLASS if os.name == 'nt' else -10 # Windows HIGH_PRIORITY_CLASS, Unix nice -10
-            elif "低" in priority_setting:
+            elif priority_setting == '系统流畅优先' or "低" in priority_setting:
                 target_priority = psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == 'nt' else 10 # Windows BELOW_NORMAL, Unix nice 10
             else: # 默认或"中"
                 target_priority = psutil.NORMAL_PRIORITY_CLASS if os.name == 'nt' else 0 # Windows NORMAL, Unix nice 0
@@ -347,11 +370,6 @@ class MinecraftLibLauncher(QObject):
                 logger.info(f"设置进程优先级时出错: {e}. 进程可能已退出，或无足够权限。")
             # 注意：在某些系统上，设置高优先级可能需要提升的权限（如管理员/root）
             
-            # 启动输出处理线程
-            self.output_thread = OutputHandlerThread(self.process)
-            self.output_thread.output_received.connect(self._handle_output)
-            self.output_thread.start()
-            
             # 设置状态
             self.running = True
             self.stopping = False
@@ -359,14 +377,28 @@ class MinecraftLibLauncher(QObject):
             # 发送启动信号
             self.signals.started.emit()
             
-            # 等待进程结束
-            self.exit_code = self.process.wait()
+            # Read to EOF in the owning worker so the final crash/exit lines are retained.
+            process = self.process
+            for raw_line in process.stdout:
+                self._handle_output(raw_line.decode('utf-8', errors='replace').rstrip(), True)
+            self.exit_code = process.wait()
             
             # 发送停止信号
             self.signals.stopped.emit(self.exit_code)
         finally:
             self.running = False
             self.stopping = False
+            if self.process:
+                if self.process.poll() is None:
+                    self.process.terminate()
+                    try:
+                        self.process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait(timeout=10)
+                for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                    if stream is not None:
+                        stream.close()
             self.process = None
 
     def _ensure_language_setting(self):
@@ -374,6 +406,7 @@ class MinecraftLibLauncher(QObject):
         options_file = os.path.join(self.settings_manager.get_minecraft_isolation_directory(), "options.txt")
         
         try:
+            os.makedirs(os.path.dirname(options_file), exist_ok=True)
             # 读取现有选项
             options = {}
             if os.path.exists(options_file):
@@ -385,6 +418,8 @@ class MinecraftLibLauncher(QObject):
             
             # 强制设置语言选项
             options['lang'] = self.minecraft_language
+            # Keep Minecraft music muted without changing sound effects or master volume.
+            options['soundCategory_music'] = '0.0'
             
             # 写入新选项
             with open(options_file, 'w', encoding='utf-8') as f:
@@ -392,6 +427,7 @@ class MinecraftLibLauncher(QObject):
                     f.write(f"{key}:{value}\n")
             
             self.signals.output.emit(f"已设置游戏语言: {self.minecraft_language}")
+            self.signals.output.emit("已关闭游戏背景音乐")
         except Exception as e:
             self.signals.error.emit(f"设置游戏语言时出错: {str(e)}")
 
@@ -569,29 +605,7 @@ class MinecraftLibLauncher(QObject):
 
     def _cleanup_after_stop(self) -> None:
         """停止后的清理工作"""
-        # 关闭进程标准流
-        if hasattr(self, 'process') and self.process:
-            for stream in [self.process.stdin, self.process.stdout, self.process.stderr]:
-                if stream:
-                    try:
-                        stream.close()
-                    except:
-                        pass
-        
-        # 停止输出线程
-        if hasattr(self, 'output_thread') and self.output_thread:
-            try:
-                self.output_thread.stop()
-                self.output_thread.quit()
-                try:
-                    self.output_thread.wait(timeout=20)
-                except Exception as e:
-                    pass
-                self.output_thread = None
-                logger.info('[Stop] 输出线程已停止')
-            except Exception as e:
-                logger.info(f'[Stop] 停止输出线程时出错: {e}')
-        
+        # The launch worker owns and closes the pipes after consuming the last output.
         # 重置状态
         self.running = False
         self.stopping = False

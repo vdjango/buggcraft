@@ -1,180 +1,360 @@
+"""Build a self-contained launcher, including Qt Quick and its QML resources.
+
+Install requirements.txt and Nuitka first. Use --dry-run to inspect the command.
+"""
+import argparse
 import os
+import hashlib
+import json
+import platform
+import plistlib
+from pathlib import Path
 import subprocess
 import sys
-import psutil
+import zipfile
+
+ROOT = Path(__file__).resolve().parent
 
 
-def build_with_nuitka():
-    """使用 Nuitka 进行极致优化打包
-    400M优化到13M，后续需要继续优化，可以优化到10M以下"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    main_script = os.path.join(current_dir, "src", "buggcraft", "main.py")
-    resources_dir = os.path.join(current_dir, "resources")
-    icon_path = os.path.join(resources_dir, "icons", "app.ico")
-    upx_path = os.path.join('D:\\', 'upx')
-    print(upx_path)
+def trim_qt_libraries(directory, quarantine):
+    """Remove Qt DLLs pulled solely by QML plugins excluded from the build.
 
-    # 确保 UPX 已安装
-    try:
-        subprocess.run(["upx", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        print("❌ UPX 未安装，请从 https://upx.github.io/ 下载并添加到 PATH")
-        return
-    
-    import minecraft_launcher_lib
+    Nuitka still scans dependencies of excluded QML DLLs. Follow actual PE
+    imports from every shipped executable, extension and non-Qt DLL instead.
+    Only Qt6 DLLs are candidates; Python/OpenSSL/FFmpeg stay intact.
+    """
+    import pefile
+    binaries = [p for p in directory.rglob('*') if p.is_file() and
+                p.suffix.lower() in ('.dll', '.pyd', '.exe')]
+    candidates = {p.name.lower(): p for p in binaries if
+                  p.name.lower().startswith('qt6') and p.suffix.lower() == '.dll'}
+    by_name = {}
+    for path in binaries:
+        by_name.setdefault(path.name.lower(), []).append(path)
+    pending = [p for p in binaries if p not in candidates.values()]
+    visited = set()
+    while pending:
+        path = pending.pop()
+        if path in visited:
+            continue
+        visited.add(path)
+        binary = pefile.PE(str(path), fast_load=True)
+        try:
+            binary.parse_data_directories(directories=[
+                pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT'],
+                pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT']])
+            imports = list(getattr(binary, 'DIRECTORY_ENTRY_IMPORT', []))
+            imports += list(getattr(binary, 'DIRECTORY_ENTRY_DELAY_IMPORT', []))
+            for record in imports:
+                pending.extend(by_name.get(record.dll.decode('ascii').lower(), []))
+        finally:
+            binary.close()
+    removed = []
+    for path in candidates.values():
+        if path not in visited:
+            target = quarantine / path.relative_to(directory)
+            target.parent.mkdir(exist_ok=True, parents=True)
+            removed.append({'name': path.name, 'size': path.stat().st_size})
+            path.replace(target)
+    return removed
 
-    # 获取库的安装路径
-    package_path = os.path.dirname(minecraft_launcher_lib.__file__)
-    version_file = os.path.join(package_path, 'version.txt')
 
-    print(f"version.txt 路径: {version_file}")
-    command = [
-        sys.executable, "-m", "nuitka",
-        "--onefile",
-        "--standalone",
-        f"--jobs={psutil.cpu_count(logical=True)}",
-        "--enable-plugin=pyside6",
-        "--plugin-enable=upx",
-        f"--upx-binary={upx_path}",
-        "--disable-ccache",
-        f"--windows-icon-from-ico={icon_path}",
-        # "--windows-disable-console",
-        # "--disable-console",
-        "--output-dir=dist",
-        "--lto=yes",
-        "--python-flag=-O",
-        "--python-flag=-S",
-        
-        # f"--include-data-dir={resources_dir}=resources",
-        f"--include-data-files={version_file}=minecraft_launcher_lib/version.txt",
-        "--include-package-data=buggcraft=*.py,*.ui,*.qss,*.png,*.jpg,*.svg,*.ico,version.txt",
-        "--include-module=psutil",
-        "--include-module=notifypy",
-        # "--include-module=charset_normalizer",
-        "--include-module=PySide6.QtCore",
-        "--include-module=PySide6.QtGui",
-        "--include-module=PySide6.QtWidgets",
-        "--include-module=minecraft_launcher_lib",
-        "--include-qt-plugins=platforms,imageformats,styles",
+def qml_exclusions():
+    """Keep Qt's scanner dependency closure, including Basic style internals."""
+    import PySide6
+    from PySide6.QtCore import QLibraryInfo
+    qt = Path(PySide6.__file__).parent
+    scanner_name = 'qmlimportscanner.exe' if os.name == 'nt' else 'qmlimportscanner'
+    scanner = next((p for p in (qt / scanner_name, qt / 'Qt/libexec' / scanner_name,
+                               qt / 'Qt/bin' / scanner_name) if p.is_file()), None)
+    if scanner is None:
+        raise FileNotFoundError('Qt qmlimportscanner was not found in ' + str(qt))
+    qml_root = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.QmlImportsPath)).resolve()
+    result = subprocess.run([str(scanner), '-rootPath', str(ROOT / 'resources/qml'),
+                             '-importPath', str(qml_root)], check=True,
+                            capture_output=True, text=True, encoding='utf-8')
+    modules = json.loads(result.stdout)
+    keep = {Path(m['path']).resolve() for m in modules if m.get('path')}
+    if not keep or not any(m.get('name') == 'QtQuick.Controls.Basic' for m in modules):
+        raise RuntimeError('QML dependency scan did not resolve the Basic style')
+    excluded = []
+    def visit(directory):
+        for child in sorted(directory.iterdir()):
+            if not child.is_dir():
+                continue
+            if any(child == p or child in p.parents for p in keep):
+                visit(child)
+            else:
+                # Nuitka normalizes the platform-specific wheel layout.
+                pattern = 'PySide6/qml/' + child.relative_to(qml_root).as_posix() + '/*'
+                excluded.extend(['--noinclude-dlls=' + pattern,
+                                 '--noinclude-data-files=' + pattern])
+    visit(qml_root)
+    return excluded, sorted(m['name'] for m in modules)
 
-        # 初始运行时强制依赖，不能排除
-        # "--nofollow-import-to=shiboken6",
-        # "--nofollow-import-to=logging",
-        # "--nofollow-import-to=email", #urllib3 http
-        # "--nofollow-import-to=xml",  notifypy
-        
-        # 后期需要移除的，依赖与 minecraft_launcher_lib 模块
-        # "--nofollow-import-to=requests",  minecraft_launcher_lib
-        # "--nofollow-import-to=certifi",  # requests
-        # "--nofollow-import-to=idna",  #requests
-        # "--nofollow-import-to=urllib3",  #requests
-        # "--nofollow-import-to=urllib3.util", #urllib3
-        # "--nofollow-import-to=psutil",  # 待移除，本体10M左右
 
-        # 完全用不到，不需要！
-        "--nofollow-import-to=requests.tests",
-        "--nofollow-import-to=PIL",
-        "--nofollow-import-to=PIL.tests",
-        "--nofollow-import-to=unittest",
-        "--nofollow-import-to=test",
-        "--nofollow-import-to=tkinter",
-        "--nofollow-import-to=psutil.tests",  # \        # 新增：排除psutil测试
-        "--nofollow-import-to=pip._vendor",  # \         # 新增：排除pip供应商包
-        "--nofollow-import-to=setuptools",   #\          # 新增：排除setuptools
-        "--nofollow-import-to=zstandard",
-        
-        "--nofollow-import-to=sqlite3",
-        "--nofollow-import-to=unittest.mock",
-        "--nofollow-import-to=PySide6.QtNetwork",
-        "--nofollow-import-to=PySide6.QtWebEngine",  #  QtWebEngineCore
-        "--nofollow-import-to=PySide6.QtWebEngineCore",
-        "--nofollow-import-to=PySide6.QtWebEngineWidgets",
-        "--nofollow-import-to=PySide6.support",
-        "--nofollow-import-to=PySide6.Qt3DRender",
-        "--nofollow-import-to=PySide6.QtBluetooth",
-        "--nofollow-import-to=selenium.webdriver",
-        "--nofollow-import-to=charset_normalizer",
-        
-        # 初始运行时强制依赖DLL，不能排除
-        # "--noinclude-dlls=libssl-3.dll",  # 必须保留
-        # "--noinclude-dlls=libffi-8.dll",  # 必须保留
-        # "--noinclude-dlls=libcrypto-3.dll",  # 必须保留
+def make_command(onefile=False, output=None, jobs=None):
+    root = Path(__file__).resolve().parent
+    resources = root / 'resources'
+    required = [resources / 'qml/multiplayer/Lobby.qml', resources / 'images/minecraft_bg.png']
+    if any(not path.is_file() for path in required):
+        raise FileNotFoundError('Missing launcher resources; build from a complete checkout')
+    command = [sys.executable, '-m', 'nuitka', '--onefile' if onefile else '--standalone',
+               '--enable-plugin=pyside6', '--include-qt-plugins=sensible,qml',
+               '--noinclude-qt-translations',
+               '--include-module=PySide6.QtQuickWidgets', '--include-module=PySide6.QtQml',
+               '--include-package=minecraft_launcher_lib', '--include-package-data=minecraft_launcher_lib',
+               '--include-package=asyncssh',
+               '--include-package=aiortc', '--include-package=aioice', '--include-package=av',
+               f'--include-data-files={root / "src/buggcraft/hookup/chat_protocols.json"}=hookup/chat_protocols.json',
+               f'--include-data-files={root / "src/buggcraft/hookup/legacy_packets.json"}=hookup/legacy_packets.json',
+               f'--include-data-files={root / "src/buggcraft/hookup/THIRD_PARTY_NOTICES.txt"}=hookup/THIRD_PARTY_NOTICES.txt',
+               f'--include-data-dir={resources}=resources',
+               f'--output-dir={output or root / "dist"}',
+               f'--report={(output or root / "dist") / "compilation-report.xml"}',
+               f'--jobs={jobs or min(os.cpu_count() or 2, 8)}',
+               '--assume-yes-for-downloads', '--lto=yes',
+               '--nofollow-import-to=*.tests,*.test,pytest,unittest,tkinter,IPython',
+               '--noinclude-data-files=resources/icons/*/app.png']
+    if platform.system() == 'Windows':
+        command += ['--windows-console-mode=disable', '--output-filename=Buggcraft.exe',
+                    '--include-windows-runtime-dlls=yes', '--msvc=latest',
+                    f'--windows-icon-from-ico={resources / "icons/app.ico"}']
+    elif platform.system() == 'Darwin':
+        if onefile:
+            raise ValueError('macOS builds use a standalone .app bundle; omit --onefile')
+        command += ['--macos-create-app-bundle', '--macos-app-name=Buggcraft',
+                    '--output-filename=Buggcraft',
+                    f'--macos-app-icon={resources / "icons/512x512/app.png"}',
+                    '--macos-app-category-type=public.app-category.games']
+    exclusions, _ = qml_exclusions()
+    command.extend(exclusions)
+    command.append(str(root / 'src/buggcraft/main.py'))
+    return command
 
-        # 移除初始运行时不需要的，后期通过外部资源加载
-        "--noinclude-dlls=msvcp140.dll",
-        "--noinclude-dlls=msvcp140_1.dll",
-        "--noinclude-dlls=msvcp140_2.dll",
-        "--noinclude-dlls=msvcp140_codecvt_ids.dll",
-        "--noinclude-dlls=shiboken6.abi3.dll",
-        "--noinclude-dlls=shiboken6/*.dll",
-        "--noinclude-dlls=shiboken6/**/*.dll",
 
-        "--noinclude-dlls=qt6core.dll",
-        "--noinclude-dlls=qt6gui.dll",
-        "--noinclude-dlls=qt6network.dll",
-        "--noinclude-dlls=qt6pdf.dll",
-        "--noinclude-dlls=qt6svg.dll",
-        "--noinclude-dlls=qt6widgets.dll",
-        "--noinclude-dlls=pyside6.abi3.dll",
-        "--noinclude-dlls=qsvgicon.dll",
-        "--noinclude-dlls=qgif.dll",
-        "--noinclude-dlls=qico.dll",
-        "--noinclude-dlls=qjpeg.dll",
-        "--noinclude-dlls=qpdf.dll",
-        "--noinclude-dlls=qsvg.dll",
-        "--noinclude-dlls=qtga.dll",
-        "--noinclude-dlls=qtiff.dll",
-        "--noinclude-dlls=qwbmp.dll",
-        "--noinclude-dlls=qwebp.dll",
-        "--noinclude-dlls=qdirect2d.dll",
-        "--noinclude-dlls=qminimal.dll",
-        "--noinclude-dlls=qoffscreen.dll",
-        "--noinclude-dlls=qwindows.dll",
-        "--noinclude-dlls=qmodernwindowsstyle.dll",
-        "--noinclude-dlls=qcertonlybackend.dll",
-        "--noinclude-dlls=qopensslbackend.dll",
-        "--noinclude-dlls=qschannelbackend.dll",
-        "--noinclude-dlls=PySide6/*.dll",
-        "--noinclude-dlls=PySide6/**/*.dll",
-        "--noinclude-dlls=PySide6/**/**/*.dll",
-        "--noinclude-dlls=PySide6/**/**/**/*.dll",
+def package_macos(output):
+    """Archive a native .app with ditto, preserving framework symlinks and modes."""
+    bundles = [p for p in output.glob('*.app') if (p / 'Contents/Info.plist').is_file()]
+    if len(bundles) != 1:
+        raise RuntimeError('Expected one compiled .app in ' + str(output))
+    bundle = bundles[0]
+    info = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
+    executable = bundle / 'Contents/MacOS' / info['CFBundleExecutable']
+    if not executable.is_file():
+        raise FileNotFoundError('Missing macOS executable: ' + str(executable))
+    architecture = {'aarch64': 'arm64', 'AMD64': 'x86_64'}.get(platform.machine(), platform.machine())
+    archive = output / ('Buggcraft-macos-' + architecture + '.zip')
+    subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
+    subprocess.run(['/usr/bin/ditto', '-c', '-k', '--sequesterRsrc', '--keepParent',
+                    str(bundle), str(archive)], check=True)
+    manifest = {'schema': 1, 'platform': 'macos-' + architecture, 'archive': archive.name,
+                'size': archive.stat().st_size, 'bundle': bundle.name,
+                'entrypoint': executable.relative_to(output).as_posix(),
+                'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                'signing': 'ad-hoc', 'notarized': False}
+    (output / 'release.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+    return manifest
 
-        "--noinclude-qt-plugins=all",
-        "--enable-plugin=anti-bloat",  # \               # 新增：启用反臃肿插件（可选）
-        # "--follow-imports",
-        # "--remove-output",
-        "--show-progress",
-        main_script
-    ]
-    
-    print("执行命令:")
-    print(" ".join(command))
-    
-    try:
-        subprocess.run(command, check=True)
-        
-        # 获取最终文件大小
-        exe_path = os.path.join(current_dir, "dist", "main.exe")
-        if os.path.exists(exe_path):
-            size_mb = os.path.getsize(exe_path) / (1024 * 1024)
-            print(f"\n✅ 打包完成！最终文件大小: {size_mb:.2f} MB")
-            
-            # 可选：使用 zstandard 进一步压缩
-            try:
-                import zstandard as zstd
-                compressed_path = exe_path + ".zst"
-                cctx = zstd.ZstdCompressor(level=22)
-                with open(exe_path, "rb") as f_in:
-                    with open(compressed_path, "wb") as f_out:
-                        cctx.copy_stream(f_in, f_out)
-                compressed_size = os.path.getsize(compressed_path) / (1024 * 1024)
-                print(f"✅ Zstandard 压缩后大小: {compressed_size:.2f} MB")
-            except ImportError:
-                print("⚠️ 未安装 zstandard，跳过额外压缩")
-        else:
-            print("\n✅ 打包完成！")
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ 打包失败，错误代码: {e.returncode}")
 
-if __name__ == "__main__":
-    build_with_nuitka()
+def package_runtime(directory, output, urls, certificate_pins=None):
+    """Version a complete runtime. Never mix loose DLLs from different builds."""
+    if not (directory / 'Buggcraft.exe').is_file():
+        raise FileNotFoundError('No compiled Buggcraft.exe found in ' + str(directory))
+    files = []
+    archive = output / 'Buggcraft-runtime-windows-x64.zip'
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
+        for path in sorted(directory.rglob('*')):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(directory).as_posix()
+            data = path.read_bytes()
+            files.append({'path': relative, 'size': len(data),
+                          'sha256': hashlib.sha256(data).hexdigest()})
+            entry = zipfile.ZipInfo(relative, date_time=(2026, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = 0o100644 << 16
+            bundle.writestr(entry, data, compresslevel=9)
+    with archive.open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    manifest = {'schema': 1, 'version': digest[:16], 'platform': 'windows-x64',
+                'entrypoint': 'Buggcraft.exe', 'archive': archive.name,
+                'size': archive.stat().st_size, 'sha256': digest,
+                'urls': [url.replace('{version}', digest[:16]) for url in urls],
+                'files': files, 'certificate_pins': certificate_pins or {}}
+    destination = output / 'release.json'
+    destination.write_text(json.dumps(manifest, ensure_ascii=True, indent=2), encoding='utf-8')
+    verify_release(directory, output)
+    return manifest, destination
+
+
+def verify_release(directory, output):
+    """Reject a changed runtime or damaged archive before publishing it."""
+    manifest = json.loads((output / 'release.json').read_text(encoding='utf-8'))
+    archive = output / manifest['archive']
+    if archive.stat().st_size != manifest['size']:
+        raise ValueError('Runtime archive size mismatch')
+    with archive.open('rb') as stream:
+        if hashlib.file_digest(stream, 'sha256').hexdigest() != manifest['sha256']:
+            raise ValueError('Runtime archive SHA-256 mismatch')
+    with zipfile.ZipFile(archive) as bundle:
+        if set(bundle.namelist()) != {record['path'] for record in manifest['files']}:
+            raise ValueError('Runtime archive file list mismatch')
+        for record in manifest['files']:
+            path = directory / record['path']
+            data = path.read_bytes()
+            if len(data) != record['size'] or hashlib.sha256(data).hexdigest() != record['sha256']:
+                raise ValueError('Runtime file changed: ' + record['path'])
+            if bundle.read(record['path']) != data:
+                raise ValueError('Archived runtime differs: ' + record['path'])
+    return manifest
+
+
+def build_bootstrap(manifest, output):
+    compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+    if not compiler.is_file():
+        raise RuntimeError('Windows .NET Framework C# compiler is not installed')
+    subprocess.run([str(compiler), '/nologo', '/target:winexe', '/platform:x64',
+        '/optimize+', '/r:System.Net.Http.dll', '/r:System.IO.Compression.dll',
+        '/r:System.IO.Compression.FileSystem.dll', '/r:System.Runtime.Serialization.dll',
+        '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll',
+        '/win32icon:' + str(ROOT / 'resources/icons/app.ico'),
+        '/resource:' + str(manifest) + ',release.json',
+        '/out:' + str(output / 'Buggcraft-Setup.exe'),
+        str(ROOT / 'packaging/windows/Bootstrap.cs')], check=True)
+
+
+def sign_artifacts(output, certificate, password=None, timestamp_url=None, require=False, names=None,
+                   thumbprint=None, machine_store=False):
+    """Sign selected Windows entrypoints when a trusted certificate is configured."""
+    names = names or ['Buggcraft-Setup.exe', 'main.dist/Buggcraft.exe']
+    artifacts = [output / name for name in names]
+    if certificate and thumbprint:
+        raise ValueError('Choose a PFX file or a certificate thumbprint')
+    if not certificate and not thumbprint:
+        if require:
+            raise RuntimeError('A trusted code-signing certificate is required; set --sign-certificate')
+        return {'signed': False, 'reason': 'no certificate configured'}
+    signtool = os.environ.get('BUGGCRAFT_SIGNTOOL')
+    if not signtool:
+        candidates = sorted(Path(os.environ.get('ProgramFiles(x86)', '')).glob('Windows Kits/10/bin/*/x64/signtool.exe'))
+        signtool = str(candidates[-1]) if candidates else None
+    if not signtool or not Path(signtool).is_file():
+        raise RuntimeError('signtool.exe not found; set BUGGCRAFT_SIGNTOOL')
+    password_env = os.environ.get('BUGGCRAFT_SIGN_PASSWORD_ENV', 'BUGGCRAFT_SIGN_PASSWORD')
+    password = password if password is not None else os.environ.get(password_env)
+    command = [signtool, 'sign', '/fd', 'sha256']
+    if thumbprint:
+        thumbprint = thumbprint.replace(' ', '')
+        if len(thumbprint) != 40 or any(c not in '0123456789abcdefABCDEF' for c in thumbprint):
+            raise ValueError('Certificate thumbprint must contain 40 hexadecimal digits')
+        command += ['/sha1', thumbprint, '/s', 'My']
+        if machine_store:
+            command += ['/sm']
+    else:
+        command += ['/f', str(certificate)]
+        if password:
+            command += ['/p', password]
+    if timestamp_url:
+        command += ['/tr', timestamp_url, '/td', 'sha256']
+    for artifact in artifacts:
+        try:
+            subprocess.run(command + [str(artifact)], check=True)
+        except subprocess.CalledProcessError as error:
+            # CalledProcessError includes the command, which may contain /p.
+            raise RuntimeError('Authenticode signing failed for ' + artifact.name +
+                               '; exit code ' + str(error.returncode)) from None
+        subprocess.run([signtool, 'verify', '/pa', '/all', str(artifact)], check=True)
+    return {'signed': True, 'artifacts': [str(path) for path in artifacts],
+            'hashes': {path.relative_to(output).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                       for path in artifacts}}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--onefile', action='store_true', help='Produce a single executable instead of a directory')
+    parser.add_argument('--dry-run', action='store_true', help='Print arguments without compiling or downloading')
+    parser.add_argument('--output', type=Path, default=ROOT / 'dist')
+    parser.add_argument('--jobs', type=int)
+    parser.add_argument('--runtime-url', action='append', default=[],
+                        help='HTTPS URL for the generated runtime ZIP; repeat for mirrors')
+    parser.add_argument('--package-only', action='store_true',
+                        help='Package an existing main.dist without recompiling')
+    parser.add_argument('--certificate-pin', action='append', default=[], metavar='HOST:PORT=SHA256',
+                        help='Pin a temporary HTTPS endpoint certificate SHA-256')
+    parser.add_argument('--sign-certificate', type=Path,
+                        help='Trusted Authenticode PFX certificate; password comes from BUGGCRAFT_SIGN_PASSWORD')
+    parser.add_argument('--sign-thumbprint', help='Code-signing certificate in Windows My store (including hardware token keys)')
+    parser.add_argument('--sign-machine-store', action='store_true', help='Use the local machine certificate store')
+    parser.add_argument('--timestamp-url', default='', help='RFC 3161 timestamp URL for Authenticode signing')
+    parser.add_argument('--require-signature', action='store_true',
+                        help='Fail the build unless the installer and launcher are signed')
+    args = parser.parse_args()
+    if platform.system() not in ('Windows', 'Darwin'):
+        parser.error('Release packaging currently supports Windows and macOS hosts')
+    if platform.system() == 'Darwin' and (args.runtime_url or args.certificate_pin or
+            args.sign_certificate or args.sign_thumbprint or args.require_signature):
+        parser.error('Windows bootstrap and Authenticode options do not apply to macOS')
+    if any(not u.startswith('https://') for u in args.runtime_url):
+        parser.error('Runtime download URLs must use HTTPS')
+    pins = {}
+    for value in args.certificate_pin:
+        authority, separator, digest = value.partition('=')
+        if not separator or len(digest) != 64 or any(c not in '0123456789abcdefABCDEF' for c in digest):
+            parser.error('Certificate pin must be HOST:PORT=64-hex-digit-SHA256')
+        pins[authority.lower()] = digest.lower()
+    output = args.output.resolve()
+    command = make_command(args.onefile, output, args.jobs)
+    if args.dry_run:
+        print('\n'.join(command))
+        return 0
+    output.mkdir(parents=True, exist_ok=True)
+    if args.sign_certificate and args.sign_thumbprint:
+        parser.error('Choose --sign-certificate or --sign-thumbprint')
+    if args.require_signature and not (args.sign_certificate or args.sign_thumbprint):
+        parser.error('--require-signature requires a trusted code-signing certificate')
+    if args.require_signature and not args.timestamp_url:
+        parser.error('--require-signature requires --timestamp-url to retain signatures after certificate expiry')
+    (output / 'signing-status.json').unlink(missing_ok=True)
+    if not args.package_only:
+        status = subprocess.run(command, cwd=ROOT).returncode
+        if status:
+            return status
+    if platform.system() == 'Darwin':
+        print(json.dumps(package_macos(output)))
+        return 0
+    if args.onefile:
+        signing = sign_artifacts(output, args.sign_certificate, timestamp_url=args.timestamp_url or None,
+                                 require=args.require_signature, names=['Buggcraft.exe'],
+                                 thumbprint=args.sign_thumbprint, machine_store=args.sign_machine_store)
+        (output / 'signing-status.json').write_text(json.dumps(signing, indent=2), encoding='utf-8')
+    if not args.onefile:
+        removed = trim_qt_libraries(output / 'main.dist', output / 'qt-unused')
+        (output / 'qt-trim-report.json').write_text(json.dumps(removed, indent=2), encoding='utf-8')
+        runtime_binaries = [path.relative_to(output).as_posix()
+                            for path in sorted((output / 'main.dist').rglob('*'))
+                            if path.is_file() and path.suffix.lower() in ('.exe', '.dll', '.pyd')]
+        signing = sign_artifacts(output, args.sign_certificate, timestamp_url=args.timestamp_url or None,
+                                 require=args.require_signature, names=runtime_binaries,
+                                 thumbprint=args.sign_thumbprint, machine_store=args.sign_machine_store)
+        manifest, manifest_path = package_runtime(output / 'main.dist', output, args.runtime_url, pins)
+        if os.name == 'nt':
+            build_bootstrap(manifest_path, output)
+            installer_signing = sign_artifacts(output, args.sign_certificate,
+                timestamp_url=args.timestamp_url or None, require=args.require_signature,
+                names=['Buggcraft-Setup.exe'], thumbprint=args.sign_thumbprint,
+                machine_store=args.sign_machine_store)
+            signing['artifacts'] = signing.get('artifacts', []) + installer_signing.get('artifacts', [])
+            signing['signed'] = signing['signed'] and installer_signing['signed']
+            signing.setdefault('hashes', {}).update(installer_signing.get('hashes', {}))
+            signing['release_sha256'] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            signing['archive_sha256'] = manifest['sha256']
+            (output / 'signing-status.json').write_text(json.dumps(signing, indent=2), encoding='utf-8')
+        print(json.dumps({'runtime_zip_mb': round(manifest['size'] / 1_000_000, 2),
+                          'installed_mb': round(sum(f['size'] for f in manifest['files']) / 1_000_000, 2),
+                          'files': len(manifest['files']), 'download_urls': args.runtime_url}))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

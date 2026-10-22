@@ -4,6 +4,8 @@
 
 import os
 import logging
+import json
+from pathlib import Path
 import minecraft_launcher_lib
 
 from PySide6.QtWidgets import (
@@ -17,6 +19,7 @@ from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
 from ui.dialog.VersionDeleteDialog import VersionDeleteDialog
 from ui.widgets.lable import SmartLabel
+from utils.instances import installed_instance_ids
 
 
 logger = logging.getLogger(__name__)
@@ -129,7 +132,7 @@ class VersionsPage(QWidget):
         install_button = self.create_image_button(
             "安装新游戏", 
             os.path.join(self.resource_path, 'images', 'user', 'legal_login_btn.png'),
-            lambda: print('安装新游戏'),
+            self.open_downloads,
             235, 40
         )
         layout.addWidget(install_button)
@@ -244,6 +247,11 @@ class VersionsPage(QWidget):
         item.setCursor(Qt.PointingHandCursor)
 
         return item
+
+    def open_downloads(self):
+        main_window = self.parent.parent
+        main_window.download_page.on_download_clicked()
+        main_window.switch_pages('下载')
 
     def create_add_directory_item(self):
         """创建添加目录项"""
@@ -527,9 +535,20 @@ class VersionsPage(QWidget):
     def load_version_data(self, directory_path):
         """扫描指定目录下的 Minecraft 版本"""
         from datetime import datetime
+        if not directory_path:
+            return []
         try:
             # 使用 minecraft_launcher_lib 获取已安装版本
-            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(directory_path)
+            installed_versions = []
+            for instance_id in installed_instance_ids(directory_path):
+                metadata_path = os.path.join(directory_path, 'versions', instance_id, instance_id + '.json')
+                try:
+                    with open(metadata_path, 'r', encoding='utf-8') as source:
+                        metadata = json.load(source)
+                    metadata['id'] = instance_id
+                    installed_versions.append(metadata)
+                except (OSError, ValueError, TypeError):
+                    logger.warning('无法读取实例元数据：%s', metadata_path)
             
             # 获取当前启用的版本
             enable_version = self.settings_manager.get_setting('minecraft.version.enable')
@@ -573,6 +592,8 @@ class VersionsPage(QWidget):
 
     def on_directory_clicked(self, item, event):
         """处理目录项点击事件 - 更新配置文件并刷新版本列表"""
+        if event is not None and event.button() != Qt.LeftButton:
+            return
         # 更新所有目录项的选中状态
         for directory_item in self.directory_items:
             is_selected = directory_item == item
@@ -596,15 +617,25 @@ class VersionsPage(QWidget):
         title = item.property("title")
         path = item.property("path")
         
-        self.scan_versions(path)
         # 更新配置文件
         self.settings_manager.set_setting("minecraft.directory.enable", path)
         self.settings_manager.save_settings()
+        self.signals.directory.emit(path)
         
         # 刷新版本列表
         self.refresh_version_list(path)
-        self.signals.directory.emit(path)
         logger.info(f"已切换到新添加的目录: {title}, 路径: {path}")
+
+    def _running_instance(self):
+        main = self.parent.parent
+        launcher = main.launcher
+        thread = getattr(launcher, 'start_thread', None)
+        if not (launcher.running or (thread is not None and thread.isRunning())):
+            return None
+        page = main.started_page
+        return (getattr(page, 'running_instance', None)
+                or getattr(page, '_launch_instance', None)
+                or (launcher.minecraft_directory, launcher.minecraft_version, None))
 
     def on_delete_directory(self, item, event):
         """处理删除目录事件 - 更新配置文件"""
@@ -613,6 +644,12 @@ class VersionsPage(QWidget):
         
         title = item.property("title")
         path = item.property("path")
+        if event.button() != Qt.LeftButton:
+            return
+        running = self._running_instance()
+        if running and running[0] and Path(running[0]).resolve().is_relative_to(Path(path).resolve()):
+            QMessageBox.warning(self, '游戏正在运行', '请先退出该目录内运行的游戏，再删除游戏目录。')
+            return
         
         # 显示确认对话框
         self.version_delete_dialog.set_title(f"游戏删除确认")
@@ -620,13 +657,13 @@ class VersionsPage(QWidget):
         self.version_delete_dialog.set_message_text(f"此操作不可回退，将删除所有版本、存档、资源包、光影、Mod等文件！")
 
         if self.version_delete_dialog.exec() == QDialog.Accepted:
-            delete_minecraft_directory(path)
+            if not delete_minecraft_directory(path):
+                QMessageBox.warning(self, '删除失败', '游戏目录未能删除，请检查文件占用和目录权限。')
+                return
 
             installed_directories: list = self.settings_manager.get_setting('minecraft.directory.installed', [])
-            if not path in installed_directories:
-                return
-            
-            installed_directories.remove(path)
+            if path in installed_directories:
+                installed_directories.remove(path)
             
             self.settings_manager.set_setting("minecraft.directory.installed", installed_directories)
             self.settings_manager.save_settings()
@@ -640,9 +677,16 @@ class VersionsPage(QWidget):
                 # 如果删除的是当前选中的目录，选择第一个目录
                 if self.settings_manager.get_setting('minecraft.directory.enable') == path and self.directory_items:
                     self.on_directory_clicked(self.directory_items[0], None)
+                elif self.settings_manager.get_setting('minecraft.directory.enable') == path:
+                    self.settings_manager.set_setting('minecraft.directory.enable', None)
+                    self.settings_manager.save_settings()
+                    self.signals.directory.emit('')
+                    self.refresh_version_list(None)
 
     def on_add_directory(self, event):
         """处理添加目录事件 - 更新配置文件"""
+        if event is not None and event.button() != Qt.LeftButton:
+            return
         # 打开目录选择对话框
         directory = QFileDialog.getExistingDirectory(
             self, 
@@ -662,8 +706,6 @@ class VersionsPage(QWidget):
         
         self.settings_manager.set_setting("minecraft.directory.installed", installed_directories)
         self.settings_manager.save_settings()
-        
-        self.scan_versions(directory)  # 扫描新目录下的版本
         
         # 创建新目录项
         new_item = self.create_directory_item(
@@ -687,6 +729,8 @@ class VersionsPage(QWidget):
 
     def on_version_clicked(self, item, event):
         """处理版本项点击事件 - 更新配置文件"""
+        if event is not None and event.button() != Qt.LeftButton:
+            return
         # 更新所有版本项的选中状态
         for version_item in self.version_items:
             is_selected = version_item == item
@@ -711,6 +755,9 @@ class VersionsPage(QWidget):
 
     def on_version_settings(self, item, event):
         """处理版本设置事件"""
+        if event.button() != Qt.LeftButton:
+            event.accept()
+            return
         # 阻止事件冒泡
         event.accept()
         
@@ -723,29 +770,57 @@ class VersionsPage(QWidget):
 
     def on_open_version_folder(self, item, event):
         """处理打开版本文件夹事件"""
+        if event.button() != Qt.LeftButton:
+            event.accept()
+            return
         # 阻止事件冒泡
         event.accept()
         minecraft_version = item.property("version")
         minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
         minecraft_path = os.path.abspath(os.path.join(minecraft_directory, "versions", minecraft_version))
-        open_folder(minecraft_path)
+        if not open_folder(minecraft_path):
+            QMessageBox.warning(self, '打开失败', '版本文件夹不存在，或系统无法打开文件管理器。')
         logger.info(f"打开版本文件夹: {minecraft_path}")
 
     def on_delete_version(self, item, event):
         """处理删除版本事件 - 更新配置文件"""
         # 阻止事件冒泡
         event.accept()
+        if event.button() != Qt.LeftButton:
+            return
         version = item.property("version")
+        directory = self.settings_manager.get_setting('minecraft.directory.enable')
+        running = self._running_instance()
+        if (running and running[0] and Path(running[0]).resolve() == Path(directory).resolve()
+                and running[1] == version):
+            QMessageBox.warning(self, '游戏正在运行', '请先退出该版本的游戏，再删除版本。')
+            return
+        dependants = []
+        for instance_id in installed_instance_ids(directory):
+            metadata = Path(directory) / 'versions' / instance_id / (instance_id + '.json')
+            try:
+                document = json.loads(metadata.read_text(encoding='utf-8'))
+                if isinstance(document, dict) and (document.get('inheritsFrom') == version or
+                        document.get('buggcraftRoom', {}).get('parent') == version):
+                    dependants.append(instance_id)
+            except (OSError, ValueError):
+                continue
+        if dependants:
+            QMessageBox.warning(self, '版本仍被使用', '以下版本依赖此版本，请先处理它们：' + '、'.join(dependants))
+            return
         
         # 显示确认对话框
         self.version_delete_dialog.set_title(f"版本删除确认")
         self.version_delete_dialog.set_message(f"您确认要删除 {version} 游戏版本吗？")
-        self.version_delete_dialog.set_message_text(f"当前游戏版本已开启版本隔离，将删除 存档、资源包、光影、Mod等文件！")
+        self.version_delete_dialog.set_message_text('将永久删除该版本目录及其中的存档、资源包、光影和 Mod；根目录中的共享存档与资源不受影响。')
         if self.version_delete_dialog.exec() == QDialog.Accepted:
-            delete_minecraft_version(
+            deleted = delete_minecraft_version(
                 self.settings_manager.get_setting('minecraft.directory.enable'),
                 version
             )
+            if not deleted:
+                QMessageBox.warning(self, '删除失败', '该版本未能删除，请检查文件占用和目录权限。')
+                return
             # 获取现有版本列表
             installed_versions: list = self.settings_manager.get_setting("minecraft.version.installed", [])
             
@@ -756,33 +831,22 @@ class VersionsPage(QWidget):
                 self.settings_manager.set_setting("minecraft.version.installed", installed_versions)
                 self.settings_manager.save_settings()
                 
-                # 从界面中移除该项
-                if item in self.version_items:
-                    self.version_items.remove(item)
-                    item.setParent(None)
-                    item.deleteLater()
-                
-                # 如果删除的是当前选中的版本，选择第一个版本
-                if self.settings_manager.get_setting("minecraft.version.enable") == version and self.version_items:
-                    self.on_version_clicked(self.version_items[0], None)
+            self.refresh_version_list(directory)
 
     def scan_versions(self, directory_path):
         """扫描目录下的版本并更新配置"""
         try:
             # 扫描目录下的版本
-            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(directory_path)
-            version_ids = [v['id'] for v in installed_versions]
+            version_ids = installed_instance_ids(directory_path)
 
             # 如果没有当前启用的版本，设置第一个版本为启用
             if not self.settings_manager.get_setting('minecraft.version.enable') in version_ids:
-                self.settings_manager.set_setting('minecraft.version.enable', version_ids[0])
+                self.settings_manager.set_setting('minecraft.version.enable', version_ids[0] if version_ids else None)
 
             self.settings_manager.set_setting("minecraft.version.installed", version_ids)
             self.settings_manager.save_settings()
-            self.signals.versions.emit(version_ids[0])
-
             version = self.settings_manager.get_setting('minecraft.version.enable')
-            self.signals.versions.emit(version)
+            self.signals.versions.emit(version or '')
             logger.info(f"更新版本: {', '.join(version_ids)}")
         
         except Exception as e:

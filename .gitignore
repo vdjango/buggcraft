@@ -1,5 +1,6 @@
 .minecraft
 venv
+.build-venv/
 *.pyc
 .secret
 dist*

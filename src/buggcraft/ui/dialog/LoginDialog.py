@@ -22,12 +22,18 @@ class LoginWaitDialog(QDialog):
         super().__init__(parent)
         self._parent = parent
         self.resource_path = resource_path
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self._is_dragging = False
+        self._login_pending = False
+        self._device_code = ''
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(650, 300)
+        self.setFixedSize(650, 360)
         
         self.auth = MicrosoftAuthenticator(skins_cache_path=cache_path)
-        self.auth.signals.success.connect(self.close_reject)
+        self.auth.signals.success.connect(self.login_succeeded)
+        self.auth.signals.failure.connect(self.set_messages)
+        self.auth.signals.progress.connect(self.set_messages)
+        self.auth.signals.device_code.connect(self.show_device_code)
         
         # 设置窗口背景色 RGBA(39, 41, 55, 1)
         palette = self.palette()
@@ -36,6 +42,9 @@ class LoginWaitDialog(QDialog):
         
         # 主布局
         self.main_widget = QWidget(self)
+        dialog_layout = QVBoxLayout(self)
+        dialog_layout.setContentsMargins(0, 0, 0, 0)
+        dialog_layout.addWidget(self.main_widget)
         main_layout = QVBoxLayout(self.main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -99,7 +108,7 @@ class LoginWaitDialog(QDialog):
             font-size: 16px;
             font-weight: bold;
         """)
-        info2_label = QLabel("请在浏览器中完成Microsoft账户登录操作，完成后将自动返回主界面。 如果身份验证成功未返回主界面，请手动回到我这里哦！")
+        info2_label = QLabel("在微软官方页面输入下方登录码，选择拥有 Minecraft Java 版的账号。完成微软验证后，启动器会自动读取正版角色。")
         info2_label.setWordWrap(True)
         info2_label.setContentsMargins(0, 20, 0, 15)
         info2_label.setStyleSheet("""
@@ -107,7 +116,9 @@ class LoginWaitDialog(QDialog):
             font-size: 14px;
             font-weight: medium;
         """)
-        info3_label = QLabel("如果发现问题，欢迎反馈，QQ群：849362477")
+        info3_label = QLabel('')
+        self.device_code_label = info3_label
+        info3_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         info3_label.setWordWrap(True)
         info3_label.setStyleSheet("""
             color: #c0c0c0;
@@ -124,6 +135,13 @@ class LoginWaitDialog(QDialog):
         button_layout.setContentsMargins(0, 10, 0, 10)
         button_layout.setSpacing(20)
         button_layout.addStretch()
+
+        self.copy_code_button = QPushButton('复制登录码')
+        self.copy_code_button.setFixedSize(100, 35)
+        self.copy_code_button.setStyleSheet('color:#e0e0e0;background:#2f2e4b;border:0;')
+        self.copy_code_button.clicked.connect(self.copy_device_code)
+        self.copy_code_button.setVisible(False)
+        button_layout.addWidget(self.copy_code_button)
         
         # 重新打开按钮  TODO 待加载背景图
         self.reopen_button = QPushButton("重新登录")
@@ -189,30 +207,47 @@ class LoginWaitDialog(QDialog):
 
     def start_login_process(self):
         """开始登录流程"""
-        self.auth.signals.failure.connect(self.set_messages)
-        self.auth.signals.progress.connect(self.set_messages)
+        self._login_pending = True
+        self._device_code = ''
+        self.device_code_label.clear()
+        self.copy_code_button.setVisible(False)
+        self.set_messages('正在连接微软登录服务…')
         self.reopen_signal.emit()
-        QTimer.singleShot(500, self.auth.start_login)
+        QTimer.singleShot(0, lambda: self.auth.start_login() if self._login_pending else None)
         
     def reopen_browser(self):
         """重新打开浏览器"""
-        self.auth.signals.failure.disconnect(self.set_messages)
-        self.auth.signals.progress.disconnect(self.set_messages)
         self.auth.cancel_authentication()
         self.start_login_process()
 
+    def show_device_code(self, code, uri):
+        self._device_code = code
+        self.device_code_label.setText(f'登录码：{code}    ·    {uri}')
+        self.copy_code_button.setVisible(True)
+
+    def copy_device_code(self):
+        if self._device_code:
+            QApplication.clipboard().setText(self._device_code)
+            self.copy_code_button.setText('已复制')
+            QTimer.singleShot(1500, lambda: self.copy_code_button.setText('复制登录码'))
+
+    def login_succeeded(self, username, data):
+        self._login_pending = False
+        self.accept()
+
     def cancel_reject(self):
         """取消"""
-        self.auth.cancel_authentication()
-        self.close_reject()
+        self.reject()
 
     def close_reject(self):
         """关闭窗口"""
-        self.set_messages("嘿！正在为您打开登录页面~")
-        self.auth.signals.failure.disconnect(self.set_messages)
-        self.auth.signals.progress.disconnect(self.set_messages)
-        self.cancel_signal.emit()
         self.reject()
+
+    def reject(self):
+        self._login_pending = False
+        self.auth.cancel_authentication()
+        self.cancel_signal.emit()
+        super().reject()
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:

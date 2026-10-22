@@ -246,7 +246,7 @@ class CrossPlatformMinecraftInstaller:
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            print('获取版本清单失败: {e}')
+            print(f'获取版本清单失败: {e}')
             self.callback.set_status(f"获取版本清单失败: {e}")
             return None
     

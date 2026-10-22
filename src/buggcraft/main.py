@@ -1,26 +1,38 @@
 import os
 import sys
 import logging
+import logging.handlers
 import platform
-from PySide6.QtGui import QFontDatabase, QIcon
+import faulthandler
+import multiprocessing
 from pathlib import Path
-from config.settings import get_conf_or_cache_manager
 
 if platform.system().lower() == "linux":
     # 设置环境变量（关键！）
-    os.environ["QT_IM_MODULE"] = "fcitx"
-    os.environ["QT_QPA_PLATFORM"] = "xcb"
-    os.environ["XLIB_SKIP_ARGB_VISUALS"] = "1"
-    os.environ["XMODIFIERS"] = "@im=fcitx"
-    os.environ["DISPLAY"] = ":0.0"  # 显式设置DISPLAY
+    # Preserve Wayland, remote X11 and headless environments chosen by the user.
+    os.environ.setdefault("XLIB_SKIP_ARGB_VISUALS", "1")
 
 
-class UTF8FileHandler(logging.FileHandler):
+APP_DIR = Path(sys.executable).resolve().parent
+IS_PACKAGED = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+BASE_DIR = APP_DIR if IS_PACKAGED else Path.cwd()
+_default_log_dir = (Path.home() / 'Library/Logs/Buggcraft'
+                    if IS_PACKAGED and platform.system() == 'Darwin'
+                    else APP_DIR if IS_PACKAGED else BASE_DIR)
+LOG_DIR = Path(os.environ.get('BUGGCRAFT_LOG_DIR') or _default_log_dir).resolve()
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_PATH = LOG_DIR / 'buggcraft.log'
+if IS_PACKAGED:
+    sys.stderr = open(LOG_DIR / 'buggcraft-stderr.log', 'a', encoding='utf-8', buffering=1)
+
+
+class UTF8FileHandler(logging.handlers.RotatingFileHandler):
     """自定义文件处理器，使用 UTF-8 编码"""
     def __init__(self, filename, mode='a', encoding=None, delay=False):
         if encoding is None:
             encoding = 'utf-8'
-        super().__init__(filename, mode, encoding, delay)
+        super().__init__(filename, mode, maxBytes=5 * 1024 * 1024, backupCount=3,
+                         encoding=encoding, delay=delay)
 
 
 # 配置日志
@@ -29,13 +41,38 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        UTF8FileHandler('buggcraft.log', mode='w')  # 使用自定义的FileHandler
+        UTF8FileHandler(str(LOG_PATH), mode='a')
     ]
 )
 logger = logging.getLogger(__name__)
+_crash_log = open(LOG_DIR / 'buggcraft-crash.log', 'a', encoding='utf-8')
+faulthandler.enable(_crash_log, all_threads=True)
+
+
+def _log_unhandled_exception(exc_type, exc_value, exc_traceback):
+    logger.critical('Unhandled exception', exc_info=(exc_type, exc_value, exc_traceback))
+
+
+sys.excepthook = _log_unhandled_exception
+logger.info('Startup diagnostics: OS=%s; architecture=%s; Python=%s; CPU_count=%s; '
+            'process_64bit=%s; executable=%s; working_directory=%s',
+            platform.platform(), platform.machine(), sys.version.split()[0],
+            multiprocessing.cpu_count(), sys.maxsize > 2**32, sys.executable, Path.cwd())
+logger.info('Application log directory: %s', LOG_DIR)
+
+if __name__ == '__main__' and '--package-check' in sys.argv:
+    from qt_runtime import setup_qt_environment as configure_qt
+    if not configure_qt(APP_DIR, APP_DIR / '.buggcraft/dependencies', packaged=IS_PACKAGED):
+        raise SystemExit(1)
+    from runtime_check import main as check_package
+    raise SystemExit(check_package(sys.argv[sys.argv.index('--package-check') + 1]))
+
+from PySide6.QtGui import QFontDatabase, QFont, QIcon
+from config.settings import get_conf_or_cache_manager
+
+# Global app paths
 
 # 全局配置
-BASE_DIR = Path.cwd()
 HOME_DIR = os.path.join(BASE_DIR, '.buggcraft')
 
 _, HOME_DIR = get_conf_or_cache_manager()
@@ -57,7 +94,12 @@ NOTIFICATION_MESSAGES = {
     'error': '资源下载失败'
 }
 
-RESOURCE_DIR = Path.cwd() / 'resources'
+for _resource_candidate in (APP_DIR / 'resources',
+                            Path(__file__).resolve().parent / 'resources',
+                            Path(__file__).resolve().parents[2] / 'resources'):
+    if (_resource_candidate / 'images/minecraft_bg.png').is_file():
+        RESOURCE_DIR = _resource_candidate
+        break
 
 def get_app_icon(RESOURCE_DIR) -> QIcon:
     """获取应用程序图标"""
@@ -80,6 +122,7 @@ def load_custom_font(resource_dir):
     :param resource_dir: 资源目录路径
     :return: 字体家族名称列表，用于后续设置字体
     """
+    QFont.insertSubstitution('Source Han Sans CN Normal', 'Source Han Sans CN')
     font_families = []
     fonts_dir = os.path.join(resource_dir, 'fonts')
     
@@ -119,6 +162,7 @@ def download_and_extract(url, download_dir, extract_dir):
     :return: 成功返回True，否则False
     """
     import zipfile
+    from utils.archives import extract_zip
     from utils.network import minecraft_httpx, urlparse
     os.makedirs(download_dir, exist_ok=True)
     os.makedirs(extract_dir, exist_ok=True)
@@ -139,7 +183,7 @@ def download_and_extract(url, download_dir, extract_dir):
 
         # 解压
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
+            extract_zip(zip_ref, extract_dir)
         logger.info(f"解压到: {extract_dir}")
 
         # 清理：删除下载的ZIP文件
@@ -152,63 +196,9 @@ def download_and_extract(url, download_dir, extract_dir):
 
 
 def setup_qt_environment():
-    """设置Qt运行环境"""
-    # 设置Qt插件路径
-    qt_plugins_dir = os.path.join(DEPENDENCIES_DIR, 'PySide6', 'qt-plugins')
-    os.environ['QT_PLUGIN_PATH'] = str(qt_plugins_dir)
-    logger.info(f"设置 QT_PLUGIN_PATH = {qt_plugins_dir}")
-    
-    # 设置Qt平台插件路径
-    platforms_dir = os.path.join(qt_plugins_dir, 'platforms')
-    os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(platforms_dir)
-    logger.info(f"设置 QT_QPA_PLATFORM_PLUGIN_PATH = {platforms_dir}")
-    
-    # 将依赖目录添加到DLL搜索路径
-    if hasattr(os, 'add_dll_directory'):
-        # Python 3.8+
-        for dep_dir in [DEPENDENCIES_DIR, qt_plugins_dir, platforms_dir]:
-            try:
-                os.add_dll_directory(str(dep_dir))
-                logger.info(f"添加DLL: {dep_dir}")
-            except Exception as e:
-                logger.error(f"添加DLL目录失败: {dep_dir} - {e}")
-    else:
-        # 旧版Python：添加到PATH
-        path = os.environ.get('PATH', '')
-        new_path = str(DEPENDENCIES_DIR) + os.pathsep + str(qt_plugins_dir) + os.pathsep + path
-        os.environ['PATH'] = new_path
-        logger.info(f"更新PATH环境变量以包含依赖目录")
-    
-    return verify_qt_files(qt_plugins_dir)
+    from qt_runtime import setup_qt_environment as configure_qt
+    return configure_qt(APP_DIR, DEPENDENCIES_DIR, packaged=IS_PACKAGED)
 
-
-def verify_qt_files(plugin_path):
-    """验证必要的Qt文件是否存在"""
-    # 检查平台插件
-    platforms_path = os.path.join(plugin_path, 'platforms')
-    if not os.path.exists(platforms_path):
-        logger.error(f"严重错误: 平台插件目录不存在: {platforms_path}")
-        return False
-    
-    # 检查qwindows.dll
-    qwindows_dll = os.path.join(platforms_path, 'qwindows.dll')
-    if not os.path.exists(qwindows_dll):
-        logger.error(f"致命错误: qwindows.dll 不存在: {qwindows_dll}")
-        return False
-    
-    # 检查其他关键DLL
-    required_dlls = [
-        os.path.join(plugin_path, 'imageformats', 'qjpeg.dll'),
-        os.path.join(plugin_path, 'styles', 'qmodernwindowsstyle.dll')
-    ]
-    
-    missing_files = [dll for dll in required_dlls if not os.path.exists(dll)]
-    if missing_files:
-        logger.warning("缺少以下文件:")
-        for file in missing_files:
-            logger.warning(f"  - {file}")
-    
-    return True
 
 
 def send_notification(title, message, icon_path=None):
@@ -262,8 +252,13 @@ def initialize_application():
         return 1
     
     from PySide6.QtCore import Qt
+    from PySide6.QtCore import QLibraryInfo, qVersion
     from PySide6.QtWidgets import QApplication
     from windows.main_window import MinecraftLauncher
+    import PySide6
+
+    logger.info('Qt diagnostics: PySide6=%s; Qt=%s; plugin_path=%s',
+                PySide6.__version__, qVersion(), QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath))
     
 
     # Windows 特定设置
@@ -308,6 +303,8 @@ def initialize_application():
 
 def main():
     """应用程序主入口"""
+    if os.path.isdir(os.path.join(RESOURCE_DIR, 'images')):
+        return initialize_application()
     # 下载必要资源
     if not download_resources():
         logger.error("资源下载失败，无法继续")

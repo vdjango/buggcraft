@@ -155,12 +155,14 @@ class SettingsPage(BasePage):
     def create_tab_button(self, text, click_handler, size=(155, 44), font_size=12):
         """创建选项卡按钮 """
         button = QLabel()
-        button.mousePressEvent = lambda event: click_handler()
+        button.mousePressEvent = lambda event: click_handler() if event.button() == Qt.LeftButton else None
+        button.setCursor(Qt.PointingHandCursor)
         button.setFixedSize(*size)
         button.setStyleSheet("background-color: transparent;")
         
         # 添加文本
         text_label = QLabel(text, button)
+        text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
@@ -200,6 +202,7 @@ class SettingsPage(BasePage):
     def java_tab_btn_clicked(self):
         """Java管理按钮点击事件"""
         self.settings_stack.setCurrentIndex(1)
+        self.java_page.on_page_activate()
         self.update_tab_button_style("通用设置", False)
         self.update_tab_button_style("全局设置", False)
         self.update_tab_button_style("Java管理", True)

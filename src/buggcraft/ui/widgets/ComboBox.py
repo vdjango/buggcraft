@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QLabel, QComboBox, QStyledItemDelegate, QStyle
 )
 from PySide6.QtCore import Qt, QPoint, QEvent
-from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon, QPalette
+from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon, QPalette, QFont
 
 from .CustomStyle import CustomComboBoxStyle
 
@@ -12,23 +12,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class CustomComboBoxDelegate(QStyledItemDelegate):    
+class CustomComboBoxDelegate(QStyledItemDelegate):
+    def __init__(self, combo):
+        super().__init__(combo)
+        self.combo = combo
+
     def paint(self, painter, option, index):
-        """重写绘制方法，设置悬浮背景颜色"""
-        # 检查是否为悬浮状态
-        if option.state & QStyle.State_MouseOver:
-            painter.fillRect(option.rect, QColor("#7455FF"))
-            painter.setPen(QColor("#FFFFFF"))
-        elif option.state & QStyle.State_Selected:
-            painter.fillRect(option.rect, QColor("#7455FF"))
-            painter.setPen(QColor("#FFFFFF"))
-        else:
-            painter.fillRect(option.rect, QColor("#565564"))
-            painter.setPen(QColor("#FFFFFF"))
-        
-        text = index.data()
+        """The view's highlighted row is distinct from the committed value."""
+        selected = index.row() == self.combo.currentIndex()
+        highlighted = bool(option.state & (QStyle.State_MouseOver | QStyle.State_Selected))
+        color = ('#473668' if highlighted else '#392b58') if selected else (
+            '#292735' if highlighted else '#1d1c28')
+        painter.save()
+        painter.setFont(option.font)
+        painter.fillRect(option.rect, QColor(color))
+        painter.setPen(QColor('#f4f0ff' if option.state & QStyle.State_Enabled else '#77758e'))
+        if selected:
+            painter.fillRect(option.rect.left(), option.rect.top() + 5, 3,
+                             max(1, option.rect.height() - 10), QColor('#a99bf8'))
+            painter.drawText(option.rect.adjusted(0, 0, -12, 0), Qt.AlignRight | Qt.AlignVCenter, '✓')
+        text = index.data(Qt.DisplayRole)
         if text:
-            painter.drawText(option.rect.adjusted(10, 0, -10, 0), Qt.AlignLeft | Qt.AlignVCenter, text)
+            rect = option.rect.adjusted(12, 0, -32, 0)
+            text = option.fontMetrics.elidedText(str(text), Qt.ElideRight, rect.width())
+            painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
+        painter.restore()
 
 
 class QMComboBox(QComboBox):
@@ -36,6 +44,7 @@ class QMComboBox(QComboBox):
     
     def __init__(self, parent, height=None):
         super().__init__(parent)
+        self.setFont(QFont('Source Han Sans CN', 10))
         self.resource_path = parent.resource_path
         self.is_expanded = False
         self.expanded_icon = None
@@ -157,6 +166,7 @@ class QMComboBox(QComboBox):
         self.icon_label = QLabel(self)
         self.icon_label.setFixedSize(16, 16)
         self.icon_label.setStyleSheet("background-color: transparent;")
+        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         
         # 设置手型光标
         self.setCursor(Qt.PointingHandCursor)
@@ -181,7 +191,7 @@ class QMComboBox(QComboBox):
         # 安装事件过滤器
         view.installEventFilter(self)
         
-        self.custom_delegate = CustomComboBoxDelegate()
+        self.custom_delegate = CustomComboBoxDelegate(self)
         self.view().setItemDelegate(self.custom_delegate)
         
         # 直接设置视图属性来解决白边问题

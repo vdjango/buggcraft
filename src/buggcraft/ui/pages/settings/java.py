@@ -5,7 +5,7 @@ import os
 from typing import Any
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QFileDialog, QMessageBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon
@@ -15,6 +15,8 @@ from ui.widgets.collapse import CollapsePanel
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from ui.widgets.ComboBox import QMComboBox
 from ui.widgets.lable import SmartLabel
+from config.javafinder import JavaPathFinder
+from core.minecraft.version import open_folder
 
 import logging
 logger = logging.getLogger(__name__)
@@ -41,12 +43,12 @@ class JavaManagementPage(QWidget):
         },
         """
         self.java_managers = []
-        self.java_versions = self.settings_manager.get_setting('java.installations')
+        self.java_versions = self.settings_manager.get_setting('java.installations', []) or []
         for jav in self.java_versions:
             self.java_managers.append({
                 "name": self.java_name_format(jav),
                 "version": self.java_version_format(jav),
-                "vendor": "Microsoft",
+                "vendor": "OpenJDK" if 'openjdk' in str(jav[1]).lower() else "Java",
                 "path": jav[0]
             })
 
@@ -54,6 +56,7 @@ class JavaManagementPage(QWidget):
 
     def on_page_activate(self):
         """当页面被激活时调用"""
+        self.refresh_list()
      
     def on_page_deactivate(self):
         """当页面被隐藏时调用"""
@@ -152,6 +155,7 @@ class JavaManagementPage(QWidget):
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
+        self.java_list_layout = layout
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
@@ -236,7 +240,8 @@ class JavaManagementPage(QWidget):
         header_layout.addWidget(separator)
         
         delete_btn = self.create_icon_button("delete.png")
-        delete_btn.clicked.connect(lambda: self.on_delete_clicked(java_info["name"]))
+        delete_btn.setToolTip('从启动器列表移除，不删除磁盘中的 Java')
+        delete_btn.clicked.connect(lambda: self.on_delete_clicked(java_info["path"]))
         header_layout.addWidget(delete_btn)
         
         layout.addLayout(header_layout)
@@ -264,11 +269,13 @@ class JavaManagementPage(QWidget):
         
         # 刷新按钮
         refresh_btn = self.create_action_button("刷新", "refresh.png")
+        self.refresh_button = refresh_btn
         refresh_btn.clicked.connect(self.on_refresh_clicked)
         button_layout.addWidget(refresh_btn)
         
         # 下载按钮
         download_btn = self.create_action_button("下载", "download.png")
+        download_btn.setToolTip('打开 Java 官方下载页面')
         download_btn.clicked.connect(self.on_download_clicked)
         button_layout.addWidget(download_btn)
         
@@ -338,11 +345,26 @@ class JavaManagementPage(QWidget):
 
     def on_add_clicked(self):
         """处理添加按钮点击事件"""
-        print("添加Java版本")
+        path, _ = QFileDialog.getOpenFileName(self, '选择 Java 可执行文件', '',
+                                             'Java (java.exe javaw.exe java);;所有文件 (*)')
+        if path:
+            self.add_java(path)
 
-    def on_download_clicked(self):
-        """处理下载按钮点击事件"""
-        print("下载Java版本")
+    def add_java(self, path):
+        path = os.path.realpath(path)
+        if os.path.basename(path).lower() == 'javaw.exe':
+            path = os.path.join(os.path.dirname(path), 'java.exe')
+        raw, version = JavaPathFinder()._get_java_version(path)
+        if not os.path.isfile(path) or not raw or not version or version == (0, 0, 0):
+            QMessageBox.warning(self, '无法添加 Java', '所选文件无法执行或无法读取 Java 版本，请选择 bin 目录中的 java 可执行文件。')
+            return False
+        entries = self.settings_manager.get_setting('java.installations', []) or []
+        entries = [entry for entry in entries if os.path.normcase(entry[0]) != os.path.normcase(path)]
+        entries.append([path, raw, list(version)])
+        self.settings_manager.set_setting('java.installations', entries)
+        self.settings_manager.save_settings()
+        self.refresh_list()
+        return True
 
     def on_setting_changed(self, key, value):
         """设置改变事件处理"""
@@ -351,19 +373,48 @@ class JavaManagementPage(QWidget):
 
     def on_refresh_clicked(self):
         """刷新按钮点击事件"""
-        print("刷新Java版本列表")
+        self.refresh_button.setEnabled(False)
+        self.refresh_button.setText('搜索中')
+        self.parent.parent.load_java_path(notify_missing=False)
 
     def on_download_clicked(self):
         """下载按钮点击事件"""
-        print("下载Java版本")
+        self.parent.parent.on_java_download_signal()
 
     def on_open_folder_clicked(self, java_path):
         """打开文件夹按钮点击事件"""
-        print(f"打开Java安装目录: {java_path}")
+        open_folder(os.path.dirname(java_path))
 
-    def on_delete_clicked(self, java_name):
+    def on_delete_clicked(self, java_path):
         """删除按钮点击事件"""
-        print(f"删除Java版本: {java_name}")
+        entries = self.settings_manager.get_setting('java.installations', []) or []
+        entries = [entry for entry in entries if os.path.normcase(entry[0]) != os.path.normcase(java_path)]
+        self.settings_manager.set_setting('java.installations', entries)
+        if self.settings_manager.get_setting('java.path') == java_path:
+            self.settings_manager.set_setting('java.path', JavaPathFinder().recommend_best_java(entries))
+            self.settings_manager.set_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
+        self.settings_manager.save_settings()
+        self.refresh_list()
+
+    def refresh_list(self):
+        self.java_versions = self.settings_manager.get_setting('java.installations', []) or []
+        while self.java_list_layout.count():
+            item = self.java_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for entry in self.java_versions:
+            info = {
+                'name': self.java_name_format(entry), 'version': self.java_version_format(entry),
+                'vendor': 'OpenJDK' if 'openjdk' in str(entry[1]).lower() else 'Java', 'path': entry[0],
+            }
+            self.java_list_layout.addWidget(self.create_java_item(info))
+        if not self.java_versions:
+            empty = QLabel('未检测到 Java，可点击刷新或添加。')
+            empty.setStyleSheet('color: #c9c4d6; padding: 12px;')
+            self.java_list_layout.addWidget(empty)
+        self.java_versions_panel.set_messages(f'已检测到 {len(self.java_versions)} 个 Java 版本')
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setText('刷新')
 
     def paintEvent(self, event):
         """重绘事件"""

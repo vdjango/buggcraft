@@ -23,6 +23,7 @@ class StartGamePage(QWidget):
     
     started_changed = Signal()  # 游戏开始信号
     login_success = Signal(dict, str)  # 用户名, 登录类型
+    instance_changed = Signal()
     
 
     def __init__(self, parent, resource_path, cache_path):
@@ -63,12 +64,27 @@ class StartGamePage(QWidget):
         # 初始化UI
         self.init_ui()
         self.auth_manager.load(self.cache_path)
+        self._pending_auth_launch = None
+        self.auth_refresh_timer = QTimer(self)
+        self.auth_refresh_timer.setInterval(60000)
+        self.auth_refresh_timer.timeout.connect(self.is_expired_token)
+        self.auth_refresh_timer.start()
 
-    def started_game(self):
+    def started_game(self, server=None):
         """启动游戏"""
-        print('self.auth_manager.is_authenticated()', self.auth_manager.is_authenticated(), self.auth_manager.current.username)
+        server = server if isinstance(server, str) else None
+        if not self.current_client and not self.launcher.minecraft_version:
+            self.parent.switch_pages('实例')
+            return
         if not self.auth_manager.is_authenticated():
             self.launch_btn.set_texts(f"请先设置角色", self.launcher.minecraft_version)
+            return
+
+        if (not self.current_client and self.auth_manager.current_mode == 'online'
+                and not self.auth_manager.online.is_token_valid()):
+            self._pending_auth_launch = (server,)
+            self.launch_btn.set_texts('正在刷新正版登录…', self.launcher.minecraft_version)
+            self.auth_manager.refresh_login()
             return
         
         if not self.current_client:
@@ -85,7 +101,7 @@ class StartGamePage(QWidget):
                 w, h = 854, 480
             elif size == '与启动器一致':
                 # 转换为物理分辨率
-                physical_width, physical_height = get_physical_resolution(self.width(), self.height())
+                physical_width, physical_height = get_physical_resolution(self.parent.width(), self.parent.height())
                 w, h = str(int(physical_width)), str(int(physical_height))
             elif size == '最大化':
                 fullscreen=True
@@ -94,7 +110,7 @@ class StartGamePage(QWidget):
                 uuid=self.auth_manager.current.uuid,
                 username=self.auth_manager.current.username,
                 token=self.auth_manager.current.token,
-                server=None,
+                server=server,
                 version=self.launcher.minecraft_version,
                 memory=self.settings_manager.get_version_setting("memory.allocation", 2048),
                 width=w,
@@ -103,7 +119,10 @@ class StartGamePage(QWidget):
             )
 
             # 启动线程
+            self._launch_instance = (self.launcher.minecraft_directory, self.launcher.minecraft_version,
+                                     self.launcher.minecraft_isolation_directory)
             self.launcher.start()
+            self.instance_changed.emit()
         else:
             # 游戏已启动 - 停止过程
             from PySide6.QtWidgets import QApplication
@@ -113,41 +132,45 @@ class StartGamePage(QWidget):
 
     def set_minecraft_version(self, version):
         """设置Minecraft版本"""
+        version = version or None
         self.launcher.minecraft_version = version
         if self.launch_btn:
-            version_text = f"{version}" if version else "未找到对应游戏"
-            self.launch_btn.set_texts('启动游戏', version_text)
+            version_text = f"{version}" if version else "请下载或导入游戏"
+            title = '停止游戏' if self.current_client else '启动游戏' if version else '选择游戏'
+            self.launch_btn.set_texts(title, version_text)
+        self.launcher.minecraft_isolation_directory = self.settings_manager.get_minecraft_isolation_directory()
+        self.instance_changed.emit()
     
     def minecraft_handle_started(self):
         """游戏启动处理"""
-        from PySide6.QtCore import QTimer
-
-        def handle_status():
-            self.launch_btn.set_texts(f"停止游戏", self.launcher.minecraft_version)
-            self.launch_btn.set_start_style()
-            self.launch_btn.setEnabled(True)
-            self.current_client = True  # 游戏启动状态：已启动
-
+        self.current_client = True
+        self.running_instance = getattr(self, '_launch_instance',
+                                       (self.launcher.minecraft_directory, self.launcher.minecraft_version,
+                                        self.launcher.minecraft_isolation_directory))
+        self.instance_changed.emit()
+        self.launch_btn.set_texts('停止游戏', self.launcher.minecraft_version)
+        self.launch_btn.set_start_style()
+        self.launch_btn.setEnabled(True)
+        self.launch_btn.setToolTip('游戏正在运行，点击停止游戏')
         logger.info('minecraft_handle_started 游戏已启动')
-        QTimer.singleShot(1000, lambda: handle_status())
     
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""
-        from PySide6.QtCore import QTimer
-
-        def handle_status(code):
-            self.launch_btn.set_texts("启动游戏", self.launcher.minecraft_version)
-            self.launch_btn.set_start_style()
-            self.launch_btn.setEnabled(True)
-            self.current_client = False  # 游戏启动状态：未启动
-
+        self.current_client = False
+        self.running_instance = None
+        self.instance_changed.emit()
+        self.launch_btn.set_texts('启动游戏', self.launcher.minecraft_version)
+        self.launch_btn.set_start_style()
+        self.launch_btn.setEnabled(True)
+        self.launch_btn.setToolTip('' if exit_code == 0 else f'游戏已退出，退出代码：{exit_code}')
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
-        QTimer.singleShot(1000, lambda: handle_status(exit_code))
 
     def minecraft_handle_error(self, message):
         """错误处理"""
         logger.info(f'minecraft_handle_error {message}')
-        self.minecraft_handle_stopped(1)
+        if not self.launcher.running:
+            self.minecraft_handle_stopped(1)
+        self.launch_btn.setToolTip(str(message))
 
     @property
     def auth(self):
@@ -240,7 +263,8 @@ class StartGamePage(QWidget):
         
         # 创建启动游戏按钮
         self.launch_btn = QMStartButton(resource_path=self.resource_path, parent=self)
-        self.launch_btn.set_texts('启动游戏', f"{self.launcher.minecraft_version}" if self.launcher.minecraft_version else "未找到对应游戏")
+        self.launch_btn.set_texts('启动游戏' if self.launcher.minecraft_version else '选择游戏',
+                                  self.launcher.minecraft_version or '请下载或导入游戏')
         self.launch_btn.clicked.connect(self.started_changed.emit)
         tab_content_layout.addWidget(self.launch_btn, 0, Qt.AlignCenter)
 
@@ -260,9 +284,23 @@ class StartGamePage(QWidget):
                 color: #7859FF;
             }
         """)
-        # self.multiplayer_lobby_btn.mousePressEvent = lambda event: self.show_multiplayer_dialog()
+        self.multiplayer_lobby_btn.mousePressEvent = lambda event: self.show_multiplayer_dialog()
         self.multiplayer_lobby_btn.setCursor(Qt.PointingHandCursor)
-        tab_content_layout.addWidget(self.multiplayer_lobby_btn, 0, Qt.AlignCenter)
+        social_links = QHBoxLayout()
+        social_links.addStretch()
+        social_links.addWidget(self.multiplayer_lobby_btn)
+        self.friends_btn = QLabel('好友')
+        self.friends_btn.setObjectName('open-friends-home')
+        self.friends_btn.setFont(self.multiplayer_lobby_btn.font())
+        self.friends_btn.setAlignment(Qt.AlignCenter)
+        self.friends_btn.setFixedWidth(42)
+        self.friends_btn.setStyleSheet(self.multiplayer_lobby_btn.styleSheet())
+        self.friends_btn.setCursor(Qt.PointingHandCursor)
+        self.friends_btn.hide()
+        self.friends_btn.mousePressEvent = lambda event: self.show_friends_dialog()
+        social_links.addWidget(self.friends_btn)
+        social_links.addStretch()
+        tab_content_layout.addLayout(social_links)
         tab_content_layout.addStretch(1)
 
         tab_container_layout.addWidget(self.tab_buttons_widget)
@@ -272,6 +310,24 @@ class StartGamePage(QWidget):
         
         # 设置初始状态
         self.update_ui_state('未登录')
+
+    def show_multiplayer_dialog(self):
+        from ui.dialog.MultiplayerDialog import MultiplayerDialog
+        if not hasattr(self, '_multiplayer_dialog'):
+            self._multiplayer_dialog = MultiplayerDialog(self)
+        self._multiplayer_dialog.detect_instance()
+        self._multiplayer_dialog.showNormal()
+        self._multiplayer_dialog.raise_()
+        self._multiplayer_dialog.activateWindow()
+
+    def show_friends_dialog(self):
+        from ui.dialog.MultiplayerDialog import MultiplayerDialog
+        if not hasattr(self, '_multiplayer_dialog'):
+            self._multiplayer_dialog = MultiplayerDialog(self)
+        if not self._multiplayer_dialog.backend.view['socialReady']:
+            self.show_multiplayer_dialog()
+            return
+        self._multiplayer_dialog.show_friends()
 
     def create_tab_buttons(self):
         """创建选项卡按钮区域"""
@@ -653,11 +709,13 @@ class StartGamePage(QWidget):
 
     def authorized_online_login(self):
         """正版登录"""
+        self.auth_manager.cancel_refresh()
         self.login_dialog.start_login_process()
         self.login_dialog.exec()
     
     def switch_to_login_mode(self):
         """切换账号功能 - 从已登录状态切换回登录界面"""
+        self.auth_manager.cancel_refresh()
         self.auth_manager.online.clear()
         self.auth_manager.save(self.cache_path)
         self.update_ui_state('未登录')
@@ -718,7 +776,6 @@ class StartGamePage(QWidget):
             self.auth_manager.online.expires_at = data.get('expires_at', None)
             self.external_tab_btn_clicked()
 
-            QTimer.singleShot(5000, lambda: self.is_expired_token())  # 正版时 定时验证token有效性
         elif data.get('type', None) == "offline":  # 离线登录成功
             state = "离线登录"
             self.auth_manager.current_mode = 'offline'
@@ -733,6 +790,11 @@ class StartGamePage(QWidget):
 
         logger.info(f"欢迎 {username}, {data.get('type', None)} !")
         self.login_success.emit({'uuid': data.get('uuid', None), 'username': username, 'token': data.get('token', None)}, data.get('type', None))
+
+        pending = getattr(self, '_pending_auth_launch', None)
+        if pending is not None:
+            self._pending_auth_launch = None
+            QTimer.singleShot(0, lambda: self.started_game(pending[0]))
 
         # 登录成功后进入联机大厅按钮保持显示（包括离线登录）
 
@@ -753,25 +815,14 @@ class StartGamePage(QWidget):
         super().moveEvent(event)
 
     def is_expired_token(self):
-        # 定时验证token有效性
-        is_expired = self.auth.decoder.is_expired()
-        if is_expired and is_expired is None:
-            # token 过期
-            self.avatar.clear()
-            self.avatar.setStyleSheet(f"""
-                QLabel {{
-                    background-color: #2b2b2b;
-                    border: 2px solid #ffffff;
-                }}
-            """)
-            self.auth_manager.online.clear()
-            self.auth_manager.save(self.cache_path)
-            self.username_label.setText("正版授权已到有效期，需重新授权登录")  # TODO
-            self.username_label.setStyleSheet(f"font-weight: bold; color: #f8f8f8;")
+        if (self.auth_manager.current_mode == 'online' and self.auth_manager.online.token
+                and not self.auth_manager.online.is_token_valid()):
+            self.auth_manager.refresh_login()
 
     def handle_auth_progress(self, progress):
         pass
     
     def handle_auth_failure(self, message):
         """处理登录失败"""
+        self._pending_auth_launch = None
         self.signals.error.emit(f"登录失败: {message}")

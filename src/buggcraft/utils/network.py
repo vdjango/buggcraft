@@ -729,8 +729,7 @@ class minecraft_httpx:
         """
         try:
             if is_https:
-                # 创建未验证的 SSL 上下文（生产环境应使用证书验证）
-                context = ssl._create_unverified_context()
+                context = ssl.create_default_context()
                 conn = http.client.HTTPSConnection(host, port, context=context, timeout=30)
             else:
                 conn = http.client.HTTPConnection(host, port, timeout=30)

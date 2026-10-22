@@ -5,12 +5,12 @@ import os
 from typing import Any
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QMessageBox
 )
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon
+from PySide6.QtCore import Qt, QSize, QUrl
+from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QDesktopServices
 
-from config.settings import get_settings_manager, set_conf_manager
+from config.settings import get_settings_manager
 from ui.widgets.ComboBox import QMComboBox
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from ui.widgets.collapse import CollapsePanel
@@ -44,22 +44,21 @@ class GeneralSettingsPages(QWidget):
         # 文件下载缓存
         cache = self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/')
         self.launcher_cache_group.set_selected_button(self.launcher_cache_proprty.get(cache))
-        self.launcher_cache.set_messages(f"缓存路径：{cache}")
+        self.launcher_cache.set_messages(f"当前配置与缓存：{self.settings_manager.config_path}")
         # 启动器语言
-        language = self.settings_manager.get_setting("settings.general.language", "简体中文")
+        language = "简体中文"
         index = self.launcher_language_combo.findText(language)
         if index >= 0:
             self.launcher_language_combo.setCurrentIndex(index)
         self.launcher_language.set_messages(language)
         # 下载源
-        mirrors = self.settings_manager.get_setting("settings.general.mirrors", "自动选择下载源（自动选择速度快的源）")
+        mirrors = self.settings_manager.get_setting("settings.general.mirrors", "自动（官方优先，失败切换镜像）")
+        if mirrors not in ('官方', 'BMCLAPI'):
+            mirrors = '自动（官方优先，失败切换镜像）'
         index = self.launcher_download_source_combo.findText(mirrors)
         if index >= 0:
             self.launcher_download_source_combo.setCurrentIndex(index)
         self.language_download_source.set_messages(mirrors)
-        
-        # 激活全局版本设置页面
-        self.global_version_settings.on_page_activate()
         
         print("GeneralSettings 页面被激活")
     
@@ -189,8 +188,7 @@ class GeneralSettingsPages(QWidget):
         update_layout.addStretch(1)
         layout.addWidget(update_content)
         self.launcher_update_group.add_button(development_button)
-        
-        update_label = QLabel("发现更新 最新版本为：3.6.17")
+        update_label = QLabel("打开发行页")
         update_label.setStyleSheet("""
             QLabel {
                 color: #FFFFFF;
@@ -207,7 +205,7 @@ class GeneralSettingsPages(QWidget):
         desc_layout.setContentsMargins(10, 0, 10, 0)
         desc_layout.setSpacing(10)
         
-        desc_label = QLabel("开发版与预览版包含更多的功能以及错误修复，但也可能会包含其他的问题。")
+        desc_label = QLabel("按所选通道打开官方发行页面；自动检测和安装更新尚未接入。")
         desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
@@ -232,7 +230,7 @@ class GeneralSettingsPages(QWidget):
         # 创建reload按钮
         reload_btn = self.create_reload_button()
         
-        panel = CollapsePanel(self, f'启动器更新', '发现更新 最新版本为：3.6.17', True, is_collaspe=False, custom_button=reload_btn)
+        panel = CollapsePanel(self, '启动器更新', '打开发行页', True, is_collaspe=False, custom_button=reload_btn)
         panel.set_content(content)
         return panel
     
@@ -278,8 +276,11 @@ class GeneralSettingsPages(QWidget):
         )
         layout.addWidget(custom_button)
         self.launcher_cache_group.add_button(custom_button)
+        for button in self.launcher_cache_group.buttons:
+            button.setEnabled(False)
+            button.setToolTip('配置和缓存迁移尚未接入，当前路径保持可用。')
 
-        desc_label = QLabel("注：此操作需要重启(自动关闭)，并且配置文件不保留。当需要多启动器实例可选择")
+        desc_label = QLabel("当前路径可正常使用。迁移功能尚未接入，暂不可修改。")
         desc_label.setContentsMargins(10, 0, 10, 0)
         desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
@@ -302,9 +303,7 @@ class GeneralSettingsPages(QWidget):
 
         panel = CollapsePanel(
             self, '文件缓存路径',
-            '缓存路径：{}'.format(
-                self.settings_manager.get_setting("settings.general.download.cache", '~/.buggcraft/')
-            ), True
+            f'当前配置与缓存：{self.settings_manager.config_path}', True
         )
         panel.set_content(content)
         self.launcher_cache_group.button_selected.connect(
@@ -323,12 +322,12 @@ class GeneralSettingsPages(QWidget):
         
         self.launcher_language_combo = QMComboBox(self)
         self.launcher_language_combo.addItems([
-            'English',
             '简体中文',
         ])
+        self.launcher_language_combo.setEnabled(False)
         layout.addWidget(self.launcher_language_combo)
         
-        desc_label = QLabel("当前启动器语言并未实现，预计下个Beta版本实现")
+        desc_label = QLabel("当前支持简体中文，其他语言尚未接入。")
         desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
@@ -350,8 +349,8 @@ class GeneralSettingsPages(QWidget):
 
         panel = CollapsePanel(
             self,
-            f'启动器语言（重启生效）',
-            self.settings_manager.get_setting("settings.general.language", "简体中文"),
+            '启动器语言',
+            '简体中文',
             True
         )
         panel.set_content(content)
@@ -370,13 +369,13 @@ class GeneralSettingsPages(QWidget):
         
         self.launcher_download_source_combo = QMComboBox(self)
         self.launcher_download_source_combo.addItems([
-            '自动选择下载源（自动选择速度快的源）',
+            '自动（官方优先，失败切换镜像）',
             '官方',
             'BMCLAPI',
         ])
         layout.addWidget(self.launcher_download_source_combo)
         
-        desc_label = QLabel("通过启动器安装新游戏或启动游戏文件缺失下载文件时所使用的下载地址被称之为下载源")
+        desc_label = QLabel("用于原版游戏和加载器版本目录；可镜像的文件按所选源下载。自动模式优先官方，失败后切换 BMCLAPI。")
         desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
@@ -391,7 +390,7 @@ class GeneralSettingsPages(QWidget):
             lambda t: self.on_setting_changed("settings.general.mirrors", t)
         )
         index = self.launcher_download_source_combo.findText(
-            self.settings_manager.get_setting("settings.general.mirrors", "自动选择下载源（自动选择速度快的源）")
+            self.settings_manager.get_setting("settings.general.mirrors", "自动（官方优先，失败切换镜像）")
         )
         if index >= 0:
             self.launcher_download_source_combo.setCurrentIndex(index)
@@ -399,7 +398,7 @@ class GeneralSettingsPages(QWidget):
         panel = CollapsePanel(
             self,
             f'下载源',
-            self.settings_manager.get_setting("settings.general.mirrors", "自动选择下载源（自动选择速度快的源）"),
+            self.launcher_download_source_combo.currentText(),
             True
         )
         panel.set_content(content)
@@ -426,7 +425,7 @@ class GeneralSettingsPages(QWidget):
         text_layout.setContentsMargins(5, 0, 5, 0)
         text_layout.setSpacing(5)
 
-        title_label = QLabel('C:\\Program Files\\Java\\jdk-21.0.7')
+        title_label = QLabel(str(self.settings_manager.config_path))
         title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
@@ -470,13 +469,8 @@ class GeneralSettingsPages(QWidget):
     
     def on_setting_cache_changed(self, value: str):
         """文件缓存设置"""
-        if value == 'custom':
-            logger.warning('此功能未实现')
-            return
-        import sys
-        self.on_setting_changed("settings.general.download.cache", value)
-        set_conf_manager(value)
-        sys.exit(0)
+        # Keep the current configuration until migration can preserve all files.
+        self.on_page_activate()
     
     def on_setting_changed(self, key: str, value: Any):
         """处理设置改变，更新配置管理器并保存"""
@@ -530,6 +524,8 @@ class GeneralSettingsPages(QWidget):
         
         # 设置手型光标
         reload_btn.setCursor(Qt.PointingHandCursor)
+        reload_btn.setAccessibleName('查看发行版本')
+        reload_btn.setToolTip('打开当前更新通道的发行版本列表')
         
         # 连接点击事件（可以在这里添加刷新逻辑）
         reload_btn.clicked.connect(self.on_reload_clicked)
@@ -537,9 +533,12 @@ class GeneralSettingsPages(QWidget):
         return reload_btn
     
     def on_reload_clicked(self):
-        """reload按钮点击事件处理"""
-        logger.info("Reload button clicked - 启动器更新刷新")
-        # 这里可以添加具体的刷新逻辑
+        """Open the selected release channel while in-app update installation is unavailable."""
+        channel = self.settings_manager.get_setting('settings.general.update', 'stable')
+        prerelease = 'true' if channel == 'development' else 'false'
+        url = QUrl(f'https://github.com/vdjango/buggcraft/releases?q=prerelease%3A{prerelease}')
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(self, '无法打开发行页面', '请检查系统默认浏览器设置后重试。')
 
     def moveEvent(self, event):
         """重写 moveEvent 以跟踪位置变化"""

@@ -3,6 +3,9 @@
 import json
 import os
 import platform
+import secrets
+import threading
+import copy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -59,6 +62,7 @@ class SettingsManager:
             config_file: 配置文件路径，如果为None则使用默认路径
         """
         self.config_path = config_path
+        self._save_lock = threading.RLock()
         self.config_file = os.path.join(self.config_path, 'settings.json')
         
         # 确保配置目录存在
@@ -156,7 +160,7 @@ class SettingsManager:
                 return True
             else:
                 # 文件不存在，使用默认配置
-                self.current_settings = self.default_settings.copy()
+                self.current_settings = copy.deepcopy(self.default_settings)
                 logger.info("未找到配置文件，使用默认配置")
                 # 保存默认配置
                 self.save_settings()
@@ -165,7 +169,7 @@ class SettingsManager:
         except Exception as e:
             logger.info(f"加载配置时出错: {e}")
             # 出错时使用默认配置
-            self.current_settings = self.default_settings.copy()
+            self.current_settings = copy.deepcopy(self.default_settings)
             return False
     
     def save_settings(self, file_path: Optional[str] = None) -> bool:
@@ -181,13 +185,23 @@ class SettingsManager:
         target_file = file_path or self.config_file
         
         try:
-            with open(target_file, 'w', encoding='utf-8') as f:
-                json.dump(
-                    self.current_settings, 
-                    f, 
-                    indent=4, 
-                    ensure_ascii=False  # 重要：确保中文正确显示
-                )
+            with self._save_lock:
+                target = Path(target_file).resolve()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # On Windows mkstemp can retry PermissionError up to TMP_MAX when
+                # os.access reports writable despite a sandbox/ACL denial.
+                # One exclusive random filename reports the real error promptly.
+                temporary = target.parent / ('.settings-' + secrets.token_hex(16))
+                descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                try:
+                    with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+                        json.dump(self.current_settings, output, indent=4, ensure_ascii=False)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(temporary, target)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
             logger.info(f"配置已保存到文件: {target_file}")
             return True
         except Exception as e:
@@ -209,11 +223,11 @@ class SettingsManager:
             try:
                 metadata_path = Path(directory) / 'versions' / version / (version + '.json')
                 metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
-                if isinstance(metadata.get('buggcraftModpack'), dict):
+                if isinstance(metadata.get('buggcraftRoom'), dict) or isinstance(metadata.get('buggcraftModpack'), dict):
                     return os.path.join(directory, 'versions', version)
             except (OSError, ValueError):
                 pass
-        if self.get_version_setting_enable() and directory is not None:
+        if directory and self.get_version_setting('minecraft.isolation', True):
             version = self.get_setting('minecraft.version.enable', None)
             if version:
                 return os.path.join(directory, 'versions', version)
@@ -235,7 +249,7 @@ class SettingsManager:
             enable = self.get_setting(f"minecraft.setting.{version}.enable", False)
             if enable and enable is not None:
                 # 启用了独立版本设置
-                return self.get_setting(f"minecraft.setting.{version}.{key}", default)
+                return self.get_setting(f"minecraft.setting.{version}.{key}", self.get_setting(key, default))
         
         # 未启用独立版本设置
         return self.get_setting(key, default)
@@ -322,7 +336,7 @@ class SettingsManager:
     
     def reset_to_defaults(self) -> None:
         """重置为默认配置"""
-        self.current_settings = self.default_settings.copy()
+        self.current_settings = copy.deepcopy(self.default_settings)
         self.save_settings()
     
     def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
@@ -336,7 +350,7 @@ class SettingsManager:
         Returns:
             Dict[str, Any]: 合并后的字典
         """
-        result = base.copy()
+        result = copy.deepcopy(base)
         
         for key, value in update.items():
             if (key in result and 
@@ -346,7 +360,7 @@ class SettingsManager:
                 result[key] = self._deep_merge(result[key], value)
             else:
                 # 直接设置或覆盖值
-                result[key] = value
+                result[key] = copy.deepcopy(value)
                 
         return result
 
@@ -354,7 +368,7 @@ class SettingsManager:
     @property
     def all_settings(self) -> Dict[str, Any]:
         """获取所有当前配置的副本"""
-        return self.current_settings.copy()
+        return copy.deepcopy(self.current_settings)
 
 # 单例模式：创建全局配置管理器实例
 _settings_manager_instance = None

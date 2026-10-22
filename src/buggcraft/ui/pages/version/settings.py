@@ -17,6 +17,7 @@ from ui.pages.version.memory_panel import MemorySettingsPanel
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from core.visibility import VisibilitySettings
 from ui.widgets.ComboBox import QMComboBox
+from ui.widgets.java_picker import choose_java
 
 
 import logging
@@ -460,7 +461,8 @@ class SettingsPage(QWidget):
         text_layout.setContentsMargins(5, 0, 5, 0)
         text_layout.setSpacing(5)
 
-        title_label = QLabel('C:\\Program Files\\Java\\jdk-21.0.7')
+        title_label = QLabel(self.settings_manager.get_version_setting('java.path') or '点击右侧选择 Java')
+        self.custom_java_label = title_label
         title_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
@@ -476,7 +478,7 @@ class SettingsPage(QWidget):
         ).scaled(12, 12, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1);')
         folder_icon.setCursor(Qt.PointingHandCursor)
-        # folder_icon.mousePressEvent = self.browse_java_path
+        folder_icon.mousePressEvent = lambda event: choose_java(self) if event.button() == Qt.LeftButton else None
         layout.addWidget(folder_icon)
         
         return container
@@ -652,7 +654,7 @@ class SettingsPage(QWidget):
         path, name = java
         if path == 'custom':
             """手动选择"""
-            self.java_panel.set_messages('请手动选择Java路径')
+            choose_java(self)
             return
         
         if path == 'auto':
@@ -668,6 +670,10 @@ class SettingsPage(QWidget):
         """清除现有的Java选项 - 在主线程中执行"""
         # 移除所有子部件
         layout = self.java_panel.content.layout()
+        self.java_button_group.clear_selection()
+        for button in list(self.java_button_group.buttons):
+            self.java_button_group.remove_button(button)
+        self.setting_java_proprty.clear()
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()

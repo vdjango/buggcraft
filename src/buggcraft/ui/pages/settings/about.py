@@ -3,12 +3,13 @@
 """
 import os
 from typing import Any
+from importlib.metadata import version as package_version, PackageNotFoundError
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QFrame
 )
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon
+from PySide6.QtCore import Qt, QSize, QUrl
+from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QDesktopServices
 
 from config.settings import get_settings_manager, set_conf_manager
 from ui.widgets.collapse import CollapsePanel
@@ -137,7 +138,7 @@ class AboutPage(QWidget):
         """)
         return title_label
 
-    def create_list_item(self, icon_path=None, title="", subtitle="", has_external_link=True, has_divider=False):
+    def create_list_item(self, icon_path=None, title="", subtitle="", has_external_link=True, has_divider=False, target=None):
         """创建列表项"""
         item_widget = QWidget()
         item_layout = QHBoxLayout(item_widget)
@@ -194,11 +195,13 @@ class AboutPage(QWidget):
         item_layout.addLayout(text_layout)
         
         # 右侧外部链接图标
-        if has_external_link:
+        if has_external_link and target:
             link_icon = QLabel()
             link_icon.setFixedSize(20, 20)
             link_icon.setAlignment(Qt.AlignCenter)
             link_icon.setCursor(Qt.PointingHandCursor)
+            link_icon.setToolTip(target)
+            link_icon.mousePressEvent = lambda event: QDesktopServices.openUrl(QUrl.fromLocalFile(target)) if event.button() == Qt.LeftButton else None
             
             # 加载分享图标
             share_icon_path = os.path.join(self.resource_path, "settings", "share.png")
@@ -269,18 +272,18 @@ class AboutPage(QWidget):
         # 版本信息
         version_item = self.create_list_item(
             icon_path="About1.png",
-            title="1.21.8",
-            subtitle="最新正式版本，发布于2025/07/17 20:12",
-            has_external_link=True
+            title="Buggcraft",
+            subtitle="Minecraft 启动器 · 邀请码联机",
+            has_external_link=False
         )
         section_layout.addWidget(version_item)
         
         # 开发者信息
         developer_item = self.create_list_item(
             icon_path="About2.png",
-            title="huanghongxun",
-            subtitle="12isahdlaosd@ashjdhad",
-            has_external_link=True
+            title="当前游戏实例",
+            subtitle=self.settings_manager.get_setting('minecraft.version.enable') or '尚未选择',
+            has_external_link=False
         )
         section_layout.addWidget(developer_item)
         
@@ -300,9 +303,9 @@ class AboutPage(QWidget):
         # 鸣谢项目
         acknowledgement_item = self.create_list_item(
             icon_path="About3.png",
-            title="yushijinhun",
-            subtitle="提供 authlib-injector 相关支持",
-            has_external_link=True
+            title="开源项目与贡献者",
+            subtitle="项目说明、贡献方式和相关资料见 README。",
+            target=str(Path(self.resource_path).parent / 'README.md')
         )
         section_layout.addWidget(acknowledgement_item)
         
@@ -319,12 +322,17 @@ class AboutPage(QWidget):
         title = self.create_section_title("依赖")
         section_layout.addWidget(title)
         
-        # OpenJFX依赖
+        dependencies = []
+        for name in ('PySide6', 'minecraft-launcher-lib', 'requests', 'asyncssh', 'psutil'):
+            try:
+                dependencies.append(name + ' ' + package_version(name))
+            except PackageNotFoundError:
+                dependencies.append(name)
         openjfx_item = self.create_list_item(
             icon_path=None,  # 没有左侧图标
-            title="OpenJFX",
-            subtitle="Copyright © 2013, 2024, Oracle and/or its affiliates.\nLicensed under the GPL 2 with Classpath Exception.",
-            has_external_link=True
+            title="运行依赖",
+            subtitle='\n'.join(dependencies),
+            target=str(Path(self.resource_path).parent / 'requirements.txt')
         )
         section_layout.addWidget(openjfx_item)
         
@@ -345,8 +353,8 @@ class AboutPage(QWidget):
         copyright_item = self.create_list_item(
             icon_path=None,
             title="版权",
-            subtitle="版权所有 2025asdasdasdasd",
-            has_external_link=True,
+            subtitle="项目许可与版权声明见随附 LICENSE 文件。",
+            target=str(Path(self.resource_path).parent / 'LICENSE'),
             has_divider=True
         )
         section_layout.addWidget(copyright_item)
@@ -355,8 +363,8 @@ class AboutPage(QWidget):
         agreement_item = self.create_list_item(
             icon_path=None,
             title="用户协议",
-            subtitle="xxxxxxxxxxxxxxxxxxxx",
-            has_external_link=True,
+            subtitle="尚未提供独立的付费服务条款。",
+            has_external_link=False,
             has_divider=True
         )
         section_layout.addWidget(agreement_item)
@@ -365,8 +373,8 @@ class AboutPage(QWidget):
         opensource_item = self.create_list_item(
             icon_path=None,
             title="开源",
-            subtitle="xxxxxxxxxxxxxxxxxxxx",
-            has_external_link=True
+            subtitle="查看项目许可和社区许可文件。",
+            target=str(Path(self.resource_path).parent / 'COMMUNITY_LICENSE.md')
         )
         section_layout.addWidget(opensource_item)
         

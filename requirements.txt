@@ -5,3 +5,7 @@ psutil==7.0.0
 pypng==0.20220715.0
 plyer==2.1.0
 notify-py==0.3.43
+asyncssh==2.24.1
+cryptography==50.0.2
+aiortc==1.15.0
+av==16.1.0

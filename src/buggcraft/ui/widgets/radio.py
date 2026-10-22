@@ -41,6 +41,7 @@ class QMRadioGroup(QObject):
         """处理按钮选中事件"""
         if selected:
             # 取消其他按钮的选中状态
+            self.selected_button = button
             for btn in self.buttons:
                 if btn != button and btn.auto_radio_selected:
                     btn.set_selected(False)
@@ -49,14 +50,19 @@ class QMRadioGroup(QObject):
             self.selected_button = button
             self.button_selected.emit(proprty)
         else:
-            # 如果取消选中当前按钮，更新状态
             if button == self.selected_button:
-                self.selected_button = None
+                blocked = button.blockSignals(True)
+                button.set_selected(True)
+                button.blockSignals(blocked)
     
     def set_selected_button(self, button):
         """设置选中的按钮"""
         if button in self.buttons:
-            button.set_selected(True)
+            blocked = self.blockSignals(True)
+            try:
+                button.set_selected(True)
+            finally:
+                self.blockSignals(blocked)
     
     def get_selected_button(self):
         """获取当前选中的按钮"""
@@ -69,7 +75,9 @@ class QMRadioGroup(QObject):
     def clear_selection(self):
         """清除所有选中状态"""
         for button in self.buttons:
+            blocked = button.blockSignals(True)
             button.set_selected(False)
+            button.blockSignals(blocked)
         self.selected_button = None
 
 
@@ -115,6 +123,7 @@ class QMRadioButton(QWidget):
         
         # 图标容器
         icon_container = QWidget()
+        icon_container.setAttribute(Qt.WA_TransparentForMouseEvents)
         icon_container.setFixedSize(30, 30)
         icon_layout = QVBoxLayout(icon_container)
         icon_layout.setContentsMargins(0, 0, 0, 0)
@@ -131,6 +140,7 @@ class QMRadioButton(QWidget):
         
         # 自动选择选项 - 使用 QLabel
         self.auto_label = SmartLabel(self.text, self.text_max_widht)
+        self.auto_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.auto_label.setFont(QFont("Source Han Sans CN Normal", self.text_font_size, QFont.Weight.Normal))
         self.auto_label.setStyleSheet("color: #FFFFFF;")
         
@@ -142,6 +152,7 @@ class QMRadioButton(QWidget):
             main_layout.addWidget(self.slot_desc, 1)
         elif self.messages:
             desc_label = SmartLabel(self.messages, self.messages_max_widht)
+            desc_label.setAttribute(Qt.WA_TransparentForMouseEvents)
             desc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             desc_label.setFont(QFont("Source Han Sans CN Normal", self.messages_font_size, QFont.Weight.Normal))
             desc_label.setStyleSheet("color: #888888;")
@@ -149,7 +160,8 @@ class QMRadioButton(QWidget):
 
     def mousePressEvent(self, event):
         """处理整个组件的鼠标点击事件"""
-        self.toggle_selection()
+        if event.button() == Qt.LeftButton:
+            self.toggle_selection()
         super().mousePressEvent(event)
     
     def toggle_selection(self):

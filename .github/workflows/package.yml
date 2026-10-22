@@ -1,0 +1,93 @@
+name: Package launcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'packaging/**'
+      - 'build*'
+      - 'requirements*.txt'
+      - '.github/workflows/package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            arch: x64
+          - os: macos-15-intel
+            platform: macos-x86_64
+            arch: x64
+          - os: macos-15
+            platform: macos-arm64
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.arch }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+      - name: Install build dependencies
+        run: |
+          python -m pip install -r requirements.txt -r requirements-build.txt
+          python -m pip check
+      - name: Build native package
+        run: python build.py --jobs 3
+      - name: Check bundled runtime in isolation
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          python - <<'PY'
+          import os, pathlib, plistlib, subprocess
+          root = pathlib.Path.cwd()
+          output = root / 'dist'
+          if os.name == 'nt':
+              executable = output / 'main.dist/Buggcraft.exe'
+          else:
+              bundle, = output.glob('*.app')
+              info = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
+              executable = bundle / 'Contents/MacOS' / info['CFBundleExecutable']
+          env = dict(os.environ)
+          for key in ('PYTHONPATH', 'PYTHONHOME', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
+              env.pop(key, None)
+          env['BUGGCRAFT_LOG_DIR'] = str(output)
+          env['PATH'] = os.environ['WINDIR'] + '/System32' if os.name == 'nt' else '/usr/bin:/bin'
+          subprocess.run([str(executable), '--package-check', str(output / 'package-check.json')],
+                         cwd=output, env=env, check=True, timeout=120)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Buggcraft-${{ matrix.platform }}-${{ github.sha }}
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            dist/Buggcraft*.zip
+            dist/Buggcraft-Setup.exe
+            dist/release.json
+            dist/signing-status.json
+            dist/qt-trim-report.json
+            dist/package-check.*

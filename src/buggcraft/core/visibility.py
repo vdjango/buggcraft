@@ -6,7 +6,8 @@ class VisibilitySettings:
     KEEP_VISIBLE = "游戏启动后保持不变"
     MINIMIZE = "游戏启动后最小化"
     HIDE = "游戏启动后隐藏，游戏退出后重新打开"
-    CLOSE = "游戏启动后立即关闭"
+    CLOSE = "游戏启动后隐藏，游戏退出后关闭启动器"
+    LEGACY_CLOSE = "游戏启动后立即关闭"
 
 
 class LauncherVisibilityManager:
@@ -18,6 +19,8 @@ class LauncherVisibilityManager:
     
     def apply_setting(self, setting):
         """应用可见性设置"""
+        if setting == VisibilitySettings.LEGACY_CLOSE:
+            setting = VisibilitySettings.CLOSE
         # 保存当前窗口状态
         self.previous_state = {
             "geometry": self.main_window.geometry(),

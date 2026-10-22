@@ -1,0 +1,1438 @@
+{
+  "0": [
+    {
+      "name": "keepAliveId",
+      "type": "int"
+    }
+  ],
+  "1": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "levelType",
+      "type": "string"
+    },
+    {
+      "name": "gameMode",
+      "type": "byte"
+    },
+    {
+      "name": "dimension",
+      "type": "byte"
+    },
+    {
+      "name": "difficulty",
+      "type": "byte"
+    },
+    {
+      "name": null,
+      "type": "byte"
+    },
+    {
+      "name": "maxPlayers",
+      "type": "byte"
+    }
+  ],
+  "2": [
+    {
+      "name": "protocolVersion",
+      "type": "byte"
+    },
+    {
+      "name": "username",
+      "type": "string"
+    },
+    {
+      "name": "serverHost",
+      "type": "string"
+    },
+    {
+      "name": "serverPort",
+      "type": "int"
+    }
+  ],
+  "3": [
+    {
+      "name": "message",
+      "type": "ustring"
+    }
+  ],
+  "4": [
+    {
+      "name": "age",
+      "type": "long"
+    },
+    {
+      "name": "time",
+      "type": "long"
+    }
+  ],
+  "5": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "slot",
+      "type": "short"
+    },
+    {
+      "name": "item",
+      "type": "slot"
+    }
+  ],
+  "6": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    }
+  ],
+  "7": [
+    {
+      "name": "user",
+      "type": "int"
+    },
+    {
+      "name": "target",
+      "type": "int"
+    },
+    {
+      "name": "leftClick",
+      "type": "bool"
+    }
+  ],
+  "8": [
+    {
+      "name": "health",
+      "type": "float"
+    },
+    {
+      "name": "food",
+      "type": "short"
+    },
+    {
+      "name": "foodSaturation",
+      "type": "float"
+    }
+  ],
+  "9": [
+    {
+      "name": "dimension",
+      "type": "int"
+    },
+    {
+      "name": "difficulty",
+      "type": "byte"
+    },
+    {
+      "name": "gameMode",
+      "type": "byte"
+    },
+    {
+      "name": "worldHeight",
+      "type": "short"
+    },
+    {
+      "name": "levelType",
+      "type": "string"
+    }
+  ],
+  "10": [
+    {
+      "name": "onGround",
+      "type": "bool"
+    }
+  ],
+  "11": [
+    {
+      "name": "x",
+      "type": "double"
+    },
+    {
+      "name": "y",
+      "type": "double"
+    },
+    {
+      "name": "stance",
+      "type": "double"
+    },
+    {
+      "name": "z",
+      "type": "double"
+    },
+    {
+      "name": "onGround",
+      "type": "bool"
+    }
+  ],
+  "12": [
+    {
+      "name": "yaw",
+      "type": "float"
+    },
+    {
+      "name": "pitch",
+      "type": "float"
+    },
+    {
+      "name": "onGround",
+      "type": "bool"
+    }
+  ],
+  "13": [
+    {
+      "name": "x",
+      "type": "double"
+    },
+    {
+      "name": "stance",
+      "type": "double"
+    },
+    {
+      "name": "y",
+      "type": "double"
+    },
+    {
+      "name": "z",
+      "type": "double"
+    },
+    {
+      "name": "yaw",
+      "type": "float"
+    },
+    {
+      "name": "pitch",
+      "type": "float"
+    },
+    {
+      "name": "onGround",
+      "type": "bool"
+    }
+  ],
+  "14": [
+    {
+      "name": "status",
+      "type": "byte"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "ubyte"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "face",
+      "type": "ubyte"
+    }
+  ],
+  "15": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "ubyte"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "direction",
+      "type": "byte"
+    },
+    {
+      "name": "heldItem",
+      "type": "slot"
+    },
+    {
+      "name": "cursorX",
+      "type": "byte"
+    },
+    {
+      "name": "cursorY",
+      "type": "byte"
+    },
+    {
+      "name": "cursorZ",
+      "type": "byte"
+    }
+  ],
+  "16": [
+    {
+      "name": "slotId",
+      "type": "short"
+    }
+  ],
+  "17": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": null,
+      "type": "byte"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "ubyte"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    }
+  ],
+  "18": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "animation",
+      "type": "byte"
+    }
+  ],
+  "19": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "actionId",
+      "type": "byte"
+    },
+    {
+      "name": "jumpBoost",
+      "type": "int"
+    }
+  ],
+  "20": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "yaw",
+      "type": "byte"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    },
+    {
+      "name": "currentItem",
+      "type": "short"
+    },
+    {
+      "name": "metadata",
+      "type": "entityMetadata"
+    }
+  ],
+  "22": [
+    {
+      "name": "collectedId",
+      "type": "int"
+    },
+    {
+      "name": "collectorId",
+      "type": "int"
+    }
+  ],
+  "23": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "type",
+      "type": "byte"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "yaw",
+      "type": "byte"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    },
+    {
+      "name": "objectData",
+      "type": "objectData"
+    }
+  ],
+  "24": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "type",
+      "type": "byte"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "yaw",
+      "type": "byte"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    },
+    {
+      "name": "headYaw",
+      "type": "byte"
+    },
+    {
+      "name": "velocityX",
+      "type": "short"
+    },
+    {
+      "name": "velocityY",
+      "type": "short"
+    },
+    {
+      "name": "velocityZ",
+      "type": "short"
+    },
+    {
+      "name": "metadata",
+      "type": "entityMetadata"
+    }
+  ],
+  "25": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "direction",
+      "type": "int"
+    }
+  ],
+  "26": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "count",
+      "type": "short"
+    }
+  ],
+  "27": [
+    {
+      "name": "sideways",
+      "type": "float"
+    },
+    {
+      "name": "forward",
+      "type": "float"
+    },
+    {
+      "name": "jump",
+      "type": "bool"
+    },
+    {
+      "name": "unmount",
+      "type": "bool"
+    }
+  ],
+  "28": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "velocityX",
+      "type": "short"
+    },
+    {
+      "name": "velocityY",
+      "type": "short"
+    },
+    {
+      "name": "velocityZ",
+      "type": "short"
+    }
+  ],
+  "29": [
+    {
+      "name": "entityIds",
+      "type": "intArray8"
+    }
+  ],
+  "30": [
+    {
+      "name": "entityId",
+      "type": "int"
+    }
+  ],
+  "31": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "dx",
+      "type": "byte"
+    },
+    {
+      "name": "dy",
+      "type": "byte"
+    },
+    {
+      "name": "dz",
+      "type": "byte"
+    }
+  ],
+  "32": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "yaw",
+      "type": "byte"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    }
+  ],
+  "33": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "dx",
+      "type": "byte"
+    },
+    {
+      "name": "dy",
+      "type": "byte"
+    },
+    {
+      "name": "dz",
+      "type": "byte"
+    },
+    {
+      "name": "yaw",
+      "type": "byte"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    }
+  ],
+  "34": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "yaw",
+      "type": "byte"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    }
+  ],
+  "35": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "headYaw",
+      "type": "byte"
+    }
+  ],
+  "38": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "status",
+      "type": "byte"
+    }
+  ],
+  "39": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "vehicleId",
+      "type": "int"
+    },
+    {
+      "name": "leash",
+      "type": "ubyte"
+    }
+  ],
+  "40": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "metadata",
+      "type": "entityMetadata"
+    }
+  ],
+  "41": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "effectId",
+      "type": "byte"
+    },
+    {
+      "name": "amplifier",
+      "type": "byte"
+    },
+    {
+      "name": "duration",
+      "type": "short"
+    }
+  ],
+  "42": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "effectId",
+      "type": "byte"
+    }
+  ],
+  "43": [
+    {
+      "name": "experienceBar",
+      "type": "float"
+    },
+    {
+      "name": "level",
+      "type": "short"
+    },
+    {
+      "name": "totalExperience",
+      "type": "short"
+    }
+  ],
+  "44": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "properties",
+      "type": "propertyArray"
+    }
+  ],
+  "51": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "groundUp",
+      "type": "bool"
+    },
+    {
+      "name": "bitMap",
+      "type": "ushort"
+    },
+    {
+      "name": "addBitMap",
+      "type": "ushort"
+    },
+    {
+      "name": "compressedChunkData",
+      "type": "byteArray32"
+    }
+  ],
+  "52": [
+    {
+      "name": "chunkX",
+      "type": "int"
+    },
+    {
+      "name": "chunkZ",
+      "type": "int"
+    },
+    {
+      "name": "recordCount",
+      "type": "short"
+    },
+    {
+      "name": "data",
+      "type": "byteArray32"
+    }
+  ],
+  "53": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "ubyte"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "type",
+      "type": "short"
+    },
+    {
+      "name": "metadata",
+      "type": "byte"
+    }
+  ],
+  "54": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "short"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "byte1",
+      "type": "byte"
+    },
+    {
+      "name": "byte2",
+      "type": "byte"
+    },
+    {
+      "name": "blockId",
+      "type": "short"
+    }
+  ],
+  "55": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "destroyStage",
+      "type": "byte"
+    }
+  ],
+  "56": [
+    {
+      "name": "data",
+      "type": "mapChunkBulk"
+    }
+  ],
+  "60": [
+    {
+      "name": "x",
+      "type": "double"
+    },
+    {
+      "name": "y",
+      "type": "double"
+    },
+    {
+      "name": "z",
+      "type": "double"
+    },
+    {
+      "name": "radius",
+      "type": "float"
+    },
+    {
+      "name": "affectedBlockOffsets",
+      "type": "byteVectorArray"
+    },
+    {
+      "name": "playerMotionX",
+      "type": "float"
+    },
+    {
+      "name": "playerMotionY",
+      "type": "float"
+    },
+    {
+      "name": "playerMotionZ",
+      "type": "float"
+    }
+  ],
+  "61": [
+    {
+      "name": "effectId",
+      "type": "int"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "ubyte"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "data",
+      "type": "int"
+    },
+    {
+      "name": "global",
+      "type": "bool"
+    }
+  ],
+  "62": [
+    {
+      "name": "soundName",
+      "type": "string"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "volume",
+      "type": "float"
+    },
+    {
+      "name": "pitch",
+      "type": "byte"
+    }
+  ],
+  "63": [
+    {
+      "name": "particleName",
+      "type": "string"
+    },
+    {
+      "name": "x",
+      "type": "float"
+    },
+    {
+      "name": "y",
+      "type": "float"
+    },
+    {
+      "name": "z",
+      "type": "float"
+    },
+    {
+      "name": "offsetX",
+      "type": "float"
+    },
+    {
+      "name": "offsetY",
+      "type": "float"
+    },
+    {
+      "name": "offsetZ",
+      "type": "float"
+    },
+    {
+      "name": "particleSpeed",
+      "type": "float"
+    },
+    {
+      "name": "particles",
+      "type": "int"
+    }
+  ],
+  "70": [
+    {
+      "name": "reason",
+      "type": "byte"
+    },
+    {
+      "name": "gameMode",
+      "type": "byte"
+    }
+  ],
+  "71": [
+    {
+      "name": "entityId",
+      "type": "int"
+    },
+    {
+      "name": "type",
+      "type": "byte"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    }
+  ],
+  "100": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "inventoryType",
+      "type": "byte"
+    },
+    {
+      "name": "windowTitle",
+      "type": "string"
+    },
+    {
+      "name": "slotCount",
+      "type": "byte"
+    },
+    {
+      "name": "useProvidedTitle",
+      "type": "bool"
+    }
+  ],
+  "101": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    }
+  ],
+  "102": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "slot",
+      "type": "short"
+    },
+    {
+      "name": "mouseButton",
+      "type": "byte"
+    },
+    {
+      "name": "action",
+      "type": "short"
+    },
+    {
+      "name": "mode",
+      "type": "byte"
+    },
+    {
+      "name": "item",
+      "type": "slot"
+    }
+  ],
+  "103": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "slot",
+      "type": "short"
+    },
+    {
+      "name": "item",
+      "type": "slot"
+    }
+  ],
+  "104": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "items",
+      "type": "slotArray"
+    }
+  ],
+  "105": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "property",
+      "type": "short"
+    },
+    {
+      "name": "value",
+      "type": "short"
+    }
+  ],
+  "106": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "action",
+      "type": "short"
+    },
+    {
+      "name": "accepted",
+      "type": "bool"
+    }
+  ],
+  "107": [
+    {
+      "name": "slot",
+      "type": "short"
+    },
+    {
+      "name": "item",
+      "type": "slot"
+    }
+  ],
+  "108": [
+    {
+      "name": "windowId",
+      "type": "byte"
+    },
+    {
+      "name": "enchantment",
+      "type": "byte"
+    }
+  ],
+  "130": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "short"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "text1",
+      "type": "string"
+    },
+    {
+      "name": "text2",
+      "type": "string"
+    },
+    {
+      "name": "text3",
+      "type": "string"
+    },
+    {
+      "name": "text4",
+      "type": "string"
+    }
+  ],
+  "131": [
+    {
+      "name": "type",
+      "type": "short"
+    },
+    {
+      "name": "itemId",
+      "type": "short"
+    },
+    {
+      "name": "text",
+      "type": "ascii"
+    }
+  ],
+  "132": [
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "short"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    },
+    {
+      "name": "action",
+      "type": "byte"
+    },
+    {
+      "name": "nbtData",
+      "type": "byteArray16"
+    }
+  ],
+  "133": [
+    {
+      "name": "tileEntityId",
+      "type": "byte"
+    },
+    {
+      "name": "x",
+      "type": "int"
+    },
+    {
+      "name": "y",
+      "type": "int"
+    },
+    {
+      "name": "z",
+      "type": "int"
+    }
+  ],
+  "200": [
+    {
+      "name": "statisticId",
+      "type": "int"
+    },
+    {
+      "name": "amount",
+      "type": "int"
+    }
+  ],
+  "201": [
+    {
+      "name": "playerName",
+      "type": "string"
+    },
+    {
+      "name": "online",
+      "type": "bool"
+    },
+    {
+      "name": "ping",
+      "type": "short"
+    }
+  ],
+  "202": [
+    {
+      "name": "flags",
+      "type": "byte"
+    },
+    {
+      "name": "flyingSpeed",
+      "type": "float"
+    },
+    {
+      "name": "walkingSpeed",
+      "type": "float"
+    }
+  ],
+  "203": [
+    {
+      "name": "text",
+      "type": "string"
+    }
+  ],
+  "204": [
+    {
+      "name": "locale",
+      "type": "string"
+    },
+    {
+      "name": "viewDistance",
+      "type": "byte"
+    },
+    {
+      "name": "chatFlags",
+      "type": "byte"
+    },
+    {
+      "name": "difficulty",
+      "type": "byte"
+    },
+    {
+      "name": "showCape",
+      "type": "bool"
+    }
+  ],
+  "205": [
+    {
+      "name": "payload",
+      "type": "byte"
+    }
+  ],
+  "206": [
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "displayText",
+      "type": "string"
+    },
+    {
+      "name": "action",
+      "type": "byte"
+    }
+  ],
+  "207": [
+    {
+      "name": "itemName",
+      "type": "string"
+    },
+    {
+      "name": "remove",
+      "type": "bool"
+    },
+    {
+      "name": "scoreName",
+      "type": "string"
+    },
+    {
+      "name": "value",
+      "type": "int"
+    }
+  ],
+  "208": [
+    {
+      "name": "position",
+      "type": "byte"
+    },
+    {
+      "name": "name",
+      "type": "string"
+    }
+  ],
+  "209": [
+    {
+      "name": "team",
+      "type": "string"
+    },
+    {
+      "name": "mode",
+      "type": "byte"
+    },
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "prefix",
+      "type": "string"
+    },
+    {
+      "name": "suffix",
+      "type": "string"
+    },
+    {
+      "name": "friendlyFire",
+      "type": "byte"
+    },
+    {
+      "name": "players",
+      "type": "stringArray"
+    }
+  ],
+  "250": [
+    {
+      "name": "channel",
+      "type": "string"
+    },
+    {
+      "name": "data",
+      "type": "byteArray16"
+    }
+  ],
+  "252": [
+    {
+      "name": "sharedSecret",
+      "type": "byteArray16"
+    },
+    {
+      "name": "verifyToken",
+      "type": "byteArray16"
+    }
+  ],
+  "253": [
+    {
+      "name": "serverId",
+      "type": "string"
+    },
+    {
+      "name": "publicKey",
+      "type": "byteArray16"
+    },
+    {
+      "name": "verifyToken",
+      "type": "byteArray16"
+    }
+  ],
+  "254": [
+    {
+      "name": "readSuccessfully",
+      "type": "byte"
+    },
+    {
+      "name": "customPayloadId",
+      "type": "ubyte"
+    },
+    {
+      "name": "magicText",
+      "type": "string"
+    },
+    {
+      "name": "len",
+      "type": "short"
+    },
+    {
+      "name": "version",
+      "type": "byte"
+    },
+    {
+      "name": "ip",
+      "type": "string"
+    },
+    {
+      "name": "port",
+      "type": "int"
+    }
+  ],
+  "255": [
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ]
+}

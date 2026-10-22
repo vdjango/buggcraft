@@ -1,0 +1,2122 @@
+{
+  "4": {
+    "version": "1.7.10",
+    "releases": [
+      "1.7.5",
+      "1.7.4",
+      "1.7.2",
+      "1.7.3"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "keep_alive": 0,
+      "login": 1,
+      "chat": 2,
+      "position": 8,
+      "kick_disconnect": 64
+    },
+    "play_toServer": {
+      "keep_alive": 0,
+      "chat": 1,
+      "position": 4,
+      "settings": 21
+    }
+  },
+  "5": {
+    "version": "1.7.10",
+    "releases": [
+      "1.7.10",
+      "1.7.9",
+      "1.7.8",
+      "1.7.7",
+      "1.7.6"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "keep_alive": 0,
+      "login": 1,
+      "chat": 2,
+      "position": 8,
+      "kick_disconnect": 64
+    },
+    "play_toServer": {
+      "keep_alive": 0,
+      "chat": 1,
+      "position": 4,
+      "settings": 21
+    }
+  },
+  "47": {
+    "version": "1.8.8",
+    "releases": [
+      "1.8.9",
+      "1.8.8",
+      "1.8.7",
+      "1.8.6",
+      "1.8.5",
+      "1.8.4",
+      "1.8.3",
+      "1.8.2",
+      "1.8.1",
+      "1.8"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "keep_alive": 0,
+      "login": 1,
+      "chat": 2,
+      "position": 8,
+      "kick_disconnect": 64
+    },
+    "play_toServer": {
+      "keep_alive": 0,
+      "chat": 1,
+      "position": 4,
+      "settings": 21
+    }
+  },
+  "107": {
+    "version": "1.9",
+    "releases": [
+      "1.9"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "108": {
+    "version": "1.9",
+    "releases": [
+      "1.9.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "109": {
+    "version": "1.9.2",
+    "releases": [
+      "1.9.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "110": {
+    "version": "1.9.4",
+    "releases": [
+      "1.9.4",
+      "1.9.3"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "210": {
+    "version": "1.10.2",
+    "releases": [
+      "1.10.2",
+      "1.10.1",
+      "1.10"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "315": {
+    "version": "1.11",
+    "releases": [
+      "1.11"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "316": {
+    "version": "1.11.2",
+    "releases": [
+      "1.11.2",
+      "1.11.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 12
+    }
+  },
+  "335": {
+    "version": "1.12",
+    "releases": [
+      "1.12"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 46
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 12,
+      "position": 14
+    }
+  },
+  "338": {
+    "version": "1.12.1",
+    "releases": [
+      "1.12.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 47
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 13
+    }
+  },
+  "340": {
+    "version": "1.12.2",
+    "releases": [
+      "1.12.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 31,
+      "login": 35,
+      "position": 47
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 11,
+      "position": 13
+    }
+  },
+  "393": {
+    "version": "1.13",
+    "releases": [
+      "1.13"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 27,
+      "keep_alive": 33,
+      "login": 37,
+      "position": 50
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 14,
+      "position": 16
+    }
+  },
+  "401": {
+    "version": "1.13.1",
+    "releases": [
+      "1.13.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 27,
+      "keep_alive": 33,
+      "login": 37,
+      "position": 50
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 14,
+      "position": 16
+    }
+  },
+  "404": {
+    "version": "1.13.2",
+    "releases": [
+      "1.13.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 27,
+      "keep_alive": 33,
+      "login": 37,
+      "position": 50
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 2,
+      "settings": 4,
+      "keep_alive": 14,
+      "position": 16
+    }
+  },
+  "477": {
+    "version": "1.14",
+    "releases": [
+      "1.14"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "480": {
+    "version": "1.14.1",
+    "releases": [
+      "1.14.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "485": {
+    "version": "1.14",
+    "releases": [
+      "1.14.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "490": {
+    "version": "1.14.3",
+    "releases": [
+      "1.14.3"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "498": {
+    "version": "1.14.4",
+    "releases": [
+      "1.14.4"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "573": {
+    "version": "1.15",
+    "releases": [
+      "1.15"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 27,
+      "keep_alive": 33,
+      "login": 38,
+      "position": 54
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "575": {
+    "version": "1.15.1",
+    "releases": [
+      "1.15.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 27,
+      "keep_alive": 33,
+      "login": 38,
+      "position": 54
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "578": {
+    "version": "1.15.2",
+    "releases": [
+      "1.15.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 27,
+      "keep_alive": 33,
+      "login": 38,
+      "position": 54
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17
+    }
+  },
+  "735": {
+    "version": "1.16",
+    "releases": [
+      "1.16"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 16,
+      "position": 18
+    }
+  },
+  "736": {
+    "version": "1.16.1",
+    "releases": [
+      "1.16.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 26,
+      "keep_alive": 32,
+      "login": 37,
+      "position": 53
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 16,
+      "position": 18
+    }
+  },
+  "751": {
+    "version": "1.16.2",
+    "releases": [
+      "1.16.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 25,
+      "keep_alive": 31,
+      "login": 36,
+      "position": 52
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 16,
+      "position": 18
+    }
+  },
+  "753": {
+    "version": "1.16.3",
+    "releases": [
+      "1.16.3"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 25,
+      "keep_alive": 31,
+      "login": 36,
+      "position": 52
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 16,
+      "position": 18
+    }
+  },
+  "754": {
+    "version": "1.16.5",
+    "releases": [
+      "1.16.5",
+      "1.16.4"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 14,
+      "kick_disconnect": 25,
+      "keep_alive": 31,
+      "login": 36,
+      "position": 52
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 16,
+      "position": 18
+    }
+  },
+  "755": {
+    "version": "1.17",
+    "releases": [
+      "1.17"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 33,
+      "login": 38,
+      "ping": 48,
+      "position": 56
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17,
+      "pong": 29
+    }
+  },
+  "756": {
+    "version": "1.17.1",
+    "releases": [
+      "1.17.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 33,
+      "login": 38,
+      "ping": 48,
+      "position": 56
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17,
+      "pong": 29
+    }
+  },
+  "757": {
+    "version": "1.18.1",
+    "releases": [
+      "1.18.1",
+      "1.18"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 33,
+      "login": 38,
+      "ping": 48,
+      "position": 56
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17,
+      "pong": 29
+    }
+  },
+  "758": {
+    "version": "1.18.2",
+    "releases": [
+      "1.18.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "chat": 15,
+      "kick_disconnect": 26,
+      "keep_alive": 33,
+      "login": 38,
+      "ping": 48,
+      "position": 56
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat": 3,
+      "settings": 5,
+      "keep_alive": 15,
+      "position": 17,
+      "pong": 29
+    }
+  },
+  "759": {
+    "version": "1.19",
+    "releases": [
+      "1.19"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "kick_disconnect": 23,
+      "keep_alive": 30,
+      "login": 35,
+      "ping": 45,
+      "player_chat": 48,
+      "position": 54,
+      "system_chat": 95
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "chat_message": 4,
+      "settings": 7,
+      "keep_alive": 17,
+      "position": 19,
+      "pong": 31
+    }
+  },
+  "760": {
+    "version": "1.19.2",
+    "releases": [
+      "1.19.2",
+      "1.19.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "kick_disconnect": 25,
+      "keep_alive": 32,
+      "login": 37,
+      "ping": 47,
+      "player_chat": 51,
+      "position": 57,
+      "system_chat": 98
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 5,
+      "settings": 8,
+      "keep_alive": 18,
+      "position": 20,
+      "pong": 32
+    }
+  },
+  "761": {
+    "version": "1.19.3",
+    "releases": [
+      "1.19.3"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "kick_disconnect": 23,
+      "profileless_chat": 24,
+      "keep_alive": 31,
+      "login": 36,
+      "ping": 46,
+      "player_chat": 49,
+      "position": 56,
+      "system_chat": 96
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 5,
+      "settings": 7,
+      "keep_alive": 17,
+      "position": 19,
+      "pong": 31
+    }
+  },
+  "762": {
+    "version": "1.19.4",
+    "releases": [
+      "1.19.4"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "kick_disconnect": 26,
+      "profileless_chat": 27,
+      "keep_alive": 35,
+      "login": 40,
+      "ping": 50,
+      "player_chat": 53,
+      "position": 60,
+      "system_chat": 100
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 5,
+      "settings": 8,
+      "keep_alive": 18,
+      "position": 20,
+      "pong": 32
+    }
+  },
+  "763": {
+    "version": "1.20.1",
+    "releases": [
+      "1.20.1",
+      "1.20"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2
+    },
+    "play_toClient": {
+      "kick_disconnect": 26,
+      "profileless_chat": 27,
+      "keep_alive": 35,
+      "login": 40,
+      "ping": 50,
+      "player_chat": 53,
+      "position": 60,
+      "system_chat": 100
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 5,
+      "settings": 8,
+      "keep_alive": 18,
+      "position": 20,
+      "pong": 32
+    }
+  },
+  "764": {
+    "version": "1.20.2",
+    "releases": [
+      "1.20.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3
+    },
+    "configuration_toClient": {
+      "disconnect": 1,
+      "finish_configuration": 2,
+      "keep_alive": 3,
+      "ping": 4
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "finish_configuration": 2,
+      "keep_alive": 3,
+      "pong": 4
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 12,
+      "kick_disconnect": 27,
+      "profileless_chat": 28,
+      "keep_alive": 36,
+      "login": 41,
+      "ping": 51,
+      "player_chat": 55,
+      "position": 62,
+      "start_configuration": 101,
+      "system_chat": 103
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 5,
+      "chunk_batch_received": 7,
+      "settings": 9,
+      "configuration_acknowledged": 11,
+      "keep_alive": 20,
+      "position": 22,
+      "pong": 35
+    }
+  },
+  "765": {
+    "version": "1.20.4",
+    "releases": [
+      "1.20.4",
+      "1.20.3"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3
+    },
+    "configuration_toClient": {
+      "disconnect": 1,
+      "finish_configuration": 2,
+      "keep_alive": 3,
+      "ping": 4
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "finish_configuration": 2,
+      "keep_alive": 3,
+      "pong": 4
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 12,
+      "kick_disconnect": 27,
+      "profileless_chat": 28,
+      "keep_alive": 36,
+      "login": 41,
+      "ping": 51,
+      "player_chat": 55,
+      "position": 62,
+      "start_configuration": 103,
+      "system_chat": 105
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 5,
+      "chunk_batch_received": 7,
+      "settings": 9,
+      "configuration_acknowledged": 11,
+      "keep_alive": 21,
+      "position": 23,
+      "pong": 36
+    }
+  },
+  "766": {
+    "version": "1.20.6",
+    "releases": [
+      "1.20.6",
+      "1.20.5"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 12,
+      "cookie_request": 22,
+      "kick_disconnect": 29,
+      "profileless_chat": 30,
+      "keep_alive": 38,
+      "login": 43,
+      "ping": 53,
+      "player_chat": 57,
+      "position": 64,
+      "start_configuration": 105,
+      "system_chat": 108
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 6,
+      "chunk_batch_received": 8,
+      "settings": 10,
+      "configuration_acknowledged": 12,
+      "cookie_response": 17,
+      "keep_alive": 24,
+      "position": 26,
+      "pong": 39
+    }
+  },
+  "767": {
+    "version": "1.21.1",
+    "releases": [
+      "1.21.1",
+      "1.21"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 12,
+      "cookie_request": 22,
+      "kick_disconnect": 29,
+      "profileless_chat": 30,
+      "keep_alive": 38,
+      "login": 43,
+      "ping": 53,
+      "player_chat": 57,
+      "position": 64,
+      "start_configuration": 105,
+      "system_chat": 108
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 3,
+      "chat_message": 6,
+      "chunk_batch_received": 8,
+      "settings": 10,
+      "configuration_acknowledged": 12,
+      "cookie_response": 17,
+      "keep_alive": 24,
+      "position": 26,
+      "pong": 39
+    }
+  },
+  "768": {
+    "version": "1.21.3",
+    "releases": [
+      "1.21.3",
+      "1.21.2"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 12,
+      "cookie_request": 22,
+      "kick_disconnect": 29,
+      "profileless_chat": 30,
+      "keep_alive": 39,
+      "login": 44,
+      "ping": 55,
+      "player_chat": 59,
+      "position": 66,
+      "start_configuration": 112,
+      "system_chat": 115
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 4,
+      "chat_message": 7,
+      "chunk_batch_received": 9,
+      "client_tick_end": 11,
+      "settings": 12,
+      "configuration_acknowledged": 14,
+      "cookie_response": 19,
+      "keep_alive": 26,
+      "position": 28,
+      "pong": 41
+    }
+  },
+  "769": {
+    "version": "1.21.4",
+    "releases": [
+      "1.21.4"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 12,
+      "cookie_request": 22,
+      "kick_disconnect": 29,
+      "profileless_chat": 30,
+      "keep_alive": 39,
+      "login": 44,
+      "ping": 55,
+      "player_chat": 59,
+      "position": 66,
+      "start_configuration": 112,
+      "system_chat": 115
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 4,
+      "chat_message": 7,
+      "chunk_batch_received": 9,
+      "client_tick_end": 11,
+      "settings": 12,
+      "configuration_acknowledged": 14,
+      "cookie_response": 19,
+      "keep_alive": 26,
+      "position": 28,
+      "player_loaded": 42,
+      "pong": 43
+    }
+  },
+  "770": {
+    "version": "1.21.5",
+    "releases": [
+      "1.21.5"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 28,
+      "profileless_chat": 29,
+      "keep_alive": 38,
+      "login": 43,
+      "ping": 54,
+      "player_chat": 58,
+      "position": 65,
+      "start_configuration": 111,
+      "system_chat": 114
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 4,
+      "chat_message": 7,
+      "chunk_batch_received": 9,
+      "client_tick_end": 11,
+      "settings": 12,
+      "configuration_acknowledged": 14,
+      "cookie_response": 19,
+      "keep_alive": 26,
+      "position": 28,
+      "player_loaded": 42,
+      "pong": 43
+    }
+  },
+  "771": {
+    "version": "1.21.6",
+    "releases": [
+      "1.21.6"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 28,
+      "profileless_chat": 29,
+      "keep_alive": 38,
+      "login": 43,
+      "ping": 54,
+      "player_chat": 58,
+      "position": 65,
+      "start_configuration": 111,
+      "system_chat": 114
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 5,
+      "chat_message": 8,
+      "chunk_batch_received": 10,
+      "client_tick_end": 12,
+      "settings": 13,
+      "configuration_acknowledged": 15,
+      "cookie_response": 20,
+      "keep_alive": 27,
+      "position": 29,
+      "player_loaded": 43,
+      "pong": 44
+    }
+  },
+  "772": {
+    "version": "1.21.8",
+    "releases": [
+      "1.21.8",
+      "1.21.7"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 28,
+      "profileless_chat": 29,
+      "keep_alive": 38,
+      "login": 43,
+      "ping": 54,
+      "player_chat": 58,
+      "position": 65,
+      "start_configuration": 111,
+      "system_chat": 114
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 5,
+      "chat_message": 8,
+      "chunk_batch_received": 10,
+      "client_tick_end": 12,
+      "settings": 13,
+      "configuration_acknowledged": 15,
+      "cookie_response": 20,
+      "keep_alive": 27,
+      "position": 29,
+      "player_loaded": 43,
+      "pong": 44
+    }
+  },
+  "773": {
+    "version": "1.21.9",
+    "releases": [
+      "1.21.10",
+      "1.21.9"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 32,
+      "profileless_chat": 33,
+      "keep_alive": 43,
+      "login": 48,
+      "ping": 59,
+      "player_chat": 63,
+      "position": 70,
+      "start_configuration": 116,
+      "system_chat": 119
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 5,
+      "chat_message": 8,
+      "chunk_batch_received": 10,
+      "client_tick_end": 12,
+      "settings": 13,
+      "configuration_acknowledged": 15,
+      "cookie_response": 20,
+      "keep_alive": 27,
+      "position": 29,
+      "player_loaded": 43,
+      "pong": 44
+    }
+  },
+  "774": {
+    "version": "1.21.11",
+    "releases": [
+      "1.21.11"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 32,
+      "profileless_chat": 33,
+      "keep_alive": 43,
+      "login": 48,
+      "ping": 59,
+      "player_chat": 63,
+      "position": 70,
+      "start_configuration": 116,
+      "system_chat": 119
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 5,
+      "chat_message": 8,
+      "chunk_batch_received": 10,
+      "client_tick_end": 12,
+      "settings": 13,
+      "configuration_acknowledged": 15,
+      "cookie_response": 20,
+      "keep_alive": 27,
+      "position": 29,
+      "player_loaded": 43,
+      "pong": 44
+    }
+  },
+  "775": {
+    "version": "26.1",
+    "releases": [
+      "26.1.2",
+      "26.1.1",
+      "26.1"
+    ],
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 32,
+      "profileless_chat": 33,
+      "keep_alive": 44,
+      "login": 49,
+      "ping": 61,
+      "player_chat": 65,
+      "position": 72,
+      "start_configuration": 118,
+      "system_chat": 121
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 6,
+      "chat_message": 9,
+      "chunk_batch_received": 11,
+      "client_tick_end": 13,
+      "settings": 14,
+      "configuration_acknowledged": 16,
+      "cookie_response": 21,
+      "keep_alive": 28,
+      "position": 30,
+      "player_loaded": 44,
+      "pong": 45
+    }
+  },
+  "776": {
+    "version": "26.2",
+    "releases": [
+      "26.2"
+    ],
+    "source": "Mojang verified server registry",
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 14
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 32,
+      "profileless_chat": 33,
+      "keep_alive": 44,
+      "login": 49,
+      "ping": 61,
+      "player_chat": 65,
+      "position": 72,
+      "start_configuration": 118,
+      "system_chat": 121
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 6,
+      "chat_message": 9,
+      "chunk_batch_received": 11,
+      "client_tick_end": 13,
+      "settings": 14,
+      "configuration_acknowledged": 16,
+      "cookie_response": 21,
+      "keep_alive": 28,
+      "position": 30,
+      "player_loaded": 44,
+      "pong": 45
+    }
+  },
+  "777": {
+    "version": "26.3",
+    "releases": [
+      "26.3"
+    ],
+    "source": "Mojang verified server registry",
+    "login_toClient": {
+      "disconnect": 0,
+      "encryption_begin": 1,
+      "success": 2,
+      "compress": 3,
+      "login_plugin_request": 4,
+      "cookie_request": 5
+    },
+    "login_toServer": {
+      "login_start": 0,
+      "encryption_begin": 1,
+      "login_plugin_response": 2,
+      "login_acknowledged": 3,
+      "cookie_response": 4
+    },
+    "configuration_toClient": {
+      "cookie_request": 0,
+      "disconnect": 2,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "ping": 5,
+      "select_known_packs": 15
+    },
+    "configuration_toServer": {
+      "settings": 0,
+      "cookie_response": 1,
+      "finish_configuration": 3,
+      "keep_alive": 4,
+      "pong": 5,
+      "select_known_packs": 7
+    },
+    "play_toClient": {
+      "chunk_batch_finished": 11,
+      "cookie_request": 21,
+      "kick_disconnect": 32,
+      "profileless_chat": 33,
+      "keep_alive": 45,
+      "login": 50,
+      "ping": 62,
+      "player_chat": 66,
+      "position": 73,
+      "start_configuration": 120,
+      "system_chat": 124
+    },
+    "play_toServer": {
+      "teleport_confirm": 0,
+      "message_acknowledgement": 6,
+      "chat_message": 9,
+      "chunk_batch_received": 11,
+      "client_tick_end": 13,
+      "settings": 14,
+      "configuration_acknowledged": 16,
+      "cookie_response": 21,
+      "keep_alive": 28,
+      "position": 30,
+      "player_loaded": 44,
+      "pong": 45
+    }
+  }
+}

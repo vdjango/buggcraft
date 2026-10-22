@@ -4,6 +4,7 @@ import os
 import shutil
 import platform
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,11 @@ def delete_minecraft_version(minecraft_directory, version_id):
         # 获取版本目录路径
         versions_dir = os.path.join(minecraft_directory, "versions")
         version_dir = os.path.join(versions_dir, version_id)
+        resolved_versions = Path(versions_dir).resolve()
+        resolved_version = Path(version_dir).resolve()
+        if resolved_version.parent != resolved_versions:
+            logger.error('版本删除路径超出 versions 目录')
+            return False
         
         # 验证版本目录是否存在
         if not os.path.isdir(version_dir):

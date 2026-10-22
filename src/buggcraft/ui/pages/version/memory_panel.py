@@ -26,7 +26,7 @@ class MemorySettingsPanel(QWidget):
         super().__init__(parent)
         self.resource_path = parent.resource_path
         self.background_color = "rgba(190, 183, 255, 0.3)"
-        self.settings_manager = get_settings_manager()
+        self.settings_manager = getattr(parent, 'settings_manager', None) or get_settings_manager()
         self.memory_recommender = AdvancedMemoryRecommender(self.settings_manager)
         self.is_disabled = True
         self.init_ui()
@@ -202,8 +202,10 @@ class MemorySettingsPanel(QWidget):
         self.update_memory_display(allocated_memory, used_memory, total_memory, available_memory)
 
         # 设置滑块范围/滑块值/更新进度条
-        self.memory_slider.setMaximum(free_memory)
+        self.memory_slider.setMaximum(max(512, total_memory - 1024))
+        blocked = self.memory_slider.blockSignals(True)
         self.memory_slider.setValue(allocated_memory)
+        self.memory_slider.blockSignals(blocked)
         self.memory_progress.set_memory_values(
             total_memory=total_memory,
             used_memory=used_memory,
@@ -283,7 +285,9 @@ class MemorySettingsPanel(QWidget):
     
     def load_default(self):
         """从配置文件加载设置"""
-        self.auto_isolation.set_selected(
-            self.settings_manager.get_version_setting("minecraft.auto_allocate_memory", True)
-        )
+        auto = self.settings_manager.get_version_setting("minecraft.auto_allocate_memory", True)
+        blocked = self.auto_isolation.blockSignals(True)
+        self.auto_isolation.set_selected(auto)
+        self.auto_isolation.blockSignals(blocked)
+        self.memory_container.setEnabled(not auto)
         self.set_initial_values()

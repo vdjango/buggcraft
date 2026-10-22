@@ -5,7 +5,7 @@ import logging
 import webbrowser
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QPushButton
+    QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QPushButton, QPlainTextEdit
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor, QIcon
@@ -50,6 +50,10 @@ class MinecraftLauncher(QMainWindow):
         self.cache_path = cache_path
         self.config_path = config_path
         self.resource_path = resource_path
+        self._closing = False
+        self._close_after_game = False
+        self._debug_output = []
+        self._debug_dialog = None
         self.setWindowIcon(get_app_icon(self.resource_path))
 
         # 窗口拖动
@@ -164,7 +168,7 @@ class MinecraftLauncher(QMainWindow):
         self.started_page = StartGamePage(self, resource_path=self.resource_path, cache_path=self.cache_path)
         self.started_page.login_success.connect(self.handle_login_success)
         self.started_page.started_changed.connect(self.started_page.started_game)  # 启动游戏，必须在主UI中进行
-        self.title_bar.version_popup.version_selected.connect(self.started_page.set_minecraft_version)
+        self.title_bar.version_changed.connect(self.started_page.set_minecraft_version)
         self.content_stack.addWidget(self.started_page)
 
         # 下载页面 TODO
@@ -195,10 +199,13 @@ class MinecraftLauncher(QMainWindow):
         # 注册信号
         def on_directory_signal(minecraft_directory):
             self.started_page.launcher.minecraft_directory = minecraft_directory
+            self.started_page.instance_changed.emit()
 
         def on_version_signal(version):
-            self.started_page.launcher.minecraft_version = version
-            self.started_page.set_minecraft_version(version)
+            self.title_bar.refresh_versions()
+            selected = self.settings_manager.get_setting('minecraft.version.enable')
+            self.title_bar.version_popup.set_selected(selected)
+            self.started_page.set_minecraft_version(selected)
 
         self.version_page.signals.directory.connect(on_directory_signal)
         self.version_page.signals.versions.connect(on_version_signal)
@@ -213,6 +220,8 @@ class MinecraftLauncher(QMainWindow):
     
     def minecraft_not_java_runtime(self):
         """打开启动器检查Java环境"""
+        if self._closing:
+            return
         if self.settings_manager.get_version_setting('java.path', None) is None:
             # https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi
             # 尝试本地搜索
@@ -231,13 +240,17 @@ class MinecraftLauncher(QMainWindow):
         """打开启动器检查游戏版本"""
         if self.settings_manager.get_setting('minecraft.version.enable') is None:
             logger.warning('未安装游戏版本，请安装游戏版本')
-            self.gamed_version_full.exec()  # 使用show()显示独立窗口
+            self.started_page.set_minecraft_version(None)
 
-    def load_java_path(self):
+    def load_java_path(self, notify_missing=True):
         """自动加载系统中Java路径"""
 
         # 在后台线程中执行搜索（避免阻塞UI）
         from PySide6.QtCore import QThread, Signal, QObject
+        previous = getattr(self, 'search_thread', None)
+        if previous is not None and previous.isRunning():
+            return
+        self._java_notify_missing = notify_missing
         
         class JavaSearchWorker(QObject):
             finished = Signal(list)
@@ -245,24 +258,27 @@ class MinecraftLauncher(QMainWindow):
             
             def run(self):
                 try:
-                    finder = JavaPathFinder()
+                    finder = JavaPathFinder(cancelled=QThread.currentThread().isInterruptionRequested)
                     java_installations = finder.find_all_java_installations()
                     self.finished.emit(java_installations)
                 except Exception as e:
                     self.error.emit(str(e))
         
         # 创建和工作线程
-        self.search_thread = QThread()
+        if previous is not None:
+            previous.deleteLater()
+        self.search_thread = QThread(self)
         self.worker = JavaSearchWorker()
         self.worker.moveToThread(self.search_thread)
         
         # 连接信号和槽
         self.search_thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.on_java_search_finished)
-        self.worker.finished.connect(self.search_thread.quit)
+        self.worker.finished.connect(self.search_thread.quit, Qt.DirectConnection)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker.error.connect(self.on_java_search_error)
-        self.search_thread.finished.connect(self.search_thread.deleteLater)
+        self.worker.error.connect(self.search_thread.quit, Qt.DirectConnection)
+        self.worker.error.connect(self.worker.deleteLater)
         
         # 启动线程
         self.search_thread.start()
@@ -271,41 +287,53 @@ class MinecraftLauncher(QMainWindow):
         finder = JavaPathFinder()
         
         best_java = self.settings_manager.get_version_setting('java.path')
-        current_version = finder._get_java_version(best_java)[1][:2]
+        parsed = finder._get_java_version(best_java)[1]
+        current_version = parsed[:2] if parsed else ()
         current_version = '.'.join(list(str(i) for i in current_version))
         if finder.is_java_version_low(best_java):
             """版本过低"""
             logger.warning(f'版本过低 {best_java}')
             self.java_runtime_full.set_title(f'Java版本过低')
-            self.java_runtime_full.set_message(f'当前Java版本 {current_version}，可能无法运行最新版Minecraft。')
+            self.java_runtime_full.set_message(f'当前Java版本 {current_version or "无法识别"}，请在设置中选择合适的 Java。')
             return True
 
         return False
 
     def on_java_search_finished(self, java_installations):
         """Java搜索完成处理"""
+        if self._closing:
+            return
         print('java_installations', java_installations)
         if java_installations:
             # 自动选择推荐的Java
             finder = JavaPathFinder()
             best_java = finder.recommend_best_java(java_installations)
 
-            self.settings_manager.set_version_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
-            self.settings_manager.set_version_setting('java.path', best_java)
+            current = self.settings_manager.get_version_setting('java.path')
+            if not current or not os.path.isfile(current):
+                self.settings_manager.set_version_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
+                self.settings_manager.set_version_setting('java.path', best_java)
             self.settings_manager.set_setting('java.installations', java_installations)
             self.settings_manager.save_settings()
+            self.settings_page.java_page.refresh_list()
 
-            if self.minecraft_not_java_version_runtime():
+            if getattr(self, '_java_notify_missing', True) and self.minecraft_not_java_version_runtime():
                 self.java_runtime_full.exec()
                 return
         else:
+            self.settings_manager.set_setting('java.installations', [])
+            self.settings_manager.save_settings()
+            self.settings_page.java_page.refresh_list()
             logger.warning('未安装Java环境，请下载安装Java')
-            self.java_runtime_full.exec()
+            if getattr(self, '_java_notify_missing', True):
+                self.java_runtime_full.exec()
             return
         
     def on_java_search_error(self, error_message):
         """Java搜索错误处理"""
         print("搜索出错", f"错误信息: {error_message}")
+        self.settings_page.java_page.refresh_list()
+        self.settings_page.java_page.java_versions_panel.set_messages('搜索失败，请重试')
 
     def on_gamed_import_signal(self):
         """用户选择了导入游戏向导"""
@@ -323,11 +351,8 @@ class MinecraftLauncher(QMainWindow):
 
     def on_java_download_signal(self):
         """用户选择了下载Java向导"""
-        import sys
-        # https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi
         logger.info("用户选择了下载Java向导")
-        webbrowser.open('https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi')
-        QTimer.singleShot(1000, sys.exit)
+        webbrowser.open('https://www.oracle.com/java/technologies/downloads/#java21')
         pass
 
     def switch_pages(self, name):
@@ -363,22 +388,50 @@ class MinecraftLauncher(QMainWindow):
     def minecraft_handle_output(self, message):
         """处理输出"""
         logger.info(f'minecraft_handle_output {message}')
+        self._debug_output.append(str(message))
+        self._debug_output = self._debug_output[-5000:]
+        if self._debug_dialog is not None:
+            self._debug_dialog.appendPlainText(str(message))
+
+    def _show_debug_output(self):
+        if self._debug_dialog is None:
+            self._debug_dialog = QPlainTextEdit(self)
+            self._debug_dialog.setWindowFlag(Qt.Window)
+            self._debug_dialog.setWindowTitle('Minecraft · 调试输出')
+            self._debug_dialog.setReadOnly(True)
+            self._debug_dialog.setMaximumBlockCount(5000)
+            self._debug_dialog.resize(760, 440)
+            self._debug_dialog.setPlainText('\n'.join(self._debug_output))
+        self._debug_dialog.show()
+        self._debug_dialog.raise_()
+        self._debug_dialog.activateWindow()
     
     def minecraft_handle_started(self):
         """游戏启动处理"""
         logger.info('minecraft_handle_started 游戏已启动')
+        if self.settings_manager.get_version_setting('launcher.debug', '否（推荐）') == '是':
+            self._show_debug_output()
         # 应用可见性设置
         self.visibility_manager.apply_setting(self.settings_manager.get_version_setting('launcher.visibility', "游戏启动后保持不变"))
     
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
-        self.visibility_manager.restore_if_needed()  # 恢复启动器
+        if self._close_after_game:
+            QTimer.singleShot(100, self.close)
+        else:
+            self.visibility_manager.restore_if_needed()
     
     def minecraft_handle_error(self, message):
         """错误处理"""
         logger.info(f'minecraft_handle_error {message}')
-        self.visibility_manager.restore_if_needed()  # 恢复启动器
+        self.minecraft_handle_output(f'[错误] {message}')
+        if self.settings_manager.get_version_setting('launcher.debug', '否（推荐）') == '是':
+            self._show_debug_output()
+        if self._close_after_game:
+            QTimer.singleShot(100, self.close)
+        else:
+            self.visibility_manager.restore_if_needed()
     
     def minecraft_handle_progress(self, progress):
         """处理进度更新"""
@@ -471,6 +524,37 @@ class MinecraftLauncher(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
+        thread = getattr(self.launcher, 'start_thread', None)
+        if thread is not None and thread.isRunning():
+            self._close_after_game = True
+            self.hide()
+            lobby = getattr(self.started_page, '_multiplayer_dialog', None)
+            if lobby is not None:
+                lobby.hide()
+            if self._debug_dialog is not None:
+                self._debug_dialog.hide()
+            event.ignore()
+            if not self.launcher.running:
+                QTimer.singleShot(100, self.close)
+            return
+        self._closing = True
+        if not self.download_page.shutdown():
+            event.ignore()
+            QTimer.singleShot(100, self.close)
+            return
+        lobby = getattr(self.started_page, '_multiplayer_dialog', None)
+        if lobby is not None:
+            lobby.shutdown()
+        search = getattr(self, 'search_thread', None)
+        if search is not None and search.isRunning():
+            search.requestInterruption()
+            search.quit()
+            if not search.wait(100):
+                event.ignore()
+                QTimer.singleShot(100, self.close)
+                return
+        if self._debug_dialog is not None:
+            self._debug_dialog.close()
         super().closeEvent(event)
 
     # 窗口拖动功能

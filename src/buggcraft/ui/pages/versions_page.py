@@ -42,7 +42,7 @@ class VersionsPages(QWidget):
 
     def on_page_activate(self):
         """事件：页面被激活时"""
-        print("页面被激活")
+        self.versions_page.refresh_version_list(self.settings_manager.get_setting('minecraft.directory.enable'))
     
     def on_page_deactivate(self):
         """事件：页面被隐藏时"""

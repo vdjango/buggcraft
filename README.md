@@ -76,7 +76,7 @@ $env:PYTHONPATH = "$PWD\src"
 
 完整测试和网络验收记录见[启动器验收记录](docs/validation/launcher-validation.md)、[联机验证记录](docs/validation/multiplayer-validation.md)和[联机路线图](docs/planning/multiplayer-roadmap.md)。单元测试、本地游戏服务端和不同公网中的真实客户端属于不同验证层级，文档会标明实际执行的范围。
 
-使用 `build.bat` 构建 Windows 运行包。[Windows 打包说明](docs/technical/windows-packaging.md)记录了干净系统验证、运行时下载和代码签名状态。未签名构建不能标为已签名，也不应要求用户关闭 Windows 防护。
+使用 `build.bat` 构建 Windows 运行包，macOS 使用 `bash build_macos.sh`。GitHub Actions 的「Package launcher」会分别生成 Windows x64、macOS Intel 和 Apple Silicon 产物，并执行运行包检查。[Windows 打包说明](docs/technical/windows-packaging.md)和 [macOS 打包说明](docs/technical/macos-packaging.md)记录了 Qt 裁剪、运行检查与签名边界。
 
 ## 参与贡献
 

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Buggcraft 启动器下载</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#0c1118;color:#e8edf3;font:16px/1.65 "Segoe UI","Microsoft YaHei UI",sans-serif}
+    main{width:min(920px,calc(100% - 36px));margin:9vh auto}.brand{color:#8ee6c1;font-size:13px;letter-spacing:.16em;text-transform:uppercase}
+    h1{font-size:clamp(32px,6vw,54px);line-height:1.12;margin:12px 0}.lead{color:#aab7c5;font-size:18px;max-width:680px}
+    .card{margin-top:34px;padding:28px;border:1px solid #263342;border-radius:18px;background:linear-gradient(135deg,#151e29,#111820)}
+    .row{display:flex;gap:28px;align-items:center;justify-content:space-between;flex-wrap:wrap}.label{font-size:12px;color:#93a4b6;letter-spacing:.1em;text-transform:uppercase}
+    h2{margin:3px 0 6px;font-size:23px}.muted{color:#aab7c5}.button{display:inline-block;padding:12px 19px;border-radius:10px;background:#8ee6c1;color:#10221c;text-decoration:none;font-weight:700}
+    a.secondary{color:#a9dbc7;text-decoration:none}.details{margin:20px 0 0;padding-left:20px;color:#aab7c5}.details li+li{margin-top:7px}
+    footer{margin-top:26px;color:#8291a0;font-size:13px}.pill{display:inline-block;margin-left:8px;padding:2px 8px;border:1px solid #41515f;border-radius:999px;font-size:12px;color:#aab7c5}
+    @media(max-width:560px){main{margin:38px auto}.card{padding:21px}.row{align-items:flex-start;flex-direction:column;gap:14px}}
+  </style>
+</head>
+<body><main>
+  <div class="brand">Buggcraft · Windows x64</div>
+  <h1>启动器下载</h1>
+  <p class="lead">首次启动会自动准备运行组件。之后会复用本机已校验的文件，不需要另外安装 Python、Qt 或 C++ 运行库。</p>
+  <section class="card">
+    <div class="row">
+      <div><div class="label">推荐 · 首次安装</div><h2>轻量启动程序 <span class="pill">约 362 KB</span></h2><div class="muted">首次运行需下载约 106.5 MB 的运行包。</div></div>
+      <a class="button" href="Buggcraft-Setup.exe">下载启动程序</a>
+    </div>
+    <ul class="details">
+      <li>下载内容会校验文件大小和 SHA-256，运行文件保存在启动程序旁边的 Buggcraft-runtime 文件夹。</li>
+      <li>当前为未签名测试包，可能受到 Windows 安全策略拦截；正式签名尚未完成。</li>
+      <li>网络下载失败时，可把下方完整运行包放到启动程序旁，再重新运行。</li>
+      <li>如果 Windows 显示 SmartScreen“仍要运行”，请先核对文件来自本下载页；无法确认来源时不要继续。</li>
+      <li>被拦截或启动失败时，下载<a class="secondary" href="collect-launcher-diagnostics.ps1">故障信息收集脚本</a>，与安装器放在同一文件夹，用 PowerShell 运行后把生成的 ZIP 发回。</li>
+      <li>仅提供 Windows 10/11 64 位版本。</li>
+    </ul>
+  </section>
+  <section class="card">
+    <div class="row">
+      <div><div class="label">离线包</div><h2>完整运行包 <span class="pill">约 106.5 MB</span></h2><div class="muted">适合网络受限或多台电脑拷贝使用。</div></div>
+      <a class="secondary" href="{{version}}/Buggcraft-runtime-windows-x64.zip">下载完整运行包 →</a>
+    </div>
+  </section>
+  <footer>临时下载站。启动程序内置此版本的 HTTPS 证书指纹和文件校验信息；正式域名与受信任证书配置完成后会更新下载入口。</footer>
+</main></body></html>

@@ -6,6 +6,8 @@ Windows x64 发布分成小型启动程序和完整运行包。`Buggcraft-Setup.
 
 ## 构建
 
+Qt 官方的 [`pyside6-deploy`](https://doc.qt.io/qtforpython-6/deployment/deployment-pyside6-deploy.html) 同样基于 Nuitka，支持排除未使用的 QML 插件。当前构建保留既有 Nuitka 流程，使用 Qt 官方 `qmlimportscanner` 计算 QML 依赖，再跟踪 PE 导入裁剪未引用的 Qt DLL；不会排除界面必需的 QtCore、QtGui、QtQuick 等库。Windows `windeployqt` 主要处理 Qt 原生依赖，不能单独打包 Python 和 WebRTC。macOS 流程见 [macOS 打包说明](macos-packaging.md)。
+
 构建机需 Windows x64、Python 3.11 x64，以及 Visual Studio 2022 C++ Build Tools。`build.bat` 会在 `.build-venv` 建独立环境、安装固定版本的打包工具并执行 `pip check`。完整依赖较多，首次构建需要下载 Python 包和 Qt 组件。
 
 离线构建：

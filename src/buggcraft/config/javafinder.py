@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 class JavaPathFinder:
     """自动查找系统中Java安装路径的工具类"""
     
-    def __init__(self):
+    def __init__(self, cancelled=None):
+        self.cancelled = cancelled or (lambda: False)
         self.system = platform.system().lower()
         self.found_java_paths = []
         self.min_required_version = (17, 0)  # Minecraft 1.17+ 需要 Java 17+
@@ -37,6 +38,8 @@ class JavaPathFinder:
         ]
         
         for method in methods:
+            if self.cancelled():
+                return []
             try:
                 method()
             except Exception as e:
@@ -50,6 +53,8 @@ class JavaPathFinder:
         env_vars = ['JAVA_HOME', 'JRE_HOME']
         
         for env_var in env_vars:
+            if self.cancelled():
+                return
             java_home = os.environ.get(env_var)
             if java_home and os.path.exists(java_home):
                 java_exe = self._find_java_exe_in_path(java_home)
@@ -84,6 +89,8 @@ class JavaPathFinder:
             ]
         
         for base_path in common_paths:
+            if self.cancelled():
+                return
             if os.path.exists(base_path):
                 self._search_java_in_directory(base_path)
     
@@ -133,8 +140,12 @@ class JavaPathFinder:
         ]
         
         for program_files in program_files_dirs:
+            if self.cancelled():
+                return
             if os.path.exists(program_files):
                 for item in os.listdir(program_files):
+                    if self.cancelled():
+                        return
                     if item.lower().startswith("java"):
                         java_dir = os.path.join(program_files, item)
                         if os.path.isdir(java_dir):
@@ -143,7 +154,11 @@ class JavaPathFinder:
     def _search_java_in_directory(self, directory: str):
         """在指定目录中搜索Java可执行文件"""
         for root, dirs, files in os.walk(directory):
+            if self.cancelled():
+                return
             for file in files:
+                if self.cancelled():
+                    return
                 if file.lower() in ["java", "java.exe"]:
                     java_path = os.path.join(root, file)
                     # 检查是否是真正的可执行文件

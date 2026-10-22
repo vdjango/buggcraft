@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QPoint, Signal
 
 from config.settings import SettingsManager
 from .VersionPopup import VersionPopup
+from utils.instances import installed_instance_ids
 
 
 from PySide6.QtWidgets import QLabel
@@ -42,6 +43,7 @@ class TitleBar(QWidget):
     
     tab_switch_clicked = Signal(str)
     menu_toggle_signal = Signal(bool)
+    version_changed = Signal(str)
     
     def __init__(self, parent, resource_path):
         super().__init__(parent)
@@ -110,7 +112,7 @@ class TitleBar(QWidget):
 
         # 创建版本选择按钮
         self.version_button = self.create_version_selection_button("版本", 125)
-        self.version_button.mousePressEvent = lambda e: self.on_version_button_clicked()
+        self.version_button.mousePressEvent = lambda e: self.on_version_button_clicked() if e.button() == Qt.LeftButton else None
         container_layout.addWidget(self.version_button, 0, Qt.AlignCenter)
         container_layout.addSpacing(5)
         
@@ -207,6 +209,7 @@ class TitleBar(QWidget):
         
         # 创建内容容器
         content_container = QWidget(button)
+        content_container.setAttribute(Qt.WA_TransparentForMouseEvents)
         content_container.setGeometry(0, 0, width, height)
         
         # 创建图标布局
@@ -304,12 +307,17 @@ class TitleBar(QWidget):
         # 创建按钮容器
         button = QLabel()
         button.setCursor(Qt.PointingHandCursor)
+        button.setFocusPolicy(Qt.StrongFocus)
+        button.setAccessibleName('选择游戏版本')
+        button.keyPressEvent = lambda e: self.on_version_button_clicked() if e.key() in (
+            Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space, Qt.Key_Down) else e.ignore()
         button.setFixedSize(width, height)
         # button.mousePressEvent = lambda e: self.on_tab_clicked(text)
         button.setPixmap(QPixmap(image_path).scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         
         # 创建内容容器
         content_container = QWidget(button)
+        content_container.setAttribute(Qt.WA_TransparentForMouseEvents)
         content_container.setContentsMargins(0, 0, 0, 0)
         content_container.setStyleSheet('background-color: transparent;')  # rgba(110, 99, 255, 0.5)
         content_container.setGeometry(5, 5, width-10, height-13)
@@ -347,39 +355,45 @@ class TitleBar(QWidget):
             self.version_popup = VersionPopup(self.version_button, self.resource_path, self.parent)
             self.version_popup.version_selected.connect(self.on_version_selected)
             
-            # 添加示例版本数据
-            self.add_sample_versions()
+            self.refresh_versions()
     
     def add_sample_versions(self):
-        """添加版本数据"""
-        if not self.version_popup:
-            return
-        
-        versions_data = [
-            {
-                "version_id": i,
-                "icon_path": os.path.join(self.resource_path, 'images', 'version', 'selected.png')
-            } for i in self.settings_manager.get_setting('minecraft.version.installed')
-        ]
-        
-        for version_data in versions_data:
-            self.version_popup.add_version_item(
-                version_data["version_id"],
-                version_data["icon_path"]
-            )
-        
-        self.version_popup.selected(self.settings_manager.get_setting('minecraft.version.enable'))
+        self.refresh_versions()
+
+    def refresh_versions(self):
+        """Refresh disk state before opening; publish only an actual selection change."""
+        versions = installed_instance_ids(self.settings_manager.get_setting('minecraft.directory.enable'))
+        previous = self.settings_manager.get_setting('minecraft.version.enable')
+        selected = previous if previous in versions else (versions[0] if versions else None)
+        cached = self.settings_manager.get_setting('minecraft.version.installed')
+        if cached != versions or previous != selected:
+            self.settings_manager.set_setting('minecraft.version.installed', versions)
+            self.settings_manager.set_setting('minecraft.version.enable', selected)
+            self.settings_manager.save_settings()
+        self.version_popup.set_versions(versions, selected)
+        self.version_button.setToolTip('当前版本：' + selected if selected else '没有可用版本，请下载或导入游戏')
+        if previous != selected:
+            self.version_popup.version_selected.emit(selected or '')
     
     def on_version_button_clicked(self):
         """处理版本按钮点击事件"""
         if self.version_popup:
+            if not self.version_popup.is_visible:
+                self.refresh_versions()
             self.version_popup.toggle_popup()
     
     def on_version_selected(self, version_id):
         """处理版本选择事件"""
-        print(f"选中版本: {version_id}")
-        self.settings_manager.set_setting('minecraft.version.enable', version_id)
-        self.settings_manager.save_settings()
+        selected = version_id or None
+        if selected and selected not in installed_instance_ids(self.settings_manager.get_setting('minecraft.directory.enable')):
+            self.refresh_versions()
+            return
+        if self.settings_manager.get_setting('minecraft.version.enable') != selected:
+            self.settings_manager.set_setting('minecraft.version.enable', selected)
+            self.settings_manager.save_settings()
+        self.version_popup.set_selected(selected)
+        self.version_button.setToolTip('当前版本：' + selected if selected else '没有可用版本，请下载或导入游戏')
+        self.version_changed.emit(selected or '')
     
     def create_control_button(self, name, bg_image):
         """创建控制按钮 - 使用 QLabel 和背景图片"""

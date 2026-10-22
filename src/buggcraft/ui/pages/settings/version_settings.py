@@ -11,12 +11,14 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
 
 from config.settings import get_settings_manager
+from config.settings_scope import GlobalSettingsScope
 from config.javafinder import JavaPathFinder
 from ui.widgets.collapse import CollapsePanel
 from ui.pages.version.memory_panel import MemorySettingsPanel
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from core.visibility import VisibilitySettings
 from ui.widgets.ComboBox import QMComboBox
+from ui.widgets.java_picker import choose_java
 
 
 import logging
@@ -33,10 +35,8 @@ class GlobalVersionSettingsPage(QWidget):
         self.resource_path = parent.resource_path
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
 
-        self.disabled = True
-        
         # 初始化设置管理器
-        self.settings_manager = get_settings_manager()
+        self.settings_manager = GlobalSettingsScope(get_settings_manager())
         self.available_java_versions = self.settings_manager.get_setting("java.installations", [])
         self.init_ui()
 
@@ -45,13 +45,6 @@ class GlobalVersionSettingsPage(QWidget):
         self.available_java_versions = self.settings_manager.get_setting("java.installations", [])
         # 页面被激活时 刷新Java列表
         self.on_java_search_finished(self.available_java_versions)
-        version = self.settings_manager.get_setting('minecraft.version.enable')
-
-        # 游戏版本设置 
-        # self.version_panel.set_title(f'启用 {version} 游戏版本设置')
-        # self.setting_button_group.set_selected_button(
-        #     self.setting_version_independent_proprty.get(self.settings_manager.get_version_setting_enable())
-        # )
         # 版本隔离
         self.version_isolation_button_group.set_selected_button(
             self.setting_version_isolation_proprty.get(self.settings_manager.get_version_setting("minecraft.isolation", True))
@@ -83,12 +76,12 @@ class GlobalVersionSettingsPage(QWidget):
             self.setting_debug_proprty.get(self.settings_manager.get_version_setting("launcher.debug", '否（推荐）'))
         )
         
-        independent_setting = False
-        if version is not None:
-            independent_setting = self.settings_manager.get_version_setting_enable()
-        
-        self.is_disabled(independent_setting)
-        print("global version settings 页面被激活", version)
+        # Global defaults remain editable when an instance has independent settings.
+        for panel in (self.version_isolation, self.java_panel, self.launcher_visibility,
+                      self.launcher_resolution, self.minecraft_process_priority, self.minecraft_debug):
+            panel.set_disabled(True)
+        self.minecraft_free.set_disabled(True)
+        print("global version settings 页面被激活")
     
     def on_page_deactivate(self):
         """当页面被隐藏时调用"""
@@ -213,52 +206,6 @@ class GlobalVersionSettingsPage(QWidget):
         # item.setCursor(Qt.PointingHandCursor)
 
         return item
-    
-    def create_version_independent(self):
-        """创建 游戏版本设置 设置内容"""
-        version = self.settings_manager.get_setting('minecraft.version.enable')
-        content = QWidget()
-        content.setStyleSheet("background-color: transparent;")
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        self.setting_button_group = QMRadioGroup()
-        
-        # 默认选择选项
-        independent_button = QMRadioButton(
-            self,
-            f'启用独立版本设置',
-            f'单独启用设置',
-            data_property=True
-        )
-        layout.addWidget(independent_button)
-        self.setting_button_group.add_button(independent_button)
-
-        default_button = QMRadioButton(
-            self,
-            f'跟随全局设置',
-            f'设置将跟随全局设置',
-            data_property=False
-        )
-        layout.addWidget(default_button)
-        self.setting_button_group.add_button(default_button)
-
-        # 设置默认选中
-        self.setting_version_independent_proprty = {
-            False: default_button,
-            True: independent_button
-        }
-        
-        self.setting_button_group.set_selected_button(self.setting_version_independent_proprty.get(
-            self.settings_manager.get_version_setting_enable()
-        ))
-        self.setting_button_group.button_selected.connect(self.is_disabled)
-        self.setting_button_group.button_selected.connect(self.on_page_activate)
-        
-        panel = CollapsePanel(self, f'启用 {version} 游戏版本设置', '启用后当前版本不受全局设置管控，不影响其他游戏设置', True, is_collaspe=False)
-        panel.set_content(content)
-        return panel
     
     def create_settings_panel(self):
         # 容器
@@ -460,7 +407,8 @@ class GlobalVersionSettingsPage(QWidget):
         text_layout.setContentsMargins(5, 0, 5, 0)
         text_layout.setSpacing(5)
 
-        title_label = QLabel('C:\\Program Files\\Java\\jdk-21.0.7')
+        title_label = QLabel(self.settings_manager.get_version_setting('java.path') or '点击右侧选择 Java')
+        self.custom_java_label = title_label
         title_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
@@ -476,7 +424,7 @@ class GlobalVersionSettingsPage(QWidget):
         ).scaled(12, 12, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         folder_icon.setStyleSheet('background-color: rgba(190, 183, 255, 0.19); border: 1px solid rgba(139, 133, 218, 1);')
         folder_icon.setCursor(Qt.PointingHandCursor)
-        # folder_icon.mousePressEvent = self.browse_java_path
+        folder_icon.mousePressEvent = lambda event: choose_java(self) if event.button() == Qt.LeftButton else None
         layout.addWidget(folder_icon)
         
         return container
@@ -619,22 +567,6 @@ class GlobalVersionSettingsPage(QWidget):
         best_java = finder.recommend_best_java(java_avail)
         return best_java
     
-    def is_disabled(self, disabled):
-        """是否启用独立版本设置，启用后取消其他设置项的禁用状态"""
-        self.disabled = disabled
-        version = self.settings_manager.get_setting('minecraft.version.enable')
-        if version is not None:
-            self.settings_manager.set_version_setting_enable(disabled)
-        
-        # 设置ui状态
-        self.version_isolation.set_disabled(self.isEnabled)
-        self.java_panel.set_disabled(self.isEnabled)
-        self.minecraft_free.set_disabled(self.isEnabled)
-        self.launcher_visibility.set_disabled(self.isEnabled)
-        self.launcher_resolution.set_disabled(self.isEnabled)
-        self.minecraft_process_priority.set_disabled(self.isEnabled)
-        self.minecraft_debug.set_disabled(self.isEnabled)
-
     def on_setting_changed(self, key: str, value: Any):
         """处理设置改变，更新配置管理器并保存"""
         # 更新配置管理器
@@ -652,7 +584,7 @@ class GlobalVersionSettingsPage(QWidget):
         path, name = java
         if path == 'custom':
             """手动选择"""
-            self.java_panel.set_messages('请手动选择Java路径')
+            choose_java(self)
             return
         
         if path == 'auto':
@@ -668,6 +600,10 @@ class GlobalVersionSettingsPage(QWidget):
         """清除现有的Java选项 - 在主线程中执行"""
         # 移除所有子部件
         layout = self.java_panel.content.layout()
+        self.java_button_group.clear_selection()
+        for button in list(self.java_button_group.buttons):
+            self.java_button_group.remove_button(button)
+        self.setting_java_proprty.clear()
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()
@@ -733,7 +669,7 @@ class GlobalVersionSettingsPage(QWidget):
         # 自动选择推荐的Java
         finder = JavaPathFinder()
         best_java = finder.recommend_best_java(java_installations)
-        self.java_panel.set_messages(best_java)
+        self.java_panel.set_messages(self.settings_manager.get_version_setting('java.path') or best_java)
 
     def on_java_search_error(self, error_message):
         """Java搜索错误处理"""
