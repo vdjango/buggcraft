@@ -60,7 +60,7 @@ class ProcessCases:
             original = Path(os.environ['BUGGCRAFT_BRIDGE_EXECUTABLE']).resolve()
             copied = self.directory / 'portable component'
             if not copied.exists():
-                shutil.copytree(original.parent, copied)
+                shutil.copytree(original.parent, copied, symlinks=True)
             command = [str(copied / original.name)]
             env['PATH'] = str(Path(os.environ['WINDIR']) / 'System32') if os.name == 'nt' else '/usr/bin:/bin'
         else:
@@ -70,6 +70,7 @@ class ProcessCases:
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         # Always drain stderr so diagnostics cannot block the protocol pipe.
         errors = asyncio.create_task(process.stderr.read())
+        process.bridge_errors = errors
         async def cleanup():
             if process.returncode is None:
                 process.stdin.close()
@@ -88,7 +89,10 @@ class ProcessCases:
                               'method': method, 'params': params or {}}) + '\n').encode())
         await process.stdin.drain()
         raw = await asyncio.wait_for(process.stdout.readline(), 30)
-        self.assertTrue(raw, 'Bridge exited before sending a response')
+        if not raw:
+            stderr = await asyncio.wait_for(asyncio.shield(process.bridge_errors), 5)
+            details = stderr.decode('utf-8', 'replace').replace(self.profile.token, '[redacted]')
+            self.fail('Bridge exited before sending a response: ' + details[-3000:])
         reply = json.loads(raw)
         self.assertEqual(reply['id'], identifier)
         self.assertEqual(reply['jsonrpc'], '2.0')

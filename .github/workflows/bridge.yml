@@ -74,8 +74,10 @@ jobs:
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
           print(result.stdout, end='')
           if result.returncode:
-              details = result.stdout[-12000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=Bridge binary acceptance failed::' + details)
+              blocks = result.stdout.split('======================================================================')
+              for block in blocks[1:] or blocks:
+                  details = block[-3000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=Bridge binary acceptance failed::' + details)
           raise SystemExit(result.returncode)
           PY
       - name: Upload portable component
