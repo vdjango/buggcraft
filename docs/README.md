@@ -12,6 +12,7 @@
 
 - [BMCLAPI 下载源接入](technical/bmclapi-downloads.md)
 - [CurseForge 多源与资源服务](technical/content-gateway.md)
+- [第三方启动器桥接接入](technical/bridge-integration.md)
 - [微软登录实现说明](technical/microsoft-login.md)
 - [账号与源站安全边界](technical/node-accounts-security.md)
 - [QML 界面结构](technical/qml-interface.md)

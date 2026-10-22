@@ -80,6 +80,10 @@ $env:PYTHONPATH = "$PWD\src"
 
 使用 `build.bat` 构建 Windows 运行包，macOS 使用 `bash build_macos.sh`。GitHub Actions 的「Package launcher」会分别生成 Windows x64、macOS Intel 和 Apple Silicon 产物，并执行运行包检查。[Windows 打包说明](docs/technical/windows-packaging.md)和 [macOS 打包说明](docs/technical/macos-packaging.md)记录了 Qt 裁剪、运行检查与签名边界。
 
+## 第三方启动器桥接
+
+独立的 [Buggcraft bridge](https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml) 通过本地 JSON-RPC 2.0 管道接入联机节点，负责 P2P 与中转，无需接入方安装 Python 或集成 Python SDK。Windows、Linux 和 macOS 分别构建；下载后保留完整发行目录。接口、限制及打包验收见[桥接接入说明](docs/technical/bridge-integration.md)。
+
 ## 参与贡献
 
 小而明确的改动更容易审查。行为变化请附测试，并同步更新使用说明或验收记录。不要提交本地游戏文件、包含接入码的日志、凭据或私有节点配置。参与前请阅读[行为准则](CODE_OF_CONDUCT.md)。
