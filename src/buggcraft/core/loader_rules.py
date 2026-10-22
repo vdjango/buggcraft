@@ -1,4 +1,4 @@
-"""Installation choices; see docs/modpack-import-and-compatibility.md."""
+"""Installation choices; see docs/guides/modpack-import-and-compatibility.md."""
 
 LOADERS = ('Forge', 'NeoForge', 'Fabric', 'Quilt')
 COMPONENTS = (*LOADERS, 'OptiFine', 'Fabric API', 'QSL/QFAPI')

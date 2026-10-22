@@ -7,7 +7,8 @@ import logging
 import minecraft_launcher_lib
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QDialog, QScrollArea, QFrame
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QDialog, QScrollArea, QFrame, QMessageBox,
+    QPushButton,
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
@@ -281,6 +282,32 @@ class VersionsPage(QWidget):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
+
+        header = QHBoxLayout()
+        title = QLabel("游戏实例")
+        title.setStyleSheet("color: #f2f2f2; font-size: 14px; font-weight: bold;")
+        header.addWidget(title)
+        header.addStretch(1)
+        self.import_game_button = QPushButton("导入游戏")
+        self.import_game_button.setToolTip("添加已有 Minecraft 游戏目录，与首次进入时的导入功能相同")
+        self.import_game_button.clicked.connect(lambda: self.on_add_directory(None))
+        header.addWidget(self.import_game_button)
+        self.import_modpack_button = QPushButton("导入整合包")
+        self.import_modpack_button.setToolTip("导入 CurseForge 整合包，并在当前游戏目录创建独立实例")
+        self.import_modpack_button.clicked.connect(self.import_modpack)
+        header.addWidget(self.import_modpack_button)
+        for button in (self.import_game_button, self.import_modpack_button):
+            button.setCursor(Qt.PointingHandCursor)
+            button.setStyleSheet(
+                "QPushButton { background: #51479d; color: white; border: none; border-radius: 4px; padding: 8px 14px; }"
+                "QPushButton:hover { background: #6258b2; }"
+            )
+        layout.addLayout(header)
+
+        self.version_items_layout = QVBoxLayout()
+        self.version_items_layout.setContentsMargins(0, 0, 0, 0)
+        self.version_items_layout.setSpacing(10)
+        layout.addLayout(self.version_items_layout)
         
         # 存储版本项的引用
         self.version_items = []
@@ -304,10 +331,10 @@ class VersionsPage(QWidget):
                     data["is_selected"]
                 )
                 self.version_items.append(item)
-                layout.addWidget(item, 1)
+                self.version_items_layout.addWidget(item)
 
         # 添加拉伸空间
-        layout.addStretch()
+        self.version_items_layout.addStretch()
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -337,6 +364,20 @@ class VersionsPage(QWidget):
         """)
         scroll_area.setWidget(panel)
         return scroll_area
+
+    def import_modpack(self):
+        """Open the shared import flow from the installed-instance page."""
+        directory = next(
+            (item.property("path") for item in self.directory_items if item.property("is_selected")),
+            self.settings_manager.get_setting("minecraft.directory.enable"),
+        )
+        main_window = self.parent.parent
+        download_page = getattr(main_window, "download_page", None)
+        tasks_page = getattr(download_page, "tasks_page", None)
+        if tasks_page is None:
+            QMessageBox.warning(self, "无法导入整合包", "下载任务页面尚未初始化，请稍后重试。")
+            return
+        tasks_page.import_modpack(game_dir=directory)
 
     def create_version_item(self, version, description, is_selected=False):
         """创建版本项"""
@@ -751,12 +792,11 @@ class VersionsPage(QWidget):
         """刷新版本列表 - 扫描目录并更新UI"""
         # 扫描目录下的版本
         self.scan_versions(directory_path)
-        for i in reversed(range(self.version_list_panel.widget().layout().count())):
-            # 移除所有子部件
-            item = self.version_list_panel.widget().layout().itemAt(i)
+        layout = self.version_items_layout
+        while layout.count():
+            item = layout.takeAt(0)
             if item.widget():
-                item.widget().setParent(None)
-            self.version_list_panel.widget().layout().removeItem(item)
+                item.widget().deleteLater()
 
         # 清空版本项列表
         self.version_items = []
@@ -772,10 +812,10 @@ class VersionsPage(QWidget):
                 data["is_selected"]
             )
             self.version_items.append(item)
-            self.version_list_panel.widget().layout().addWidget(item)
+            layout.addWidget(item)
         
         # 添加拉伸空间
-        self.version_list_panel.widget().layout().addStretch()
+        layout.addStretch()
 
     def paintEvent(self, event):
         """重绘事件 - 透明背景"""
