@@ -3,12 +3,14 @@ name: Package launcher
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - 'src/**'
       - 'resources/**'
       - 'packaging/**'
       - 'build*'
       - 'requirements*.txt'
+      - 'scripts/stage_release.py'
       - '.github/workflows/package.yml'
   workflow_dispatch:
 
@@ -49,6 +51,8 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-build.txt
+      - name: Test release file validation
+        run: python -m unittest tests.test_release_staging -v
       - name: Install build dependencies
         run: |
           python -m pip install -r requirements.txt -r requirements-build.txt
@@ -66,14 +70,23 @@ jobs:
           done
           iconutil -c icns "$iconset" -o resources/icons/app.icns
       - name: Build native package
+        env:
+          BUILD_REF_TYPE: ${{ github.ref_type }}
+          BUILD_REF_NAME: ${{ github.ref_name }}
+          BUILD_REPOSITORY: ${{ github.repository }}
         run: |
           python -u - <<'PY'
-          import collections, pathlib, subprocess, sys
+          import collections, os, pathlib, subprocess, sys, urllib.parse
           output = pathlib.Path('dist')
           output.mkdir(exist_ok=True)
           tail = collections.deque(maxlen=35)
           with (output / 'build.log').open('w', encoding='utf-8') as log:
-              process = subprocess.Popen([sys.executable, 'build.py', '--jobs', '3'],
+              command = [sys.executable, 'build.py', '--jobs', '3']
+              if os.name == 'nt' and os.environ['BUILD_REF_TYPE'] == 'tag':
+                  tag = urllib.parse.quote(os.environ['BUILD_REF_NAME'], safe='')
+                  repository = os.environ['BUILD_REPOSITORY']
+                  command += ['--runtime-url', f'https://github.com/{repository}/releases/download/{tag}/Buggcraft-runtime-windows-x64.zip']
+              process = subprocess.Popen(command,
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                          text=True, encoding='utf-8', errors='replace')
               for line in process.stdout:
@@ -110,17 +123,72 @@ jobs:
           subprocess.run([str(executable), '--package-check', str(output / 'package-check.json')],
                          cwd=output, env=env, check=True, timeout=120)
           PY
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - name: Prepare validated downloads
+        run: python scripts/stage_release.py --platform "${{ matrix.platform }}"
+      - name: Upload application downloads
+        uses: actions/upload-artifact@v4
         with:
           name: Buggcraft-${{ matrix.platform }}-${{ github.sha }}
           compression-level: 0
           if-no-files-found: error
+          retention-days: 30
+          path: dist/release/*
+      - name: Upload build diagnostics
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-diagnostics-${{ matrix.platform }}-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
           path: |
-            dist/Buggcraft*.zip
-            dist/Buggcraft-Setup.exe
-            dist/release.json
             dist/signing-status.json
             dist/qt-trim-report.json
             dist/package-check.*
             dist/build.log
+      - name: Link downloads in the run summary
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write(f"### {os.environ['BUILD_PLATFORM']}\n\n")
+              summary.write(f"Download the **Buggcraft-** artifact from [this run]({os.environ['RUN_URL']}).\n\n")
+              summary.write('Windows branch builds: extract the artifact and keep the installer beside the runtime ZIP for offline installation.\n')
+          PY
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Buggcraft-*
+          path: release-files
+          merge-multiple: true
+      - name: Include corresponding source and license
+        run: |
+          git archive --format=tar.gz -o release-files/Buggcraft-source.tar.gz HEAD
+          cp LICENSE release-files/LICENSE
+      - name: Create reviewable release draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > release-notes.md <<'NOTES'
+          ## 下载
+
+          - Windows x64：`Buggcraft-Setup.exe`；首次运行会下载同一版本的完整运行包。
+          - 离线安装：下载 `Buggcraft-runtime-windows-x64.zip`，与安装程序放在同一目录，无需解压 ZIP。
+          - macOS：按芯片选择 `arm64`（Apple Silicon）或 `x86_64`（Intel），解压后运行应用。
+          - `SHA256SUMS-*.txt` 用于核对文件完整性；构建日志留在 Actions，不放入发布下载。
+
+          Windows 构建目前没有受信任的代码签名，macOS 构建使用 ad-hoc 签名且未经 Apple 公证。系统可能阻止运行；不要关闭系统防护。发布者应先完成对应系统的安装验收与签名审查，再公开此草稿。
+          NOTES
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Buggcraft $RELEASE_TAG" --notes-file release-notes.md release-files/*

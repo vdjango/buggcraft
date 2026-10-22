@@ -10,7 +10,7 @@
 [![Issues](https://img.shields.io/github/issues/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/issues)
 [![Stars](https://img.shields.io/github/stars/vdjango/buggcraft?style=social)](https://github.com/vdjango/buggcraft)
 
-**[获取源码](https://github.com/vdjango/buggcraft)** · **[反馈问题](https://github.com/vdjango/buggcraft/issues)** · **[部署节点](https://github.com/vdjango/minecraft-tunnel)**
+**[版本下载](https://github.com/vdjango/buggcraft/releases)** · **[开发构建](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)** · **[反馈问题](https://github.com/vdjango/buggcraft/issues)** · **[部署节点](https://github.com/vdjango/minecraft-tunnel)**
 
 ---
 
@@ -27,6 +27,8 @@
 文档导航：[使用指南、技术说明与验证记录](docs/README.md)。
 
 ## 快速开始
+
+最新开发包在 [GitHub Actions → Package launcher](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)：打开最近一次绿色通过的构建，在页面底部 **Artifacts** 下载对应系统的 `Buggcraft-…`。Windows 请解压后保留安装程序和运行包 ZIP 在同一目录。Actions 下载需要登录 GitHub；面向用户的版本包放在 Releases。详见[构建与下载说明](docs/technical/github-builds.md)。
 
 日常使用请从 [Releases](https://github.com/vdjango/buggcraft/releases) 下载构建包。Windows 版本使用小型启动程序，第一次运行时会将校验过的运行时下载到启动程序旁边；完整的 Qt 和 WebRTC 运行时会明显大于启动程序本身。构建或分发前请阅读 [Windows 打包说明](docs/technical/windows-packaging.md)。
 
