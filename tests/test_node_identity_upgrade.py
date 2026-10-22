@@ -123,7 +123,7 @@ class NodeIdentityUpgradeTests(unittest.TestCase):
     def test_personal_credential_validation_error_is_visible(self):
         self.confirm(self.personal)
         self.assertFalse(self.controller.view['socialReady'])
-        self.assertIn('个人接入码', self.controller.view['socialError'])
+        self.assertRegex(self.controller.view['socialError'], r'个人(?:启动器)?接入码')
 
     def test_credential_update_preserves_active_room_endpoint(self):
         endpoint = object()
