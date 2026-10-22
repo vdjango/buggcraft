@@ -6,7 +6,7 @@
 bash build_macos.sh
 ```
 
-脚本创建独立构建环境，安装固定版本依赖，通过 Nuitka 的 PySide6 插件生成 `.app`。Intel 和 Apple Silicon 必须分别使用对应架构的 Python 构建，不能在 Windows 上交叉生成 macOS 可执行文件。GitHub Actions 的「Package launcher」分别使用 `macos-15-intel` 和 `macos-15` 执行这两种构建。
+脚本先使用系统 `sips` 和 `iconutil` 从仓库图标生成完整的 `.icns`（含 Retina 尺寸），再创建独立构建环境，安装固定版本依赖，通过 Nuitka 的 PySide6 插件生成 `.app`。Intel 和 Apple Silicon 必须分别使用对应架构的 Python 构建，不能在 Windows 上交叉生成 macOS 可执行文件。GitHub Actions 的「Package launcher」分别使用 `macos-15-intel` 和 `macos-15` 执行这两种构建。
 
 产物位于 `dist/Buggcraft-macos-x86_64.zip` 或 `dist/Buggcraft-macos-arm64.zip`。压缩前验证 `.app` 的代码签名结构，再使用系统 `ditto` 打包，保留 Qt framework 的符号链接和可执行权限。`release.json` 记录平台、入口、大小和 SHA-256。
 

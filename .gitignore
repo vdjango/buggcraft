@@ -1,6 +1,7 @@
 .minecraft
 venv
 .build-venv/
+resources/icons/app.icns
 *.pyc
 .secret
 dist*
