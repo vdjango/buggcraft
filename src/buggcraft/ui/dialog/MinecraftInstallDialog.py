@@ -4,10 +4,12 @@ import os
 
 from PySide6.QtWidgets import (
     QDialog, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QApplication,
-    QWidget, QStackedWidget, QFrame, QGraphicsDropShadowEffect, QLayout, QSizePolicy
+    QWidget, QStackedWidget, QFrame, QGraphicsDropShadowEffect, QLayout, QSizePolicy,
+    QComboBox
 )
-from PySide6.QtCore import Qt, QRect, QSize, QPoint, Signal
+from PySide6.QtCore import Qt, QRect, QSize, QPoint, Signal, QRunnable, QObject, QThreadPool, Slot
 from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap, QFont
+from core.loader_rules import LOADERS, incompatibility
 
 
 class FlowLayout(QLayout):
@@ -115,6 +117,29 @@ class FlowLayout(QLayout):
         return y + line_height - rect.y() + bottom
 
 
+class LoaderListSignals(QObject):
+    loaded = Signal(int, str, str, bool, object)
+
+
+class LoaderListWorker(QRunnable):
+    def __init__(self, loader, minecraft_version, source, request=0):
+        super().__init__()
+        self.loader = loader
+        self.minecraft_version = minecraft_version
+        self.source = source
+        self.request = request
+        self.signals = LoaderListSignals()
+
+    @Slot()
+    def run(self):
+        try:
+            from core.loaders import available_versions
+            self.signals.loaded.emit(self.request, self.loader, self.minecraft_version, True,
+                                     available_versions(self.loader, self.minecraft_version, self.source))
+        except Exception as exc:
+            self.signals.loaded.emit(self.request, self.loader, self.minecraft_version, False, str(exc))
+
+
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QPixmap, QCursor
@@ -164,7 +189,7 @@ class InstallationItem(QWidget):
         # 创建主容器
         self.content_container = QWidget(self)
         self.content_container.setContentsMargins(0, 0, 0, 0)
-        self.content_container.setFixedSize(110, 120)
+        self.content_container.setFixedSize(140, 150)
         
         # 主布局
         layout = QVBoxLayout(self.content_container)
@@ -195,6 +220,7 @@ class InstallationItem(QWidget):
         self._desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
         self._desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         self._desc_label.setAlignment(Qt.AlignCenter)
+        self._desc_label.setWordWrap(True)
         
         text_layout.addWidget(self._version_label)
         text_layout.addWidget(self._desc_label)
@@ -223,6 +249,11 @@ class InstallationItem(QWidget):
                 scaled_pixmap = pixmap.scaled(size[0], size[1], Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation)
                 label.setPixmap(scaled_pixmap)
+            else:
+                label.setText({'NeoForge': 'NF', 'OptiFine': 'OF', 'Fabric API': 'FA',
+                               'QSL/QFAPI': 'QA'}.get(self._name, self._name[:1]))
+                label.setFont(QFont('Source Han Sans CN', 17, QFont.Weight.Bold))
+                label.setStyleSheet('color: #ded7ff; background: #514665; border-radius: 8px;')
         
         return label
     
@@ -323,7 +354,7 @@ class InstallationItem(QWidget):
 class MinecraftInstallDialog(QDialog):
 
     import_signal = Signal()  # 导入
-    download_signal = Signal()  # 下载
+    download_signal = Signal(str, str, str)  # base version, loader and loader version
 
     def __init__(self, parent=None):
         """安装游戏"""
@@ -335,10 +366,17 @@ class MinecraftInstallDialog(QDialog):
         self.description = None
         
         self.forge_install: dict = {}
+        self.loader = ""
+        self.loader_version = ""
+        self.pending_loader = ""
+        self._loader_request = 0
+        self._is_dragging = False
+        self.loader_pool = QThreadPool(self)
+        self.loader_pool.setMaxThreadCount(2)
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(719, 535)
+        self.setFixedSize(719, 640)
         
         # 设置窗口背景色 RGBA(39, 41, 55, 1)
         palette = self.palette()
@@ -349,6 +387,7 @@ class MinecraftInstallDialog(QDialog):
     def init_ui(self):
         # 主布局
         self.main_widget = QWidget(self)
+        self.main_widget.setGeometry(self.rect())
         main_layout = QVBoxLayout(self.main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -452,8 +491,15 @@ class MinecraftInstallDialog(QDialog):
             is_selected=False,
             icon=os.path.join(self._parent.resource_path, 'images', 'forge.png')
         )
-        self.flow_forge.clicked.connect(lambda: self.content_stack.setCurrentIndex(1))
         self.flow_layout.addWidget(self.flow_forge)
+        self.flow_forge.clicked.connect(lambda: self.open_loader_list('Forge'))
+
+        for loader in ('NeoForge',):
+            item = InstallationItem(name=loader, description='不安装', is_selected=False,
+                icon=os.path.join(self._parent.resource_path, 'images', loader.lower() + '.png'))
+            item.clicked.connect(lambda name=loader: self.open_loader_list(name))
+            self.flow_layout.addWidget(item)
+            setattr(self, 'flow_' + loader.lower(), item)
 
         # OptiFine
         self.flow_optifine = InstallationItem(
@@ -464,6 +510,23 @@ class MinecraftInstallDialog(QDialog):
         )
         # self.flow_optifine.clicked.connect(lambda: self.content_stack.setCurrentIndex(1))
         self.flow_layout.addWidget(self.flow_optifine)
+        self.flow_optifine.set_disabled(True)
+        self.flow_optifine.set_description('需要官方安装器')
+        self.flow_optifine.setToolTip('OptiFine 安装器须按其官方许可交互运行，当前不提供静默安装。')
+
+        for component in ('Fabric', 'Fabric API', 'Quilt', 'QSL/QFAPI'):
+            item = InstallationItem(name=component, description='不安装', is_selected=False,
+                icon=os.path.join(self._parent.resource_path, 'images',
+                                  'quilt.png' if component in ('Quilt', 'QSL/QFAPI') else 'fabric.png'))
+            if component in LOADERS:
+                item.clicked.connect(lambda name=component: self.open_loader_list(name))
+                setattr(self, 'flow_' + component.lower(), item)
+            else:
+                item.set_disabled(True)
+                item.set_description('需手动添加模组')
+                item.setToolTip('API 是模组，当前安装向导未提供单独下载；可随整合包导入或手动放入实例 mods 目录。')
+                setattr(self, 'flow_fabric_api' if component == 'Fabric API' else 'flow_qsl', item)
+            self.flow_layout.addWidget(item)
         
         # flow_item, _ = self.create_installation_item('NeoForge', '未选择')
         # self.flow_layout.addWidget(flow_item)
@@ -477,6 +540,13 @@ class MinecraftInstallDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, 18, 0, 0)
         button_layout.setSpacing(20)
+        self.remove_loader_button = QPushButton('移除已选加载器')
+        self.remove_loader_button.clicked.connect(self.clear_loader)
+        self.remove_loader_button.setEnabled(False)
+        button_layout.addWidget(self.remove_loader_button)
+        import_button = QPushButton('导入整合包')
+        import_button.clicked.connect(self.on_import)
+        button_layout.addWidget(import_button)
         button_layout.addStretch()
 
         self.confirm_button = QPushButton("安装")
@@ -599,6 +669,23 @@ class MinecraftInstallDialog(QDialog):
         content_layout.setContentsMargins(18, 18, 18, 18)
         content_layout.setSpacing(5)
 
+        self.loader_title = QLabel("选择加载器版本")
+        self.loader_title.setStyleSheet("color: #f2f2f2; font-weight: bold;")
+        content_layout.addWidget(self.loader_title)
+        self.loader_status = QLabel("选择 Forge、Fabric、Quilt 或 NeoForge 以载入版本。")
+        self.loader_status.setWordWrap(True)
+        self.loader_status.setStyleSheet("color: rgba(255,255,255,0.68);")
+        content_layout.addWidget(self.loader_status)
+        self.loader_version_combo = QComboBox()
+        self.loader_version_combo.setStyleSheet("QComboBox { padding: 8px; color: white; background: #211f2b; border: 1px solid #625277; } QComboBox QAbstractItemView { color: white; background: #211f2b; selection-background-color: #7859db; }")
+        content_layout.addWidget(self.loader_version_combo)
+        refresh_button = QPushButton("重新加载版本")
+        refresh_button.clicked.connect(lambda: self.open_loader_list(self.pending_loader))
+        content_layout.addWidget(refresh_button)
+        select_button = QPushButton("选择此版本")
+        select_button.clicked.connect(self.select_loader_version)
+        content_layout.addWidget(select_button)
+
         forge_version = [
             {
                 "_id": "6488aea60bbbb25aafef0760",
@@ -676,7 +763,7 @@ class MinecraftInstallDialog(QDialog):
                 "version": "47.0.2"
             }
         ]
-        for item in forge_version:
+        for item in ():
             content_layout.addWidget(
                 self.create_forge_item(item['_id'], f"Forge {item['version']}", f"时间：{item['modified']}")
             )
@@ -863,34 +950,112 @@ class MinecraftInstallDialog(QDialog):
         self.main_widget.setGraphicsEffect(shadow)
 
     def set_version(self, version, description):
+        self.content_stack.setCurrentIndex(0)
+        self.forge_install = {}
+        self.loader = ""
+        self.loader_version = ""
+        self.pending_loader = ""
+        self._loader_request += 1
         self.version = version
         self.description = description
         self.title_label.setText(f"{self.title} - {self.version}")
         self.install_case_text_label.setText(f"安装实例：{self.version}")
         self.install_case_desc_label.setText(f"{self.description}")
         self.flow_minecraft.set_description(self.version)
+        self.refresh_components()
+
+    def clear_loader(self):
+        self.loader = self.loader_version = self.pending_loader = ''
+        self._loader_request += 1
+        self.refresh_components()
+        self.content_stack.setCurrentIndex(0)
+
+    def refresh_components(self):
+        components = {name: getattr(self, 'flow_' + name.lower()) for name in LOADERS}
+        components.update({'OptiFine': self.flow_optifine, 'Fabric API': self.flow_fabric_api,
+                           'QSL/QFAPI': self.flow_qsl})
+        for name, item in components.items():
+            reason = incompatibility(name, self.loader)
+            unsupported = name not in LOADERS
+            item.set_selected(name == self.loader)
+            item.set_disabled(bool(reason) or unsupported)
+            item.set_description(reason or (self.loader_version if name == self.loader else
+                '需官方安装器' if name == 'OptiFine' else '需手动添加模组' if unsupported else '不安装'))
+            if reason:
+                item.setToolTip(reason + '；先移除已选加载器，再选择其他加载器。')
+            elif name in LOADERS:
+                item.setToolTip('点击更换版本' if name == self.loader else '选择加载器版本')
+            elif name != 'OptiFine':
+                item.setToolTip('API 是模组；可随整合包导入或手动放入兼容实例的 mods 目录。')
+            else:
+                item.setToolTip('当前需手动运行官方安装器；Forge 与 OptiFine 组合还须核对具体版本。')
+        self.remove_loader_button.setEnabled(bool(self.loader))
+        self.remove_loader_button.setText('移除 ' + self.loader if self.loader else '移除已选加载器')
+        self.install_case_text_label.setText(f'安装实例：{self.version}' + (f'-{self.loader}' if self.loader else ''))
 
     def on_installed(self):
-        self.download_signal.emit()
+        if not self.version:
+            return
+        if self.loader:
+            if not self.loader_version:
+                self.loader_status.setText("请选择一个加载器版本。")
+                self.content_stack.setCurrentIndex(1)
+                return
+            self.download_signal.emit(self.version, self.loader, self.loader_version)
+        else:
+            self.download_signal.emit(self.version, "", "")
         self.accept()
+
+    def open_loader_list(self, loader):
+        if loader not in LOADERS or incompatibility(loader, self.loader):
+            return
+        self.pending_loader = loader
+        self._loader_request += 1
+        request = self._loader_request
+        self.loader_title.setText(f"Minecraft {self.version} · {loader}")
+        self.loader_status.setText(f"正在按设置中的下载源读取 {loader} 版本列表…")
+        self.loader_version_combo.clear()
+        self.content_stack.setCurrentIndex(1)
+        from config.settings import get_settings_manager
+        source = get_settings_manager().get_setting(
+            "settings.general.mirrors", "自动（官方优先，失败切换镜像）"
+        )
+        worker = LoaderListWorker(loader, self.version, source, request)
+        worker.signals.loaded.connect(self.on_loader_response)
+        self.loader_pool.start(worker)
+
+    @Slot(int, str, str, bool, object)
+    def on_loader_response(self, request, loader, minecraft_version, succeeded, result):
+        if request == self._loader_request:
+            self.on_loader_versions(loader, minecraft_version, succeeded, result)
+
+    @Slot(str, str, bool, object)
+    def on_loader_versions(self, loader, minecraft_version, succeeded, result):
+        if loader != self.pending_loader or minecraft_version != self.version:
+            return
+        self.loader_version_combo.clear()
+        if not succeeded:
+            self.loader_status.setText(f"获取 {loader} 版本失败：{result}")
+            return
+        self.loader_version_combo.addItems(result)
+        self.loader_status.setText(f"找到 {len(result)} 个适用于 Minecraft {minecraft_version} 的版本。")
+
+    def select_loader_version(self):
+        selected = self.loader_version_combo.currentText()
+        if not selected or self.pending_loader not in LOADERS or incompatibility(self.pending_loader, self.loader):
+            self.loader_status.setText("没有可选择的版本，请重新加载后重试。")
+            return
+        self.loader, self.loader_version = self.pending_loader, selected
+        self.refresh_components()
+        self.content_stack.setCurrentIndex(0)
     
     def on_import(self):
         self.import_signal.emit()
         self.accept()
 
     def on_forge_clicked(self, item, event):
-        """选择forge"""
-        version = item.property('version')
-        self.forge_install = {
-            "_id": item.property('_id'),
-            "version": version,
-            "modified": item.property('modified')
-        }
-        self.content_stack.setCurrentIndex(0)
-        self.flow_forge.set_selected(True)
-        self.flow_forge.set_description(version)
-        print('on_forge_clicked', self.forge_install)
-        pass
+        if event is None or event.button() == Qt.LeftButton:
+            self.open_loader_list("Forge")
     
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:

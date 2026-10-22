@@ -9,6 +9,8 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![GitHub release](https://img.shields.io/github/v/release/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/releases)
 
+整合包导入、模组/资源包/光影下载与加载器互斥规则见 [整合包导入与内容下载说明](docs/modpack-import-and-compatibility.md).
+
 **buggcraft Launcher 是一款由热爱驱动的开源 Minecraft 启动器，致力于在现代化设计、无缝联机体验和社区驱动理念上树立新标准。** 我们以用户体验为核心，通过深度集成的**高性能隧道技术**实现一键**跨网络联机**，结合符合 Minecraft 美学的界面设计和轻量化架构，为玩家提供更**直观、稳定、愉悦**的游戏启动体验。本项目坚持开源透明，鼓励社区共建，旨在为 Minecraft 生态带来一个**免费、开放、以连接为导向的全新选择。​**
 
 

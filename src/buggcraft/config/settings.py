@@ -202,12 +202,21 @@ class SettingsManager:
         return False
 
     def get_minecraft_isolation_directory(self):
-        """获取版本隔离游戏工作路径-比如启用了独立版本"""
+        """Return the selected instance data directory or shared Minecraft root."""
         directory = self.get_setting('minecraft.directory.enable', None)
+        version = self.get_setting('minecraft.version.enable', None)
+        if directory and version:
+            try:
+                metadata_path = Path(directory) / 'versions' / version / (version + '.json')
+                metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+                if isinstance(metadata.get('buggcraftModpack'), dict):
+                    return os.path.join(directory, 'versions', version)
+            except (OSError, ValueError):
+                pass
         if self.get_version_setting_enable() and directory is not None:
             version = self.get_setting('minecraft.version.enable', None)
-            return os.path.join(directory, 'versions', version)
-        
+            if version:
+                return os.path.join(directory, 'versions', version)
         return directory
     
     def get_version_setting(self, key: str, default: Any = None):

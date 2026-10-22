@@ -1,5 +1,6 @@
 PySide6==6.8.1
 minecraft-launcher-lib==7.1
+requests==2.33.0
 psutil==7.0.0
 pypng==0.20220715.0
 plyer==2.1.0

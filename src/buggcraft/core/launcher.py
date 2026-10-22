@@ -1,6 +1,8 @@
 # MinecraftLauncher 类
 
 import os
+import json
+from pathlib import Path
 import platform
 import subprocess
 import signal
@@ -232,6 +234,13 @@ class MinecraftLibLauncher(QObject):
             }
             
             if self.uuid: options['uuid'] = self.uuid
+            metadata_path = Path(self.minecraft_directory) / 'versions' / self.minecraft_version / (self.minecraft_version + '.json')
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8')) if metadata_path.is_file() else {}
+            if isinstance(metadata.get('buggcraftModpack'), dict):
+                native_version = metadata.get('jar', self.minecraft_version)
+                if not isinstance(native_version, str) or Path(native_version).name != native_version:
+                    raise ValueError('\u6e38\u620f\u539f\u751f\u5e93\u76ee\u5f55\u65e0\u6548')
+                options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / native_version / 'natives')
 
             if self.token:
                 options['token'] = self.token

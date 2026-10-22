@@ -73,13 +73,7 @@ class GamesPage(QWidget):
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
         
-        # 创建安装器实例
-        self.installer = CrossPlatformMinecraftInstaller(
-            game_dir=self.settings_manager.get_setting('minecraft.directory.enable'),  # 使用默认Minecraft目录
-            mirror=MirrorSource.MODRINTH,
-            max_workers=15,
-            callback=InstallerCallback()
-        )
+        self.signals = MinecraftDownloadSignals()
         # 游戏版本列表
         self.current_page = 0
         self.items_per_page = 20  # 每页显示的游戏数量
@@ -184,8 +178,7 @@ class GamesPage(QWidget):
         )
         
     def search(self, text):
-        self.search_input.clear()
-        self.games_content.filter_games(None, text)
+        self.games_content.filter_games(self.search_input.text().strip(), text)
         
     def create_header_panel(self):
         """创建顶部Tab"""
@@ -296,6 +289,7 @@ class GamesPage(QWidget):
         """)
         # 连接回车键事件到搜索功能
         self.search_input.returnPressed.connect(self.on_search_clicked)
+        self.search_input.textChanged.connect(lambda text: self.games_content.filter_games(text.strip()))
         layout.addWidget(self.search_input, 1)
         
         # 搜索按钮 - 替换背景为Search.png图片
@@ -353,6 +347,7 @@ class GamesPage(QWidget):
         item.setProperty("title", title)
 
         title_label = QLabel(title)
+        title_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         title_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
         title_label.setStyleSheet("color: #f2f2f2; border-bottom: none;background-color: transparent;")
         layout.addWidget(title_label, 0, Qt.AlignCenter)
@@ -366,6 +361,10 @@ class GamesPage(QWidget):
         # 添加目录项点击事件
         item.mousePressEvent = lambda event: self.on_tabs_clicked(item, event)
         item.setCursor(Qt.PointingHandCursor)
+        if title != '游戏':
+            item.setEnabled(True)
+            item.setToolTip('搜索并下载当前实例兼容的内容')
+            title_label.setStyleSheet('color: #f2f2f2; background: transparent;')
 
         return item
 
@@ -386,9 +385,7 @@ class GamesPage(QWidget):
         clicked_title = item.property("title")
         if clicked_title == "游戏":
             self.content_stack.setCurrentIndex(0)
-        elif clicked_title == "模组":
-            self.content_stack.setCurrentIndex(1)
-        elif clicked_title == "资源包":
-            self.content_stack.setCurrentIndex(2)
-        elif clicked_title == "光影包":
-            self.content_stack.setCurrentIndex(3)
+        else:
+            kind = {"模组": "mod", "资源包": "resourcepack", "光影包": "shader"}.get(clicked_title)
+            if kind:
+                self.parent.parent.tasks_page.download_content(kind)

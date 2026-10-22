@@ -28,7 +28,7 @@ class DownloadPages(QWidget):
         self.resource_path = resource_path
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         self.launcher: MinecraftLibLauncher = parent.launcher
-        self.tab_names = ['游戏下载', '进行中']
+        self.tab_names = ['游戏下载', '下载记录']
 
         self.games_page = GamesPage(self)
         self.tasks_page = TasksPage(self)
@@ -36,6 +36,7 @@ class DownloadPages(QWidget):
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
         self.init_ui()
+        self.tasks_page.installed.connect(lambda version, directory: self.games_page.signals.complete.emit(version))
 
     def on_page_activate(self):
         """事件：页面被激活时"""
@@ -114,28 +115,35 @@ class DownloadPages(QWidget):
         
         # 正版选项卡按钮
         self.external_tab_btn = self.create_tab_button(
-            "进行中",
+            "下载记录",
             self.on_progress_clicked,
             size=(155, 44), font_size=10
         )
         tab_buttons_layout.addWidget(self.external_tab_btn, 0, Qt.AlignCenter)
+        self.import_pack_btn = self.create_tab_button(
+            '导入整合包', lambda: self.tasks_page.import_modpack(), size=(155, 44), font_size=10)
+        tab_buttons_layout.addWidget(self.import_pack_btn, 0, Qt.AlignCenter)
+        self.download_pack_btn = self.create_tab_button('下载整合包', lambda: self.tasks_page.download_content('modpack'), size=(155, 44), font_size=10)
+        tab_buttons_layout.addWidget(self.download_pack_btn, 0, Qt.AlignCenter)
         tab_buttons_layout.addStretch()
         
         # 设置初始状态：游戏下载默认选中
         self.update_button_style("游戏下载", False)
-        self.update_button_style("进行中", True)
+        self.update_button_style("下载记录", True)
         
         return tab_buttons_widget
 
     def create_tab_button(self, text, click_handler, size=(155, 44), font_size=12):
         """创建选项卡按钮"""
         button = QLabel()
-        button.mousePressEvent = lambda event: click_handler()
+        button.mousePressEvent = lambda event: click_handler() if event.button() == Qt.LeftButton else None
+        button.setCursor(Qt.PointingHandCursor)
         button.setFixedSize(*size)
         button.setStyleSheet("background-color: transparent;")
         
         # 添加文本
         text_label = QLabel(text, button)
+        text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
@@ -146,13 +154,13 @@ class DownloadPages(QWidget):
     def on_progress_clicked(self):
         """进行中按钮点击事件"""
         self.update_button_style("游戏下载", True)
-        self.update_button_style("进行中", False)
-        self.switch_pages("进行中")
+        self.update_button_style("下载记录", False)
+        self.switch_pages("下载记录")
 
     def on_download_clicked(self):
         """游戏下载按钮点击事件"""
         self.update_button_style("游戏下载", False)
-        self.update_button_style("进行中", True)
+        self.update_button_style("下载记录", True)
         self.switch_pages("游戏下载")
 
     def update_button_style(self, tab_name, is_active):
@@ -196,6 +204,11 @@ class DownloadPages(QWidget):
         else:
             self.backgroundColor = color
         self.update()
+
+    def shutdown(self):
+        catalog_stopped = self.games_page.games_content.shutdown()
+        tasks_stopped = self.tasks_page.shutdown()
+        return catalog_stopped and tasks_stopped
 
     def resizeEvent(self, event):
         """窗口大小变化事件 - 确保布局自适应"""

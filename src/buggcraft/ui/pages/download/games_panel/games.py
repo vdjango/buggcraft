@@ -4,6 +4,9 @@
 
 import os
 import logging
+import json
+import threading
+from pathlib import Path
 
 from functools import wraps
 from PySide6.QtWidgets import (
@@ -19,6 +22,7 @@ from ui.widgets.collapse import CollapsePanel
 from ui.widgets.ComboBox import QMComboBox
 from ui.dialog.MinecraftInstallDialog import MinecraftInstallDialog
 from core.minecraft_forge import CrossPlatformMinecraftInstaller, MirrorSource, InstallerCallback
+from core.downloads import MinecraftDownloader, DownloadCancelled
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +39,7 @@ def run_in_thread(func):
                 
         # 提交到线程池
         task = ThreadedTask()
-        QThreadPool.globalInstance().start(task)
+        args[0].catalog_pool.start(task)
     
     return wrapper
 
@@ -49,7 +53,7 @@ class MinecraftDownloadSignals(QObject):
 class GamesPanel(QWidget):
     """游戏下载"""
 
-    update_signal = Signal()  # 游戏列表更新
+    update_signal = Signal(list, str)
     
     def __init__(self, parent):
         super().__init__(None)
@@ -59,23 +63,24 @@ class GamesPanel(QWidget):
         # 初始化设置管理器
         self.settings_manager = get_settings_manager()
         self.install_dialog = MinecraftInstallDialog(self)
+        self.install_dialog.download_signal.connect(self.start_install)
+        self.install_dialog.import_signal.connect(lambda: self._parent.parent.tasks_page.import_modpack())
         
-        # 创建安装器实例
-        self.installer = CrossPlatformMinecraftInstaller(
-            game_dir=self.settings_manager.get_setting('minecraft.directory.enable'),  # 使用默认Minecraft目录
-            mirror=MirrorSource.MODRINTH,
-            max_workers=15,
-            callback=InstallerCallback()
-        )
+        self.catalog_cancel = threading.Event()
+        self.catalog_pool = QThreadPool(self)
+        self.catalog_pool.setMaxThreadCount(1)
+        self.catalog_loading = False
+        self.catalog_cache = Path(self.settings_manager.config_path) / 'minecraft-catalog.json'
         self.minecraft_version_manifest_type_to_str = {
             "release": "正式版",
             "snapshot": "快照",
-            "old_alpha": "旧版"
+            "old_alpha": "旧版 Alpha",
+            "old_beta": "旧版 Beta",
         }
         self.minecraft_version_manifest_type = {
             "正式版": "release",
             "快照": "snapshot",
-            "旧版": "old_alpha"
+            "旧版": "old_"
         }
         self.filter_text = None  # 筛选版本
         self.filter_type = self.minecraft_version_manifest_type['正式版']  # 筛选版本
@@ -147,20 +152,66 @@ class GamesPanel(QWidget):
     @run_in_thread
     def get_games_version(self):
         """在后台线程中获取游戏版本"""
-        self.minecraft_versions = self.installer.get_available_versions()
-        self.minecraft_versions_cache = self.minecraft_versions
-        self.update_signal.emit()
+        if self.catalog_loading or self.catalog_cancel.is_set():
+            return
+        self.catalog_loading = True
+        try:
+            downloader = MinecraftDownloader(
+                Path(self.settings_manager.config_path) / 'catalog-cache',
+                source=self.settings_manager.get_setting('settings.general.mirrors', '自动'),
+                cancel=self.catalog_cancel,
+            )
+            versions = downloader.manifest()['versions']
+            self.update_signal.emit(versions, '')
+        except DownloadCancelled:
+            pass
+        except Exception as exc:
+            self.update_signal.emit([], str(exc))
+        finally:
+            self.catalog_loading = False
     
-    @Slot()
-    def on_games_finished(self):
+    @Slot(list, str)
+    def on_games_finished(self, versions, error):
         """刷新游戏列表 - 使用懒加载"""
-        self.filter_games(filter_type="正式版")
+        if self.catalog_cancel.is_set():
+            return
+        if versions:
+            self.minecraft_versions_cache = versions
+            try:
+                self.catalog_cache.write_text(json.dumps(versions, ensure_ascii=False), encoding='utf-8')
+            except OSError:
+                logger.exception('Unable to save Minecraft version catalogue')
+        elif not self.minecraft_versions_cache:
+            try:
+                cached = json.loads(self.catalog_cache.read_text(encoding='utf-8'))
+                if isinstance(cached, list):
+                    self.minecraft_versions_cache = cached
+            except (OSError, ValueError):
+                pass
+        self.catalog_status.setText(
+            '版本列表刷新失败，显示上次记录。可点击重试。' if error and self.minecraft_versions_cache
+            else '无法获取版本列表，请检查网络后重试。' if error else ''
+        )
+        self.catalog_status.setToolTip(error)
+        self.catalog_status.setVisible(bool(error))
+        self.retry_catalog.setVisible(bool(error))
+        self.filter_games()
 
     def init_ui(self):
         """初始化用户界面"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        state = QHBoxLayout()
+        self.catalog_status = QLabel('正在获取游戏版本列表…')
+        self.catalog_status.setStyleSheet('color: #c9c1e5; padding: 8px;')
+        self.catalog_status.setWordWrap(True)
+        self.retry_catalog = QPushButton('重试')
+        self.retry_catalog.clicked.connect(self.get_games_version)
+        self.retry_catalog.hide()
+        state.addWidget(self.catalog_status, 1)
+        state.addWidget(self.retry_catalog)
+        main_layout.addLayout(state)
         
         # 创建主容器
         content_container = QWidget(self)
@@ -253,6 +304,7 @@ class GamesPanel(QWidget):
         
         # 文本区域
         text_widget = QWidget()
+        text_widget.setAttribute(Qt.WA_TransparentForMouseEvents)
         text_widget.setStyleSheet("background-color: transparent;")
         text_layout = QVBoxLayout(text_widget)
         text_layout.setContentsMargins(0, 14, 0, 14)
@@ -279,6 +331,7 @@ class GamesPanel(QWidget):
     def create_icon_label(self, icon_path, size=(30, 30), cursor=None):
         """创建图标标签"""
         label = QLabel()
+        label.setAttribute(Qt.WA_TransparentForMouseEvents)
         label.setFixedSize(size[0] + 1, size[1] + 1)
         label.setPixmap(QPixmap(icon_path).scaled(
             size[0], size[1], 
@@ -293,11 +346,31 @@ class GamesPanel(QWidget):
 
     def on_version_clicked(self, item, event):
         """点击某版本事件"""
-        # 更新所有版本项的选中状态
-        print('property', item.property("version"), f"{item.property('description')}")
-        self.install_dialog.set_version(item.property("version"), f"{item.property('description')}")
+        if event is not None and event.button() != Qt.LeftButton:
+            return
+        self.install_dialog.set_version(
+            item.property("version"), str(item.property("description") or "")
+        )
         self.install_dialog.exec()
-        pass
+
+    def start_install(self, version, loader="", loader_version=""):
+        download_pages = self._parent.parent
+        target_directory = self.settings_manager.get_setting("minecraft.directory.enable")
+        if loader:
+            if loader == "NeoForge":
+                version_id = f"neoforge-{loader_version}"
+            elif loader in ("Fabric", "Quilt"):
+                version_id = f"{loader.lower()}-loader-{loader_version}-{version}"
+            else:
+                version_id = f"{version}-forge-{loader_version}"
+            download_pages.tasks_page.start_install(version_id, target_directory, loader,
+                                                     version, loader_version)
+        else:
+            download_pages.tasks_page.start_install(version, target_directory)
+
+    def shutdown(self):
+        self.catalog_cancel.set()
+        return self.catalog_pool.activeThreadCount() == 0
     
     def filter_games(self, text=None, filter_type=None):
         """
@@ -338,6 +411,11 @@ class GamesPanel(QWidget):
         self.loaded_count = 0
         self.clear_games_list()
         self.load_next_batch()
+        if not self.minecraft_versions and self.retry_catalog.isHidden():
+            self.catalog_status.setText('没有符合当前筛选条件的版本。')
+            self.catalog_status.show()
+        elif self.minecraft_versions and self.retry_catalog.isHidden():
+            self.catalog_status.hide()
 
     def clear_games_list(self):
         """清除现有的游戏版本列表"""
@@ -347,3 +425,4 @@ class GamesPanel(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+        layout.addStretch()
