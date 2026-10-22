@@ -11,6 +11,8 @@ on:
       - 'build*'
       - 'requirements*.txt'
       - 'scripts/stage_release.py'
+      - 'tests/test_curseforge.py'
+      - 'tests/test_content_gateway.py'
       - '.github/workflows/package.yml'
   workflow_dispatch:
 
@@ -57,6 +59,10 @@ jobs:
         run: |
           python -m pip install -r requirements.txt -r requirements-build.txt
           python -m pip check
+      - name: Test resource catalogues and gateway
+        run: |
+          python -m pip install -r packaging/content-gateway-requirements.txt
+          python -m unittest tests.test_curseforge tests.test_content_download tests.test_content_dialog tests.test_modpack_import tests.test_content_gateway -v
       - name: Prepare macOS application icon
         if: runner.os == 'macOS'
         run: |

@@ -124,11 +124,12 @@ class ModpackTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '互斥'):
             inspect_pack(self.archive)
 
-    def test_missing_key_fails_before_game_install(self):
+    def test_unavailable_gateway_fails_before_game_install_without_creating_instance(self):
         self.pack()
         with patch.dict(os.environ, {'BUGGCRAFT_CURSEFORGE_API_KEY': ''}), \
+                patch('core.curseforge.requests.post', side_effect=ValueError('公共资源服务不可用')), \
                 patch('core.modpacks.install_loader') as install:
-            with self.assertRaisesRegex(ValueError, 'API 密钥'):
+            with self.assertRaisesRegex(ValueError, '公共资源服务不可用'):
                 ModpackImporter(self.game).install(self.archive, 'missing-key')
             install.assert_not_called()
         self.assertFalse(self.game.exists())

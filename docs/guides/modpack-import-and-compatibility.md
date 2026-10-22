@@ -15,11 +15,13 @@
 
 ## 模组、资源包、光影和整合包下载
 
-「游戏下载」页的「模组」「资源包」「光影包」标签会打开 Modrinth 搜索窗口。搜索和版本查询在后台执行，不阻塞启动器界面；当前实例的 Minecraft 版本用于筛选，加载器条件只用于模组和整合包。选中项目后再选具体版本，任务进入「下载记录」，校验 SHA-1/SHA-512 与文件长度后安装到实例的 `mods`、`resourcepacks` 和 `shaderpacks` 目录。资源包与光影不按 Forge/Fabric 过滤。
+「游戏下载」页的「模组」「资源包」「光影包」标签会打开资源搜索窗口，可选择「自动 / Modrinth / CurseForge」。「自动」同时查询两个平台；一个平台不可用时仍显示另一个平台的结果。项目旁标明来源，同名项目不合并，不会把一个平台的文件替换成另一个平台的文件。
+
+搜索和版本查询在后台执行，不阻塞启动器界面；当前实例的 Minecraft 版本用于筛选，加载器条件只用于模组和整合包。选中项目后再选具体版本，任务进入「下载记录」，校验 SHA-1/SHA-512 与文件长度后安装到实例的 `mods`、`resourcepacks` 和 `shaderpacks` 目录。资源包与光影不按 Forge/Fabric 过滤。
 
 模组的传递依赖不会自动解析，已安装的旧版模组也不会自动替换；请按项目说明补齐依赖并自行移除冲突版本。光影文件会放入 `shaderpacks`，启动游戏还需要兼容的 Iris、Oculus 等渲染模组。
 
-「整合包」类型也可以从同一搜索窗口下载，不要求先选 Minecraft 实例。它会把 Modrinth `.mrpack` 文件保存到配置目录的 `downloads/modpacks` 子目录，并显示在下载记录中。当前整合包导入器只解析 CurseForge manifestVersion 1，因此 `.mrpack` 目前只能下载保存，不能通过此导入入口安装；启动器不会把下载文件误标成已安装的游戏实例。
+「整合包」类型也可以从同一搜索窗口下载，不要求先选 Minecraft 实例。CurseForge ZIP 和 Modrinth `.mrpack` 保存到配置目录的 `downloads/modpacks` 子目录，并显示在下载记录中。下载的 CurseForge ZIP 可从「导入整合包」创建实例。当前导入器只解析 CurseForge manifestVersion 1，因此 `.mrpack` 目前只能下载保存，不能通过此导入入口安装；启动器不会把下载文件误标成已安装的游戏实例。
 加载器支持 Forge、NeoForge、Fabric、Quilt；同一清单有多个加载器时直接拒绝，即使其中一个标记为非 primary。
 
 ## CurseForge 下载授权
@@ -27,12 +29,14 @@
 未内置的文件通过 [CurseForge 官方 API](https://docs.curseforge.com/rest-api/) 批量解析精确的 `projectID` / `fileID`，按服务返回的文件大小与 SHA-1 校验。
 支持模组、资源包和光影包，分别放入 `mods`、`resourcepacks`、`shaderpacks`；清单中包括非 required 的条目也一并安装，保持作者导出的完整集合。
 
-导入窗口可输入 API 密钥，也可在启动启动器前设置环境变量 `BUGGCRAFT_CURSEFORGE_API_KEY`。
-密钥不写入设置、下载历史、实例元数据或 URL；下载时只通过请求头发送，跨出官方 CDN 的重定向会移除该头。
-本次启动期间重试复用内存中的密钥，重启启动器后需重新输入或通过环境变量提供。
+默认使用 Buggcraft 的资源查询服务，无需填写密钥。公共密钥保存在服务器，不包含在安装包或接口响应中。查询服务会接收搜索词、游戏版本、加载器及所选项目/文件编号，不接收游戏账号密码。
+
+文件优先从 CurseForge 官方 CDN 下载；若 CDN 要求鉴权，自动切换到 Buggcraft 的受限下载接口，由服务器向官方 CDN 提供密钥。服务会再次核对项目与文件对应关系及作者分发设置，不接受任意下载网址。该备用接口目前允许两个文件同时传输，单文件最多 512 MiB；繁忙或超出限制时任务会明确失败，可稍后重试。接口与部署说明见[资源服务](../technical/content-gateway.md)。
+
+也可在导入窗口输入自己的 API 密钥，或在启动启动器前设置环境变量 `BUGGCRAFT_CURSEFORGE_API_KEY`。个人密钥仅通过请求头发送至官方 API 和 HTTPS 官方 CDN；跨出官方 CDN 的重定向会移除该头。密钥不写入设置、下载历史、实例元数据或 URL。本次启动期间重试复用内存中的密钥，重启启动器后需重新输入或通过环境变量提供。
 
 [CurseForge 官方下载鉴权说明](https://blog.curseforge.com/introducing-api-key-authentication-for-curseforge-file-downloads/) 指定 API/CDN 使用 `x-api-key`。
-密钥缺失、无效、文件被删除、作者未开放自动分发或缺少校验数据时，明确失败并保留日志，不使用猜测 CDN 地址，也不把缺失模组的实例标成成功。
+授权服务不可用、个人密钥无效、文件被删除、作者未开放自动分发或缺少校验数据时，明确失败并保留日志，不使用猜测 CDN 地址，也不把缺失模组的实例标成成功。
 遇到作者限制分发的文件，需从作者或官方客户端获取完整包；当前没有自动跳过文件或等待手工补齐的流程。
 
 ## 实例、缓存与失败处理
@@ -80,10 +84,12 @@ OptiFine 保留需官方安装器的提示，当前向导不自动安装。Forge
 | 名称 | 清单名称已有乱码/替换字符；新实例名称默认采用 ZIP 文件名，可编辑 |
 
 已用该实际 ZIP 验证结构解析与界面预览。自动化测试使用真实本地 HTTP 传输验证校验/缓存复用、失败重试与最终实例发布，并覆盖取消清理、已有实例保护、危险 ZIP、互斥清单、API 返回校验、下载密钥重定向和全局关闭隔离时的导入实例行为。
-未提供有效 CurseForge API 密钥，因此未声称完成此包 244 个在线条目的全量下载，也未进行该整合包的实际进游戏验证。
+2026-10-22 已验证公共查询服务的搜索、兼容版本查询，以及 Fabric API 的官方 CDN 直连下载和服务器鉴权下载。两条链路的文件均为 `fabric-api-0.92.12+1.20.1.jar`，2137232 字节，SHA-1 为 `3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4`。这不代表完成上述整合包 244 个条目的全量下载，也未进行该整合包的实际进游戏验证。
 
 运行相关回归：
 
 ```powershell
-python -m unittest tests.test_modpack_import tests.test_modpack_settings tests.test_loader_selection tests.test_download_worker tests.test_download_transport tests.test_loader_catalogue tests.test_content_download tests.test_content_dialog
+python -m unittest tests.test_curseforge tests.test_modpack_import tests.test_modpack_settings tests.test_loader_selection tests.test_download_worker tests.test_download_transport tests.test_loader_catalogue tests.test_content_download tests.test_content_dialog
 ```
+
+Minecraft 本体、原版资源及依赖库仍使用 Mojang 官方与 BMCLAPI 多源。CurseForge 提供的 Minecraft 版本信息用于其资源平台，不作为完整的游戏本体镜像。

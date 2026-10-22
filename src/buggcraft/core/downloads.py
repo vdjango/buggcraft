@@ -22,9 +22,32 @@ MIRROR = "https://bmclapi2.bangbang93.com"
 
 
 class _DownloadSession(requests.Session):
+    def __init__(self, curseforge_key='', curseforge_fallbacks=None):
+        super().__init__()
+        self.curseforge_key = curseforge_key
+        self.curseforge_fallbacks = curseforge_fallbacks or {}
+
+    def request(self, method, url, **kwargs):
+        parsed = urlsplit(url)
+        headers = dict(kwargs.get('headers') or {})
+        if (parsed.scheme == 'https' and parsed.port in (None, 443) and
+                (parsed.hostname or '').endswith('.forgecdn.net') and self.curseforge_key):
+            headers['x-api-key'] = self.curseforge_key
+        else:
+            headers.pop('x-api-key', None)
+        kwargs['headers'] = headers
+        response = super().request(method, url, **kwargs)
+        fallback = self.curseforge_fallbacks.get(url)
+        if method.upper() == 'GET' and response.status_code == 401 and fallback:
+            response.close()
+            headers.pop('x-api-key', None)
+            return super().request(method, fallback, **kwargs)
+        return response
+
     def rebuild_auth(self, prepared_request, response):
         super().rebuild_auth(prepared_request, response)
-        if not (urlsplit(prepared_request.url).hostname or '').endswith('.forgecdn.net'):
+        parsed = urlsplit(prepared_request.url)
+        if parsed.scheme != 'https' or parsed.port not in (None, 443) or not (parsed.hostname or '').endswith('.forgecdn.net'):
             prepared_request.headers.pop('x-api-key', None)
 
 
@@ -122,7 +145,8 @@ class MinecraftDownloader:
                 try:
                     session = getattr(self._sessions, 'session', None)
                     if session is None:
-                        session = _DownloadSession()
+                        session = _DownloadSession(getattr(self, 'curseforge_key', ''),
+                                                   getattr(self, 'curseforge_fallbacks', None))
                         self._sessions.session = session
                     with session.get(candidate, stream=True, timeout=(8, 20),
                                       headers={"User-Agent": "Buggcraft/1.0", **getattr(self, 'request_headers', {})}) as response:

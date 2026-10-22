@@ -1,0 +1,26 @@
+[Unit]
+Description=Buggcraft Minecraft resource metadata
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/buggcraft-content
+EnvironmentFile=/etc/buggcraft-content.env
+ExecStart=/opt/buggcraft-content/venv/bin/python -u /opt/buggcraft-content/content_gateway.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=192M
+TasksMax=32
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-"""Modrinth content search, version resolution and verified installation."""
+"""Content catalogues and verified installation from their original publishers."""
 from __future__ import annotations
 
 import hashlib
@@ -6,12 +6,14 @@ import json
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
 
-from core.downloads import DownloadCancelled
+from core.downloads import DownloadCancelled, _DownloadSession
+from core.curseforge import CurseForgeContentClient, fallback_url
 
 API = 'https://api.modrinth.com/v2'
 KINDS = {'mod': 'mods', 'resourcepack': 'resourcepacks', 'shader': 'shaderpacks', 'modpack': 'modpacks'}
@@ -60,6 +62,48 @@ class ModrinthClient:
         return data if isinstance(data, list) else []
 
 
+class ContentCatalogue:
+    SOURCES = ('自动', 'Modrinth', 'CurseForge')
+
+    def __init__(self, cancel=None):
+        self.cancel = cancel if cancel is not None else threading.Event()
+        self.clients = {'Modrinth': ModrinthClient(self.cancel),
+                        'CurseForge': CurseForgeContentClient(cancel=self.cancel)}
+        self.warnings = []
+
+    def search(self, query, kind, game_version='', loader='', source='自动'):
+        if source not in self.SOURCES:
+            raise ValueError('不支持的资源来源')
+        names = list(self.clients) if source == '自动' else [source]
+        self.warnings = []
+        hits, successful = [], 0
+        # Catalogues contain different projects, not interchangeable file mirrors.
+        with ThreadPoolExecutor(max_workers=len(names)) as pool:
+            futures = {name: pool.submit(self.clients[name].search, query, kind, game_version, loader)
+                       for name in names}
+            for name, future in futures.items():
+                try:
+                    records = future.result()
+                    successful += 1
+                    hits.extend(dict(record, source=name) for record in records)
+                except DownloadCancelled:
+                    raise
+                except (requests.RequestException, ValueError):
+                    if source != '自动':
+                        raise
+                    self.warnings.append(name + ' 暂不可用')
+        if not successful:
+            raise ValueError('资源来源暂不可用，请检查网络后重试。')
+        return hits
+
+    def versions(self, project, game_version='', loader='', kind='mod'):
+        if not isinstance(project, dict) or project.get('source') not in self.clients:
+            raise ValueError('请重新选择资源项目')
+        name = project['source']
+        return [dict(version, source=name) for version in
+                self.clients[name].versions(project['project_id'], game_version, loader, kind)]
+
+
 def _safe_file_name(name):
     if not isinstance(name, str) or not name or len(name) > 255 or Path(name).name != name:
         raise ValueError('远程文件名无效')
@@ -92,7 +136,7 @@ def instance_environment(directory, identity):
 
 
 def download_content(version, target_root, kind, cancel=None, status=None, progress=None):
-    """Download one Modrinth version into the selected instance content folder."""
+    """Download one selected version, preserving its source and expected hashes."""
     if kind not in KINDS:
         raise ValueError('不支持的内容下载类型')
     cancel = cancel if cancel is not None else threading.Event()
@@ -113,7 +157,7 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
             continue
         parsed = urlsplit(str(item['url']))
         if parsed.scheme != 'https' or parsed.username or parsed.password or not parsed.hostname:
-            raise ValueError('Modrinth 返回了不安全的下载地址')
+            raise ValueError('资源来源返回了不安全的下载地址')
         name = _safe_file_name(item.get('filename') or Path(item['url']).name)
         hashes = item.get('hashes') or {}
         sha512 = hashes.get('sha512')
@@ -136,8 +180,15 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
         if not target.resolve().is_relative_to(Path(target_root).resolve()):
             raise ValueError('内容目录超出目标实例')
         temporary = target.with_name(target.name + '.buggcraft-part')
+        session = None
+        get = requests.get
+        project_id, file_id = item.get('curseforge_project_id'), item.get('curseforge_file_id')
+        if version.get('source') == 'CurseForge' and type(project_id) is int and type(file_id) is int:
+            session = _DownloadSession(os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', ''),
+                                       {url: fallback_url(project_id, file_id)})
+            get = session.get
         try:
-            with requests.get(url, stream=True, timeout=(8, 30),
+            with get(url, stream=True, timeout=(8, 30),
                               headers={'User-Agent': 'Buggcraft/1.0'}) as response:
                 response.raise_for_status()
                 d512, d1, count = hashlib.sha512(), hashlib.sha1(), 0
@@ -154,6 +205,8 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
+            if session is not None:
+                session.close()
         progress(index, len(jobs))
     status('内容安装完成')
     return [str(path) for _, path, *_ in jobs]

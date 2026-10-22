@@ -1,5 +1,4 @@
 """Local CurseForge pack import preview."""
-import os
 from pathlib import Path
 
 from PySide6.QtWidgets import (QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
@@ -33,7 +32,7 @@ class ModpackImportDialog(QDialog):
         form.addRow('新实例名称', self.name_input)
         self.key_input = QLineEdit()
         self.key_input.setEchoMode(QLineEdit.Password)
-        self.key_input.setPlaceholderText('CurseForge API 密钥（或使用环境变量）')
+        self.key_input.setPlaceholderText('可选：个人 CurseForge API 密钥，默认使用公共资源服务')
         form.addRow('下载授权', self.key_input)
         layout.addLayout(form)
         self.preview = QLabel('选择压缩包后显示游戏版本、加载器和文件数。')
@@ -95,8 +94,6 @@ class ModpackImportDialog(QDialog):
             instance_name(self.identity)
             if self.game_dir and (Path(self.game_dir) / 'versions' / self.identity).exists():
                 raise ValueError('该实例名称已存在，请更换名称')
-            if self.pack.files and not self.api_key and not os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY'):
-                raise ValueError('此整合包需要下载 CurseForge 文件，请填写 API 密钥（或设置 BUGGCRAFT_CURSEFORGE_API_KEY）')
         except ValueError as exc:
             self.error.setText(str(exc))
             return

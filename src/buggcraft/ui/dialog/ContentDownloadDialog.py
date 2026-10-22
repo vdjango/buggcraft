@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QVBoxLayout,
 )
 
-from core.content import ModrinthClient
+from core.content import ContentCatalogue
 
 
 class _QuerySignals(QObject):
@@ -37,7 +37,7 @@ class ContentDownloadDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("下载模组 / 资源包 / 光影 / 整合包")
         self.resize(680, 540)
-        self.client = ModrinthClient()
+        self.client = ContentCatalogue()
         self.game_version = game_version
         self.loader = loader
         self.selected_version = None
@@ -52,10 +52,14 @@ class ContentDownloadDialog(QDialog):
         self.kind = QComboBox()
         for title, value in self.KINDS:
             self.kind.addItem(title, value)
+        self.source = QComboBox()
+        self.source.setAccessibleName('资源来源')
+        self.source.addItems(ContentCatalogue.SOURCES)
         self.query = QLineEdit()
         self.query.setPlaceholderText("搜索名称或关键词")
         self.search_button = QPushButton("搜索")
         controls.addWidget(self.kind)
+        controls.addWidget(self.source)
         controls.addWidget(self.query, 1)
         controls.addWidget(self.search_button)
         root.addLayout(controls)
@@ -86,6 +90,7 @@ class ContentDownloadDialog(QDialog):
         self.search_button.clicked.connect(self.search)
         self.query.returnPressed.connect(self.search)
         self.kind.currentIndexChanged.connect(self._kind_changed)
+        self.source.currentIndexChanged.connect(self._kind_changed)
         self._show_context()
         index = self.kind.findData(kind)
         if index >= 0:
@@ -94,7 +99,7 @@ class ContentDownloadDialog(QDialog):
     def _show_context(self):
         kind = self.kind.currentData()
         if kind == "modpack":
-            self.info.setText("整合包按 .mrpack 文件下载；当前自动导入仅支持 CurseForge ZIP。")
+            self.info.setText("CurseForge 整合包下载为 ZIP，可从导入入口创建实例；Modrinth 整合包下载为 .mrpack，暂不自动导入。")
         elif kind == "shader":
             self.info.setText("光影需要与当前 Minecraft 版本兼容的光影加载模组。")
         elif kind == "mod":
@@ -135,11 +140,12 @@ class ContentDownloadDialog(QDialog):
         kind = self.kind.currentData()
         game_version = self.game_version
         loader = self.loader if kind in ("mod", "modpack") else ""
+        source = self.source.currentText()
         self.results.clear()
         self._clear_version()
         self.search_button.setEnabled(False)
         self.info.setText("正在搜索…")
-        self._start_query("search", lambda: self.client.search(query, kind, game_version, loader))
+        self._start_query("search", lambda: self.client.search(query, kind, game_version, loader, source))
 
     def choose(self, item):
         project = item.data(Qt.ItemDataRole.UserRole)
@@ -165,10 +171,13 @@ class ContentDownloadDialog(QDialog):
                     continue
                 title = hit.get("title") or hit.get("name") or hit.get("slug") or identity
                 description = (hit.get("description") or "").replace("\n", " ")
-                item = QListWidgetItem(f"{title}  ·  {description[:120]}")
-                item.setData(Qt.ItemDataRole.UserRole, identity)
+                source = hit.get('source', 'Modrinth')
+                item = QListWidgetItem(f"[{source}] {title}  ·  {description[:120]}")
+                item.setData(Qt.ItemDataRole.UserRole, {'project_id': identity, 'source': source})
                 self.results.addItem(item)
-            self.info.setText(f"找到 {self.results.count()} 个项目，双击项目查看可用版本。")
+            warnings = '；'.join(self.client.warnings)
+            self.info.setText(f"找到 {self.results.count()} 个项目，双击项目查看可用版本。" +
+                              (f" {warnings}，已显示其他来源结果。" if warnings else ''))
             return
         self._available_versions = result if isinstance(result, list) else []
         if not self._available_versions:
@@ -196,5 +205,6 @@ class ContentDownloadDialog(QDialog):
 
     def done(self, result):
         self._closed = True
+        self.client.cancel.set()
         self._invalidate()
         super().done(result)

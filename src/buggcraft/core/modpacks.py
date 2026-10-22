@@ -14,13 +14,11 @@ import threading
 from urllib.parse import urlsplit
 import zipfile
 
-import requests
-
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
 from core.loader_rules import validate_loaders
+from core.curseforge import CurseForgeAPI, fallback_url
 
-API = 'https://api.curseforge.com/v1'
 MAX_EXPANDED = 8 * 1024 ** 3
 MAX_ENTRIES = 50000
 
@@ -123,27 +121,9 @@ def inspect_pack(path):
                     tuple(refs), ram if type(ram) is int and 0 <= ram <= 1048576 else 0, expanded)
 
 
-class CurseForgeClient:
-    def __init__(self, api_key, cancel):
-        self.api_key = api_key or os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
-        self.cancel = cancel
-
-    def post(self, route, body):
-        if not self.api_key:
-            raise ValueError('此整合包需要从 CurseForge 下载文件，请在导入窗口填写 CurseForge API 密钥，或设置 BUGGCRAFT_CURSEFORGE_API_KEY 后重试。')
-        if self.cancel.is_set():
-            raise DownloadCancelled('导入已取消')
-        with requests.post(API + route, json=body, timeout=(8, 30),
-                           headers={'x-api-key': self.api_key, 'User-Agent': 'Buggcraft/1.0'}) as response:
-            if response.status_code in (401, 403):
-                raise ValueError('CurseForge API 密钥无效或没有访问权限，请检查密钥后重试')
-            response.raise_for_status()
-            data = response.json().get('data')
-            if not isinstance(data, list):
-                raise ValueError('CurseForge 返回的文件清单无效')
-            return data
-
+class CurseForgeClient(CurseForgeAPI):
     def resolve(self, refs):
+        self.fallback_urls = {}
         projects, files = {}, {}
         project_ids = list(dict.fromkeys(project for project, file in refs))
         file_ids = list(dict.fromkeys(file for project, file in refs))
@@ -175,6 +155,7 @@ class CurseForgeClient:
             if not re.fullmatch('[0-9a-fA-F]{40}', sha1) or type(item.get('fileLength')) is not int or item['fileLength'] <= 0:
                 raise ValueError(f'CurseForge 文件缺少校验信息：{name}')
             jobs.append((url, relative, sha1.lower(), item['fileLength']))
+            self.fallback_urls[url] = fallback_url(project_id, file_id)
         return jobs
 
 
@@ -211,8 +192,8 @@ class ModpackImporter:
         cache.mkdir(parents=True, exist_ok=True)
         downloader = MinecraftDownloader(cache / 'files', source=self.source, cancel=self.cancel,
                                          status=self.status, progress=self.progress)
-        # CurseForge keys go only to the official CDN, never to Minecraft mirrors.
-        downloader.request_headers = {'x-api-key': self.client.api_key} if self.client.api_key else {}
+        downloader.curseforge_key = self.client.api_key
+        downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         downloader._batch(jobs, '正在下载并校验整合包模组和资源…')
         self.check()
         if info.loader:

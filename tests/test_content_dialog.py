@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ui.dialog.ContentDownloadDialog import ContentDownloadDialog
+from PySide6.QtCore import Qt
 
 
 class ContentDialogTests(unittest.TestCase):
@@ -44,6 +45,23 @@ class ContentDialogTests(unittest.TestCase):
             release.set()
             dialog.reject()
             self.app.processEvents()
+
+    def test_source_change_clears_selection_and_results_keep_their_provider(self):
+        dialog = ContentDownloadDialog(None, '1.20.1', 'fabric')
+        try:
+            dialog._query_finished(dialog._request_id, 'search', [
+                {'project_id':'10','title':'Sample','source':'CurseForge'}], '')
+            item = dialog.results.item(0)
+            self.assertIn('[CurseForge]', item.text())
+            self.assertEqual(item.data(Qt.ItemDataRole.UserRole), {'project_id':'10','source':'CurseForge'})
+            dialog._query_finished(dialog._request_id, 'versions', [{'name':'Sample','files':[]}], '')
+            self.assertTrue(dialog.install.isEnabled())
+            dialog.source.setCurrentText('Modrinth')
+            self.assertEqual(dialog.results.count(), 0)
+            self.assertIsNone(dialog.selected_version)
+            self.assertFalse(dialog.install.isEnabled())
+        finally:
+            dialog.reject()
 
 
 if __name__ == '__main__':
