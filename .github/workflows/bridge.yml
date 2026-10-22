@@ -1,0 +1,92 @@
+name: Package bridge
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'src/buggcraft/hookup/**'
+      - 'packaging/bridge*'
+      - 'requirements-bridge*.txt'
+      - 'scripts/build_bridge.py'
+      - 'tests/test_bridge_package.py'
+      - 'docs/technical/bridge-integration.md'
+      - '.github/workflows/bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-22.04
+            platform: linux-x64
+          - os: macos-15-intel
+            platform: macos-x64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      BUGGCRAFT_NODE_SOURCE: ${{ github.workspace }}/node-source
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: vdjango/minecraft-tunnel
+          ref: ebe95f467235f7d0b8ef980809e15fdc02f8a8ca
+          path: node-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-bridge*.txt
+      - name: Install networking and build dependencies
+        run: |
+          python -m pip install -r requirements-bridge-build.txt
+          python -m pip check
+      - name: Test source protocol and game transport
+        run: python -X utf8 -m unittest tests.test_bridge_package.BridgeSourceTests -v
+      - name: Build standalone component
+        run: python scripts/build_bridge.py
+      - name: Test portable executable without Python on PATH
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess, sys
+          root = pathlib.Path('dist/bridge-build/buggcraft-bridge').resolve()
+          executable = root / ('buggcraft-bridge.exe' if os.name == 'nt' else 'buggcraft-bridge')
+          env = dict(os.environ, BUGGCRAFT_BRIDGE_EXECUTABLE=str(executable))
+          subprocess.run([sys.executable, '-X', 'utf8', '-m', 'unittest',
+                          'tests.test_bridge_package.BridgeBinaryTests', '-v'], env=env, check=True)
+          PY
+      - name: Upload portable component
+        uses: actions/upload-artifact@v4
+        with:
+          name: Buggcraft-bridge-${{ matrix.platform }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: |
+            dist/bridge-build/buggcraft-bridge-*.zip
+            dist/bridge-build/buggcraft-bridge-*.tar.gz
+            dist/bridge-build/buggcraft-bridge-*.sha256
+      - name: Upload build analysis on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-diagnostics-${{ matrix.platform }}
+          if-no-files-found: ignore
+          path: dist/bridge-build/work/bridge/warn-bridge.txt

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 import secrets
 import sys
 
@@ -12,6 +13,13 @@ from .relay import RoomInvite, TunnelClient, TunnelHost
 from .rooms import connect_directory, request as directory_request
 
 MAX_LINE = 8192
+
+
+def build_info():
+    path = Path(__file__).with_name('bridge_build.json')
+    if path.is_file():
+        return json.loads(path.read_text(encoding='utf-8'))
+    return {'protocol': 1, 'commit': 'source', 'signed': False}
 
 
 class RPCError(Exception):
@@ -71,7 +79,7 @@ async def serve(reader, writer):
         if method == 'bridge.initialize':
             if params.get('protocol', 1) != 1:
                 raise RPCError(-32602, 'Unsupported bridge protocol version')
-            return {'protocol': 1, 'name': 'buggcraft-bridge', 'jsonrpc': '2.0',
+            return {'protocol': 1, 'name': 'buggcraft-bridge', 'jsonrpc': '2.0', 'build': build_info(),
                     'transports': ['auto', 'relay'], 'mixed_rooms': True,
                     'methods': ['node.add', 'node.remove', 'room.list', 'room.host',
                                 'room.join', 'room.close', 'session.list'],
