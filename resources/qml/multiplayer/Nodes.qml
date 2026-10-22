@@ -38,7 +38,7 @@ ColumnLayout {
                         contentItem: ColumnLayout {
                             spacing: 5
                             CopyText { Layout.fillWidth: true; text: modelData.title; color: "#eee8fa"; font.pixelSize: 12; elide: Text.ElideMiddle; wrapMode: Text.NoWrap }
-                            CopyText { text: (vm.nodeIndex === index ? "● 当前入口" : "切换至此节点 →") + (modelData.personalCode ? " · 个人接入码" : " · 匿名接入"); color: vm.nodeIndex === index ? "#9dd4b8" : "#b4a6ca"; font.pixelSize: 10 }
+                            CopyText { text: (vm.nodeIndex === index ? "● 当前入口" : "切换至此节点 →") + (modelData.personalCode ? " · 个人启动器接入码" : " · 匿名接入"); color: vm.nodeIndex === index ? "#9dd4b8" : "#b4a6ca"; font.pixelSize: 10 }
                         }
                         background: Rectangle {
                             color: vm.nodeIndex === index ? "#382c4d" : parent.hovered ? "#2f283b" : "#231f2d"
@@ -68,12 +68,12 @@ ColumnLayout {
                 anchors.fill: parent; anchors.margins: 20; spacing: 12
                 CopyText { text: "CONNECT TOGETHER"; font.pixelSize: 10; font.letterSpacing: 2; color: "#b39bdb" }
                 CopyText { text: "添加一个联机入口"; font.pixelSize: 21; font.bold: true; color: "#f0e8ff" }
-                CopyText { Layout.fillWidth: true; text: "匿名联机：复制节点首页的玩家接入码。\n使用账号：在节点网页登录并领取个人接入码；开启加密副本后也可跨节点登录。启动器只接收接入码，不接收账号密码。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
+                CopyText { Layout.fillWidth: true; text: "匿名联机：复制节点首页的匿名启动器接入码。\n使用账号：在节点网页登录并领取个人启动器接入码，同一联邦的其他节点会自动取回在线的加密资料；额外副本用于源节点离线时恢复登录。启动器只接收接入码，不接收账号密码。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
                 Item { Layout.fillHeight: true; Layout.minimumHeight: 0; Layout.maximumHeight: 14 }
                 CopyText { text: "节点接入码或个人启动器接入码"; font.pixelSize: 11; color: "#e2d6f2" }
                 InputField {
                     objectName: "node-code"; Layout.fillWidth: true; Layout.preferredHeight: 36
-                    placeholderText: "粘贴 buggnode1- 添加码"; maximumLength: 4096
+                    placeholderText: "粘贴 buggnode1- 启动器接入码"; maximumLength: 4096
                     text: vm.nodeDraft || ""; onTextEdited: lobby.act("nodeDraft", {text:text})
                     onAccepted: { if (!vm.busy && (vm.nodeDraft || "").trim()) lobby.act("addNodeCode", {}) }
                 }
@@ -85,7 +85,7 @@ ColumnLayout {
                 }
                 ActionButton { objectName: "import-node"; text: "已有配置文件？导入 JSON"; Layout.fillWidth: true; quiet: true; enabled: !vm.busy; implicitHeight: 28; onClicked: lobby.act("importNode", {}) }
                 Item { Layout.fillHeight: true; Layout.minimumHeight: 0 }
-                CopyText { Layout.fillWidth: true; text: "仅从可信来源添加；添加码含访问凭据。\n联机期间锁定当前节点，离开房间后可切换。"; font.pixelSize: 10; color: "#a397b4" }
+                CopyText { Layout.fillWidth: true; text: "仅从可信来源添加；启动器接入码含访问凭据。\n联机期间锁定当前节点，离开房间后可切换。"; font.pixelSize: 10; color: "#a397b4" }
             }
         }
     }

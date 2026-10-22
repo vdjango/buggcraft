@@ -14,7 +14,7 @@ ColumnLayout {
         HeaderAction { text: "↻"; label: "刷新好友"; visible: !!vm.socialReady; onClicked: lobby.act("refreshFriends", {}) }
         ActionButton { objectName: "add-friend"; text: "添加好友"; visible: !!vm.socialReady; primary: true; implicitHeight: 30; onClicked: lobby.act("navigate", {page:"friendForm"}) }
     }
-    CopyText { Layout.fillWidth: true; visible: !vm.socialReady; text: vm.socialError || "匿名接入没有好友功能。请在节点网页登录，领取个人接入码并添加到启动器。"; font.pixelSize: 12 }
+    CopyText { Layout.fillWidth: true; visible: !vm.socialReady; text: vm.socialError || "匿名接入没有好友功能。请在节点网页登录，领取个人启动器接入码并添加到启动器。"; font.pixelSize: 12 }
     RowLayout {
         visible: !!vm.socialReady; Layout.fillWidth: true; spacing: 4
         Repeater {

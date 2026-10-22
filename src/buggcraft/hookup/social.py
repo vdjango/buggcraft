@@ -32,7 +32,7 @@ def credential(profile):
             raise ValueError('Delegation key mismatch')
         return claims, key
     except (ValueError, KeyError, TypeError, IndexError) as exc:
-        raise ValueError('请在节点网页重新登录，领取支持好友的个人接入码。') from exc
+        raise ValueError('请在节点网页重新登录，领取支持好友的个人启动器接入码。') from exc
 
 
 def signed_action(profile, operation, target=None, **fields):

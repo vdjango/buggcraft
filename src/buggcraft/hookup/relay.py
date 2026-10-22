@@ -189,10 +189,14 @@ class TunnelEndpoint:
                             available = True
                         except (OSError, asyncio.TimeoutError):
                             available = False
+                        control_started = asyncio.get_running_loop().time()
                         info = await request(connection, 'availability', available=available)
                 else:
+                    control_started = asyncio.get_running_loop().time()
                     info = await request(connection, 'describe')
                     self.room_info = info
+                control_rtt_ms = (asyncio.get_running_loop().time() - control_started) * 1000
+                diagnostics_enabled = info.get('diagnostics', False)
                 latency = None
                 status = None
                 if info.get('availability', 'ready') == 'ready':
@@ -213,6 +217,13 @@ class TunnelEndpoint:
                                              maximum=maximum if type(maximum) is int and maximum >= 0 else None)
                     except (OSError, asyncssh.Error, ValueError):
                         pass  # Compatible with older nodes lacking presence reports.
+                if diagnostics_enabled:
+                    try:
+                        await request(connection, 'diagnostics', report={
+                            'control_rtt_ms': control_rtt_ms, 'game_rtt_ms': latency,
+                            'path': self.transport_state})
+                    except (OSError, asyncssh.Error, ValueError):
+                        pass  # Diagnostics must never interrupt a game session.
                 state = info.get('availability', 'ready')
                 game = info.get('game')
                 self.room_event({'type':'room', 'state':state, 'reason':info.get('reason') or
