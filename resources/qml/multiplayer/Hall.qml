@@ -26,6 +26,12 @@ ColumnLayout {
             onClicked: lobby.act("exportDiagnostics", {})
         }
     }
+    RowLayout {
+        Layout.fillWidth: true
+        visible: !!vm.socialError
+        CopyText { objectName: "lobby-social-error"; Layout.fillWidth: true; text: vm.socialError || ""; color: "#e8b3b3"; font.pixelSize: 11; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
+        ActionButton { objectName: "retry-social-login"; text: "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act("refreshFriends", {}) }
+    }
     Rectangle {
         id: nodeBar
         objectName: "room-node-row"

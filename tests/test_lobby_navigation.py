@@ -1,5 +1,6 @@
 """Navigation exposes room management only when a session has room records."""
 import os
+import asyncio
 from pathlib import Path
 import sys
 import tempfile
@@ -37,9 +38,12 @@ class LobbyNavigationTests(unittest.TestCase):
         from zipfile import ZipFile
         with tempfile.TemporaryDirectory() as temporary:
             destination = str(Path(temporary) / 'support')
+            def collect(key, coroutine):
+                self.controller.finish(key, asyncio.run(coroutine), None)
             with patch('ui.multiplayer_controller.QFileDialog.getSaveFileName',
                        return_value=(destination, 'ZIP (*.zip)')), \
-                    patch.dict(os.environ, BUGGCRAFT_LOG_DIR=temporary):
+                    patch.dict(os.environ, BUGGCRAFT_LOG_DIR=temporary), \
+                    patch.object(self.controller, 'job', side_effect=collect):
                 self.controller.act('exportDiagnostics', {})
             with ZipFile(destination + '.zip') as archive:
                 self.assertIn('diagnostics.json', archive.namelist())

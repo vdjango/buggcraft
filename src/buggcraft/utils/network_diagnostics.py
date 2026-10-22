@@ -30,6 +30,7 @@ def capture_network(directory, trace_id):
     result = {'schema': 1, 'trace_id': trace_id,
               'captured_utc': datetime.now(timezone.utc).isoformat(),
               'platform': platform.system(), 'interfaces': [],
+              'topology_scope': 'Local interfaces, connection profiles, DNS and route table; per-peer ICE candidates and selected pairs are in p2p session logs.',
               'nat_type': 'unknown',
               'nat_type_reason': 'Local routes and a single STUN mapping do not establish NAT filtering or mapping behavior.',
               'proxy_environment_present': {key: bool(os.environ.get(key)) for key in
@@ -52,7 +53,10 @@ def capture_network(directory, trace_id):
     if system == 'Windows':
         command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
             "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $ErrorActionPreference='Stop'; "
-            "$n=@{adapters=@(Get-NetAdapter | Select-Object Name,InterfaceDescription,ifIndex,Status,LinkSpeed,MediaType,PhysicalMediaType); "
+            "$n=@{adapters=@(Get-NetAdapter | Select-Object Name,InterfaceDescription,ifIndex,Status,LinkSpeed,MediaType,PhysicalMediaType,Virtual,HardwareInterface); "
+            "profiles=@(Get-NetConnectionProfile | Select-Object Name,InterfaceAlias,InterfaceIndex,NetworkCategory,IPv4Connectivity,IPv6Connectivity); "
+            "graphics=@(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,DriverDate,AdapterRAM,VideoProcessor,Status); "
+            "gateways=@(Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceIndex,@{n='IPv4Gateway';e={$_.IPv4DefaultGateway.NextHop}},@{n='IPv6Gateway';e={$_.IPv6DefaultGateway.NextHop}}); "
             "routes=@(Get-NetRoute | Select-Object AddressFamily,DestinationPrefix,NextHop,InterfaceIndex,RouteMetric,InterfaceMetric); "
             "dns=@(Get-DnsClientServerAddress | Select-Object InterfaceAlias,InterfaceIndex,AddressFamily,ServerAddresses)}; "
             "$n | ConvertTo-Json -Depth 5 -Compress"]

@@ -36,6 +36,7 @@ class LobbyBackend(QObject):
             'nodeDraft':'', 'joinRoomId':'', 'joinRoomTitle':'',
             'invitePrompt':False, 'roomQuery':'', 'roomNext':None, 'roomTotal':None, 'loadingMore':False,
             'transportPolicy':'auto',
+            'nodeUpdatePrompt':False, 'nodeUpdateMessage':'',
         }
         self.actions = []
 
@@ -116,6 +117,15 @@ class LobbyLayoutTests(unittest.TestCase):
         QTest.keyClick(self.window, Qt.Key_Return)
         QTest.qWait(60)
         self.assertEqual(self.backend.view['page'], 'nodes')
+
+    def test_existing_node_update_prompts_before_overwriting_and_has_cancel(self):
+        self.backend._view.update(nodeUpdatePrompt=True, nodeUpdateMessage='Update this node?')
+        self.backend.viewChanged.emit()
+        QTest.qWait(70)
+        self.click('confirm-node-update')
+        self.assertEqual(self.backend.actions[-1][0], 'confirmNodeUpdate')
+        self.click('cancel-node-update')
+        self.assertEqual(self.backend.actions[-1][0], 'cancelNodeUpdate')
 
     def test_node_picker_replaces_tab_and_opens_a_secondary_management_page(self):
         with self.assertRaises(AssertionError):

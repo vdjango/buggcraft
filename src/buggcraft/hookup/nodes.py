@@ -4,6 +4,12 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import asyncssh
+
+
+def node_identity(profile):
+    """A pinned SSH key identifies a node across address aliases and key comments."""
+    return asyncssh.import_public_key(profile.server_public_key).get_fingerprint()
 
 
 def profile_data(profile):

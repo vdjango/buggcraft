@@ -164,11 +164,23 @@ def main(report):
                         raise RuntimeError('Missing multiplayer diagnostic export action')
                     from utils.diagnostics import export_diagnostics
                     from zipfile import ZipFile
-                    diagnostic = export_diagnostics(Path(temp) / 'diagnostics.zip')
+                    game_logs = Path(temp) / 'test-game/logs'
+                    game_logs.mkdir(parents=True)
+                    (game_logs / 'latest.log').write_text('fixture --accessToken package-check-secret', encoding='utf-8')
+                    diagnostic = export_diagnostics(Path(temp) / 'diagnostics.zip', game_directory=game_logs.parent)
                     with ZipFile(diagnostic) as bundle:
                         if 'diagnostics.json' not in bundle.namelist():
                             raise RuntimeError('Broken diagnostic archive')
-                    result['checks'].extend(['modpack-no-api-key', 'diagnostic-export'])
+                        exported = json.loads(bundle.read('diagnostics.json'))
+                        if (exported['network_collection']['status'] != 'collected'
+                                or not any(name.startswith('p2p-sessions/network-export-') for name in bundle.namelist())):
+                            raise RuntimeError('Missing fresh network topology export')
+                        if b'package-check-secret' in bundle.read('game/logs/latest.log'):
+                            raise RuntimeError('Game diagnostic credentials were not redacted')
+                        if json.loads(bundle.read('game/inventory.json'))['schema'] != 1:
+                            raise RuntimeError('Missing mod and runtime inventory')
+                    result['checks'].extend(['modpack-no-api-key', 'diagnostic-export',
+                                             'network-topology-export', 'game-crash-log-export', 'mod-runtime-inventory'])
                     lobby.show_friends()
                     app.processEvents()
                     quicks = window.findChildren(QQuickWidget) + [lobby.quick, lobby.friends_window.quick]

@@ -108,6 +108,26 @@ Rectangle {
             }
         }
     }
+    Popup {
+        id: nodeUpdatePopup; objectName: "node-update-dialog"
+        parent: Overlay.overlay; anchors.centerIn: parent
+        width: Math.min(430, parent.width - 48); padding: 20; modal: true; focus: true
+        visible: !!vm.nodeUpdatePrompt
+        closePolicy: Popup.NoAutoClose
+        background: Surface { color: "#251f30"; border.color: "#7e699e" }
+        contentItem: ColumnLayout {
+            spacing: 14
+            CopyText { text: "更新已有节点？"; font.pixelSize: 16; font.bold: true; color: "#f3efff" }
+            CopyText { Layout.fillWidth: true; text: vm.nodeUpdateMessage || ""; font.pixelSize: 12; wrapMode: Text.Wrap }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 10
+                Item { Layout.fillWidth: true }
+                ActionButton { objectName: "cancel-node-update"; text: "保留原配置"; onClicked: lobby.act("cancelNodeUpdate", {}) }
+                ActionButton { objectName: "confirm-node-update"; text: "确认更新"; primary: true; onClicked: lobby.act("confirmNodeUpdate", {}) }
+            }
+        }
+        Shortcut { sequence: "Escape"; enabled: nodeUpdatePopup.visible; onActivated: lobby.act("cancelNodeUpdate", {}) }
+    }
     onPageChanged: if (page !== "connected") leavePopup.close()
     Popup {
         id: invitePopup; objectName: "room-invite-dialog"
@@ -152,7 +172,7 @@ Rectangle {
     }
     Shortcut {
         sequence: "Escape"
-        enabled: !invitePopup.visible && !leavePopup.visible
+        enabled: !invitePopup.visible && !leavePopup.visible && !nodeUpdatePopup.visible
         onActivated: root.page === "hall" ? lobby.act("close", {}) : root.goBack()
     }
 }

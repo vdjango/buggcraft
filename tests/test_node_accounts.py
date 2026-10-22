@@ -302,6 +302,53 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
         forged='acct1.'+encode(payload)+'.'+encode(self.feds[0].key.sign(payload,b'ssh-ed25519'))
         self.assertIsNone(store.authenticate(forged))
 
+    async def test_launcher_anonymous_upgrade_reloads_real_signed_friend_state(self):
+        import os
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication, QDialog
+        from ui.multiplayer_controller import MultiplayerController
+        from hookup.social import operate
+        app = QApplication.instance() or QApplication([])
+        app.setQuitOnLastWindowClosed(False)
+        alice, alice_key, _ = await self.register(copies=0, username='alice_upgrade')
+        bob, bob_key, _ = await self.register(copies=0, username='bob_upgrade')
+        personal = self.personal_profile(0, alice, alice_key)
+        friend = self.personal_profile(0, bob, bob_key)
+        await operate(personal, 'request', bob)
+        requests = (await operate(friend, 'presence'))['requests']
+        await operate(friend, 'accept', alice, ref=requests[0]['id'])
+        jobs = []
+        def schedule(key, coroutine):
+            jobs.append((key, coroutine))
+        window = QDialog()
+        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})):
+            controller = MultiplayerController(window, Path(self.temporary.name) / 'upgrade-ui/lobby.json')
+        controller.friend_timer.stop()
+        try:
+            with patch.object(controller, 'job', side_effect=schedule):
+                anonymous = await probe(RelayProfile(**self.feds[0].profile))
+                controller.finish('nodecode:' + controller.generation, anonymous, None)
+                saved = controller.node_path
+                self.assertFalse(controller.view['socialReady'])
+                controller.finish('nodecode:' + controller.generation, await probe(personal), None)
+                self.assertTrue(controller.view['nodeUpdatePrompt'])
+                controller.act('confirmNodeUpdate', {})
+                self.assertEqual(controller.node_path, saved)
+                social_job = next((key, coroutine) for key, coroutine in jobs if key.startswith('socialstatus:'))
+                value = await social_job[1]
+                controller.finish(social_job[0], value, None)
+                self.assertTrue(controller.view['socialReady'])
+                self.assertEqual(controller.view['socialName'], 'alice_upgrade')
+                self.assertEqual(controller.view['contacts'][0]['name'], 'bob_upgrade')
+                self.assertEqual(controller.store.data['nodes'], [saved])
+                self.assertEqual(RelayProfile.load(saved).token, personal.token)
+        finally:
+            for _, coroutine in jobs:
+                coroutine.close()
+            controller.close()
+            window.close()
+
     async def test_cross_node_friend_consent_presence_invitation_and_game_bytes(self):
         from hookup.social import operate, signed_action
         from hookup.relay import TunnelHost, TunnelClient, RoomInvite

@@ -1,5 +1,6 @@
 """Diagnostic exports retain connection evidence without settings or credentials."""
 import json
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -16,10 +18,23 @@ from utils.network_diagnostics import address_scope, capture_network
 
 
 class ConnectionDiagnosticsTests(unittest.TestCase):
+    def test_export_button_runs_collection_in_worker_without_blocking_ui(self):
+        from ui.multiplayer_controller import MultiplayerController
+        controller = SimpleNamespace(window=None, patch=unittest.mock.Mock(), job=unittest.mock.Mock())
+        with patch('ui.multiplayer_controller.QFileDialog.getSaveFileName', return_value=('report.zip', 'ZIP')), \
+                patch('utils.diagnostics.export_diagnostics', return_value=Path('report.zip')) as export:
+            MultiplayerController.act(controller, 'exportDiagnostics', {})
+            export.assert_not_called()
+            key, coroutine = controller.job.call_args.args
+            self.assertEqual(key, 'diagnostics')
+            asyncio.run(coroutine)
+            export.assert_called_once_with('report.zip')
+
     def test_redaction_covers_headers_json_and_ice_credentials(self):
         for text in ('Authorization: Bearer top-secret', 'password="top-secret"',
                      '{"refresh_token": "top-secret"}', 'a=ice-pwd:top-secret',
-                     "{'x-api-key': 'top-secret'}"):
+                     "{'x-api-key': 'top-secret'}", '--accessToken top-secret --xuid top-secret',
+                     '--accessToken "top-secret"'):
             with self.subTest(text=text):
                 self.assertNotIn('top-secret', redact(text))
         record = logging.LogRecord('hookup._rtc.rtcpeerconnection', logging.DEBUG, '', 1,
@@ -39,7 +54,13 @@ class ConnectionDiagnosticsTests(unittest.TestCase):
             (sessions / 'new.log').write_text('selected_pair local=192.168.1.2', encoding='utf-8')
             (sessions / 'network-one.json').write_text('{"nat_type":"unknown"}', encoding='utf-8')
             (sessions / 'node-profile.json').write_text('room-secret', encoding='utf-8')
-            target = export_diagnostics(root / 'report.zip', root)
+            def snapshot(directory, trace):
+                value = {'trace_id': trace, 'routes_and_adapters': {'routes': [{'NextHop': '192.168.1.1'}]}}
+                (Path(directory) / ('network-' + trace + '.json')).write_text(json.dumps(value), encoding='utf-8')
+                return value
+            with patch('utils.network_diagnostics.capture_network', side_effect=snapshot) as capture:
+                target = export_diagnostics(root / 'report.zip', root)
+            capture.assert_called_once()
             with ZipFile(target) as archive:
                 names = set(archive.namelist())
                 self.assertIn('p2p-sessions/old.log.1', names)
@@ -48,7 +69,34 @@ class ConnectionDiagnosticsTests(unittest.TestCase):
                 self.assertNotIn('p2p-sessions/node-profile.json', names)
                 self.assertNotIn(b'top-secret', archive.read('buggcraft.log'))
                 self.assertIn(b'192.168.1.2', archive.read('p2p-sessions/new.log'))
-                self.assertEqual(len(json.loads(archive.read('diagnostics.json'))['files']), 4)
+                metadata = json.loads(archive.read('diagnostics.json'))
+                self.assertEqual(len(metadata['files']), 5)
+                self.assertEqual(metadata['network_collection']['status'], 'collected')
+
+    def test_export_without_room_keeps_network_failure_and_selected_game_crash_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / 'instance'
+            (game / 'logs').mkdir(parents=True)
+            (game / 'crash-reports').mkdir()
+            (game / 'saves').mkdir()
+            (game / 'logs/latest.log').write_text('renderer error --accessToken top-secret', encoding='utf-8')
+            (game / 'crash-reports/crash-client.txt').write_text('Renderer failed', encoding='utf-8')
+            (game / 'hs_err_pid1.log').write_text('EXCEPTION_ACCESS_VIOLATION', encoding='utf-8')
+            (game / 'saves/world.dat').write_text('private world', encoding='utf-8')
+            (game / 'options.txt').write_text('private options', encoding='utf-8')
+            with patch('utils.network_diagnostics.capture_network', side_effect=OSError('route probe blocked')):
+                target = export_diagnostics(root / 'report.zip', root, game)
+            with ZipFile(target) as archive:
+                self.assertIn('game/logs/latest.log', archive.namelist())
+                self.assertIn('game/crash-reports/crash-client.txt', archive.namelist())
+                self.assertIn('game/jvm/hs_err_pid1.log', archive.namelist())
+                self.assertNotIn(b'top-secret', archive.read('game/logs/latest.log'))
+                self.assertFalse(any('world.dat' in name or 'options.txt' in name for name in archive.namelist()))
+                metadata = json.loads(archive.read('diagnostics.json'))
+                self.assertEqual(metadata['network_collection']['status'], 'failed')
+                self.assertIn('route probe blocked', metadata['network_collection']['error'])
+                self.assertIn('game/logs/debug.log', metadata['missing_game_logs'])
 
     def test_route_snapshot_is_independent_of_nat_classification_and_proxy_credentials(self):
         with tempfile.TemporaryDirectory() as temporary, \

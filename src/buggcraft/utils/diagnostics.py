@@ -11,6 +11,8 @@ import platform
 import re
 import sys
 import threading
+import secrets
+import gzip
 from zipfile import ZipFile, ZIP_DEFLATED
 
 _session_file = None
@@ -21,11 +23,21 @@ _export_lock = threading.Lock()
 def redact(text):
     text = str(text)
     text = re.sub(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+', 'Bearer [REDACTED]', text)
+    text = re.sub(r'(?i)(--(?:accessToken|clientToken|xuid)\s+)("[^"]*"|\x27[^\x27]*\x27|\S+)', r'\1[REDACTED]', text)
     # Never persist SDP credentials or request credentials, even in tracebacks.
     text = re.sub(r'(?im)^(a=ice-pwd:).*$', r'\1[REDACTED]', text)
     text = re.sub(r'(?i)(\b(?:password|passwd|secret|access_token|refresh_token|token|api_key|x-api-key|authorization)\b[\s\"\x27]*[:=]\s*)(\"[^\"]*\"|\x27[^\x27]*\x27|[^\s,;}]+)',
                   r'\1[REDACTED]', text)
     return text
+
+
+def redact_structure(value):
+    if isinstance(value, dict):
+        return {key: ('[REDACTED]' if re.fullmatch(r'(?i)(?:password|passwd|secret|access_token|refresh_token|token|api_key|x-api-key|authorization)', str(key))
+                      else redact_structure(item)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_structure(item) for item in value]
+    return redact(value) if isinstance(value, str) else value
 
 
 class SafeFormatter(logging.Formatter):
@@ -69,39 +81,119 @@ def connection_session_directory():
     return _session_file.parent if _session_file else None
 
 
-def export_diagnostics(destination, directory=None):
-    """Allowlist only logs; settings, tokens, profiles and game files stay out."""
+def export_diagnostics(destination, directory=None, game_directory=None, java_path=None):
+    """Collect fresh routes and allowlisted game/launcher logs, without settings or worlds."""
     root = Path(directory or _log_root or os.environ.get('BUGGCRAFT_LOG_DIR') or Path.cwd()).resolve()
     destination = Path(destination).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Flush while connections are still active, without stopping their session.
     for handler in logging.getLogger().handlers:
         handler.flush()
+    collection_errors = []
+    network = {'status': 'failed'}
+    try:
+        from utils.network_diagnostics import capture_network
+        snapshot = capture_network(root / 'p2p-sessions', 'export-' + secrets.token_hex(8))
+        network = {'status': 'collected', 'trace_id': snapshot['trace_id'],
+                   'route_error': snapshot.get('route_error'),
+                   'interfaces_error': snapshot.get('interfaces_error')}
+    except Exception as error:
+        network['error'] = type(error).__name__ + ': ' + redact(error)
+    selected_game = {}
+    missing_game_logs = []
+    if game_directory is None and directory is None:
+        try:
+            import config.settings as settings
+            manager = settings._settings_manager_instance
+            if manager is not None:
+                game_directory = manager.get_minecraft_isolation_directory()
+                selected_game = {'version': manager.get_setting('minecraft.version.enable'),
+                                 'java_path': manager.get_version_setting('java.path')}
+                java_path = java_path or selected_game['java_path']
+        except Exception as error:
+            collection_errors.append({'component': 'game-selection', 'error': type(error).__name__})
     files = list(root.glob('buggcraft*.log*')) + list(root.glob('Buggcraft-install.log*'))
     sessions = root / 'p2p-sessions'
     if sessions.is_dir() and not sessions.is_symlink():
         files += list(sessions.glob('*.log*'))
         files += list(sessions.glob('network-*.json'))
+    sources = [(path, path.relative_to(root).as_posix()) for path in files]
+    inventory = None
+    if game_directory:
+        game_root = Path(game_directory).resolve()
+        selected_game['directory'] = str(game_root)
+        selected_game['directory_exists'] = game_root.is_dir()
+        try:
+            from utils.game_diagnostics import game_inventory
+            inventory = game_inventory(game_root, java_path, selected_game.get('version'))
+        except Exception as error:
+            collection_errors.append({'component': 'game-inventory', 'error': type(error).__name__})
+        for name in ('latest.log', 'debug.log'):
+            path = game_root / 'logs' / name
+            relative = 'game/logs/' + name
+            sources.append((path, relative))
+            if not path.is_file():
+                missing_game_logs.append(relative)
+        logs = game_root / 'logs'
+        if logs.is_dir() and not logs.is_symlink():
+            rotated = [path for path in logs.iterdir() if path.name not in ('latest.log', 'debug.log')
+                       and path.is_file() and not path.is_symlink()
+                       and (path.name.endswith(('.log', '.log.gz')) or re.fullmatch(r'(?:latest|debug)\.log\.\d+(?:\.gz)?', path.name))]
+            sources.extend((path, 'game/logs/' + path.name) for path in sorted(rotated, key=lambda path: path.stat().st_mtime, reverse=True)[:20])
+        crash_root = game_root / 'crash-reports'
+        if crash_root.is_dir() and not crash_root.is_symlink():
+            crashes = sorted(crash_root.glob('*.txt'), key=lambda path: path.stat().st_mtime, reverse=True)[:5]
+            sources.extend((path, 'game/crash-reports/' + path.name) for path in crashes)
+        for pattern in ('hs_err_pid*.log', 'replay_pid*.log'):
+            crashes = sorted(game_root.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)[:5]
+            sources.extend((path, 'game/jvm/' + path.name) for path in crashes)
+    available = []
+    for path, relative in sources:
+        try:
+            if path.is_file() and not path.is_symlink() and path.resolve() != destination:
+                available.append((path.stat().st_mtime, path, relative))
+        except OSError as error:
+            collection_errors.append({'path': relative, 'error': type(error).__name__})
     skipped = []
     total = 0
     with _export_lock, ZipFile(destination, 'w', compression=ZIP_DEFLATED, compresslevel=6) as archive:
         records = []
-        for path in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True):
-            if not path.is_file() or path.is_symlink() or path.resolve() == destination:
+        if inventory is not None:
+            data = json.dumps(redact_structure(inventory), ensure_ascii=False, indent=2).encode('utf-8')
+            archive.writestr('game/inventory.json', data)
+            records.append({'path': 'game/inventory.json', 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+        for _, path, relative in sorted(available, key=lambda item: item[0], reverse=True):
+            try:
+                size = path.stat().st_size
+                if total + size > 200 * 1024 * 1024:
+                    skipped.append(relative)
+                    continue
+                if relative.startswith('game/logs/') and path.name.endswith('.gz'):
+                    with gzip.open(path, 'rb') as stream:
+                        raw = stream.read(32 * 1024 * 1024 + 1)
+                    if len(raw) > 32 * 1024 * 1024:
+                        collection_errors.append({'path': relative, 'error': 'Compressed log exceeds 32 MiB expanded limit'})
+                        continue
+                    relative += '.decompressed.log'
+                    data = redact(raw.decode('utf-8', errors='replace')).encode('utf-8')
+                else:
+                    data = redact(path.read_text(encoding='utf-8', errors='replace')).encode('utf-8')
+                if total + len(data) > 200 * 1024 * 1024:
+                    skipped.append(relative)
+                    continue
+            except (OSError, EOFError) as error:
+                collection_errors.append({'path': relative, 'error': type(error).__name__})
                 continue
-            size = path.stat().st_size
-            if total + size > 200 * 1024 * 1024:
-                skipped.append(path.relative_to(root).as_posix())
-                continue
-            data = redact(path.read_text(encoding='utf-8', errors='replace')).encode('utf-8')
-            relative = path.relative_to(root).as_posix()
             archive.writestr(relative, data)
             records.append({'path': relative, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
-            total += size
+            total += len(data)
         metadata = {'collected_utc': datetime.now(timezone.utc).isoformat(),
                     'platform': platform.platform(), 'python': platform.python_version(),
                     'session': _session_file.stem if _session_file else None,
                     'files': records, 'skipped_over_200_mib': skipped,
+                    'network_collection': network, 'selected_game': selected_game,
+                    'missing_game_logs': missing_game_logs,
+                    'collection_errors': collection_errors,
                     'notice': 'Network addresses and local paths are retained for troubleshooting; credentials are redacted.'}
         archive.writestr('diagnostics.json', json.dumps(metadata, ensure_ascii=False, indent=2))
     return destination

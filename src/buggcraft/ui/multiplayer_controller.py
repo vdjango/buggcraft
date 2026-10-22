@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 from hookup.relay import RelayProfile, RoomInvite, TunnelHost, TunnelClient, TunnelService
 from hookup.rooms import instance_metadata, list_room_page, resolve_room, discover_local_worlds, game_status, compatibility, lookup_account
 from hookup.storage import LobbyStore
-from hookup.nodes import decode_code, probe, save_json, profile_data, remember
+from hookup.nodes import decode_code, probe, save_json, profile_data, remember, node_identity
 from utils.instances import installed_instance_ids, running_games
 
 
@@ -43,6 +43,9 @@ class MultiplayerController(QObject):
         self.node_path = ''
         self.friend_request = None
         self.social_path = ''
+        self.social_identity = None
+        self.social_generation = uuid.uuid4().hex
+        self.pending_node_update = None
         self.instance_job = None
         self.instance_source = None
         self.preparations = {}
@@ -60,6 +63,7 @@ class MultiplayerController(QObject):
                            error='', notice='', nodeDraft='', roomError='', needsVersion=False,
                            joinRoomId='', joinRoomTitle='', invitePrompt=False,
                            transportPolicy='auto',
+                           nodeUpdatePrompt=False, nodeUpdateMessage='',
                            roomQuery='', roomNext=None, roomTotal=None, loadingMore=False,
                            version='', loader='vanilla', loaderVersion='', worldPort=0,
                            instances=[], instanceId='', instanceLoading=False, instanceError='',
@@ -94,7 +98,7 @@ class MultiplayerController(QObject):
         self._state.update(values)
         self.changed.emit()
 
-    def reload_store(self, select=None):
+    def reload_store(self, select=None, refresh_identity=False):
         nodes = []
         for path in self.store.data['nodes'] if self.store else []:
             personal_code = False
@@ -110,13 +114,20 @@ class MultiplayerController(QObject):
         index = paths.index(target) if target in paths else (0 if paths else -1)
         self.patch(nodes=nodes, nodeIndex=index)
         new_path = paths[index] if index >= 0 else ''
-        if new_path != self.node_path:
+        if new_path != self.node_path or refresh_identity:
             self.node_path = new_path
             self.patch(rooms=[], roomError='', nodeAvailable=False)
             self.refresh()
-        if new_path != self.social_path:
+        try:
+            identity = (new_path, hashlib.sha256(RelayProfile.load(new_path).token.encode()).hexdigest()) if new_path else None
+        except (OSError, ValueError):
+            identity = (new_path, None)
+        if identity != self.social_identity or refresh_identity:
+            self.social_identity = identity
+            self.social_generation = uuid.uuid4().hex
+            self.friend_request = None
             self.social_path = new_path
-            self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False, socialError='')
+            self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False, socialError='', friendBusy=False)
             self.refresh_friends()
 
     def job(self, key, coroutine):
@@ -146,8 +157,8 @@ class MultiplayerController(QObject):
                 if path:
                     if not path.lower().endswith('.zip'):
                         path += '.zip'
-                    export_diagnostics(path)
-                    self.patch(notice='联机日志已导出：' + path)
+                    self.patch(notice='正在采集网络拓扑与游戏诊断日志…')
+                    self.job('diagnostics', asyncio.to_thread(export_diagnostics, path))
             elif action == 'clearError':
                 record = self.records.get(self._state['selected'])
                 if record:
@@ -297,6 +308,15 @@ class MultiplayerController(QObject):
             elif action == 'addNodeCode':
                 profile = decode_code(self._state['nodeDraft'])
                 self.verify_node(profile)
+            elif action == 'confirmNodeUpdate':
+                pending = self.pending_node_update
+                if pending:
+                    self.pending_node_update = None
+                    self.patch(nodeUpdatePrompt=False)
+                    self.save_verified_node(pending)
+            elif action == 'cancelNodeUpdate':
+                self.pending_node_update = None
+                self.patch(nodeUpdatePrompt=False, busy=False, notice='已取消更新，原接入码继续保留。')
             elif action == 'exportNode':
                 self.profile()
                 path, _ = QFileDialog.getSaveFileName(self.window, '导出节点配置', 'relay-profile.json', 'JSON (*.json)')
@@ -386,6 +406,45 @@ class MultiplayerController(QObject):
             return
         self.patch(busy=True, error='', notice='正在验证节点身份和连接…')
         self.job('nodecode:' + self.generation, probe(profile))
+
+    def matching_nodes(self, profile):
+        matches = []
+        identity = node_identity(profile)
+        for path in self.store.data['nodes']:
+            try:
+                existing = RelayProfile.load(path)
+            except (OSError, ValueError):
+                continue
+            if node_identity(existing) == identity:
+                matches.append(path)
+            elif (existing.server_host.lower().rstrip('.'), existing.server_port) == (profile.server_host.lower().rstrip('.'), profile.server_port):
+                raise ValueError('同一地址的节点公钥发生变化，请先核实节点身份；原配置未覆盖。')
+        return matches
+
+    def save_verified_node(self, profile):
+        if not self.store:
+            raise ValueError('请先修复本地配置。')
+        matches = self.matching_nodes(profile)
+        identifier = hashlib.sha256(node_identity(profile).encode()).hexdigest()
+        path = Path(self.node_path if self.node_path in matches else matches[0]) if matches else self.store.path.parent / 'nodes' / (identifier + '.json')
+        save_json(path, profile_data(profile))
+        remember(RelayProfile.load(path), list(profile._nodes))
+        chosen = str(path.resolve())
+        # Keep old files, but retain a single list entry for this pinned node.
+        self.store.data['nodes'] = [item for item in self.store.data['nodes'] if item not in matches or item == chosen]
+        if chosen not in self.store.data['nodes']:
+            self.store.data['nodes'].append(chosen)
+        for previous in matches:
+            if previous != chosen:
+                self.store.data['node_names'].pop(previous, None)
+        self.store.data['node_names'][chosen] = getattr(profile, '_name', '社区节点')
+        self.store.save()
+        self.reload_store(self.node_path if self._state['connections'] else chosen, refresh_identity=True)
+        notice = ('个人接入码已更新，正在重新加载好友；现有房间保持连接，新身份用于后续联机。'
+                  if profile.token.startswith('acct1.') else '匿名节点已保存；匿名接入不提供好友功能。')
+        if self.node_path != chosen:
+            notice = '节点已保存；当前房间结束后，切换到该节点即可使用新的接入身份。'
+        self.patch(nodeDraft='', busy=False, error='', notice=notice)
 
     def refresh(self):
         self.room_search_timer.stop()
@@ -790,18 +849,19 @@ class MultiplayerController(QObject):
     def refresh_friends(self):
         if self.closed:
             return
+        profile = None
         try:
             profile = self.profile()
             from hookup.social import credential, status
             credential(profile)
-        except Exception:
+        except Exception as error:
             self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialReady=False,
-                       socialAccount='', socialName='', socialError='')
+                       socialAccount='', socialName='', socialError=str(error) if profile and profile.token.startswith('acct1.') else '')
             return
         path = self.node_path
         async def check():
             return dict(path=path, state=await status(profile))
-        self.job('socialstatus:' + path, check())
+        self.job('socialstatus:' + self.social_generation + ':' + path, check())
 
     def social_operation(self, operation, account, **fields):
         if not self._state['socialReady']:
@@ -811,7 +871,7 @@ class MultiplayerController(QObject):
         self.patch(friendBusy=True, socialError='')
         async def perform():
             return dict(path=path, operation=operation, state=await operate(profile, operation, account, **fields))
-        self.job('socialop:' + uuid.uuid4().hex, perform())
+        self.job('socialop:' + self.social_generation + ':' + uuid.uuid4().hex, perform())
 
     def apply_social_state(self, state):
         import re
@@ -859,6 +919,10 @@ class MultiplayerController(QObject):
     @Slot(str, object, object)
     def finish(self, key, value, error):
         self.jobs.discard(key)
+        if key == 'diagnostics':
+            self.patch(error='日志导出失败：' + error if error else '',
+                       notice='' if error else '网络与游戏诊断日志已导出：' + str(value))
+            return
         if key == 'runtime':
             self.runtime_job = False
             running = value[0] if not error and len(value) == 1 else None
@@ -943,12 +1007,12 @@ class MultiplayerController(QObject):
                            roomError='暂时无法连接节点，请检查网络后重试。' if error else '')
             return
         if key.startswith('socialstatus:') or key.startswith('socialop:'):
-            if key.startswith('socialstatus:') and key != 'socialstatus:' + self.node_path:
+            if key.split(':', 2)[1] != self.social_generation:
                 return
             if error:
                 self.patch(socialError=str(error), friendBusy=False)
                 if key.startswith('socialstatus:'):
-                    self.patch(socialReady=False, contacts=[], friendRequests=[], friendInvitations=[])
+                    self.patch(socialReady=False, socialAccount='', socialName='', contacts=[], friendRequests=[], friendInvitations=[])
                 self.friend_finished.emit(False, str(error)) if key.startswith('socialop:') else None
                 return
             if value['path'] != self.node_path:
@@ -994,22 +1058,15 @@ class MultiplayerController(QObject):
                 if not self.store:
                     raise ValueError('请先修复本地配置。')
                 profile = value
-                identifier = hashlib.sha256((profile.server_host + ':' + str(profile.server_port) +
-                                             ':' + profile.server_public_key).encode()).hexdigest()
-                path = self.store.path.parent / 'nodes' / (identifier + '.json')
-                if path.exists():
-                    existing = RelayProfile.load(path)
-                    if existing.server_public_key != profile.server_public_key:
-                        raise ValueError('节点身份与已保存配置不一致。')
-                save_json(path, profile_data(profile))
-                remember(RelayProfile.load(path), list(profile._nodes))
-                self.store.add_node(str(path))
-                self.store.data['node_names'][str(path.resolve())] = getattr(profile, '_name', '社区节点')
-                self.store.save()
-                self.reload_store(self.node_path if self._state['connections'] else str(path.resolve()))
-                notice = ('个人接入码验证通过，后续联机使用该账号身份；到期后在节点网页重新领取。'
-                          if profile.token.startswith('acct1.') else '节点身份验证通过，已添加到启动器。')
-                self.patch(nodeDraft='', busy=False, error='', notice=notice)
+                matches = self.matching_nodes(profile)
+                if matches:
+                    self.pending_node_update = profile
+                    personal = profile.token.startswith('acct1.')
+                    message = ('此节点已添加。是否用新的个人接入码更新？更新后立即重新验证账号并加载好友。'
+                               if personal else '此节点已添加。是否更新为匿名接入码？更新后此节点将无法使用账号好友功能。')
+                    self.patch(busy=False, nodeUpdatePrompt=True, nodeUpdateMessage=message, notice='')
+                else:
+                    self.save_verified_node(profile)
             except Exception as exc:
                 self.patch(busy=False, error=str(exc), notice='')
             return
