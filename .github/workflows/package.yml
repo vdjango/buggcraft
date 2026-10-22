@@ -54,7 +54,26 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-build.txt
           python -m pip check
       - name: Build native package
-        run: python build.py --jobs 3
+        run: |
+          python -u - <<'PY'
+          import collections, pathlib, subprocess, sys
+          output = pathlib.Path('dist')
+          output.mkdir(exist_ok=True)
+          tail = collections.deque(maxlen=35)
+          with (output / 'build.log').open('w', encoding='utf-8') as log:
+              process = subprocess.Popen([sys.executable, 'build.py', '--jobs', '3'],
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True, encoding='utf-8', errors='replace')
+              for line in process.stdout:
+                  print(line, end='', flush=True)
+                  log.write(line)
+                  tail.append(line.rstrip())
+              status = process.wait()
+          if status:
+              message = '\n'.join(tail).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Native package build failed::' + message)
+          raise SystemExit(status)
+          PY
       - name: Check bundled runtime in isolation
         env:
           QT_QPA_PLATFORM: offscreen
@@ -91,3 +110,4 @@ jobs:
             dist/signing-status.json
             dist/qt-trim-report.json
             dist/package-check.*
+            dist/build.log
