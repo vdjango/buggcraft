@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from config.settings import get_settings_manager
+from utils.path_helper import get_default_minecraft_dir
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
 from ui.widgets.ComboBox import QMComboBox
@@ -121,7 +122,6 @@ class TasksPage(QWidget):
         )
         self._tasks = self._load_history()
         self._workers = {}
-        self._modpack_keys = {}
         self._rows = {}
         self._closing = False
         self.pool = QThreadPool(self)
@@ -238,7 +238,7 @@ class TasksPage(QWidget):
             return False
         game_dir = os.path.abspath(os.path.expanduser(game_dir)) if game_dir else ""
         if not game_dir:
-            game_dir = os.path.abspath(os.path.join(self.settings_manager.config_path, "minecraft"))
+            game_dir = str(get_default_minecraft_dir())
             self.settings_manager.set_setting("minecraft.directory.enable", game_dir)
             directories = self.settings_manager.get_setting("minecraft.directory.installed", []) or []
             if game_dir not in directories:
@@ -284,10 +284,8 @@ class TasksPage(QWidget):
             "settings.general.mirrors", "自动选择下载源（自动选择速度快的源）"
         )
         java = self.settings_manager.get_version_setting("java.path", None)
-        if modpack and api_key:
-            self._modpack_keys[modpack] = api_key
         worker = DownloadWorker(task_id, version, game_dir, source, loader, base_version, loader_version, java,
-                                modpack, api_key or self._modpack_keys.get(modpack), content)
+                                modpack, api_key, content)
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
         worker.signals.resolved.connect(self.resolve_version)
@@ -299,12 +297,10 @@ class TasksPage(QWidget):
 
     def import_modpack(self, archive='', identity='', game_dir=None):
         from ui.dialog.ModpackImportDialog import ModpackImportDialog
-        directory = game_dir or self.settings_manager.get_setting('minecraft.directory.enable') or os.path.join(self.settings_manager.config_path, 'minecraft')
+        directory = game_dir or self.settings_manager.get_setting('minecraft.directory.enable') or str(get_default_minecraft_dir())
         dialog = ModpackImportDialog(self, directory, archive, identity)
-        dialog.key_input.setText(self._modpack_keys.get(archive, ''))
         if dialog.exec() == QDialog.Accepted:
-            self.start_install(dialog.identity, directory,
-                               modpack=dialog.archive, api_key=dialog.api_key)
+            self.start_install(dialog.identity, directory, modpack=dialog.archive)
 
     def download_content(self, kind=None):
         from ui.dialog.ContentDownloadDialog import ContentDownloadDialog
@@ -461,7 +457,7 @@ class TasksPage(QWidget):
     def _create_task_row(self, task):
         row = QWidget()
         row.setObjectName('downloadTask')
-        row.setStyleSheet("QWidget#downloadTask { background-color: rgba(190, 183, 255, 0.10); border-radius: 4px; }")
+        row.setStyleSheet("QWidget#downloadTask { background-color: rgba(190, 183, 255, 0.10); border-radius: 8px; }")
         row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         row.setMinimumHeight(175 if not task.get('error') else 220)
         layout = QVBoxLayout(row)
@@ -469,7 +465,8 @@ class TasksPage(QWidget):
         layout.setSpacing(5)
 
         top = QHBoxLayout()
-        name = QLabel(f"Minecraft {task.get('version', '')}")
+        name = QLabel(("整合包 " if task.get('modpack') else "Minecraft ") + task.get('version', ''))
+        name.setTextFormat(Qt.PlainText)
         name.setStyleSheet("color: #f2f2f2; font-weight: bold;")
         state = QLabel(task.get("state", "未知"))
         state.setStyleSheet("color: #bfb4ff;")
@@ -571,6 +568,9 @@ class TasksPage(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Minecraft {task['version']} · 安装日志")
         dialog.resize(640, 400)
+        dialog.setStyleSheet('QDialog { background: #211e2d; } '
+                            'QTextEdit { background: #2c273b; color: #e8e1ef; '
+                            'border: 1px solid #514461; border-radius: 7px; padding: 10px; }')
         layout = QVBoxLayout(dialog)
         text = QTextEdit()
         text.setReadOnly(True)

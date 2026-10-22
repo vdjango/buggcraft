@@ -129,6 +129,29 @@ class LauncherProcessTests(unittest.TestCase):
         self.assertNotIn('fixture-token', '\n'.join(output))
         self.assertIn('final child output', output)
 
+    def test_offline_launch_always_supplies_uuid_and_token_without_changing_online_identity(self):
+        from core.launch_options import offline_uuid
+        self.launcher.set_options(username='Fixture', uuid=None, token=None)
+        self._start()
+        self.assertEqual(self.options['uuid'], offline_uuid('Fixture'))
+        self.assertEqual(self.options['token'], '0')
+        self.launcher.set_options(username='Fixture', uuid='existing-account-uuid', token='existing-token')
+        self._start()
+        self.assertEqual(self.options['uuid'], 'existing-account-uuid')
+        self.assertEqual(self.options['token'], 'existing-token')
+
+    def test_java_requirement_from_metadata_rejects_old_java_before_spawning(self):
+        metadata = self.root / 'versions/fixture/fixture.json'
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({'id': 'fixture', 'javaVersion': {'majorVersion': 25}}), encoding='utf-8')
+        with patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('21', (21, 0, 8))):
+            with self.assertRaisesRegex(ValueError, 'Java 25'):
+                self._start()
+        self.assertFalse(self.record.exists())
+        with patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('25', (25, 0, 3))):
+            self._start()
+        self.assertTrue(self.record.exists())
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

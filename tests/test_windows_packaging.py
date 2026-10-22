@@ -206,6 +206,8 @@ class Child { static int Main() {
     Console.Error.WriteLine("simulated native initialization failure");
     File.WriteAllText(Path.Combine(Environment.GetEnvironmentVariable("BUGGCRAFT_LOG_DIR"),
         "buggcraft-child-test.log"), "child diagnostic preserved");
+    File.WriteAllText(Path.Combine(Environment.GetEnvironmentVariable("BUGGCRAFT_LOG_DIR"),
+        "game-directory-test.txt"), Environment.GetEnvironmentVariable("BUGGCRAFT_LAUNCHER_DIR"));
     return 37;
 } }''', encoding='utf-8')
         compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -213,7 +215,8 @@ class Child { static int Main() {
             str(self.runtime / 'Buggcraft.exe'), str(source)], check=True, capture_output=True)
         try:
             probe = subprocess.run([str(self.runtime / 'Buggcraft.exe')],
-                                   env=dict(os.environ, BUGGCRAFT_LOG_DIR=str(self.root)),
+                                   env=dict(os.environ, BUGGCRAFT_LOG_DIR=str(self.root),
+                                            BUGGCRAFT_LAUNCHER_DIR=str(self.root)),
                                    capture_output=True, timeout=10)
         except OSError as error:
             if getattr(error, 'winerror', None) == 4551:
@@ -235,6 +238,7 @@ class Child { static int Main() {
         self.assertIn('simulated native initialization failure',
             (self.root / 'buggcraft-native.log').read_text(encoding='utf-8'))
         self.assertEqual((self.root / 'buggcraft-child-test.log').read_text(), 'child diagnostic preserved')
+        self.assertEqual(Path((self.root / 'game-directory-test.txt').read_text(encoding='utf-8-sig')).resolve(), self.root.resolve())
         self.assertFalse((unrelated / 'Buggcraft-install.log').exists())
         archived = self.root / 'error/37'
         self.assertIn('exit_code=37 (0x00000025)',

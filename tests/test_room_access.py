@@ -25,9 +25,14 @@ class AccessFixture:
                 while data := await reader.read(65536):
                     writer.write(data)
                     await writer.drain()
+            except ConnectionError:
+                pass  # Game-status probes close without consuming the echo.
             finally:
                 writer.close()
-                await writer.wait_closed()
+                try:
+                    await writer.wait_closed()
+                except ConnectionError:
+                    pass
         self.world = await asyncio.start_server(echo, '127.0.0.1', 0)
         self.port = self.world.sockets[0].getsockname()[1]
         self.endpoints, self.tasks = [], []

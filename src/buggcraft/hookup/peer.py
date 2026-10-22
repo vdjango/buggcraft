@@ -5,11 +5,36 @@ import json
 import logging
 import secrets
 import struct
+import time
 from functools import cache
 
 LOG = logging.getLogger(__name__)
 CHUNK = 16384
 WINDOW = CHUNK * 16
+
+
+async def close_stream_writer(writer, grace=1):
+    """Bound TCP teardown, including Windows pending overlapped writes.
+
+    Bridge traffic has already drained before normal closure. A cancelled
+    room must not wait forever for a peer which is no longer reading.
+    """
+    writer.close()
+    closing = asyncio.create_task(writer.wait_closed())
+    try:
+        await asyncio.wait_for(asyncio.shield(closing), grace)
+    except asyncio.TimeoutError:
+        pass  # Abort once below, after either timeout or cancellation.
+    except OSError:
+        pass  # A reset during teardown is already a closed stream.
+    finally:
+        if not closing.done():
+            transport = getattr(writer, 'transport', None)
+            if transport is None:
+                transport = writer.channel  # AsyncSSH relay stream.
+            transport.abort()
+            closing.cancel()
+        await asyncio.gather(closing, return_exceptions=True)
 
 
 @cache
@@ -61,6 +86,9 @@ class StreamBridge:
         self.remote_eof = False
         self.writer = None
         self.task = None
+        self.started = time.monotonic()
+        self.sent_bytes = self.received_bytes = 0
+        self.last_progress = self.started
         channel.on('open', self.ready.set)
         channel.on('message', self.receive)
         channel.on('close', self.close)
@@ -71,6 +99,9 @@ class StreamBridge:
         if self.closed:
             return
         self.closed = True
+        LOG.info('stream_closed channel=%s id=%s sent=%d received=%d inflight=%d pending=%d elapsed_ms=%d remote_eof=%s',
+                 self.channel.label, getattr(self.channel, 'id', None), self.sent_bytes, self.received_bytes,
+                 self.inflight, self.pending, (time.monotonic() - self.started) * 1000, self.remote_eof)
         self.ready.set()
         self.credit.set()
         if self.writer:
@@ -98,11 +129,11 @@ class StreamBridge:
               and 1 < len(frame) <= CHUNK + 1 and self.pending + len(frame) - 1 <= WINDOW):
             data = frame[1:]
             self.pending += len(data)
+            self.received_bytes += len(data)
         else:
             self.close()
             return
         try:
-            LOG.debug('peer frame %s bytes on %s', len(data) if data is not None else 'EOF', self.channel.label)
             self.queue.put_nowait(data)
         except asyncio.QueueFull:
             self.close()
@@ -123,7 +154,12 @@ class StreamBridge:
                     self.channel.send('EOF')
                     return
                 self.inflight += len(data)
+                self.sent_bytes += len(data)
                 self.channel.send(b'D' + data)
+                if time.monotonic() - self.last_progress >= 5:
+                    LOG.debug('stream_progress id=%s sent=%d received=%d inflight=%d',
+                              getattr(self.channel, 'id', None), self.sent_bytes, self.received_bytes, self.inflight)
+                    self.last_progress = time.monotonic()
 
         async def incoming():
             while not self.closed:
@@ -149,14 +185,14 @@ class StreamBridge:
                         self.credit.clear()
                         await self.credit.wait()
         except (OSError, ValueError, asyncio.TimeoutError):
-            pass
+            LOG.warning('stream_error channel=%s id=%s', self.channel.label, getattr(self.channel, 'id', None), exc_info=True)
         finally:
             LOG.debug('peer stream close %s', self.channel.label)
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             self.close()
-            await writer.wait_closed()
+            await close_stream_writer(writer)
 
 
 class PeerTransport:
@@ -168,12 +204,15 @@ class PeerTransport:
         self.bridges = set()
         self.connected = asyncio.Event()
         self.client_pc = None
+        self.next_game_channel_id = 3
         self.closed = False
         self.signal_buffer = bytearray()
         self.stun_profile = None
         self.closing_peers = set()
         self.peer_closers = {}
         self.close_task = None
+        self.trace_id = getattr(endpoint, 'diagnostic_trace', None) or secrets.token_hex(8)
+        self.pc_counter = 0
 
     async def close_pc(self, pc):
         # RTCPeerConnection.close() is not safe to abandon halfway through.
@@ -198,7 +237,7 @@ class PeerTransport:
             # Windows UDP close can wait indefinitely for buffered datagrams
             # to an unreachable peer. Discard them after graceful shutdown.
             # aioice exposes no public abort API; this adapter is covered by
-            # real socket shutdown tests and pinned to the bundled aiortc.
+            # real socket shutdown tests and pinned to the vendored ICE adapter.
             if pc.sctp:
                 connection = pc.sctp.transport.transport.iceGatherer._connection
                 for protocol in tuple(connection._protocols):
@@ -229,6 +268,7 @@ class PeerTransport:
                             data[4:8] == packet[4:8] and data[8:20] == transaction and not replied.done()):
                         replied.set_result(True)
             transport = None
+            started = time.monotonic()
             try:
                 async with asyncio.timeout(.4):
                     transport, _ = await loop.create_datagram_endpoint(Probe,
@@ -236,8 +276,11 @@ class PeerTransport:
                     transport.sendto(packet)
                     await replied
                     available.put_nowait(profile)
-            except (OSError, asyncio.TimeoutError):
-                pass
+                    LOG.info('stun_probe trace=%s server=%s:%s result=ok elapsed_ms=%d',
+                             self.trace_id, profile.server_host, profile.server_port, (time.monotonic() - started) * 1000)
+            except (OSError, asyncio.TimeoutError) as exc:
+                LOG.info('stun_probe trace=%s server=%s:%s result=%s',
+                         self.trace_id, profile.server_host, profile.server_port, type(exc).__name__)
             finally:
                 if transport:
                     transport.close()
@@ -297,7 +340,7 @@ class PeerTransport:
 
     def create_pc(self):
         prepare_native_crypto()
-        from aiortc import RTCPeerConnection, RTCConfiguration, RTCIceServer
+        from ._rtc import RTCPeerConnection, RTCConfiguration, RTCIceServer
         profile = self.stun_profile
         host = profile.server_host if profile else ''
         if ':' in host:
@@ -305,8 +348,26 @@ class PeerTransport:
         servers = [] if profile is None else [
             RTCIceServer(urls=f'stun:{host}:{profile.server_port}')]
         pc = RTCPeerConnection(RTCConfiguration(iceServers=servers))
+        self.pc_counter += 1
+        pc_trace = f'{self.trace_id}-{self.pc_counter}'
+        LOG.info('peer_created trace=%s stun=%s', pc_trace, [s.urls for s in servers])
+        def ice_state():
+            LOG.info('ice_state trace=%s connection=%s gathering=%s', pc_trace, pc.iceConnectionState, pc.iceGatheringState)
+            if pc.iceGatheringState == 'complete' and pc.sctp:
+                for candidate in pc.sctp.transport.transport.iceGatherer.getLocalCandidates():
+                    LOG.info('ice_candidate trace=%s type=%s address=%s port=%s related=%s:%s',
+                             pc_trace, candidate.type, candidate.ip, candidate.port,
+                             candidate.relatedAddress, candidate.relatedPort)
+        pc.on('iceconnectionstatechange', ice_state)
+        pc.on('icegatheringstatechange', ice_state)
         @pc.on('connectionstatechange')
         async def state_changed():
+            LOG.info('peer_state trace=%s state=%s', pc_trace, pc.connectionState)
+            if pc.connectionState == 'connected' and pc.sctp:
+                ice = pc.sctp.transport.transport.iceGatherer._connection
+                for component, pair in getattr(ice, '_nominated', {}).items():
+                    LOG.info('selected_pair trace=%s component=%s local=%s remote=%s',
+                             pc_trace, component, pair.local_candidate, pair.remote_candidate)
             if pc is self.client_pc:
                 if pc.connectionState == 'connected':
                     self.connected.set()
@@ -317,6 +378,7 @@ class PeerTransport:
         return pc
 
     async def start(self, connection):
+        LOG.info('peer_start trace=%s role=%s', self.trace_id, self.endpoint.role)
         self.process = await connection.create_process(subsystem='buggcraft-peer-v1', encoding=None)
         ready = await asyncio.wait_for(self.read(), 2)
         if ready.get('type') != 'ready':
@@ -326,7 +388,11 @@ class PeerTransport:
         if self.endpoint.role == 'client' and ready.get('available'):
             try:
                 self.client_pc = pc = self.create_pc()
-                channel = pc.createDataChannel('probe', ordered=True)
+                # This side offers and controls ICE, so SCTP uses odd IDs.
+                # Reserve 1 for the probe and do not recycle game stream IDs:
+                # the remote stream reset may still be completing.
+                self.next_game_channel_id = 3
+                channel = pc.createDataChannel('probe', ordered=True, id=1)
                 # The probe establishes SCTP; each game socket gets its own channel.
                 await pc.setLocalDescription(await pc.createOffer())
                 self.send({'type': 'offer', 'sdp': validate_sdp(pc.localDescription.sdp)})
@@ -337,7 +403,7 @@ class PeerTransport:
                 raise
 
     async def answer(self, message):
-        from aiortc import RTCSessionDescription
+        from ._rtc import RTCSessionDescription
         key = message['peer']
         if key in self.peers or len(self.peers) >= 128:
             return
@@ -384,7 +450,7 @@ class PeerTransport:
             raise
 
     async def run(self):
-        from aiortc import RTCSessionDescription
+        from ._rtc import RTCSessionDescription
         try:
             while True:
                 message = await self.read()
@@ -400,23 +466,32 @@ class PeerTransport:
                     await self.client_pc.setRemoteDescription(RTCSessionDescription(
                         validate_sdp(message['sdp']), 'answer'))
         except (OSError, ValueError, KeyError):
+            LOG.warning('peer_signal_failed trace=%s', self.trace_id, exc_info=True)
             self.connected.clear()
 
     async def forward(self, reader, writer):
         pc = self.client_pc
-        if self.connected.is_set() and pc and pc.connectionState == 'connected':
+        if (self.connected.is_set() and pc and pc.connectionState == 'connected'
+                and self.next_game_channel_id <= 65533):
             LOG.debug('peer client opening game channel')
-            bridge = StreamBridge(pc.createDataChannel('game', ordered=True))
+            channel_id = self.next_game_channel_id
+            self.next_game_channel_id += 2
+            LOG.info('game_path trace=%s path=p2p channel_id=%d', self.trace_id, channel_id)
+            bridge = StreamBridge(pc.createDataChannel('game', ordered=True, id=channel_id))
             self.bridges.add(bridge)
             try:
                 await bridge.run(reader, writer)
             finally:
                 self.bridges.discard(bridge)
             return
+        if self.next_game_channel_id > 65533:
+            self.connected.clear()
         # Path selection happens before handing any bytes to a transport.
         # Never replay a partially delivered game stream on another path.
         tasks = []
         remote_writer = None
+        LOG.info('game_path trace=%s path=ssh-relay reason=%s', self.trace_id,
+                 'channel-id-exhausted' if self.next_game_channel_id > 65533 else 'peer-not-connected')
         try:
             remote_reader, remote_writer = await self.endpoint.connection.open_connection(
                 self.endpoint.invite.room_id, 25565)
@@ -430,16 +505,15 @@ class PeerTransport:
                      asyncio.create_task(copy(remote_reader, writer))]
             await asyncio.gather(*tasks)
         except (OSError, ValueError):
-            pass
+            LOG.warning('relay_stream_error trace=%s', self.trace_id, exc_info=True)
         finally:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             writer.close()
             if remote_writer:
-                remote_writer.close()
-                await remote_writer.wait_closed()
-            await writer.wait_closed()
+                await close_stream_writer(remote_writer)
+            await close_stream_writer(writer)
 
     async def close(self):
         # Endpoint cancellation may interrupt shutdown after the SSH socket
@@ -452,6 +526,8 @@ class PeerTransport:
         if self.closed:
             return
         self.closed = True
+        LOG.info('peer_shutdown trace=%s peers=%d bridges=%d jobs=%d',
+                 self.trace_id, len(self.peers), len(self.bridges), len(self.jobs))
         for bridge in tuple(self.bridges):
             bridge.close()
         if self.task:

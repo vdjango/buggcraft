@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon
+from ui.fonts import system_font
 
 from config.settings import get_settings_manager
 from ui.widgets.collapse import CollapsePanel
@@ -201,7 +202,7 @@ class JavaManagementPage(QWidget):
         
         # 版本名称
         name_label = QLabel(java_info["name"])
-        name_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        name_label.setFont(system_font(10, QFont.Weight.Bold))
         name_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.9);
@@ -212,7 +213,7 @@ class JavaManagementPage(QWidget):
         
         # 架构和供应商信息
         info_label = QLabel(f"版本: {java_info['version']}    供应商: {java_info['vendor']}")
-        info_label.setFont(QFont("Source Han Sans CN Normal", 8, QFont.Weight.Normal))
+        info_label.setFont(system_font(8, QFont.Weight.Normal))
         info_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.7);
@@ -248,7 +249,7 @@ class JavaManagementPage(QWidget):
         
         # 第二行：路径
         path_label = SmartLabel(java_info["path"])
-        info_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        info_label.setFont(system_font(9, QFont.Weight.Normal))
         path_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);

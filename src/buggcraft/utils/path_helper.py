@@ -6,6 +6,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def get_launcher_directory():
+    """Return the deployed launcher location, independent of its working directory."""
+    configured = os.environ.get('BUGGCRAFT_LAUNCHER_DIR')
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if getattr(sys, 'frozen', False) or '__compiled__' in globals():
+        # Nuitka onefile keeps the outer executable in argv[0].
+        executable = Path(sys.argv[0] if '__compiled__' in globals() else sys.executable).resolve()
+        for parent in executable.parents:
+            if parent.suffix.lower() == '.app':
+                return parent.parent
+        return executable.parent
+    # Source launches use the project directory, never src/buggcraft or the IDE cwd.
+    return Path(__file__).resolve().parents[3]
+
+
+def get_default_minecraft_dir():
+    return get_launcher_directory() / '.minecraft'
+
+
 class NuitkaPathHelper:
     """
     Nuitka 打包环境下的路径获取工具类
@@ -131,11 +151,9 @@ if __name__ == "__main__":
     logger.info(f"临时解压目录: {NuitkaPathHelper.get_temp_unpack_dir()}")
     
     # 获取资源文件路径示例
-    font_path = NuitkaPathHelper.get_resource_path("fonts/ChuangKeTieJinGangTi-2.otf")
     image_path = NuitkaPathHelper.get_resource_path("images/minecraft_bg.png")
     icon_path = NuitkaPathHelper.get_resource_path("icons/union@2x.png")
     
     logger.info(f"\n=== 资源文件路径 ===")
-    logger.info(f"字体文件路径: {font_path} (存在: {font_path.exists()})")
     logger.info(f"背景图片路径: {image_path} (存在: {image_path.exists()})")
     logger.info(f"图标文件路径: {icon_path} (存在: {icon_path.exists()})")

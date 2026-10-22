@@ -20,7 +20,7 @@ Button {
             visible: !control.backArrow
             anchors.centerIn: parent
             text: control.text
-            font.family: "Source Han Sans CN"
+            font.family: Qt.application.font.family
             font.pixelSize: control.iconSize
             color: control.danger ? "#f2acb7" : control.hovered ? "#ffffff" : "#d8d0e6"
         }

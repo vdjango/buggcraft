@@ -14,7 +14,7 @@ Button {
     Accessible.name: text
     contentItem: Text {
         text: control.text
-        font.family: "Source Han Sans CN"
+        font.family: Qt.application.font.family
         font.pixelSize: 13
         font.weight: Font.DemiBold
         color: !control.enabled ? "#77758e" : control.danger ? "#ffb5bb" : control.primary ? "#ffffff" : "#eeeaff"

@@ -331,6 +331,9 @@ class Authenticator:
             self.offline.uuid = offline.get('uuid')
             self.offline.username = offline.get('username')
             self.offline.avatar = offline.get('avatar')
+            if self.offline.username and not self.offline.uuid:
+                from core.launch_options import offline_uuid
+                self.offline.uuid = offline_uuid(self.offline.username)
 
             if self.online.refresh_token and not self.online.token:
                 self.current_mode = 'online'

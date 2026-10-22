@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QObject, QThreadPool, QRunnable, Slot
 from PySide6.QtGui import QFont, QPixmap
+from ui.fonts import system_font
 
 from ui.widgets.lazy import LazyGameLoader
 from config.settings import get_settings_manager
@@ -311,11 +312,11 @@ class GamesPanel(QWidget):
         text_layout.setSpacing(5)
         
         version_label = QLabel(f'版本号：{version}')
-        version_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        version_label.setFont(system_font(10, QFont.Weight.Bold))
         version_label.setStyleSheet("color: #f2f2f2;")
         
         desc_label = QLabel(description)
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        desc_label.setFont(system_font(9, QFont.Weight.Normal))
         desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         
         text_layout.addWidget(version_label, 0, Qt.AlignVCenter)

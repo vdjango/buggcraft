@@ -285,6 +285,10 @@ class MinecraftLauncher(QMainWindow):
 
     def minecraft_not_java_version_runtime(self):
         finder = JavaPathFinder()
+        from core.launch_options import required_java
+        required = required_java(self.settings_manager.get_setting('minecraft.directory.enable') or '',
+                                 self.settings_manager.get_setting('minecraft.version.enable')) or 17
+        finder.min_required_version = (required, 0)
         
         best_java = self.settings_manager.get_version_setting('java.path')
         parsed = finder._get_java_version(best_java)[1]
@@ -294,7 +298,7 @@ class MinecraftLauncher(QMainWindow):
             """版本过低"""
             logger.warning(f'版本过低 {best_java}')
             self.java_runtime_full.set_title(f'Java版本过低')
-            self.java_runtime_full.set_message(f'当前Java版本 {current_version or "无法识别"}，请在设置中选择合适的 Java。')
+            self.java_runtime_full.set_message(f'当前Java版本 {current_version or "无法识别"}，当前游戏需要 Java {required} 或更高版本，请在设置中更换。')
             return True
 
         return False
@@ -524,6 +528,11 @@ class MinecraftLauncher(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
+        # A user close must leave rooms even while the Java output worker is
+        # kept alive until the independently running game exits.
+        lobby = getattr(self.started_page, '_multiplayer_dialog', None)
+        if lobby is not None:
+            lobby.shutdown()
         thread = getattr(self.launcher, 'start_thread', None)
         if thread is not None and thread.isRunning():
             self._close_after_game = True
@@ -542,9 +551,6 @@ class MinecraftLauncher(QMainWindow):
             event.ignore()
             QTimer.singleShot(100, self.close)
             return
-        lobby = getattr(self.started_page, '_multiplayer_dialog', None)
-        if lobby is not None:
-            lobby.shutdown()
         search = getattr(self, 'search_thread', None)
         if search is not None and search.isRunning():
             search.requestInterruption()

@@ -16,6 +16,25 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 
 
+def validate_runtime_inventory(directory):
+    """Fail a release if an unused media or PDF dependency reappears."""
+    forbidden_packages = {'aiortc', 'av', 'av.libs', 'pylibsrtp', 'notifypy', 'loguru', 'plyer'}
+    unexpected = []
+    for path in directory.rglob('*'):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(directory)
+        name = path.name.lower()
+        if (forbidden_packages.intersection(part.lower() for part in relative.parts)
+                or name in {'qpdf.dll', 'qt6pdf.dll', 'libqpdf.dylib', 'libqpdf.so'}
+                or (platform.system() == 'Windows' and name in {
+                    'opengl32sw.dll', 'qdirect2d.dll', 'qminimal.dll'})):
+            unexpected.append(relative.as_posix())
+    if unexpected:
+        raise ValueError('Unneeded dependencies in runtime; rebuild with current rules: '
+                         + ', '.join(sorted(unexpected)))
+
+
 def trim_qt_libraries(directory, quarantine):
     """Remove Qt DLLs pulled solely by QML plugins excluded from the build.
 
@@ -101,11 +120,16 @@ def make_command(onefile=False, output=None, jobs=None):
         raise FileNotFoundError('Missing launcher resources; build from a complete checkout')
     command = [sys.executable, '-m', 'nuitka', '--onefile' if onefile else '--standalone',
                '--enable-plugin=pyside6', '--include-qt-plugins=sensible,qml',
+               '--noinclude-dlls=PySide6/qt-plugins/imageformats/*qpdf*',
                '--noinclude-qt-translations',
                '--include-module=PySide6.QtQuickWidgets', '--include-module=PySide6.QtQml',
                '--include-package=minecraft_launcher_lib', '--include-package-data=minecraft_launcher_lib',
                '--include-package=asyncssh',
-               '--include-package=aiortc', '--include-package=aioice', '--include-package=av',
+               '--include-package=aioice',
+               '--nofollow-import-to=aiortc,av,pylibsrtp',
+               '--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid',
+               f'--include-data-files={root / "src/buggcraft/hookup/_rtc/LICENSE"}=hookup/_rtc/LICENSE',
+               f'--include-data-files={root / "src/buggcraft/hookup/_rtc/UPSTREAM.json"}=hookup/_rtc/UPSTREAM.json',
                f'--include-data-files={root / "src/buggcraft/hookup/chat_protocols.json"}=hookup/chat_protocols.json',
                f'--include-data-files={root / "src/buggcraft/hookup/legacy_packets.json"}=hookup/legacy_packets.json',
                f'--include-data-files={root / "src/buggcraft/hookup/THIRD_PARTY_NOTICES.txt"}=hookup/THIRD_PARTY_NOTICES.txt',
@@ -115,9 +139,13 @@ def make_command(onefile=False, output=None, jobs=None):
                f'--jobs={jobs or min(os.cpu_count() or 2, 8)}',
                '--assume-yes-for-downloads', '--lto=yes',
                '--nofollow-import-to=*.tests,*.test,pytest,unittest,tkinter,IPython',
-               '--noinclude-data-files=resources/icons/*/app.png']
+               '--noinclude-data-files=resources/icons/*/app.png',
+               '--noinclude-data-files=resources/fonts/*']
     if platform.system() == 'Windows':
         command += ['--windows-console-mode=disable', '--output-filename=Buggcraft.exe',
+                    '--noinclude-dlls=opengl32sw.dll',
+                    '--noinclude-dlls=PySide6/qt-plugins/platforms/qdirect2d.dll',
+                    '--noinclude-dlls=PySide6/qt-plugins/platforms/qminimal.dll',
                     '--include-windows-runtime-dlls=yes', '--msvc=latest',
                     f'--windows-icon-from-ico={resources / "icons/app.ico"}']
     elif platform.system() == 'Darwin':
@@ -143,6 +171,7 @@ def package_macos(output):
     executable = bundle / 'Contents/MacOS' / info['CFBundleExecutable']
     if not executable.is_file():
         raise FileNotFoundError('Missing macOS executable: ' + str(executable))
+    validate_runtime_inventory(bundle)
     architecture = {'aarch64': 'arm64', 'AMD64': 'x86_64'}.get(platform.machine(), platform.machine())
     archive = output / ('Buggcraft-macos-' + architecture + '.zip')
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
@@ -161,6 +190,7 @@ def package_runtime(directory, output, urls, certificate_pins=None):
     """Version a complete runtime. Never mix loose DLLs from different builds."""
     if not (directory / 'Buggcraft.exe').is_file():
         raise FileNotFoundError('No compiled Buggcraft.exe found in ' + str(directory))
+    validate_runtime_inventory(directory)
     files = []
     archive = output / 'Buggcraft-runtime-windows-x64.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:

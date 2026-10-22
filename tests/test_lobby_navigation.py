@@ -33,6 +33,25 @@ class LobbyNavigationTests(unittest.TestCase):
         self.assertEqual(self.controller.view['page'], 'hall')
         self.assertEqual(self.controller.view['error'], '')
 
+    def test_diagnostic_export_action_writes_zip_and_reports_destination(self):
+        from zipfile import ZipFile
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = str(Path(temporary) / 'support')
+            with patch('ui.multiplayer_controller.QFileDialog.getSaveFileName',
+                       return_value=(destination, 'ZIP (*.zip)')), \
+                    patch.dict(os.environ, BUGGCRAFT_LOG_DIR=temporary):
+                self.controller.act('exportDiagnostics', {})
+            with ZipFile(destination + '.zip') as archive:
+                self.assertIn('diagnostics.json', archive.namelist())
+            self.assertIn(destination + '.zip', self.controller.view['notice'])
+            self.assertEqual(self.controller.view['error'], '')
+
+    def test_cancelling_diagnostic_export_does_not_create_an_archive(self):
+        with patch('ui.multiplayer_controller.QFileDialog.getSaveFileName', return_value=('', '')), \
+                patch('utils.diagnostics.export_diagnostics') as export:
+            self.controller.act('exportDiagnostics', {})
+        export.assert_not_called()
+
     def test_created_and_joined_room_records_enable_management(self):
         for role in ('host', 'client'):
             for state in ('connecting', 'online', 'reconnecting'):

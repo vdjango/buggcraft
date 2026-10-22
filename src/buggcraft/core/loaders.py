@@ -191,7 +191,20 @@ def _download_urls(url, source):
     return [url, mirror]
 
 
-def _routed_downloader(download_file, source):
+class _LoaderSession:
+    """Bound third-party loader HTTP calls without changing global requests."""
+    def __init__(self, session=None, cancel=None):
+        self.session = session or requests
+        self.cancel = cancel
+
+    def get(self, url, **kwargs):
+        if self.cancel is not None and self.cancel.is_set():
+            raise InterruptedError('安装已取消')
+        kwargs.setdefault('timeout', (8, 20))
+        return self.session.get(url, **kwargs)
+
+
+def _routed_downloader(download_file, source, cancel=None):
     def download(url, path, callback=None, sha1=None, lzma_compressed=False, session=None,
                  minecraft_directory=None, overwrite=False):
         path = os.fspath(path)
@@ -203,7 +216,7 @@ def _routed_downloader(download_file, source):
         for candidate in _download_urls(url, source):
             try:
                 result = download_file(candidate, path, callback, sha1, lzma_compressed,
-                                       session, minecraft_directory, overwrite)
+                                       _LoaderSession(session, cancel), minecraft_directory, overwrite)
                 if result:
                     return True
                 if os.path.isfile(path) and sha1 and _file_sha1(path) == sha1.lower():
@@ -284,7 +297,7 @@ def _profile_loader(loader, minecraft_version, loader_version, directory, callba
 
 
 @contextmanager
-def _use_download_source(source):
+def _use_download_source(source, cancel=None):
     """Route minecraft-launcher-lib downloads through the source selected in settings."""
     modules = [minecraft_launcher_lib._helper, minecraft_launcher_lib.install,
                minecraft_launcher_lib.forge, minecraft_launcher_lib.fabric,
@@ -296,7 +309,7 @@ def _use_download_source(source):
                 original = getattr(module, "download_file", None)
                 if original:
                     originals.append((module, original))
-                    module.download_file = _routed_downloader(original, source)
+                    module.download_file = _routed_downloader(original, source, cancel)
             yield
         finally:
             for module, original in originals:
@@ -400,7 +413,7 @@ def install_loader(loader, minecraft_version, loader_version, directory, java, c
         return _profile_loader(loader, minecraft_version, loader_version, directory, monitored, cancel, source)
     if loader == "NeoForge":
         return _neo_forge(loader_version, directory, java, callback, cancel, source)
-    with _use_download_source(source):
+    with _use_download_source(source, cancel):
         if loader == "Forge":
             forge_version = f"{minecraft_version}-{loader_version}"
             callback["setStatus"](f"安装 Forge {forge_version}")

@@ -125,14 +125,9 @@ class CrossPlatformMinecraftInstaller:
             return OSPlatform.UNKNOWN
     
     def get_default_minecraft_dir(self) -> Path:
-        """获取默认Minecraft目录（跨平台）"""
-        system = platform.system()
-        if system == "Windows":
-            return Path(os.environ.get('APPDATA', '')) / ".minecraft"
-        elif system == "Darwin":  # macOS
-            return Path.home() / "Library" / "Application Support" / "minecraft"
-        else:  # Linux和其他Unix系统
-            return Path.home() / ".minecraft"
+        """Use the same portable download directory as the launcher UI."""
+        from utils.path_helper import get_default_minecraft_dir
+        return get_default_minecraft_dir()
     
     def set_mirror(self, mirror: MirrorSource):
         """设置下载源"""

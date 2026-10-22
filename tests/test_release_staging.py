@@ -38,7 +38,7 @@ class ReleaseStagingTests(unittest.TestCase):
         self.assertEqual({p.name for p in destination.iterdir()}, {
             'Buggcraft-runtime-windows-x64.zip', 'Buggcraft-Setup.exe',
             'release-windows-x64.json', 'signing-status-windows-x64.json',
-            'collect-launcher-diagnostics.ps1', 'SHA256SUMS-windows-x64.txt'})
+            'collect-launcher-diagnostics.ps1', 'TESTING.md', 'SHA256SUMS-windows-x64.txt'})
         for line in (destination / 'SHA256SUMS-windows-x64.txt').read_text().splitlines():
             expected, name = line.split('  ', 1)
             self.assertEqual(hashlib.sha256((destination / name).read_bytes()).hexdigest(), expected)
@@ -50,7 +50,8 @@ class ReleaseStagingTests(unittest.TestCase):
                 archive = self.package(platform)
                 destination = release.stage(self.output, platform, ROOT)
                 self.assertEqual({p.name for p in destination.iterdir()}, {
-                    archive.name, 'release-' + platform + '.json', 'SHA256SUMS-' + platform + '.txt'})
+                    archive.name, 'release-' + platform + '.json', 'TESTING.md',
+                    'SHA256SUMS-' + platform + '.txt'})
 
     def test_corrupt_archive_is_rejected_before_creating_download_directory(self):
         archive = self.package('macos-arm64')

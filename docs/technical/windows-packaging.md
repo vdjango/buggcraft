@@ -1,10 +1,18 @@
 # Windows 下载与打包
 
-Windows x64 发布分成小型启动程序和完整运行包。`Buggcraft-Setup.exe` 约 363 KB；首次启动时下载约 106.5 MB 的运行包，将文件校验后放进安装器旁边的 `Buggcraft-runtime\<版本号>`，随后启动真正的应用。安装器目录不可写时才回退到 `%LOCALAPPDATA%\Buggcraft\runtime`，回退原因会写入日志。相同版本只下载一次。新版本使用新的内容哈希目录，旧版本缓存保留，正在运行的文件不会被覆盖。
+Windows x64 发布分成小型启动程序和完整运行包。首次启动时将运行包下载、校验后放进安装器旁边的 `Buggcraft-runtime\<版本号>`，随后启动真正的应用。安装器目录不可写时才回退到 `%LOCALAPPDATA%\Buggcraft\runtime`，回退原因会写入日志。相同版本只下载一次。新版本使用新的内容哈希目录，旧版本缓存保留，正在运行的文件不会被覆盖。完整包的实际大小见[体积审计](launcher-size-audit.md)，不能用小型安装器的大小代替。
 
-完整包内包含 Python、Qt/PySide6 和 QML 运行组件、Windows C++ 运行库、WebRTC/FFmpeg 组件、HTTPS CA 文件及应用资源。启动器按 PE 导入和 QML 实际导入结果排除了未使用的 Qt 组件。当前完整 ZIP 约 106.5 MB，解压后约 267 MB；Qt GUI 和 WebRTC 的完整依赖无法压到 10 MB，10 MB 以下适合的是首次下载用的小型启动程序。
+完整包内包含 Python、Qt/PySide6 和 QML 运行组件、Windows C++ 运行库、数据通道所需 ICE/DTLS/SCTP、HTTPS CA 文件及图片资源。联机使用裁出的 aiortc 数据通道子集，不再打包完整 aiortc、PyAV、FFmpeg、音视频编解码器或 pylibsrtp。启动器按 PE 导入和 QML 实际导入结果排除未使用的 Qt 组件，并排除 PDF 图像插件及两份自带字体。
 
 ## 构建
+
+Widgets 和 QML 均使用系统默认字体，保留各控件的字号与粗细，不再加载资源目录里的字体。构建时通过 `--noinclude-data-files=resources/fonts/*` 排除字体目录；源码中的字体文件保留，但不是运行必需资源。体积基线与后续减重结果见 [启动器体积审计](launcher-size-audit.md)。
+
+Windows 默认设置 `QT_QUICK_BACKEND=software`，由 Qt 自带的二维光栅场景图绘制大厅和好友页，避免为这些二维界面捆绑约 19.7 MiB 的 Mesa `opengl32sw.dll`。它不依赖 GPU，也不改变 Minecraft 游戏自身的渲染。现有 QML 未使用 ShaderEffect 或 3D 效果；以后引入这些功能必须重新评估该规则。二维软件渲染会使用 CPU，显式设置的 `QT_QUICK_BACKEND` 会被保留；选硬件后端时需要系统驱动支持，包内不提供软件 OpenGL 回退。macOS 保持原生默认渲染后端。
+
+`build.py` 在生成运行包前检查依赖清单；若旧构建残留 PyAV、SRTP、PDF 或 Windows 软件 OpenGL 文件，会拒绝打包。升级这些裁剪规则后必须重新编译，不能直接对旧 `main.dist` 使用 `--package-only`。数据通道来源、许可及重现方法见[子集说明](../../src/buggcraft/hookup/_rtc/README.md)。
+
+Python 运行时保留 `python311.dll` 及稳定 ABI 的 `python3.dll`，两者都有本机扩展依赖。未使用的多进程、进程池、`_uuid`、通知库及其日志依赖不再打包；UUID4 使用标准库回退，CPU 数查询改用 `os.cpu_count()`。BZIP2/LZMA、XML、SSL 和 Unicode 扩展继续保留以支持游戏安装、Java 解包及网络功能。逐项理由与实测结果见[Python DLL 审计](launcher-size-audit.md#python-dll-专项结论)。
 
 Qt 官方的 [`pyside6-deploy`](https://doc.qt.io/qtforpython-6/deployment/deployment-pyside6-deploy.html) 同样基于 Nuitka，支持排除未使用的 QML 插件。当前构建保留既有 Nuitka 流程，使用 Qt 官方 `qmlimportscanner` 计算 QML 依赖，再跟踪 PE 导入裁剪未引用的 Qt DLL；不会排除界面必需的 QtCore、QtGui、QtQuick 等库。Windows `windeployqt` 主要处理 Qt 原生依赖，不能单独打包 Python 和 WebRTC。macOS 流程见 [macOS 打包说明](macos-packaging.md)。
 
@@ -58,7 +66,7 @@ $env:PATH = "$env:WINDIR\System32"
 & .\dist\main.dist\Buggcraft.exe --package-check .\package-check.json
 ```
 
-检查会实际打开主窗口、大厅和好友页面，运行 SSH 签名、AES-GCM、TLS CA、WebRTC DTLS 证书及 64 KiB 本地数据通道传输。发布前仍需在一台干净的 Windows 10/11 虚拟机上，从临时下载页安装并启动一次。
+检查会实际打开主窗口、大厅和好友页面，运行 ZIP DEFLATE/BZIP2/LZMA、TAR GZ/BZ2/XZ、XML、Decimal、UUID4、ctypes、线程池哈希、TLS 上下文、SSH 签名、AES-GCM、TLS CA、WebRTC DTLS 证书及 64 KiB 本地数据通道传输。需分别设置 `QT_QPA_PLATFORM=windows` 和 `offscreen` 跑一次。发布前仍需在一台干净的 Windows 10/11 虚拟机上，从临时下载页安装并启动一次。
 
 ## 临时下载页
 

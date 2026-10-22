@@ -19,7 +19,8 @@ from secrets import token_urlsafe
 from PySide6.QtCore import Signal, QObject, QThread
 
 from config.settings import get_settings_manager
-from core.launch_options import split_arguments, redacted_command
+from core.launch_options import (split_arguments, redacted_command, offline_uuid,
+                                 complete_auth_arguments, required_java)
 from core.downloads import verified_installation
 from core.memory import AdvancedMemoryRecommender
 
@@ -213,6 +214,12 @@ class MinecraftLibLauncher(QObject):
         
             if not java_path:
                 raise ValueError('请在设置中选择有效的 Java 可执行文件')
+            java_major = required_java(self.minecraft_directory, self.minecraft_version)
+            if java_major:
+                from config.javafinder import JavaPathFinder
+                parsed = JavaPathFinder()._get_java_version(java_path)[1]
+                if not parsed or parsed[0] < java_major:
+                    raise ValueError(f'Minecraft {self.minecraft_version} 需要 Java {java_major} 或更高版本，请在设置中更换 Java。')
             
             jvmArguments = [
                 f"-Xmx{memory}M", 
@@ -233,6 +240,8 @@ class MinecraftLibLauncher(QObject):
             options = {
                 "executablePath": java_path,
                 "username": self.minecraft_username,
+                "uuid": self.uuid or offline_uuid(self.minecraft_username),
+                "token": self.token or '0',
                 "gameDirectory": self.minecraft_isolation_directory,
                 "version": self.minecraft_version,
                 "jvmArguments": jvmArguments,
@@ -278,6 +287,7 @@ class MinecraftLibLauncher(QObject):
                 self.minecraft_directory,
                 options
             )
+            command = complete_auth_arguments(command)
             
             # 设置窗口大小
             if not self.minecraft_fullscreen:
@@ -380,8 +390,14 @@ class MinecraftLibLauncher(QObject):
             # Read to EOF in the owning worker so the final crash/exit lines are retained.
             process = self.process
             for raw_line in process.stdout:
-                self._handle_output(raw_line.decode('utf-8', errors='replace').rstrip(), True)
+                line = raw_line.decode('utf-8', errors='replace').rstrip()
+                if self.token:
+                    line = line.replace(self.token, '<redacted>')
+                logger.info('Minecraft[%s] %s', process.pid, line)
+                self._handle_output(line, True)
             self.exit_code = process.wait()
+            logger.info('Minecraft process exited: pid=%s version=%s exit_code=%s',
+                        process.pid, self.minecraft_version, self.exit_code)
             
             # 发送停止信号
             self.signals.stopped.emit(self.exit_code)

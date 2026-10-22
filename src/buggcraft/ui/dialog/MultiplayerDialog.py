@@ -2,7 +2,6 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QFontDatabase, QFont
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QDialog, QVBoxLayout
 
@@ -20,16 +19,10 @@ class MultiplayerDialog(QDialog):
         width = background.width() - main_window.menu_width if background else 721
         height = background.height() if background else 505
         self.setFixedSize(width, height)
-        QFont.insertSubstitution('Source Han Sans CN Normal', 'Source Han Sans CN')
         resources = Path(getattr(parent, 'resource_path', None) or
                          Path(__file__).resolve().parents[4] / 'resources')
         self.resources = resources
         self.friends_window = None
-        for filename, family in [('SourceHanSansCN-Normal.otf', 'Source Han Sans CN'),
-                                 ('ChuangKeTieJinGangTi-2.otf', 'CKTKingKong')]:
-            font = resources / 'fonts' / filename
-            if font.exists() and family not in QFontDatabase.families():
-                QFontDatabase.addApplicationFont(str(font))
         self.backend = MultiplayerController(self, storage_path)
         if hasattr(parent, 'friends_btn'):
             self.backend.changed.connect(lambda: parent.friends_btn.setVisible(self.backend.view['socialReady']))

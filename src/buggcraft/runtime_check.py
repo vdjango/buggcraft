@@ -8,6 +8,58 @@ import tempfile
 import traceback
 
 
+def check_python_runtime():
+    """Exercise extensions which are easy to break by deleting small DLLs."""
+    import bz2
+    import ctypes
+    from decimal import Decimal
+    import hashlib
+    import io
+    import lzma
+    import ssl
+    import tarfile
+    import uuid
+    import xml.etree.ElementTree as ET
+    import zipfile
+    from concurrent.futures import ThreadPoolExecutor
+
+    payload = b'Python runtime and archive integrity\n' * 100
+    for compress, decompress in ((bz2.compress, bz2.decompress),
+                                 (lzma.compress, lzma.decompress)):
+        if decompress(compress(payload)) != payload:
+            raise RuntimeError('Broken Python compression extension')
+    for method in (zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', compression=method) as archive:
+            archive.writestr('config/check.txt', payload)
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as archive:
+            if archive.read('config/check.txt') != payload:
+                raise RuntimeError('Broken ZIP support')
+    for mode in ('gz', 'bz2', 'xz'):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode='w:' + mode) as archive:
+            member = tarfile.TarInfo('runtime/check.txt')
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload))
+        buffer.seek(0)
+        with tarfile.open(fileobj=buffer, mode='r:*') as archive:
+            if archive.extractfile('runtime/check.txt').read() != payload:
+                raise RuntimeError('Broken Java archive support')
+    if ET.fromstring('<versions><version>1.20.1</version></versions>').findtext('version') != '1.20.1':
+        raise RuntimeError('Broken XML parser')
+    if Decimal('0.1') + Decimal('0.2') != Decimal('0.3'):
+        raise RuntimeError('Broken decimal extension')
+    if uuid.UUID(str(uuid.uuid4())).version != 4:
+        raise RuntimeError('Broken UUID fallback')
+    if ctypes.sizeof(ctypes.c_void_p) != 8:
+        raise RuntimeError('Unexpected Python ABI')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        digests = list(pool.map(lambda data: hashlib.sha256(data).hexdigest(), [payload] * 2))
+    if digests[0] != digests[1] or not ssl.create_default_context().get_ciphers():
+        raise RuntimeError('Broken TLS, hashing or threaded downloads')
+
+
 async def check_peer():
     from hookup.peer import PeerTransport
     transport = PeerTransport(None)
@@ -44,6 +96,10 @@ def main(report):
     logging.basicConfig(filename=str(Path(report).with_suffix('.log')), encoding='utf-8',
                         level=logging.DEBUG, force=True)
     try:
+        check_python_runtime()
+        result['checks'].extend(['python-stdlib-extensions', 'zip-bzip2-lzma',
+                                 'java-tar-gz-bz2-xz', 'xml-decimal-uuid',
+                                 'threaded-hashing-tls'])
         import asyncssh
         import certifi
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -62,11 +118,16 @@ def main(report):
         if not PROFILES or not PACKETS:
             raise RuntimeError('Missing protocol resources')
         result['checks'].extend(['ssh-ed25519', 'aes-gcm', 'https-ca', 'game-protocol-data'])
+        from core.launch_options import complete_auth_arguments, offline_uuid
+        if (offline_uuid('Notch') != 'b50ad385-829d-3141-a216-7e7d7539ba7f'
+                or complete_auth_arguments(['${clientid}', '${auth_xuid}']) != ['', '0']):
+            raise RuntimeError('Broken modern Minecraft authentication arguments')
+        result['checks'].append('modern-minecraft-auth-arguments')
         asyncio.run(check_peer())
         result['checks'].extend(['webrtc-dtls-key', 'webrtc-65536-bytes-roundtrip'])
 
-        from PySide6.QtWidgets import QApplication
-        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication, QLineEdit
+        from PySide6.QtCore import QTimer, QObject
         from PySide6.QtQuickWidgets import QQuickWidget
         import config.settings as settings
         resources = Path(__import__('sys').executable).resolve().parent / 'resources'
@@ -81,6 +142,12 @@ def main(report):
         with tempfile.TemporaryDirectory(prefix='buggcraft-package-check-') as temp:
             settings.get_conf_or_cache_manager = lambda: ('package-check', temp)
             settings._settings_manager_instance = settings.SettingsManager(temp)
+            from utils.path_helper import get_default_minecraft_dir
+            expected_game_dir = str(get_default_minecraft_dir())
+            if settings._settings_manager_instance.get_setting('minecraft.directory.enable') != expected_game_dir:
+                raise RuntimeError('Game downloads must default to launcher/.minecraft')
+            result['game_directory'] = expected_game_dir
+            result['checks'].append('portable-game-directory')
             from windows.main_window import MinecraftLauncher
             window = MinecraftLauncher(str(resources.parent), temp, temp, str(resources))
             def exercise():
@@ -88,6 +155,20 @@ def main(report):
                     window.show()
                     window.started_page.show_multiplayer_dialog()
                     lobby = window.started_page._multiplayer_dialog
+                    from ui.dialog.ModpackImportDialog import ModpackImportDialog
+                    importer = ModpackImportDialog()
+                    if hasattr(importer, 'key_input') or len(importer.findChildren(QLineEdit)) != 2:
+                        raise RuntimeError('Modpack import must not request an API key')
+                    importer.close()
+                    if lobby.quick.rootObject().findChild(QObject, 'export-diagnostics') is None:
+                        raise RuntimeError('Missing multiplayer diagnostic export action')
+                    from utils.diagnostics import export_diagnostics
+                    from zipfile import ZipFile
+                    diagnostic = export_diagnostics(Path(temp) / 'diagnostics.zip')
+                    with ZipFile(diagnostic) as bundle:
+                        if 'diagnostics.json' not in bundle.namelist():
+                            raise RuntimeError('Broken diagnostic archive')
+                    result['checks'].extend(['modpack-no-api-key', 'diagnostic-export'])
                     lobby.show_friends()
                     app.processEvents()
                     quicks = window.findChildren(QQuickWidget) + [lobby.quick, lobby.friends_window.quick]

@@ -36,7 +36,17 @@ class LauncherVisibilityManager:
         elif setting == VisibilitySettings.HIDE:
             self.main_window.hide()
         elif setting == VisibilitySettings.CLOSE:
-            self.main_window.close()
+            # Automatic hiding is not the user's explicit close request.
+            # Keep multiplayer alive for the game, then close on game exit.
+            self.main_window._close_after_game = True
+            self.main_window.hide()
+            page = getattr(self.main_window, 'started_page', None)
+            lobby = getattr(page, '_multiplayer_dialog', None)
+            if lobby is not None:
+                lobby.hide()
+            debug = getattr(self.main_window, '_debug_dialog', None)
+            if debug is not None:
+                debug.hide()
     
     def restore_if_needed(self):
         """游戏退出后恢复启动器（如果需要）"""

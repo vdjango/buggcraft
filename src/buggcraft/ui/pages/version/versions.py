@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
+from ui.fonts import system_font
 
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
@@ -92,7 +93,7 @@ class VersionsPage(QWidget):
                 button.setPixmap(pixmap.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setGeometry(0, 0, width, height)
@@ -269,7 +270,7 @@ class VersionsPage(QWidget):
         
         # 文本
         text_label = QLabel('添加游戏文件夹')
-        text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        text_label.setFont(system_font(10, QFont.Weight.Bold))
         text_label.setStyleSheet("color: rgba(209, 204, 255, 1); border: none;")
         
         layout.addStretch()
@@ -420,12 +421,12 @@ class VersionsPage(QWidget):
         text_layout.setSpacing(5)
         
         version_label = QLabel(f'版本号：{version}')
-        version_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        version_label.setFont(system_font(10, QFont.Weight.Bold))
         version_label.setStyleSheet("color: #f2f2f2;")
         
         desc_label = QLabel(description)
         desc_label.setMaximumWidth(200)
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        desc_label.setFont(system_font(9, QFont.Weight.Normal))
         desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         
         text_layout.addWidget(version_label, 0, Qt.AlignVCenter)

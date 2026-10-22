@@ -24,6 +24,9 @@ def stage(output, platform, repository_root):
         raise ValueError('Release archive size or SHA-256 does not match its manifest')
     files = {archive: archive.name,
              output / 'release.json': 'release-' + platform + '.json'}
+    guide = repository_root / 'docs/guides/network-tester-guide.md'
+    if guide.is_file():
+        files[guide] = 'TESTING.md'
     if platform == 'windows-x64':
         files[output / 'Buggcraft-Setup.exe'] = 'Buggcraft-Setup.exe'
         files[output / 'signing-status.json'] = 'signing-status-windows-x64.json'

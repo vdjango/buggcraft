@@ -32,6 +32,8 @@
 
 日常使用请从 [Releases](https://github.com/vdjango/buggcraft/releases) 下载构建包。Windows 版本使用小型启动程序，第一次运行时会将校验过的运行时下载到启动程序旁边；完整的 Qt 和 WebRTC 运行时会明显大于启动程序本身。构建或分发前请阅读 [Windows 打包说明](docs/technical/windows-packaging.md)。
 
+游戏默认下载到启动器所在目录的 `.minecraft`。Windows 从 `Buggcraft-Setup.exe` 启动时，位于该入口旁边；直接运行解压后的 `Buggcraft.exe` 时，位于该 EXE 旁边。macOS 位于 `.app` 旁边。已有手动选择的游戏目录继续生效，可以在实例页切换。
+
 从源码运行需要 Python 3.11 或更新版本。项目依赖包含 Qt 和 WebRTC 组件，安装需要一定时间和磁盘空间。
 
 ```powershell
@@ -43,7 +45,7 @@ $env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe src\buggcraft\main.py
 ```
 
-上面是 Windows 命令。Linux 和 macOS 还需要准备对应的 Qt 与媒体环境，目前没有完成相同范围的真机验收。已验证的行为见[启动器验收记录](docs/validation/launcher-validation.md)。
+上面是 Windows 命令。Linux 和 macOS 还需要准备对应的 Qt 环境，目前没有完成相同范围的真机验收。联机仅携带数据通道实现，不需要 PyAV、FFmpeg 或音视频编解码器。已验证的行为见[启动器验收记录](docs/validation/launcher-validation.md)。
 
 ## 联机流程
 
@@ -52,6 +54,8 @@ $env:PYTHONPATH = "$PWD\src"
 3. 启动器检查本地游戏信息并准备连接。实际世界、玩家列表、权限和存档仍由 Minecraft 管理。
 
 同一个房间可以混合使用 P2P 和加密中继。直连取决于双方网络和防火墙；部分 NAT 或 UDP 环境必须使用中继，没有节点能保证所有玩家都能直连。节点联邦共享发现和路由信息，不会合并带宽；房间归属节点故障时，正在进行的游戏会话也不会无缝迁移。
+
+遇到联机问题，可退出房间后选择「仅通过节点中转」重新加入。大厅的「导出日志」会打包本次及历史联机记录、网卡与路由快照，便于两端对照；详见[联机测试与日志](docs/guides/network-tester-guide.md)。
 
 账号密码只在节点网页中使用，用于领取临时个人接入码；启动器不会保存节点账号密码。好友列表保存在本机。请只添加你信任的节点和联邦邀请。
 
@@ -77,6 +81,8 @@ $env:PYTHONPATH = "$PWD\src"
 ```
 
 完整测试和网络验收记录见[启动器验收记录](docs/validation/launcher-validation.md)、[联机验证记录](docs/validation/multiplayer-validation.md)和[联机路线图](docs/planning/multiplayer-roadmap.md)。单元测试、本地游戏服务端和不同公网中的真实客户端属于不同验证层级，文档会标明实际执行的范围。
+
+联机使用从 aiortc 1.15.0 裁出的数据通道子集，保留上游 ICE、DTLS、SCTP 和证书指纹检查；来源、许可和更新方法见[子集说明](src/buggcraft/hookup/_rtc/README.md)。新旧客户端互通测试可在独立开发环境额外安装 `requirements-interop.txt` 后运行 `python -m unittest tests.test_datachannel_transport -v`。该文件里的音视频依赖只供旧客户端测试，不用于发布构建。
 
 使用 `build.bat` 构建 Windows 运行包，macOS 使用 `bash build_macos.sh`。GitHub Actions 的「Package launcher」会分别生成 Windows x64、macOS Intel 和 Apple Silicon 产物，并执行运行包检查。[Windows 打包说明](docs/technical/windows-packaging.md)和 [macOS 打包说明](docs/technical/macos-packaging.md)记录了 Qt 裁剪、运行检查与签名边界。
 

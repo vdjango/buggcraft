@@ -6,6 +6,7 @@
 
 - [游戏与整合包导入、内容下载与加载器兼容](guides/modpack-import-and-compatibility.md)
 - [联机与节点使用](guides/relay-usage.md)
+- [联机测试、网络快照与日志导出](guides/network-tester-guide.md)
 - [Windows 故障排查](guides/windows-diagnostics.md)
 
 ## 技术说明
@@ -17,6 +18,7 @@
 - [账号与源站安全边界](technical/node-accounts-security.md)
 - [QML 界面结构](technical/qml-interface.md)
 - [Windows 打包](technical/windows-packaging.md)
+- [启动器体积清单与减重方案](technical/launcher-size-audit.md)
 - [macOS 打包与 Qt 官方工具](technical/macos-packaging.md)
 
 ## 验证记录
@@ -26,6 +28,7 @@
 - [节点可用性验证](validation/node-availability-validation.md)
 - [联邦节点验证](validation/node-federation-validation.md)
 - [P2P 传输验证](validation/peer-transport-validation.md)
+- [2026-10-22 三个原生 Minecraft 客户端联机实测](validation/local-native-multiplayer-20261022.md)
 - [房间访问验证](validation/room-access-validation.md)
 
 ## 计划

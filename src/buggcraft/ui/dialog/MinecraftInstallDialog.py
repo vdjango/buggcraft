@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QRect, QSize, QPoint, Signal, QRunnable, QObject, QThreadPool, Slot
 from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap, QFont
+from ui.fonts import system_font
 from core.loader_rules import LOADERS, incompatibility
 
 
@@ -211,13 +212,13 @@ class InstallationItem(QWidget):
         
         # 版本名称标签
         self._version_label = QLabel(self._name)
-        self._version_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self._version_label.setFont(system_font(10, QFont.Weight.Bold))
         self._version_label.setStyleSheet("color: #f2f2f2;")
         self._version_label.setAlignment(Qt.AlignCenter)
         
         # 描述标签
         self._desc_label = QLabel(self._description)
-        self._desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self._desc_label.setFont(system_font(9, QFont.Weight.Normal))
         self._desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         self._desc_label.setAlignment(Qt.AlignCenter)
         self._desc_label.setWordWrap(True)
@@ -252,7 +253,7 @@ class InstallationItem(QWidget):
             else:
                 label.setText({'NeoForge': 'NF', 'OptiFine': 'OF', 'Fabric API': 'FA',
                                'QSL/QFAPI': 'QA'}.get(self._name, self._name[:1]))
-                label.setFont(QFont('Source Han Sans CN', 17, QFont.Weight.Bold))
+                label.setFont(system_font(17, QFont.Weight.Bold))
                 label.setStyleSheet('color: #ded7ff; background: #514665; border-radius: 8px;')
         
         return label
@@ -436,7 +437,7 @@ class MinecraftInstallDialog(QDialog):
         title_layout.addSpacing(5)  # logo和标题之间的间距
 
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Bold))
+        self.title_label.setFont(system_font(11, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: rgba(220, 220, 220, 1); font-weight: bold;  background-color: transparent;")
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
@@ -645,11 +646,11 @@ class MinecraftInstallDialog(QDialog):
         text_layout.setSpacing(5)
         
         self.install_case_text_label = QLabel(f'安装实例：{version}')
-        self.install_case_text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.install_case_text_label.setFont(system_font(10, QFont.Weight.Bold))
         self.install_case_text_label.setStyleSheet("color: #f2f2f2;")
         
         self.install_case_desc_label = QLabel(description)
-        self.install_case_desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self.install_case_desc_label.setFont(system_font(9, QFont.Weight.Normal))
         self.install_case_desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         
         text_layout.addWidget(self.install_case_text_label, 0, Qt.AlignVCenter)
@@ -851,11 +852,11 @@ class MinecraftInstallDialog(QDialog):
         text_layout.setSpacing(0)
         
         self.text_label = QLabel(version)
-        self.text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.text_label.setFont(system_font(10, QFont.Weight.Bold))
         self.text_label.setStyleSheet("color: #f2f2f2;")
         
         self.desc_label = QLabel(modified)
-        self.desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self.desc_label.setFont(system_font(9, QFont.Weight.Normal))
         self.desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         
         text_layout.addWidget(self.text_label)
@@ -923,11 +924,11 @@ class MinecraftInstallDialog(QDialog):
         text_layout.setSpacing(5)
         
         version_label = QLabel(name)
-        version_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        version_label.setFont(system_font(10, QFont.Weight.Bold))
         version_label.setStyleSheet("color: #f2f2f2;")
         
         desc_label = QLabel(description)
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        desc_label.setFont(system_font(9, QFont.Weight.Normal))
         desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
         
         text_layout.addWidget(version_label, 0, Qt.AlignCenter)

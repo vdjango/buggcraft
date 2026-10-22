@@ -4,6 +4,7 @@ import os
 from PySide6.QtWidgets import (QWidget, QLabel, QVBoxLayout, QHBoxLayout)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QPixmap, QPainter, QPalette
+from ui.fonts import system_font
 
 
 class QMButton(QLabel):
@@ -69,7 +70,7 @@ class QMButton(QLabel):
         
         # 创建文本标签
         self.text_label = QLabel(self._text)
-        self.text_label.setFont(QFont("Source Han Sans CN Normal", self.font_size, QFont.Weight.Bold))  # self.font_size
+        self.text_label.setFont(system_font(self.font_size, QFont.Weight.Bold))  # self.font_size
         
         self.text_label.setStyleSheet(f"color: #f2f2f2; background-color: transparent;")
         self.text_label.setAlignment(Qt.AlignCenter)
@@ -178,7 +179,7 @@ class QMStartButton(QWidget):
         
         # 第一行文本标签
         self.line1_label = QLabel(line1)
-        self.line1_label.setFont(QFont("CKTKingKong", 13, QFont.Weight.Bold))
+        self.line1_label.setFont(system_font(13, QFont.Weight.Bold))
         self.line1_label.setAlignment(Qt.AlignCenter)
         self.line1_label.setStyleSheet(f"""
             QLabel {{
@@ -191,7 +192,7 @@ class QMStartButton(QWidget):
         
         # 第二行文本标签
         self.line2_label = QLabel(line2)
-        self.line2_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        self.line2_label.setFont(system_font(10, QFont.Weight.Normal))
         self.line2_label.setAlignment(Qt.AlignCenter)
         self.line2_label.setStyleSheet(f"""
             QLabel {{

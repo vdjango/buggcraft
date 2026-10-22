@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, QUrl
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QDesktopServices
+from ui.fonts import system_font
 
 from config.settings import get_settings_manager
 from ui.widgets.ComboBox import QMComboBox
@@ -206,7 +207,7 @@ class GeneralSettingsPages(QWidget):
         desc_layout.setSpacing(10)
         
         desc_label = QLabel("按所选通道打开官方发行页面；自动检测和安装更新尚未接入。")
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        desc_label.setFont(system_font(10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -282,7 +283,7 @@ class GeneralSettingsPages(QWidget):
 
         desc_label = QLabel("当前路径可正常使用。迁移功能尚未接入，暂不可修改。")
         desc_label.setContentsMargins(10, 0, 10, 0)
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        desc_label.setFont(system_font(10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -328,7 +329,7 @@ class GeneralSettingsPages(QWidget):
         layout.addWidget(self.launcher_language_combo)
         
         desc_label = QLabel("当前支持简体中文，其他语言尚未接入。")
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        desc_label.setFont(system_font(10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -376,7 +377,7 @@ class GeneralSettingsPages(QWidget):
         layout.addWidget(self.launcher_download_source_combo)
         
         desc_label = QLabel("用于原版游戏和加载器版本目录；可镜像的文件按所选源下载。自动模式优先官方，失败后切换 BMCLAPI。")
-        desc_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        desc_label.setFont(system_font(10, QFont.Weight.Normal))
         desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
@@ -426,7 +427,7 @@ class GeneralSettingsPages(QWidget):
         text_layout.setSpacing(5)
 
         title_label = QLabel(str(self.settings_manager.config_path))
-        title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Normal))
+        title_label.setFont(system_font(11, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
         text_layout.addWidget(title_label)

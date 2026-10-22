@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QPoint, QEvent
 from PySide6.QtGui import QPixmap, QColor, QPainter, QPolygon, QPalette, QFont
+from ui.fonts import system_font
 
 from .CustomStyle import CustomComboBoxStyle
 
@@ -44,7 +45,7 @@ class QMComboBox(QComboBox):
     
     def __init__(self, parent, height=None):
         super().__init__(parent)
-        self.setFont(QFont('Source Han Sans CN', 10))
+        self.setFont(system_font(10))
         self.resource_path = parent.resource_path
         self.is_expanded = False
         self.expanded_icon = None

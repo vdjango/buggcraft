@@ -11,11 +11,24 @@ from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1] / 'src/buggcraft'
 sys.path.insert(0, str(SOURCE))
-from qt_runtime import setup_qt_environment
+from qt_runtime import setup_qt_environment, configure_quick_renderer
 from PySide6.QtCore import QLibraryInfo
 
 
 class QtRuntimeTests(unittest.TestCase):
+    def test_windows_raster_backend_does_not_override_an_explicit_backend(self):
+        with patch('qt_runtime.platform.system', return_value='Windows'), \
+                patch.dict(os.environ, {}, clear=True):
+            configure_quick_renderer()
+            self.assertEqual(os.environ['QT_QUICK_BACKEND'], 'software')
+            os.environ['QT_QUICK_BACKEND'] = 'rhi'
+            configure_quick_renderer()
+            self.assertEqual(os.environ['QT_QUICK_BACKEND'], 'rhi')
+        with patch('qt_runtime.platform.system', return_value='Darwin'), \
+                patch.dict(os.environ, {}, clear=True):
+            configure_quick_renderer()
+            self.assertNotIn('QT_QUICK_BACKEND', os.environ)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='buggcraft-qt-')
         self.addCleanup(self.temp.cleanup)

@@ -20,6 +20,11 @@ ColumnLayout {
             Accessible.name: "加入房间的连接方式"
             onActivated: function(index) { lobby.act("transport", {policy:index === 1 ? "relay" : "auto"}) }
         }
+        ActionButton {
+            objectName: "export-diagnostics"; text: "导出日志"; quiet: true
+            Layout.preferredWidth: 80; Layout.preferredHeight: 28
+            onClicked: lobby.act("exportDiagnostics", {})
+        }
     }
     Rectangle {
         id: nodeBar

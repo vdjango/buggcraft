@@ -14,6 +14,10 @@ bash build_macos.sh
 
 ## Qt 官方工具与体积
 
+界面使用系统默认字体，源码中的 `resources/fonts/` 不再加载；与 Windows 共用的构建规则排除该字体目录，保留图片和 QML 资源。系统字体切换后的 Windows 实测与验证边界见 [体积审计](launcher-size-audit.md)，macOS 体积需在对应架构构建后单独测量。
+
+共用依赖已切换为数据通道子集，不再安装或打包完整 aiortc、PyAV、FFmpeg、音视频编解码器和 pylibsrtp；PDF 图像插件也被排除。来源与更新方法见[子集说明](../../src/buggcraft/hookup/_rtc/README.md)。Windows 的软件 OpenGL 裁剪及默认光栅渲染仅作用于 Windows，macOS 继续使用原生渲染后端。本轮 Windows 的减重数字不能直接套用到两种 macOS 架构。
+
 [Qt 官方 `pyside6-deploy`](https://doc.qt.io/qtforpython-6/deployment/deployment-pyside6-deploy.html) 也是 Nuitka 的封装，支持 Windows 和 macOS，并可排除未用到的 QML 插件。项目保留现有 Nuitka 构建入口以复用下载引导程序、哈希清单和运行检查；Qt 的 `qmlimportscanner` 根据 `resources/qml` 的实际导入计算需要保留的模块，其他 QML 插件和翻译按规则排除。
 
 Qt 的 C++ 应用部署工具 `macdeployqt` 可以收集 `.app` 的 Qt 依赖，但不会替代 Python、PySide6 和 WebRTC 的打包，因此这里使用面向 Qt for Python 的部署方式。精简只排除未使用的组件，QtCore、QtGui、QtWidgets、QtQuick、QML 及其实际依赖仍需随包提供。

@@ -2,7 +2,7 @@
 import asyncio
 import secrets
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from . import test_room_chat as fixture
 from hookup.relay import TunnelClient, TunnelHost
@@ -73,6 +73,36 @@ class PeerTransportTests(unittest.IsolatedAsyncioTestCase):
         client = await self.endpoint(TunnelClient, host.invite)
         self.assertEqual(client.transport_state, 'relay')
         await self.exchange(client)
+
+    @patch('hookup.relay.game_status', new_callable=AsyncMock,
+           side_effect=ConnectionError('No background game-status stream'))
+    async def test_short_streams_never_reuse_ids_while_resets_are_in_flight(self, status):
+        host = await self.endpoint(TunnelHost, game_port=await self.world())
+        client = await self.endpoint(TunnelClient, host.invite)
+        pc = client.peer_transport.client_pc
+        original = pc.createDataChannel
+        ids = []
+        def record(*args, **kwargs):
+            channel = original(*args, **kwargs)
+            ids.append(channel.id)
+            return channel
+        with patch.object(pc, 'createDataChannel', side_effect=record):
+            for _ in range(10):
+                await asyncio.gather(*(self.exchange(client, 4096) for _ in range(3)))
+        self.assertEqual(len(ids), 30)
+        self.assertEqual(len(set(ids)), 30)
+        self.assertTrue(all(value % 2 == 1 and value > 1 for value in ids))
+        self.assertEqual(ids, sorted(ids))
+        await self.exchange(client, 2 * 1024 * 1024)
+
+    async def test_exhausted_peer_stream_ids_relay_new_streams(self):
+        host = await self.endpoint(TunnelHost, game_port=await self.world())
+        client = await self.endpoint(TunnelClient, host.invite)
+        client.peer_transport.next_game_channel_id = 65535
+        with patch.object(client.peer_transport.client_pc, 'createDataChannel',
+                          side_effect=AssertionError('Stream ID reused')):
+            await self.exchange(client, 65536)
+        self.assertEqual(client.transport_state, 'relay')
 
     async def test_one_room_mixes_p2p_and_relay_per_visitor(self):
         """A relay-only visitor must not force other room members off P2P."""

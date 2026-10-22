@@ -31,6 +31,16 @@ Get-ChildItem -LiteralPath $logRoot -File | Where-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $appLogs $_.Name)
 }
 $failureRoot = Join-Path $logRoot 'error'
+$sessions = Join-Path $logRoot 'p2p-sessions'
+if (Test-Path -LiteralPath $sessions) {
+    $sessionDestination = Join-Path $appLogs 'p2p-sessions'
+    New-Item -ItemType Directory -Force -Path $sessionDestination | Out-Null
+    Get-ChildItem -LiteralPath $sessions -File | Where-Object {
+        $_.Name -like '*.log*' -or $_.Name -like 'network-*.json'
+    } | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $sessionDestination $_.Name)
+    }
+}
 if (Test-Path -LiteralPath $failureRoot) {
     Get-ChildItem -LiteralPath $failureRoot -Directory | ForEach-Object {
         $archive = Join-Path $appLogs ('error-' + $_.Name)

@@ -1,7 +1,39 @@
 """Pure argument handling shared by launch configuration and validation."""
 import shlex
 import json
+import hashlib
+import uuid
 from pathlib import Path
+
+
+def offline_uuid(username):
+    """Match Java's UUID.nameUUIDFromBytes for OfflinePlayer:<name>."""
+    return str(uuid.UUID(bytes=hashlib.md5(('OfflinePlayer:' + username).encode('utf-8')).digest(), version=3))
+
+
+def complete_auth_arguments(command, client_id='', xuid='0'):
+    """Fill newer official placeholders unsupported by launcher-lib 7.x."""
+    replacements = {'${clientid}': client_id, '${auth_xuid}': xuid}
+    return [replacements.get(argument, argument) for argument in command]
+
+
+def required_java(directory, version):
+    current, seen = version, set()
+    while current:
+        if current in seen:
+            raise ValueError('游戏版本继承存在循环')
+        seen.add(current)
+        if not isinstance(current, str) or not current or Path(current).name != current or any(c in current for c in '/\\:'):
+            raise ValueError('游戏版本标识无效')
+        path = Path(directory) / 'versions' / current / (current + '.json')
+        if not path.is_file():
+            return None
+        metadata = json.loads(path.read_text(encoding='utf-8'))
+        major = metadata.get('javaVersion', {}).get('majorVersion')
+        if type(major) is int and major > 0:
+            return major
+        current = metadata.get('inheritsFrom')
+    return None
 
 
 def split_arguments(value):

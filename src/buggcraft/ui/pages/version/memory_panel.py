@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QBrush, QLinearGradient
+from ui.fonts import system_font
 from ui.widgets.radio import QMRadioButton, QMRadioGroup
 from ui.widgets.slider import StepSlider
 from ui.widgets.progress import MemoryProgressBar
@@ -70,7 +71,7 @@ class MemorySettingsPanel(QWidget):
 
         # 内存分配标签
         memory_label = QLabel("游戏内存分配")
-        memory_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        memory_label.setFont(system_font(10, QFont.Weight.Normal))
         memory_label.setAlignment(Qt.AlignVCenter)
         memory_label.setStyleSheet("color: rgba(255, 255, 255, 1);")
         memory_layout.addWidget(memory_label)
@@ -107,33 +108,33 @@ class MemorySettingsPanel(QWidget):
 
         # 设备已使用内存
         used_label = QLabel("设备中已使用 ")
-        used_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        used_label.setFont(system_font(9, QFont.Weight.Normal))
         used_label.setAlignment(Qt.AlignVCenter)
         used_label.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(used_label)
         
         self.used_value = QLabel("0 MB")
-        self.used_value.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self.used_value.setFont(system_font(9, QFont.Weight.Normal))
         self.used_value.setAlignment(Qt.AlignVCenter)
         self.used_value.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(self.used_value)
 
         # 分割线
         separator = QLabel(" | ")
-        separator.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        separator.setFont(system_font(9, QFont.Weight.Normal))
         separator.setAlignment(Qt.AlignVCenter)
         separator.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(separator)
 
         # 设备总内存
         total_label = QLabel("设备总内存 ")
-        total_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        total_label.setFont(system_font(9, QFont.Weight.Normal))
         total_label.setAlignment(Qt.AlignVCenter)
         total_label.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(total_label)
         
         self.total_value = QLabel("0 MB")
-        self.total_value.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self.total_value.setFont(system_font(9, QFont.Weight.Normal))
         self.total_value.setAlignment(Qt.AlignVCenter)
         self.total_value.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(self.total_value)
@@ -142,13 +143,13 @@ class MemorySettingsPanel(QWidget):
 
         # 可用内存
         available_label = QLabel("可用内存 ")
-        available_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        available_label.setFont(system_font(9, QFont.Weight.Normal))
         available_label.setAlignment(Qt.AlignVCenter)
         available_label.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(available_label)
         
         self.available_value = QLabel("0 MB")
-        self.available_value.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self.available_value.setFont(system_font(9, QFont.Weight.Normal))
         self.available_value.setAlignment(Qt.AlignVCenter)
         self.available_value.setStyleSheet("color: rgba(255, 255, 255, 1);")
         info_layout.addWidget(self.available_value)
@@ -174,14 +175,14 @@ class MemorySettingsPanel(QWidget):
         memory_label = QLabel('0')
         memory_label.setContentsMargins(20, 0, 20, 0)
         memory_label.setFixedHeight(27)
-        memory_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        memory_label.setFont(system_font(10, QFont.Weight.Normal))
         memory_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: rgba(0, 0, 0, 0.3);")
         memory_label.setAlignment(Qt.AlignVCenter)
         layout.addWidget(memory_label)
         
         # 单位标签
         unit_label = QLabel('MB')
-        unit_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        unit_label.setFont(system_font(10, QFont.Weight.Normal))
         unit_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         unit_label.setAlignment(Qt.AlignVCenter)
         layout.addWidget(unit_label)

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
+from ui.fonts import system_font
 
 from core.auth.microsoft import Authenticator, MinecraftSignals
 from ui.widgets.buttons import QMStartButton
@@ -245,7 +246,7 @@ class StartGamePage(QWidget):
 
         # 用户名标签
         self.username_label = QLabel("未登录")
-        self.username_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        self.username_label.setFont(system_font(10, QFont.Weight.Normal))
         self.username_label.setAlignment(Qt.AlignCenter)
         self.username_label.setStyleSheet("color: #f8f8f8;")
         tab_content_layout.addWidget(self.username_label, 0, Qt.AlignCenter)
@@ -270,7 +271,7 @@ class StartGamePage(QWidget):
 
         # 创建进入联机大厅按钮
         self.multiplayer_lobby_btn = QLabel("进入联机大厅")
-        self.multiplayer_lobby_btn.setFont(QFont("Source Han Sans CN Normal", 8, QFont.Weight.Normal))
+        self.multiplayer_lobby_btn.setFont(system_font(8, QFont.Weight.Normal))
         self.multiplayer_lobby_btn.setAlignment(Qt.AlignCenter)
         self.multiplayer_lobby_btn.setFixedWidth(80)  # 根据文字长度设置宽度
         self.multiplayer_lobby_btn.setStyleSheet("""
@@ -380,7 +381,7 @@ class StartGamePage(QWidget):
         
         # 添加文本
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
         text_label.setGeometry(0, 0, *size)   
@@ -435,7 +436,7 @@ class StartGamePage(QWidget):
         username_layout.setSpacing(0)
         self.offline_username_input = QLineEdit()
         self.offline_username_input.setPlaceholderText("请输入用户名")
-        self.offline_username_input.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        self.offline_username_input.setFont(system_font(10, QFont.Weight.Normal))
         self.offline_username_input.setFixedSize(192, 40)
         self.offline_username_input.setStyleSheet("""
             QLineEdit {
@@ -453,7 +454,7 @@ class StartGamePage(QWidget):
         
         # 离线登录按钮
         self.offline_login_btn = QLabel("确认")
-        self.offline_login_btn.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        self.offline_login_btn.setFont(system_font(10, QFont.Weight.Normal))
         self.offline_login_btn.setAlignment(Qt.AlignCenter)
         self.offline_login_btn.setFixedSize(50, 40)
         self.offline_login_btn.setStyleSheet("""
@@ -527,7 +528,7 @@ class StartGamePage(QWidget):
         layout.addWidget(icon_label)
         
         text_label = QLabel(text)
-        text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        text_label.setFont(system_font(10, QFont.Weight.Normal))
         text_label.setStyleSheet("background: transparent; border: none; color: #FFFFFF;")
         layout.addWidget(text_label)
         
@@ -549,7 +550,7 @@ class StartGamePage(QWidget):
                 button.setPixmap(pixmap.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         
         text_label = QLabel(text, button)
-        text_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        text_label.setFont(system_font(10, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setGeometry(0, 0, width, height)
@@ -702,6 +703,8 @@ class StartGamePage(QWidget):
         self.username_label.setStyleSheet("color: #f8f8f8;")
 
         self.auth_manager.offline.username = username
+        from core.launch_options import offline_uuid
+        self.auth_manager.offline.uuid = offline_uuid(username)
         self.update_ui_state('离线登录')
         self.handle_auth_success(username=username, data={
             'type': 'offline'

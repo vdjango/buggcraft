@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QPixmap
+from ui.fonts import system_font
 
 from ui.widgets.lable import SmartLabel
 
@@ -141,7 +142,7 @@ class QMRadioButton(QWidget):
         # 自动选择选项 - 使用 QLabel
         self.auto_label = SmartLabel(self.text, self.text_max_widht)
         self.auto_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.auto_label.setFont(QFont("Source Han Sans CN Normal", self.text_font_size, QFont.Weight.Normal))
+        self.auto_label.setFont(system_font(self.text_font_size, QFont.Weight.Normal))
         self.auto_label.setStyleSheet("color: #FFFFFF;")
         
         main_layout.addWidget(self.auto_label)
@@ -154,7 +155,7 @@ class QMRadioButton(QWidget):
             desc_label = SmartLabel(self.messages, self.messages_max_widht)
             desc_label.setAttribute(Qt.WA_TransparentForMouseEvents)
             desc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            desc_label.setFont(QFont("Source Han Sans CN Normal", self.messages_font_size, QFont.Weight.Normal))
+            desc_label.setFont(system_font(self.messages_font_size, QFont.Weight.Normal))
             desc_label.setStyleSheet("color: #888888;")
             main_layout.addWidget(desc_label, 1)
 

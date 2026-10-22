@@ -191,6 +191,18 @@ class MicrosoftAuthTests(unittest.TestCase):
             self.assertEqual(restored.online.refresh_token, 'refresh-test')
             self.assertTrue((Path(directory) / 'auth_credentials.json').is_file())
 
+    def test_old_offline_cache_receives_stable_uuid_and_existing_identity_is_preserved(self):
+        from core.launch_options import offline_uuid
+        for identity in (None, 'existing-offline-uuid'):
+            with self.subTest(identity=identity), tempfile.TemporaryDirectory() as directory:
+                (Path(directory) / 'auth_credentials.json').write_text(json.dumps({
+                    'offline': {'username': 'Fixture', 'uuid': identity},
+                }), encoding='utf-8')
+                manager = Authenticator()
+                self.assertTrue(manager.load(directory))
+                self.assertEqual(manager.offline.uuid, identity or offline_uuid('Fixture'))
+                self.assertEqual(manager.current_mode, 'offline')
+
     def test_refresh_supports_credentials_issued_by_previous_live_endpoint(self):
         self.auth.refresh_token = 'legacy-refresh-test'
         with patch('core.auth.microsoft_oauth.minecraft_httpx.post', side_effect=[

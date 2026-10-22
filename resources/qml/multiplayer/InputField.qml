@@ -6,7 +6,7 @@ TextField {
     implicitHeight: 34
     leftPadding: 10
     rightPadding: 10
-    font.family: "Source Han Sans CN"
+    font.family: Qt.application.font.family
     font.pixelSize: 13
     color: "#f4f2ff"
     placeholderTextColor: "#868499"

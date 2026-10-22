@@ -5,12 +5,15 @@
 - `Buggcraft-install.log`：安装器记录 Windows 版本、系统和进程位数、.NET 版本、CPU 数、内存、下载进度、文件校验、安装过程和异常堆栈。
 - `buggcraft.log`：启动器启动过程和运行时错误，保留最近四个 5 MiB 日志文件。
 - `buggcraft-crash.log`：Python 原生崩溃堆栈。
+- `p2p-sessions/`：按启动次数保留的联机日志，以及按连接编号关联的独立网卡、路由、网关和 DNS 快照；大厅可直接「导出日志」。操作与保留范围见[联机测试指南](network-tester-guide.md)。
 
 从安装器启动时，以上日志保存在 `Buggcraft-Setup.exe` 所在目录。子进程异常退出后还会复制一份到 `error\<退出码>\`，例如退出码 1 对应 `error\1\`；安装器自身失败保存在 `error\installer\`。`buggcraft-stderr.log` 保存应用标准错误，`buggcraft-native.log` 保存子进程输出；即使 Python 还没启动，安装器也会记录进程退出码。直接运行安装后的 `Buggcraft.exe` 时，日志保存在该 exe 所在目录。若安装器目录无法写入，日志会回退到 `%LOCALAPPDATA%\Buggcraft\logs`。
 
 运行包默认下载并解压到安装器旁边的 `Buggcraft-runtime\<版本>\`，下载中的压缩包保存在同一文件夹下的 `<版本>.download`。安装器目录不可写时才回退到 `%LOCALAPPDATA%\Buggcraft\runtime`，并在安装日志记下回退路径。下载中断或解压、文件校验失败时，`.download` 和安装日志会保留；安装成功后下载缓存会删除，日志仍保留。
 
 ## 在其他电脑测试
+
+2026-10-22 收到的浅目录启动崩溃：日志出现 main.py 资源查找处 IndexError: 2，原因是安装路径上方不足三层，代码直接索引固定上级目录。已改为只遍历实际存在的父目录；不需要玩家把启动器移动到源码目录。该问题与日志中提到的 Python 版本或下载源无关。
 
 1. 将最新版 `Buggcraft-Setup.exe` 放进一个可以写入的普通文件夹，再运行它。先保留这个文件夹，失败后不要清理缓存或删除日志。
 2. 记录失败的大致时间、当时进行到哪一步，以及是否出现过启动器主窗口。若有错误提示，同时保留提示内容。

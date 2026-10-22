@@ -8,6 +8,7 @@ import threading
 import copy
 from pathlib import Path
 from typing import Any, Dict, Optional
+from utils.path_helper import get_default_minecraft_dir, get_launcher_directory
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,14 +55,14 @@ class SettingsManager:
     使用JSON格式存储配置，支持中文和复杂数据结构
     """
     
-    def __init__(self, config_path: Optional[str] = Path.cwd() / 'cache'):
+    def __init__(self, config_path: Optional[str] = None):
         """
         初始化配置管理器
         
         Args:
             config_file: 配置文件路径，如果为None则使用默认路径
         """
-        self.config_path = config_path
+        self.config_path = config_path if config_path is not None else get_launcher_directory() / '.buggcraft'
         self._save_lock = threading.RLock()
         self.config_file = os.path.join(self.config_path, 'settings.json')
         
@@ -74,8 +75,8 @@ class SettingsManager:
         # 游戏路径及版本
         minecraft = {
             'directory': {
-                "enable": None,
-                "installed": []
+                "enable": str(get_default_minecraft_dir()),
+                "installed": [str(get_default_minecraft_dir())]
             },
             'version': {
                 "enable": None,
@@ -88,7 +89,9 @@ class SettingsManager:
 
         # 获取已安装版本列表
         import minecraft_launcher_lib
-        minecraft_dirs: list = find_minecraft_dirs()
+        # System installations remain available for explicit import/selection.
+        # Fresh downloads belong next to this launcher, even if another game exists.
+        minecraft_dirs = [str(get_default_minecraft_dir())]
 
         if minecraft_dirs and len(minecraft_dirs) > 0:
             minecraft_path = minecraft_dirs[0]
@@ -157,12 +160,14 @@ class SettingsManager:
                     self.default_settings, loaded_settings
                 )
                 logger.info(f"配置已从文件加载: {target_file}")
+                self._ensure_game_directory()
                 return True
             else:
                 # 文件不存在，使用默认配置
                 self.current_settings = copy.deepcopy(self.default_settings)
                 logger.info("未找到配置文件，使用默认配置")
                 # 保存默认配置
+                self._ensure_game_directory()
                 self.save_settings()
                 return True
                 
@@ -171,6 +176,14 @@ class SettingsManager:
             # 出错时使用默认配置
             self.current_settings = copy.deepcopy(self.default_settings)
             return False
+
+    def _ensure_game_directory(self):
+        minecraft = self.current_settings['minecraft']
+        directory = minecraft['directory']
+        if not directory.get('enable'):
+            directory['enable'] = str(get_default_minecraft_dir())
+            if directory['enable'] not in (directory.get('installed') or []):
+                directory['installed'] = (directory.get('installed') or []) + [directory['enable']]
     
     def save_settings(self, file_path: Optional[str] = None) -> bool:
         """
@@ -387,11 +400,11 @@ def get_settings_manager() -> SettingsManager:
 
 def set_conf_manager(name):
     """设置配置文件路径"""
-    conf_path = os.path.join(Path.cwd(), '.buggcraft')
+    conf_path = os.path.join(get_launcher_directory(), '.buggcraft')
     if name == '~/.buggcraft/':
         conf_path = os.path.join(Path.home(), '.buggcraft')
     elif name == '.buggcraft/':
-        conf_path = os.path.join(Path.cwd(), '.buggcraft')
+        conf_path = os.path.join(get_launcher_directory(), '.buggcraft')
     else:
         conf_path = os.path.join(os.path.abspath(name), '.buggcraft')
     
@@ -406,8 +419,8 @@ def get_conf_or_cache_manager():
     """读取配置文件路径"""
     conf_setpath = Path.home() / '.buggcraft' / 'conf'
     if not conf_setpath.exists():
-        return '.buggcraft/', os.path.join(Path.cwd(), '.buggcraft')
+        return '.buggcraft/', os.path.join(get_launcher_directory(), '.buggcraft')
 
     with open(conf_setpath, 'r', encoding='utf-8') as f:
         s = json.load(f)
-        return s.get('name', '.buggcraft/'), s.get('path', os.path.join(Path.cwd(), '.buggcraft'))
+        return s.get('name', '.buggcraft/'), s.get('path', os.path.join(get_launcher_directory(), '.buggcraft'))

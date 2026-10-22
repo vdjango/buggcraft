@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QPixmap
+from ui.fonts import system_font
 
 
 class CollapsePanel(QWidget):
@@ -112,13 +113,13 @@ class CollapsePanel(QWidget):
         
         # 标题
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Source Han Sans CN Normal", self.text_font_size, QFont.Weight.Bold)) 
+        self.title_label.setFont(system_font(self.text_font_size, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
         title_layout.addWidget(self.title_label)
 
         if self.messages:
             self.messages_label = QLabel(self.messages)
-            self.messages_label.setFont(QFont("Source Han Sans CN Normal", self.messages_font_size, QFont.Weight.Normal))
+            self.messages_label.setFont(system_font(self.messages_font_size, QFont.Weight.Normal))
             self.messages_label.setStyleSheet("color: #AAAAAA; background-color: transparent;")
             self.messages_label.setAlignment(Qt.AlignVCenter)
             title_layout.addWidget(self.messages_label)

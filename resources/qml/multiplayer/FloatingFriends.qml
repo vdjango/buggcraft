@@ -43,7 +43,7 @@ AbstractButton {
         }
         Text {
             width: parent.width
-            text: "好友"; color: "#faf6ff"; font.family: "Source Han Sans CN"; font.pixelSize: 11
+            text: "好友"; color: "#faf6ff"; font.family: Qt.application.font.family; font.pixelSize: 11
             horizontalAlignment: Text.AlignHCenter
         }
     }

@@ -107,6 +107,10 @@ class MinecraftDownloader:
 
     def urls(self, original):
         parsed = urlsplit(original)
+        if (parsed.scheme == 'https' and parsed.port in (None, 443) and not parsed.username
+                and not parsed.password and parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net')):
+            alternate = 'mediafilez.forgecdn.net' if parsed.hostname == 'edge.forgecdn.net' else 'edge.forgecdn.net'
+            return [original, parsed._replace(netloc=alternate).geturl()]
         replacements = {
             "launchermeta.mojang.com": "",
             "piston-meta.mojang.com": "",

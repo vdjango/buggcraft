@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QObject, QMetaObject, Q_ARG, QMetaType
 from PySide6.QtGui import QFont, QPixmap
+from ui.fonts import system_font
 
 from ui.pages.download.games_panel.games import GamesPanel
 from ui.widgets.lazy import LazyGameLoader
@@ -233,7 +234,7 @@ class GamesPage(QWidget):
         
         # 版本
         lable = QLabel('版本：')
-        lable.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        lable.setFont(system_font(10, QFont.Weight.Bold))
         lable.setAlignment(Qt.AlignCenter)
         lable.setStyleSheet("color: rgba(255, 255, 255, 0.8);")
         layout.addWidget(lable)
@@ -275,7 +276,7 @@ class GamesPage(QWidget):
         # 搜索输入框 - 替换原来的QLabel为QLineEdit
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText('请输入名称或关键词')
-        self.search_input.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Normal))
+        self.search_input.setFont(system_font(10, QFont.Weight.Normal))
         self.search_input.setStyleSheet("""
             QLineEdit {
                 color: rgba(255, 255, 255, 0.9); 
@@ -294,7 +295,7 @@ class GamesPage(QWidget):
         
         # 搜索按钮 - 替换背景为Search.png图片
         self.search_button = QLabel('搜索')
-        self.search_button.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.search_button.setFont(system_font(10, QFont.Weight.Bold))
         self.search_button.setFixedSize(78, 35)  # 调整为图片尺寸78x35
         self.search_button.setAlignment(Qt.AlignCenter)
         
@@ -348,7 +349,7 @@ class GamesPage(QWidget):
 
         title_label = QLabel(title)
         title_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        title_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        title_label.setFont(system_font(10, QFont.Weight.Bold))
         title_label.setStyleSheet("color: #f2f2f2; border-bottom: none;background-color: transparent;")
         layout.addWidget(title_label, 0, Qt.AlignCenter)
         

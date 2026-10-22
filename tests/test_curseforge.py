@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
 from core.content import ContentCatalogue, download_content
-from core.curseforge import CurseForgeAPI, CurseForgeContentClient, content_file, PUBLIC_API, OFFICIAL_API
+from core.curseforge import CurseForgeAPI, CurseForgeContentClient, content_file, download_url, PUBLIC_API, OFFICIAL_API
 from core.downloads import DownloadCancelled, _DownloadSession
 
 
@@ -57,6 +57,29 @@ class CurseForgeTests(unittest.TestCase):
                 CurseForgeAPI(cancel=cancel).get('/mods/search')
             get.assert_not_called()
 
+    def test_metadata_retries_transient_failures_and_can_cancel_backoff(self):
+        import requests
+        client = CurseForgeAPI()
+        with patch('core.curseforge.requests.post', side_effect=[
+                requests.Timeout('temporary failure'), self.response([])]) as post, \
+                patch.object(client.cancel, 'wait', return_value=False):
+            self.assertEqual(client.post('/mods/files', {'fileIds': [20]}), [])
+            self.assertEqual(post.call_count, 2)
+        with patch('core.curseforge.requests.post', side_effect=requests.Timeout), \
+                patch.object(client.cancel, 'wait', return_value=True):
+            with self.assertRaises(DownloadCancelled):
+                client.post('/mods/files', {'fileIds': [20]})
+
+    def test_exact_public_cdn_location_encodes_filename_and_rejects_unsafe_metadata(self):
+        self.assertEqual(download_url(dict(self.file, id=7245232, fileName='tactical imbuements-2.1 Fix.jar',
+                                          downloadUrl=None, isAvailable=False)),
+                         'https://edge.forgecdn.net/files/7245/232/tactical%20imbuements-2.1%20Fix.jar')
+        for changes in ({'id': True}, {'fileName': '../mod.jar'}, {'fileName': 'mod.jar?x=1'},
+                        {'downloadUrl': 'https://user:password@edge.forgecdn.net/mod.jar'},
+                        {'downloadUrl': 'http://edge.forgecdn.net/mod.jar'}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                download_url(dict(self.file, downloadUrl=None) | changes)
+
     def test_search_uses_resource_class_and_filters_loader_only_for_mods(self):
         client = CurseForgeContentClient()
         with patch.object(client, 'get', return_value=[dict(self.project, name='Sample', summary='About')]) as get:
@@ -101,15 +124,18 @@ class CurseForgeTests(unittest.TestCase):
         self.assertEqual(request.call_args.args[1], fallback)
         self.assertNotIn('x-api-key', request.call_args.kwargs['headers'])
 
-    def test_author_restrictions_and_wrong_content_classes_are_not_bypassed(self):
+    def test_untrusted_urls_and_wrong_content_classes_are_rejected(self):
         client = CurseForgeContentClient()
-        for project in [dict(self.project, allowModDistribution=False), dict(self.project, classId=4471),
-                        dict(self.project, gameId=1)]:
+        for project in [dict(self.project, classId=4471), dict(self.project, gameId=1)]:
             with self.subTest(project=project), patch.object(client, 'get', return_value=project) as get:
                 with self.assertRaises(ValueError):
                     client.versions('10', '1.20.1', 'fabric')
                 self.assertEqual(get.call_count, 1)
-        for change in [{'downloadUrl': None}, {'downloadUrl': 'https://forgecdn.net.evil.org/mod.jar'},
+        self.assertEqual(content_file(dict(self.file, downloadUrl=None))['url'],
+                         'https://edge.forgecdn.net/files/0/20/sample.jar')
+        with patch.object(client, 'get', side_effect=[dict(self.project, allowModDistribution=False), [self.file]]):
+            self.assertEqual(len(client.versions('10', '1.20.1', 'fabric')), 1)
+        for change in [{'downloadUrl': 'https://forgecdn.net.evil.org/mod.jar'},
                        {'hashes': []}, {'isServerPack': True}, {'isAvailable': False}]:
             with self.subTest(change=change), self.assertRaises(ValueError):
                 content_file(dict(self.file, **change))

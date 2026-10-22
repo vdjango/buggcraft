@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QSpacerItem, QSizePolicy
 )
 from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
+from ui.fonts import system_font
 from PySide6.QtCore import Qt, Signal, QSize, QRect
 from .base_page import BasePage
 from utils.helpers import MemorySliderManager
@@ -163,7 +164,7 @@ class SettingsPage(BasePage):
         # 添加文本
         text_label = QLabel(text, button)
         text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
         text_label.setGeometry(0, 0, *size)   

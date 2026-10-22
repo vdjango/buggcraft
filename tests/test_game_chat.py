@@ -148,6 +148,35 @@ class RealGameChatTests(unittest.IsolatedAsyncioTestCase):
             'version':'1.21.8', 'gamePlayers':4, 'virtualPlayers':0, 'lobbyRounds':10,
             'worldRetarget':True, 'result':'passed', 'network':'loopback'}, indent=2), encoding='utf8')
 
+    async def test_p2p_game_counts_do_not_depend_on_relay_streams_or_lobby_members(self):
+        from hookup.rooms import game_status
+        host = await self.endpoint(TunnelHost, game_port=self.port)
+        clients = [await self.endpoint(TunnelClient, host.invite) for _ in range(3)]
+        self.assertTrue(all(client.transport_state == 'p2p' for client in clients))
+        self.players = await asyncio.create_subprocess_exec(
+            'node', str(FIXTURE), str(self.port), *(str(client.listen_port) for client in clients),
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
+        self.tasks.append(asyncio.create_task(self.read_players()))
+        await self.wait(lambda: sum(event['type'] == 'spawn' for event in self.game_events) == 4, 40)
+        room = self.relay.rooms[host.invite.room_id]
+        await self.wait(lambda: room.game_players == 4, 10)
+        self.assertEqual(self.relay.capacity.members(host.invite.room_id), 4)
+        self.assertEqual(len(self.relay.streams), 0)
+        self.assertEqual(self.relay.capacity.bytes, 0)
+        self.server.stdin.write(b'kick ChatTest3 Counting fixture\n')
+        await self.server.stdin.drain()
+        await self.wait(lambda: room.game_players == 3, 10)
+        self.assertEqual((await game_status(self.port))['players']['online'], 3)
+        # The launcher remains in the room even after its game player leaves.
+        self.assertEqual(self.relay.capacity.members(host.invite.room_id), 4)
+        self.assertEqual(len(self.relay.streams), 0)
+        await clients[-1].stop()
+        await self.wait(lambda: self.relay.capacity.members(host.invite.room_id) == 3)
+        self.assertEqual(room.game_players, 3)
+        await host.stop()
+        await self.wait(lambda: host.invite.room_id not in self.relay.rooms)
+
     async def test_host_three_clients_ten_rounds_bidirectional_chat_and_rejoin(self):
         host = await self.endpoint(TunnelHost, game_port=self.port,
             game_chat_enabled=True, game_chat_name='LobbyBridge', room_settings={

@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics, QFont
+from ui.fonts import system_font
 
 
 class SmartLabel(QLabel):
@@ -11,7 +12,7 @@ class SmartLabel(QLabel):
     def __init__(self, text="", font_size=10, font_weight=QFont.Weight.Normal, min_widht=50, max_heiht=300, parent=None):
         super().__init__(text, parent)
         self.full_text = text
-        self.setFont(QFont("Source Han Sans CN Normal", font_size, font_weight))
+        self.setFont(system_font(font_size, font_weight))
         self.setWordWrap(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setMinimumWidth(min_widht)  # 最小宽度

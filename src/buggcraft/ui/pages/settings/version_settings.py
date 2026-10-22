@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
+from ui.fonts import system_font
 
 from config.settings import get_settings_manager
 from config.settings_scope import GlobalSettingsScope
@@ -409,7 +410,7 @@ class GlobalVersionSettingsPage(QWidget):
 
         title_label = QLabel(self.settings_manager.get_version_setting('java.path') or '点击右侧选择 Java')
         self.custom_java_label = title_label
-        title_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        title_label.setFont(system_font(9, QFont.Weight.Normal))
         title_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); background-color: transparent;")
         title_label.setAlignment(Qt.AlignVCenter)  # 文本在标签内居中
         text_layout.addWidget(title_label)

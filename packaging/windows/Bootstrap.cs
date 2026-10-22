@@ -102,6 +102,8 @@ internal static class Program {
             RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
         };
         start.EnvironmentVariables["BUGGCRAFT_LOG_DIR"] = Log.DirectoryPath;
+        // Game data must survive changes to the versioned runtime directory.
+        start.EnvironmentVariables["BUGGCRAFT_LAUNCHER_DIR"] = AppDomain.CurrentDomain.BaseDirectory;
         using (var process = new Process { StartInfo = start }) {
             process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs output) {
                 if (output.Data != null) Log.Native("stdout", output.Data);

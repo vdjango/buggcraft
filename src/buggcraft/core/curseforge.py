@@ -2,7 +2,7 @@
 import os
 import re
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -32,19 +32,26 @@ class CurseForgeAPI:
             headers['x-api-key'] = self.api_key
         call = requests.get if method == 'GET' else requests.post
         options = {'params': params} if method == 'GET' else {'json': body}
-        try:
-            # Metadata redirects are not needed; never forward a private key.
-            with call(endpoint + route, headers=headers, timeout=(8, 30),
-                      allow_redirects=False, **options) as response:
-                if response.status_code in (401, 403):
-                    raise ValueError('CurseForge 下载授权无效或暂不可用，请检查个人密钥或稍后重试。')
-                if response.status_code == 429:
-                    raise ValueError('CurseForge 请求过于频繁，请稍后重试。')
-                if response.status_code != 200:
-                    raise ValueError('CurseForge 资源服务暂不可用，请稍后重试或切换 Modrinth。')
-                payload = response.json()
-        except requests.RequestException:
-            raise ValueError('无法连接 CurseForge 资源服务，请检查网络或切换 Modrinth。') from None
+        for attempt in range(3):
+            try:
+                # Metadata redirects are not needed; never forward a private key.
+                with call(endpoint + route, headers=headers, timeout=(8, 30),
+                          allow_redirects=False, **options) as response:
+                    if response.status_code in (401, 403):
+                        raise ValueError('CurseForge 资源服务授权暂不可用，请稍后重试或联系启动器维护者。无需输入个人 Key。')
+                    if response.status_code == 429:
+                        raise ValueError('CurseForge 请求过于频繁，请稍后重试。')
+                    if response.status_code >= 500:
+                        raise requests.RequestException('Metadata service unavailable')
+                    if response.status_code != 200:
+                        raise ValueError('CurseForge 资源服务暂不可用，请稍后重试或切换 Modrinth。')
+                    payload = response.json()
+                break
+            except requests.RequestException:
+                if attempt == 2:
+                    raise ValueError('无法连接 CurseForge 资源服务，请检查网络或切换 Modrinth。') from None
+                if self.cancel.wait(0.5 * (attempt + 1)):
+                    raise DownloadCancelled('内容查询已取消') from None
         if self.cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
         if not isinstance(payload, dict) or not isinstance(payload.get('data'), (dict, list)):
@@ -61,15 +68,33 @@ class CurseForgeAPI:
         return data
 
 
+def download_url(item):
+    """Use the file's official URL, or its exact public Forge CDN location."""
+    # Availability/distribution flags describe catalogue/API visibility. Older
+    # exported packs can still reference these exact files on the public CDN.
+    # HTTP access, length and the manifest's SHA-1 decide download success.
+    if item.get('isEarlyAccessContent'):
+        raise ValueError('此 CurseForge 文件尚未公开')
+    url = item.get('downloadUrl')
+    if not url:
+        file_id, name = item.get('id'), item.get('fileName')
+        if (type(file_id) is not int or file_id <= 0 or not isinstance(name, str)
+                or not name or name in ('.', '..') or len(name) > 255
+                or re.search(r'[<>:"/\\|?*\x00-\x1f]', name) or name.endswith((' ', '.'))):
+            raise ValueError('CurseForge 文件缺少有效标识或文件名，无法解析下载地址')
+        url = f'https://edge.forgecdn.net/files/{file_id // 1000}/{file_id % 1000}/{quote(name, safe="")}'
+    parsed = urlsplit(url)
+    if (parsed.scheme != 'https' or parsed.username or parsed.password or
+            not (parsed.hostname or '').endswith('.forgecdn.net') or parsed.port not in (None, 443)):
+        raise ValueError('CurseForge 返回了不受信任的下载地址')
+    return url
+
+
 def content_file(item):
     """Convert an authorized file to the launcher's verified download format."""
     if item.get('isAvailable') is False or item.get('isServerPack') or item.get('isEarlyAccessContent'):
         raise ValueError('此 CurseForge 文件不支持自动下载')
-    url = item.get('downloadUrl')
-    parsed = urlsplit(url or '')
-    if (parsed.scheme != 'https' or parsed.username or parsed.password or
-            not (parsed.hostname or '').endswith('.forgecdn.net') or parsed.port not in (None, 443)):
-        raise ValueError('作者未开放自动下载，或 CurseForge 文件下载地址不可用。请到项目页面下载。')
+    url = download_url(item)
     hashes = item.get('hashes') or []
     if not isinstance(hashes, list):
         raise ValueError('CurseForge 文件校验信息无效')
@@ -118,8 +143,6 @@ class CurseForgeContentClient(CurseForgeAPI):
         if (not isinstance(project, dict) or project.get('id') != int(project_id) or
                 project.get('gameId') != 432 or project.get('classId') != CLASSES[kind]):
             raise ValueError('CurseForge 项目与所选内容类型不符')
-        if project.get('allowModDistribution') is False:
-            raise ValueError('作者未开放第三方自动下载，请到 CurseForge 项目页面下载。')
         params = {'pageSize': 50}
         if game_version:
             params['gameVersion'] = game_version

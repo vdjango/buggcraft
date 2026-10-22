@@ -64,6 +64,28 @@ class LoaderCatalogueTests(unittest.TestCase):
                 encoding='utf-8')
             self.assertEqual(loaders._installed_forge_version(root, '1.20.1', '47.2.0'), actual)
 
+    def test_loader_download_has_timeout_and_falls_back_without_global_patches(self):
+        import requests
+        import threading
+        session = Mock()
+        session.get.side_effect = [requests.Timeout('temporary outage'), Mock()]
+        def download(url, path, callback, sha1, compressed, scoped, directory, overwrite):
+            scoped.get(url, stream=True)
+            Path(path).write_bytes(b'installer')
+            return True
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / 'installer.jar')
+            wrapped = loaders._routed_downloader(download, '自动')
+            self.assertTrue(wrapped('https://maven.minecraftforge.net/installer.jar', path,
+                                    callback={}, session=session))
+        self.assertEqual(session.get.call_count, 2)
+        self.assertEqual(session.get.call_args.kwargs['timeout'], (8, 20))
+        self.assertTrue(session.get.call_args.args[0].startswith(loaders.BMCLAPI))
+        cancel = threading.Event()
+        cancel.set()
+        with self.assertRaises(InterruptedError):
+            loaders._LoaderSession(session, cancel).get('https://example.org')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

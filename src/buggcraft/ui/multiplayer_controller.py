@@ -137,7 +137,18 @@ class MultiplayerController(QObject):
     @Slot(str, 'QVariantMap')
     def act(self, action, data):
         try:
-            if action == 'clearError':
+            if action == 'exportDiagnostics':
+                from datetime import datetime
+                from utils.diagnostics import export_diagnostics
+                path, _ = QFileDialog.getSaveFileName(self.window, '导出联机诊断日志',
+                    'Buggcraft-diagnostics-' + datetime.now().strftime('%Y%m%d-%H%M%S') + '.zip',
+                    'ZIP (*.zip)')
+                if path:
+                    if not path.lower().endswith('.zip'):
+                        path += '.zip'
+                    export_diagnostics(path)
+                    self.patch(notice='联机日志已导出：' + path)
+            elif action == 'clearError':
                 record = self.records.get(self._state['selected'])
                 if record:
                     record['chatError'] = ''

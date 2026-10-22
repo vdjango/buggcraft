@@ -2,6 +2,7 @@
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame, QApplication
 from PySide6.QtCore import Qt, Signal, QPoint, QRect, QEvent
 from PySide6.QtGui import QFont, QColor, QPainter
+from ui.fonts import system_font
 from ui.widgets.lable import SmartLabel
 
 
@@ -24,7 +25,7 @@ class VersionItem(QWidget):
         self.version_label.setStyleSheet('color: #f4f0ff; background: transparent; border: none;')
         layout.addWidget(self.version_label, 1)
         self.selection_label = QLabel('✓ 当前')
-        self.selection_label.setFont(QFont('Source Han Sans CN', 9))
+        self.selection_label.setFont(system_font(9))
         self.selection_label.setStyleSheet('color: #d7cbff; background: transparent; border: none;')
         layout.addWidget(self.selection_label)
         for child in self.findChildren(QWidget):

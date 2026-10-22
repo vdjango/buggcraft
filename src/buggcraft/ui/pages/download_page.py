@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
+from ui.fonts import system_font
 from core.launcher import MinecraftLibLauncher
 from config.settings import get_settings_manager
 from ui.pages.download import GamesPage, TasksPage
@@ -144,7 +145,7 @@ class DownloadPages(QWidget):
         # 添加文本
         text_label = QLabel(text, button)
         text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setAlignment(Qt.AlignCenter)  
         text_label.setStyleSheet("color: white; background-color: transparent;")
         text_label.setGeometry(0, 0, *size)   
@@ -153,6 +154,8 @@ class DownloadPages(QWidget):
 
     def on_progress_clicked(self):
         """进行中按钮点击事件"""
+        # Imports can start from the instance page while this whole page is hidden.
+        self.parent.switch_pages('下载')
         self.update_button_style("游戏下载", True)
         self.update_button_style("下载记录", False)
         self.switch_pages("下载记录")

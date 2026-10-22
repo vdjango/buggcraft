@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPalette, QMouseEvent, QFont
+from ui.fonts import system_font
 from core.auth.microsoft import MicrosoftAuthenticator, MinecraftSignals
 
 
@@ -52,7 +53,7 @@ class VersionNotFuilDialog(QDialog):
         title_layout = QHBoxLayout()
 
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Source Han Sans CN Normal", 11, QFont.Weight.Bold))
+        self.title_label.setFont(system_font(11, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); background-color: transparent;")
 
         title_layout.addWidget(self.title_label)
@@ -79,14 +80,14 @@ class VersionNotFuilDialog(QDialog):
         
         # 提示信息
         self.message_label = QLabel(self.message)
-        self.message_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Black))
+        self.message_label.setFont(system_font(10, QFont.Weight.Black))
         self.message_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); background-color: transparent;")
         self.message_label.setWordWrap(True)
 
         self.message_text_label = QLabel(self.message_text)
         self.message_text_label.setWordWrap(True)
         self.message_text_label.setContentsMargins(0, 10, 0, 10)
-        self.message_text_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Medium))
+        self.message_text_label.setFont(system_font(9, QFont.Weight.Medium))
         self.message_text_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); background-color: transparent;")
 
         content_layout.addWidget(self.message_label)

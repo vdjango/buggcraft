@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QHBoxLayout
 )
 from PySide6.QtGui import QFont, QPixmap, QMouseEvent
+from ui.fonts import system_font
 from PySide6.QtCore import Qt, QPoint, Signal
 
 from config.settings import SettingsManager
@@ -225,7 +226,7 @@ class TitleBar(QWidget):
         
         # 添加文本
         text_label = QLabel(text, content_container)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setContentsMargins(0, 0, 0, 0)
@@ -278,7 +279,7 @@ class TitleBar(QWidget):
         
         # 添加文本
         text_label = QLabel(text, content_container)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setContentsMargins(0, 0, 0, 0)
@@ -336,7 +337,7 @@ class TitleBar(QWidget):
         
         # 添加文本
         text_label = QLabel(text, content_container)
-        text_label.setFont(QFont("Source Han Sans CN Normal", font_size, QFont.Weight.Bold))
+        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
         text_label.setStyleSheet("color: #f2f2f2; background-color: transparent;")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setContentsMargins(0, 0, 0, 0)

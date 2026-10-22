@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtGui import QColor, QPalette, QFont, QMouseEvent
+from ui.fonts import system_font
 
 
 class NoVersionDialog(QDialog):
@@ -61,7 +62,7 @@ class NoVersionDialog(QDialog):
         
         # 标题文本 - "无可用版本"
         self.title_label = QLabel("无可用版本")
-        self.title_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.title_label.setFont(system_font(10, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
         self.title_label.setAlignment(Qt.AlignCenter)
         container_layout.addWidget(self.title_label)
@@ -94,7 +95,7 @@ class NoVersionDialog(QDialog):
             "择.minecraft文件夹将其导入。"
         )
         # self.description_label.setFixedSize(300, 60)  # 增加高度以适应新的行间距
-        self.description_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Medium))
+        self.description_label.setFont(system_font(9, QFont.Weight.Medium))
         self.description_label.setStyleSheet("color: #FFFFFF; background-color: transparent;")
         # self.description_label.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Medium))
         # self.description_label.setStyleSheet("""

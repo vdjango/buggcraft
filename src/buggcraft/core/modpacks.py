@@ -11,16 +11,24 @@ import shutil
 import stat
 import tempfile
 import threading
-from urllib.parse import urlsplit
 import zipfile
 
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
 from core.loader_rules import validate_loaders
-from core.curseforge import CurseForgeAPI, fallback_url
+from core.curseforge import CurseForgeAPI, download_url, fallback_url
 
 MAX_EXPANDED = 8 * 1024 ** 3
 MAX_ENTRIES = 50000
+
+
+def disk_path(path):
+    """Use Windows extended paths for deeply nested author-supplied configs."""
+    path = Path(path).absolute()
+    value = str(path)
+    if os.name == 'nt' and not value.startswith('\\\\?\\'):
+        value = '\\\\?\\UNC\\' + value[2:] if value.startswith('\\\\') else '\\\\?\\' + value
+    return Path(value)
 
 
 def safe_path(value):
@@ -135,8 +143,8 @@ class CurseForgeClient(CurseForgeAPI):
         for project_id, file_id in refs:
             project, item = projects.get(project_id, {}), files.get(file_id, {})
             link = f'https://www.curseforge.com/minecraft/mc-mods/{project_id}/files/{file_id}'
-            if item.get('modId') != project_id or not item.get('downloadUrl') or project.get('allowModDistribution') is False:
-                raise ValueError(f'CurseForge 文件不可用或作者未开放自动下载（项目 {project_id}，文件 {file_id}）。请从官方获取完整包：{link}')
+            if item.get('modId') != project_id:
+                raise ValueError(f'CurseForge 文件缺失或项目不匹配（项目 {project_id}，文件 {file_id}）：{link}')
             folder = {6: 'mods', 12: 'resourcepacks', 6552: 'shaderpacks'}.get(project.get('classId'))
             if not folder:
                 raise ValueError(f'暂不支持该 CurseForge 内容类别：项目 {project_id}')
@@ -147,15 +155,15 @@ class CurseForgeClient(CurseForgeAPI):
             if relative.casefold() in names:
                 raise ValueError(f'整合包包含重名下载文件：{name}')
             names.add(relative.casefold())
-            url = item['downloadUrl']
-            parsed = urlsplit(url)
-            if parsed.scheme != 'https' or not (parsed.hostname or '').endswith('.forgecdn.net') or parsed.username or parsed.password:
-                raise ValueError('CurseForge 返回了不受信任的下载地址')
+            url = download_url(item)
             sha1 = next((entry.get('value') for entry in item.get('hashes', []) if entry.get('algo') == 1), '')
             if not re.fullmatch('[0-9a-fA-F]{40}', sha1) or type(item.get('fileLength')) is not int or item['fileLength'] <= 0:
                 raise ValueError(f'CurseForge 文件缺少校验信息：{name}')
             jobs.append((url, relative, sha1.lower(), item['fileLength']))
-            self.fallback_urls[url] = fallback_url(project_id, file_id)
+            # Restricted redistribution never goes through our file proxy.
+            # The player's direct public-CDN download still uses exact hashes.
+            if project.get('allowModDistribution') is not False:
+                self.fallback_urls[url] = fallback_url(project_id, file_id)
         return jobs
 
 
@@ -175,11 +183,12 @@ class ModpackImporter:
     def install(self, archive_path, identity):
         instance_name(identity)
         info = inspect_pack(archive_path)
-        target = self.root / 'versions' / identity
+        target = disk_path(self.root / 'versions' / identity)
         if target.exists():
             raise ValueError('该实例名称已存在，请更换名称；整合包导入不会覆盖已有实例')
         self.check()
-        self.status('正在解析 CurseForge 文件清单…')
+        self.progress(0, 0)
+        self.status('[1/5] 正在解析 CurseForge 文件清单…')
         jobs = self.client.resolve(info.files) if info.files else []
         self.check()
         digest = hashlib.sha256()
@@ -194,11 +203,14 @@ class ModpackImporter:
                                          status=self.status, progress=self.progress)
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
-        downloader._batch(jobs, '正在下载并校验整合包模组和资源…')
+        downloader._batch(jobs, '[2/5] 正在下载并校验整合包模组和资源…')
         self.check()
+        self.progress(0, 0)
+        self.status('[3/5] 正在安装 Minecraft 和加载器…')
         if info.loader:
             installed = install_loader(info.loader, info.minecraft, info.loader_version, str(self.root), self.java,
-                {'setStatus': self.status, 'setProgress': lambda done: self.progress(done, -1),
+                {'setStatus': lambda value: self.status('[3/5] ' + str(value)),
+                 'setProgress': lambda done: self.progress(done, -1),
                  'setMax': lambda total: self.progress(-1, total)}, self.cancel, source=self.source)
         else:
             MinecraftDownloader(self.root, source=self.source, cancel=self.cancel,
@@ -208,17 +220,19 @@ class ModpackImporter:
         if not (self.root / 'versions' / installed / (installed + '.json')).is_file():
             raise ValueError('加载器安装未生成有效版本文件')
         self.check()
-        stage = Path(tempfile.mkdtemp(prefix='instance-', dir=cache))
+        stage = disk_path(tempfile.mkdtemp(prefix='instance-', dir=cache))
         try:
             for url, relative, sha1, size in jobs:
                 self.check()
                 destination = stage / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(downloader.inside(relative), destination)
-            self.status('正在解压整合包配置…')
+            self.progress(0, 0)
+            self.status('[4/5] 正在解压整合包配置…')
             with zipfile.ZipFile(archive_path) as archive:
                 prefix = info.overrides.rstrip('/') + '/'
                 overrides = [item for item in archive.infolist() if item.filename.startswith(prefix) and not item.is_dir()]
+                downloaded = {relative.casefold(): (sha1, size) for url, relative, sha1, size in jobs}
                 for index, item in enumerate(overrides):
                     self.check()
                     relative = safe_path(item.filename[len(prefix):])
@@ -226,7 +240,18 @@ class ModpackImporter:
                         raise ValueError(f'整合包不能覆盖启动器元数据：{relative}')
                     destination = stage.joinpath(*relative.parts)
                     if destination.exists():
-                        raise ValueError(f'整合包覆盖了已校验的下载文件：{relative}')
+                        expected = downloaded.get(str(relative).casefold())
+                        digest = hashlib.sha1()
+                        with archive.open(item) as source:
+                            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                                self.check()
+                                digest.update(chunk)
+                        if not expected or (digest.hexdigest(), item.file_size) != expected:
+                            raise ValueError(f'整合包覆盖了已校验的下载文件：{relative}')
+                        # Some exports bundle an exact copy of a manifest file.
+                        # Reading it above also validates the ZIP member CRC.
+                        self.progress(index + 1, len(overrides))
+                        continue
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(item) as source, destination.open('wb') as output:
                         while chunk := source.read(1024 * 1024):
@@ -246,6 +271,8 @@ class ModpackImporter:
                 if not parent.get('inheritsFrom'):
                     break
                 jar = parent['inheritsFrom']
+            self.progress(0, 0)
+            self.status('[5/5] 正在保存独立游戏实例…')
             metadata = {'id': identity, 'inheritsFrom': installed, 'jar': jar,
                         'buggcraftModpack': {'name': info.name, 'version': info.version, 'minecraft': info.minecraft,
                                             'loader': info.loader, 'loaderVersion': info.loader_version,
@@ -258,7 +285,22 @@ class ModpackImporter:
             # protects existing empty instance directories on other platforms.
             if target.exists():
                 raise ValueError('实例名称已被占用，请换名重试')
-            stage.rename(target)
+            # A newly written mod JAR may briefly remain open in a Windows
+            # virus scanner. Keep publication atomic and wait only briefly.
+            for attempt in range(31):
+                self.check()
+                if target.exists():
+                    raise ValueError('实例名称已被占用，请换名重试')
+                try:
+                    stage.rename(target)
+                    break
+                except PermissionError:
+                    if attempt == 30:
+                        raise
+                    if attempt == 0:
+                        self.status('[5/5] 文件暂被占用，正在等待 Windows 释放后保存实例…')
+                    if self.cancel.wait(0.5):
+                        self.check()
             self.status('整合包导入完成')
             return identity
         finally:

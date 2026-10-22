@@ -42,8 +42,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 P2P transport dependencies
 --------------------------
-aiortc and aioice: BSD 3-Clause License (https://github.com/aiortc/aiortc,
-https://github.com/aiortc/aioice). PyAV: BSD 3-Clause License
-(https://github.com/PyAV-Org/PyAV). PyAV wheels include FFmpeg libraries;
-their licenses and notices must accompany any redistributed native package.
-The Python reference bridge does not replace those redistribution obligations.
+The DataChannel-only transport in hookup/_rtc is derived from aiortc 1.15.0,
+Copyright (c) Jeremy Lainé, under the BSD 3-Clause License. The full license
+is included in hookup/_rtc/LICENSE. Source provenance and modifications are
+recorded in hookup/_rtc/UPSTREAM.json and hookup/_rtc/README.md.
+Project: https://github.com/aiortc/aiortc
+
+aioice 0.10.2: BSD 3-Clause License, Copyright (c) Jeremy Lainé.
+Project: https://github.com/aiortc/aioice
+
+The launcher does not bundle PyAV, FFmpeg, audio/video codecs or pylibsrtp.

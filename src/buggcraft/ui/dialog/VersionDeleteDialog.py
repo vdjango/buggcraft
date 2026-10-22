@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPalette, QMouseEvent, QPixmap, QFont
+from ui.fonts import system_font
 
 from core.auth.microsoft import MicrosoftAuthenticator, MinecraftSignals
 
@@ -87,7 +88,7 @@ class VersionDeleteDialog(QDialog):
         # 提示信息
         self.message_label = QLabel(self.message)
         self.message_label.setWordWrap(True)
-        self.message_label.setFont(QFont("Source Han Sans CN Normal", 10, QFont.Weight.Bold))
+        self.message_label.setFont(system_font(10, QFont.Weight.Bold))
         self.message_label.setStyleSheet("""
             color: #f2f2f2;
             line-height: 1.4;
@@ -98,7 +99,7 @@ class VersionDeleteDialog(QDialog):
         self.message_text_label = QLabel(self.message_text)
         self.message_text_label.setWordWrap(True)
         self.message_text_label.setContentsMargins(0, 15, 0, 15)
-        self.message_text_label.setFont(QFont("Source Han Sans CN Normal", 9, QFont.Weight.Normal))
+        self.message_text_label.setFont(system_font(9, QFont.Weight.Normal))
         self.message_text_label.setStyleSheet("""
             color: rgba(255, 255, 255, 0.7);
             line-height: 1.5;

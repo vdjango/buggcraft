@@ -10,6 +10,17 @@ logger = logging.getLogger(__name__)
 _qt_dll_handles = []
 
 
+def configure_quick_renderer():
+    """Use Qt's raster scene graph on Windows without bundling Mesa OpenGL.
+
+    Current QML pages use 2D controls / Canvas, not shader or 3D effects.
+    Selecting this before QApplication also supports machines without a GPU.
+    An explicit user backend remains authoritative.
+    """
+    if platform.system() == 'Windows':
+        os.environ.setdefault('QT_QUICK_BACKEND', 'software')
+
+
 def setup_qt_environment(app_dir, dependencies_dir, packaged=False):
     """设置 Qt 运行环境并定位打包后的插件目录。
 
@@ -17,6 +28,7 @@ def setup_qt_environment(app_dir, dependencies_dir, packaged=False):
     ``PySide6/qt-plugins``、``PySide6/Qt/plugins`` 或 ``PySide6/Qt6/plugins``。
     不能假定用户目录下存在开发环境的 ``.buggcraft/dependencies``。
     """
+    configure_quick_renderer()
     from PySide6.QtCore import QLibraryInfo
     platform_name = {'Windows': 'qwindows.dll', 'Darwin': 'libqcocoa.dylib'}.get(
         platform.system(), 'libqxcb.so')

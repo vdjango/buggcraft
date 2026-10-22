@@ -61,6 +61,30 @@ class PortalTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.get(path)).status, 401)
         self.assertEqual((await self.client.post('/api/profile', json={})).status, 401)
 
+    async def test_game_counts_have_freshness_and_do_not_guess_from_forwarded_streams(self):
+        import time
+        from unittest.mock import Mock
+        from tunnel.relay import Room
+        first = Room(Mock(), game_players=3, game_reported=time.monotonic())
+        stale = Room(Mock(), game_players=99, game_reported=time.monotonic() - 16)
+        waiting = Room(Mock(), available=False, game_players=20, game_reported=time.monotonic())
+        self.relay.rooms.update(first=first, stale=stale, waiting=waiting)
+        response = await self.client.get('/api/status')
+        state = await response.json()
+        self.assertEqual(state['game_players'], 3)
+        self.assertEqual(state['game_counts_reported'], 1)
+        self.assertEqual(state['game_counts_unknown'], 1)
+        self.assertTrue(state['players_include_p2p'])
+        self.assertEqual(state['game_players_source'], 'host_minecraft_status')
+        self.assertEqual(state['streams'], 0)
+        first.game_reported -= 16
+        state = self.portal.public_state()
+        self.assertEqual(state['game_counts_reported'], 0)
+        self.assertEqual(state['game_counts_unknown'], 2)
+        self.assertEqual(state['game_players'], 0)  # Known subtotal, not an asserted world total.
+        js = await (await self.client.get('/portal.js')).text()
+        self.assertIn("s.game_counts_reported === 0 ? '—'", js)
+
     async def test_non_object_json_is_rejected_without_server_error(self):
         for path in ('/api/login', '/api/settings', '/api/profile', '/api/federation/join'):
             self.assertEqual((await self.client.post(path, json=['unexpected'])).status, 400)
@@ -111,7 +135,7 @@ class PortalTests(unittest.IsolatedAsyncioTestCase):
                     json={'id': other.id, 'blocked': True, 'confirmation': other.id,
                           'reason': 'Operator reviewed unexpected traffic', 'password': self.admin_password}, headers=headers)
         self.assertEqual(response.status, 200)
-        self.assertIn(other.id, json.loads(self.path.read_text())['blocked'])
+        self.assertIn(other.id, json.loads(self.path.read_text(encoding='utf-8'))['blocked'])
 
     async def test_remote_cleartext_authorization_is_refused(self):
         from aiohttp import web

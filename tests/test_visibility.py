@@ -57,7 +57,9 @@ class VisibilityTests(unittest.TestCase):
         manager = LauncherVisibilityManager(window)
         manager.apply_setting(VisibilitySettings.LEGACY_CLOSE)
         self.assertEqual(manager.current_setting, VisibilitySettings.CLOSE)
-        self.assertTrue(window.closed)
+        self.assertFalse(window.closed)
+        self.assertFalse(window.visible)
+        self.assertTrue(window._close_after_game)
 
     def test_close_while_game_runs_hides_launcher_and_preserves_the_managed_process(self):
         from windows.main_window import MinecraftLauncher
@@ -71,7 +73,9 @@ class VisibilityTests(unittest.TestCase):
 
         class Hideable:
             visible = True
+            stopped = False
             def hide(self): self.visible = False
+            def shutdown(self): self.stopped = True
 
         window = Hideable()
         window.launcher = SimpleNamespace(running=True, start_thread=RunningThread())
@@ -87,9 +91,22 @@ class VisibilityTests(unittest.TestCase):
         self.assertTrue(window._close_after_game)
         self.assertFalse(window.visible)
         self.assertFalse(window.started_page._multiplayer_dialog.visible)
+        self.assertTrue(window.started_page._multiplayer_dialog.stopped)
         self.assertFalse(window._debug_dialog.visible)
         self.assertTrue(window.launcher.running)
         self.assertFalse(window._closing)
+
+    def test_automatic_close_after_game_keeps_rooms_until_the_game_exits(self):
+        from unittest.mock import Mock
+        window = FakeWindow()
+        lobby = Mock()
+        window.started_page = SimpleNamespace(_multiplayer_dialog=lobby)
+        manager = LauncherVisibilityManager(window)
+        manager.apply_setting(VisibilitySettings.CLOSE)
+        self.assertTrue(window._close_after_game)
+        lobby.hide.assert_called_once()
+        lobby.shutdown.assert_not_called()
+        self.assertFalse(window.closed)
 
 
 if __name__ == '__main__':

@@ -96,6 +96,7 @@ class TunnelEndpoint:
         self.connection = self.listener = self.task = None
         self.cleaning_up = False
         self._stopped = False
+        self._stop_task = None
         self._has_connected = False
         self.room_settings, self.local_game = room_settings, local_game
         self.announce = announce
@@ -131,6 +132,7 @@ class TunnelEndpoint:
             raise ValueError('Invalid transport policy or timeout')
         self.transport_policy, self.peer_timeout = transport_policy, peer_timeout
         self.peer_transport = None
+        self.diagnostic_trace = secrets.token_hex(8)
 
     @property
     def transport_state(self):
@@ -141,17 +143,20 @@ class TunnelEndpoint:
 
     async def _start_peer(self, connection):
         if self.transport_policy == 'relay':
+            LOG.info('transport_policy role=%s policy=relay peer_negotiation=skipped', self.role)
             return
+        LOG.info('transport_policy role=%s policy=auto peer_timeout=%s', self.role, self.peer_timeout)
         try:
-            import aiortc  # Fail closed to the encrypted SSH relay if unavailable.
+            from . import _rtc  # Fall back to encrypted SSH if a dependency is unavailable.
             from .peer import PeerTransport
             self.peer_transport = PeerTransport(self)
             await asyncio.wait_for(self.peer_transport.start(connection), self.peer_timeout)
         except (ImportError, OSError, ValueError, asyncssh.Error, asyncio.TimeoutError):
+            LOG.warning('peer_fallback role=%s path=ssh-relay', self.role, exc_info=True)
             if self.peer_transport:
                 await self.peer_transport.close()
                 self.peer_transport = None
-            LOG.debug('Peer path unavailable; using SSH relay')
+            LOG.info('peer_fallback_complete role=%s path=ssh-relay', self.role)
 
     def room_event(self, event):
         state = event.get('state')
@@ -465,6 +470,18 @@ class TunnelEndpoint:
         )
 
     async def run(self):
+        from utils.diagnostics import connection_session_directory
+        directory = connection_session_directory()
+        if directory:
+            from utils.network_diagnostics import capture_network
+            snapshot = asyncio.create_task(asyncio.to_thread(capture_network, directory, self.diagnostic_trace))
+            def snapshot_finished(done):
+                if not done.cancelled() and (error := done.exception()):
+                    LOG.warning('network_snapshot_failed trace=%s error=%s', self.diagnostic_trace,
+                                type(error).__name__)
+            snapshot.add_done_callback(snapshot_finished)
+        LOG.info('endpoint_start trace=%s role=%s policy=%s node=%s:%s', self.diagnostic_trace,
+                 self.role, self.transport_policy, self.profile.server_host, self.profile.server_port)
         self.task = asyncio.current_task()
         delay = 1
         try:
@@ -533,6 +550,9 @@ class TunnelEndpoint:
                             self.bridge_sender = asyncio.create_task(self._bridge_send())
                         delay = 1
                         self._has_connected = True
+                        LOG.info('endpoint_online trace=%s role=%s policy=%s path=%s listen_port=%s',
+                                 self.diagnostic_trace, self.role, self.transport_policy,
+                                 self.transport_state, self.listen_port)
                         self.recovery_started = None
                         self.on_status("online", self.invite.room_id if self.role == "host"
                                        else f"127.0.0.1:{self.listen_port}")
@@ -628,6 +648,13 @@ class TunnelEndpoint:
             self.on_status("stopped", self.stop_reason)
 
     async def stop(self):
+        # Leaving a room and quitting can overlap. Send one owner-close RPC;
+        # a second stop must not close SSH before the first RPC reaches the node.
+        if self._stop_task is None:
+            self._stop_task = asyncio.create_task(self._stop())
+        await asyncio.shield(self._stop_task)
+
+    async def _stop(self):
         self._stopped = True
         if self.room_task and self.room_task is not asyncio.current_task():
             self.room_task.cancel()
@@ -637,8 +664,14 @@ class TunnelEndpoint:
             except (OSError, asyncssh.Error, ValueError, asyncio.TimeoutError):
                 pass
         if self.connection:
-            self.connection.close()
-            await self.connection.wait_closed()
+            connection = self.connection
+            connection.close()
+            try:
+                await asyncio.wait_for(connection.wait_closed(), 2)
+            except asyncio.TimeoutError:
+                LOG.warning('endpoint_shutdown_timeout trace=%s role=%s; aborting SSH',
+                            self.diagnostic_trace, self.role)
+                connection.abort()
         if self.task and self.task is not asyncio.current_task():
             if not self.cleaning_up:
                 self.task.cancel()
@@ -663,10 +696,15 @@ class TunnelService:
     def __init__(self):
         self.loop = asyncio.new_event_loop()
         self.endpoints = {}
+        self._retiring = set()
+        self.closed = False
+        self._close_lock = threading.Lock()
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True, name="multiplayer")
         self.thread.start()
 
     def add(self, name, endpoint):
+        if self.closed:
+            raise RuntimeError('联机服务已经关闭')
         if name in self.endpoints:
             raise ValueError("联机连接名称已存在")
         self.endpoints[name] = endpoint
@@ -682,22 +720,57 @@ class TunnelService:
         return future
 
     def submit(self, coroutine):
+        if self.closed:
+            coroutine.close()
+            raise RuntimeError('联机服务已经关闭')
         return asyncio.run_coroutine_threadsafe(coroutine, self.loop)
 
     def remove(self, name):
         endpoint = self.endpoints.pop(name)
-        return asyncio.run_coroutine_threadsafe(endpoint.stop(), self.loop)
+        self._retiring.add(endpoint)
+        future = asyncio.run_coroutine_threadsafe(endpoint.stop(), self.loop)
+        future.add_done_callback(lambda done: self._retiring.discard(endpoint))
+        return future
 
     def close(self):
         async def shutdown():
-            await asyncio.gather(*(endpoint.stop() for endpoint in self.endpoints.values()), return_exceptions=True)
+            endpoints = tuple(dict.fromkeys((*self.endpoints.values(), *self._retiring)))
+            stops = [asyncio.create_task(endpoint.stop()) for endpoint in endpoints]
+            if stops:
+                _, pending_stops = await asyncio.wait(stops, timeout=7)
+                for endpoint in endpoints:
+                    endpoint._stopped = True
+                    if endpoint.connection:
+                        endpoint.connection.abort()
+                for task in pending_stops:
+                    task.cancel()
+                await asyncio.gather(*stops, return_exceptions=True)
             self.endpoints.clear()
+            self._retiring.clear()
             pending = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
-        if not self.loop.is_closed():
-            asyncio.run_coroutine_threadsafe(shutdown(), self.loop).result(timeout=10)
-            self.loop.call_soon_threadsafe(self.loop.stop)
-            self.thread.join(timeout=10)
-            self.loop.close()
+        with self._close_lock:
+            if self.closed:
+                return
+            self.closed = True
+            if not self.loop.is_closed():
+                future = asyncio.run_coroutine_threadsafe(shutdown(), self.loop)
+                try:
+                    future.result(timeout=10)
+                except TimeoutError:
+                    LOG.error('multiplayer_shutdown_timeout; forcing control connections closed')
+                    def abort_remaining():
+                        for endpoint in tuple(self.endpoints.values()) + tuple(self._retiring):
+                            endpoint._stopped = True
+                            if endpoint.connection:
+                                endpoint.connection.abort()
+                    self.loop.call_soon_threadsafe(abort_remaining)
+                    future.cancel()
+                finally:
+                    self.loop.call_soon_threadsafe(self.loop.stop)
+                    self.thread.join(timeout=3)
+                    if not self.thread.is_alive():
+                        self.loop.close()
+        LOG.info('multiplayer_service_closed thread_alive=%s', self.thread.is_alive())

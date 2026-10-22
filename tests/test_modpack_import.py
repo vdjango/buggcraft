@@ -13,7 +13,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
 from core.modpacks import CurseForgeClient, ModpackImporter, inspect_pack, instance_name, safe_path
-from core.downloads import DownloadCancelled, _DownloadSession
+from core.downloads import DownloadCancelled, MinecraftDownloader, _DownloadSession
 
 
 class ModpackTests(unittest.TestCase):
@@ -97,6 +97,38 @@ class ModpackTests(unittest.TestCase):
         self.assertFalse((self.game / 'versions' / 'cancelled').exists())
         self.assertEqual(list((self.game / '.buggcraft-downloads/modpacks').glob('*/instance-*')), [])
 
+    def test_bundled_copy_of_manifest_file_is_deduplicated_only_if_identical(self):
+        payload = b'identical bundled and downloaded resource'
+        jobs = [('https://edge.forgecdn.net/files/0/20/resource.zip', 'resourcepacks/resource.zip',
+                 hashlib.sha1(payload).hexdigest(), len(payload))]
+        def fetch(downloader, url, relative, *args):
+            target = downloader.inside(relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+            return target
+        for bundled, succeeds in [(payload, True), (b'changed resource', False)]:
+            self.pack({'overrides/resourcepacks/resource.zip': bundled})
+            identity = 'identical' if succeeds else 'different'
+            with patch.object(CurseForgeClient, 'resolve', return_value=jobs), \
+                    patch.object(MinecraftDownloader, 'fetch', fetch), \
+                    patch('core.modpacks.install_loader', side_effect=self.install_loader):
+                if succeeds:
+                    ModpackImporter(self.game).install(self.archive, identity)
+                    self.assertEqual((self.game / 'versions' / identity / 'resourcepacks/resource.zip').read_bytes(), payload)
+                else:
+                    with self.assertRaisesRegex(ValueError, '覆盖'):
+                        ModpackImporter(self.game).install(self.archive, identity)
+                    self.assertFalse((self.game / 'versions' / identity).exists())
+
+    def test_deep_cache_extracts_long_config_filenames(self):
+        from core.modpacks import disk_path
+        self.manifest['files'] = []
+        relative = 'config/ares_hud/presets/' + 'x' * 130 + '.json.before-overlay.bak'
+        self.pack({'overrides/' + relative: b'long path config'})
+        with patch('core.modpacks.install_loader', side_effect=self.install_loader):
+            ModpackImporter(self.game).install(self.archive, 'long-config')
+        self.assertEqual(disk_path(self.game / 'versions/long-config' / relative).read_bytes(), b'long path config')
+
     def test_reject_traversal_windows_names_case_collisions_and_symlinks(self):
         for name in ('../outside', 'overrides/../outside', 'overrides/C:/outside',
                      'overrides/CON.txt', 'overrides/foo.',
@@ -142,8 +174,13 @@ class ModpackTests(unittest.TestCase):
         client = CurseForgeClient('test-key', threading.Event())
         with patch.object(client, 'post', side_effect=[[project], [file]]):
             self.assertEqual(client.resolve([(10, 20)])[0][1], 'mods/mod.jar')
+        with patch.object(client, 'post', side_effect=[[dict(project, allowModDistribution=False)],
+                                                       [dict(file, downloadUrl=None, isAvailable=False)]]):
+            self.assertEqual(client.resolve([(10, 20)])[0][0],
+                             'https://edge.forgecdn.net/files/0/20/mod.jar')
+            self.assertEqual(client.fallback_urls, {})
         for changes in ({'modId': 11}, {'fileName': '../mod.jar'}, {'hashes': []},
-                        {'downloadUrl': None}, {'downloadUrl': 'https://evil.test/mod.jar'}):
+                        {'downloadUrl': 'https://evil.test/mod.jar'}):
             with patch.object(client, 'post', side_effect=[[project], [dict(file, **changes)]]):
                 with self.assertRaises(ValueError):
                     client.resolve([(10, 20)])
