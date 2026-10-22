@@ -69,8 +69,14 @@ jobs:
           root = pathlib.Path('dist/bridge-build/buggcraft-bridge').resolve()
           executable = root / ('buggcraft-bridge.exe' if os.name == 'nt' else 'buggcraft-bridge')
           env = dict(os.environ, BUGGCRAFT_BRIDGE_EXECUTABLE=str(executable))
-          subprocess.run([sys.executable, '-X', 'utf8', '-m', 'unittest',
-                          'tests.test_bridge_package.BridgeBinaryTests', '-v'], env=env, check=True)
+          result = subprocess.run([sys.executable, '-X', 'utf8', '-m', 'unittest',
+                          'tests.test_bridge_package.BridgeBinaryTests', '-v'], env=env,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          print(result.stdout, end='')
+          if result.returncode:
+              details = result.stdout[-12000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Bridge binary acceptance failed::' + details)
+          raise SystemExit(result.returncode)
           PY
       - name: Upload portable component
         uses: actions/upload-artifact@v4
