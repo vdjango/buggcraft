@@ -15,7 +15,7 @@ from utils import path_helper
 class PortableGameDirectoryTests(unittest.TestCase):
     def test_packaged_directory_does_not_follow_working_directory(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
-            executable = Path(temp) / 'launcher/Buggcraft.exe'
+            executable = Path(temp).resolve() / 'launcher/Buggcraft.exe'
             with patch.object(sys, 'frozen', True, create=True), \
                     patch.object(sys, 'executable', str(executable)), \
                     patch.object(Path, 'cwd', return_value=Path(temp) / 'source'):
@@ -23,7 +23,7 @@ class PortableGameDirectoryTests(unittest.TestCase):
 
     def test_bootstrap_directory_wins_over_versioned_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp) / '启动器'
+            home = Path(temp).resolve() / '启动器'
             with patch.dict(os.environ, BUGGCRAFT_LAUNCHER_DIR=str(home)), \
                     patch.object(sys, 'frozen', True, create=True), \
                     patch.object(sys, 'executable', str(home / 'Buggcraft-runtime/hash/Buggcraft.exe')):
@@ -31,14 +31,14 @@ class PortableGameDirectoryTests(unittest.TestCase):
 
     def test_mac_game_data_is_beside_app_not_inside_bundle(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
-            root = Path(temp)
+            root = Path(temp).resolve()
             with patch.object(sys, 'frozen', True, create=True), \
                     patch.object(sys, 'executable', str(root / 'Buggcraft.app/Contents/MacOS/Buggcraft')):
                 self.assertEqual(path_helper.get_default_minecraft_dir(), root / '.minecraft')
 
     def test_fresh_settings_use_launcher_directory_and_empty_legacy_settings_recover(self):
         with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp) / 'launcher'
+            home = Path(temp).resolve() / 'launcher'
             config = Path(temp) / 'unrelated-config'
             with patch.dict(os.environ, BUGGCRAFT_LAUNCHER_DIR=str(home)):
                 manager = SettingsManager(config)
@@ -66,7 +66,7 @@ class PortableGameDirectoryTests(unittest.TestCase):
         from ui.pages.download.tasks import TasksPage
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp) / 'launcher'
+            home = Path(temp).resolve() / 'launcher'
             with patch.dict(os.environ, BUGGCRAFT_LAUNCHER_DIR=str(home)):
                 manager = SettingsManager(Path(temp) / 'config')
                 manager.set_setting('minecraft.directory.enable', None)

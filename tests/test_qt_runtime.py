@@ -32,7 +32,7 @@ class QtRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='buggcraft-qt-')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
 
     def test_packaged_runtime_does_not_borrow_plugins_from_developer_install(self):
         # Real host Qt exists, while the simulated downloaded bundle is empty.

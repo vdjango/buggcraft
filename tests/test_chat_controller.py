@@ -84,13 +84,15 @@ class ChatControllerTests(unittest.TestCase):
         with patch.object(controller, 'job', side_effect=lambda key, coroutine: coroutine.close()):
             controller.finish('nodecode:' + controller.generation, anonymous, None)
             controller.finish('nodecode:' + controller.generation, personal, None)
+            self.assertTrue(controller.view['nodeUpdatePrompt'])
+            self.assertEqual(RelayProfile.load(controller.store.data['nodes'][0]).token, anonymous.token)
+            controller.act('confirmNodeUpdate', {})
         self.assertEqual(len(controller.store.data['nodes']), 1)
         self.assertEqual(RelayProfile.load(controller.store.data['nodes'][0]).token, personal.token)
         self.assertTrue(controller.view['nodes'][0]['personalCode'])
         controller.reload_store()
         self.assertTrue(controller.view['nodes'][0]['personalCode'])
-        self.assertIn('个人接入码验证通过', controller.view['notice'])
-        self.assertIn('到期', controller.view['notice'])
+        self.assertIn('个人接入码已更新', controller.view['notice'])
 
     def test_node_selection_cannot_bypass_active_room_lock(self):
         controller = self.controller
