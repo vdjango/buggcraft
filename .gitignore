@@ -6,4 +6,5 @@ resources/icons/app.icns
 .secret
 dist*
 *.log
+p2p-sessions/
 __pycache__

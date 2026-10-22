@@ -118,6 +118,7 @@ class SettingsManager:
                 "visibility": "游戏启动后保持不变",
                 "process_priority": "平衡模式",
                 "window_size": "默认",
+                "allow_multiple": False,
                 "debug": "否（推荐）"
             },
             "java": {

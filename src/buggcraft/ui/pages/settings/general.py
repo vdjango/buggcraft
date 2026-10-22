@@ -5,7 +5,7 @@ import os
 from typing import Any
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QMessageBox
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QMessageBox, QCheckBox
 )
 from PySide6.QtCore import Qt, QSize, QUrl
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QDesktopServices
@@ -60,6 +60,7 @@ class GeneralSettingsPages(QWidget):
         if index >= 0:
             self.launcher_download_source_combo.setCurrentIndex(index)
         self.language_download_source.set_messages(mirrors)
+        self.multiple_games.setChecked(self.settings_manager.get_setting('launcher.allow_multiple', False))
         
         print("GeneralSettings 页面被激活")
     
@@ -110,6 +111,11 @@ class GeneralSettingsPages(QWidget):
         # 下载源
         self.language_download_source = self.create_launcher_download_source()
         layout.addWidget(self.language_download_source)
+        self.multiple_games = QCheckBox('允许多开游戏', self)
+        self.multiple_games.setChecked(self.settings_manager.get_setting('launcher.allow_multiple', False))
+        self.multiple_games.setToolTip('首页保留停止游戏按钮，另提供“再启动一个”；可按版本与 PID 选择停止目标。')
+        self.multiple_games.toggled.connect(lambda value: self.on_setting_changed('launcher.allow_multiple', value))
+        layout.addWidget(self.multiple_games)
 
         # 添加拉伸空间
         layout.addStretch(1)

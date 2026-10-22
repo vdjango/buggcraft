@@ -22,6 +22,7 @@ from config.settings import get_settings_manager
 from core.launch_options import (split_arguments, redacted_command, offline_uuid,
                                  complete_auth_arguments, required_java)
 from core.downloads import verified_installation
+from core.launch_preparation import prepare_inherited, inherited_command
 from core.memory import AdvancedMemoryRecommender
 
 
@@ -270,7 +271,18 @@ class MinecraftLibLauncher(QObject):
             
             # 安装游戏库文件
             self.signals.output.emit("正在安装游戏库文件...")
-            if not verified_installation(self.minecraft_directory, self.minecraft_version):
+            callback = {
+                "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
+                "setProgress": self.signals.progress.emit,
+                "setMax": lambda value: self.signals.output.emit(f"[最大] {value}")
+            }
+            jar_owner = None
+            if metadata.get('inheritsFrom'):
+                jar_owner = prepare_inherited(
+                    self.minecraft_directory, self.minecraft_version, callback,
+                    self.settings_manager.get_setting('settings.general.mirrors', '自动'))
+                options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')
+            elif not verified_installation(self.minecraft_directory, self.minecraft_version):
                 minecraft_launcher_lib.install.install_minecraft_version(
                     self.minecraft_version,
                     self.minecraft_directory,
@@ -282,7 +294,9 @@ class MinecraftLibLauncher(QObject):
                 )
 
             # 获取启动命令
-            command: list[str] = minecraft_launcher_lib.command.get_minecraft_command(
+            command: list[str] = inherited_command(
+                self.minecraft_directory, self.minecraft_version, options, jar_owner
+            ) if jar_owner else minecraft_launcher_lib.command.get_minecraft_command(
                 self.minecraft_version, 
                 self.minecraft_directory,
                 options

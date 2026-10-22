@@ -2,7 +2,7 @@
 import os
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame
+    QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QPushButton, QComboBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QPixmap, QColor, QPainter
@@ -12,7 +12,7 @@ from core.auth.microsoft import Authenticator, MinecraftSignals
 from ui.widgets.buttons import QMStartButton
 from ui.dialog.LoginDialog import LoginWaitDialog
 from config.settings import get_settings_manager
-from core.launcher import MinecraftLibLauncher
+from core.game_sessions import GameSessions
 from utils.helpers import get_physical_resolution
 
 import logging
@@ -37,7 +37,8 @@ class StartGamePage(QWidget):
         self.background_color = QColor(0, 0, 0, 0)  # 透明背景
         
         # 创建并启动游戏线程
-        self.launcher = MinecraftLibLauncher(config_path=self.parent.config_path)
+        self.launcher = GameSessions(config_path=self.parent.config_path, parent=self)
+        self.launcher.changed.connect(self.refresh_game_sessions)
         self.launcher.signals.started.connect(self.minecraft_handle_started)
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
@@ -71,24 +72,31 @@ class StartGamePage(QWidget):
         self.auth_refresh_timer.timeout.connect(self.is_expired_token)
         self.auth_refresh_timer.start()
 
-    def started_game(self, server=None):
+    def started_game(self, server=None, additional=False):
         """启动游戏"""
         server = server if isinstance(server, str) else None
-        if not self.current_client and not self.launcher.minecraft_version:
+        if self.current_client and not additional:
+            self.launch_btn.set_texts('正在停止游戏…', self.launcher.selected['instance'][1])
+            self.launch_btn.setEnabled(False)
+            self.launcher.stop()
+            return
+        if additional and not self.settings_manager.get_setting('launcher.allow_multiple', False):
+            return
+        if not self.launcher.minecraft_version:
             self.parent.switch_pages('实例')
             return
         if not self.auth_manager.is_authenticated():
             self.launch_btn.set_texts(f"请先设置角色", self.launcher.minecraft_version)
             return
 
-        if (not self.current_client and self.auth_manager.current_mode == 'online'
+        if (self.auth_manager.current_mode == 'online'
                 and not self.auth_manager.online.is_token_valid()):
-            self._pending_auth_launch = (server,)
+            self._pending_auth_launch = (server, additional)
             self.launch_btn.set_texts('正在刷新正版登录…', self.launcher.minecraft_version)
             self.auth_manager.refresh_login()
             return
         
-        if not self.current_client:
+        if not self.current_client or additional:
             # 游戏未启动 - 启动过程
             self.launch_btn.setEnabled(False)
             self.launch_btn.set_texts(f"启动中...", self.launcher.minecraft_version)
@@ -124,12 +132,6 @@ class StartGamePage(QWidget):
                                      self.launcher.minecraft_isolation_directory)
             self.launcher.start()
             self.instance_changed.emit()
-        else:
-            # 游戏已启动 - 停止过程
-            from PySide6.QtWidgets import QApplication
-            self.launch_btn.set_texts(f"正在停止游戏...", self.launcher.minecraft_version)
-            QApplication.processEvents()
-            self.launcher.stop()
 
     def set_minecraft_version(self, version):
         """设置Minecraft版本"""
@@ -140,29 +142,48 @@ class StartGamePage(QWidget):
             title = '停止游戏' if self.current_client else '启动游戏' if version else '选择游戏'
             self.launch_btn.set_texts(title, version_text)
         self.launcher.minecraft_isolation_directory = self.settings_manager.get_minecraft_isolation_directory()
+        self.refresh_game_sessions()
+
+    def select_game_session(self, index):
+        self.launcher.selected_id = self.session_combo.itemData(index)
+        self.refresh_game_sessions()
+
+    def refresh_game_sessions(self):
+        if not hasattr(self, 'session_combo'):
+            return
+        sessions = self.launcher.sessions
+        self.current_client = self.launcher.running
+        self.running_instance = self.launcher.running_instance
+        self.session_combo.blockSignals(True)
+        self.session_combo.clear()
+        for record in sessions:
+            process = record['launcher'].process
+            label = f"{record['instance'][1]} · PID {process.pid}" if process else f"{record['instance'][1]} · 启动中"
+            self.session_combo.addItem(label, record['id'])
+        index = self.session_combo.findData(self.launcher.selected_id)
+        self.session_combo.setCurrentIndex(max(0, index))
+        self.session_combo.blockSignals(False)
+        self.session_combo.setVisible(len(sessions) > 1)
+        self.launch_btn.setEnabled(not self.launcher.starting)
+        selected = self.launcher.selected
+        title = '启动中…' if self.launcher.starting else '停止游戏' if self.current_client else '启动游戏'
+        self.launch_btn.set_texts(title, selected['instance'][1] if selected else self.launcher.minecraft_version or '请选择游戏')
+        self.additional_game_btn.setVisible(bool(sessions) and self.settings_manager.get_setting('launcher.allow_multiple', False))
+        self.additional_game_btn.setEnabled(not self.launcher.starting)
         self.instance_changed.emit()
     
     def minecraft_handle_started(self):
         """游戏启动处理"""
-        self.current_client = True
-        self.running_instance = getattr(self, '_launch_instance',
-                                       (self.launcher.minecraft_directory, self.launcher.minecraft_version,
-                                        self.launcher.minecraft_isolation_directory))
-        self.instance_changed.emit()
-        self.launch_btn.set_texts('停止游戏', self.launcher.minecraft_version)
-        self.launch_btn.set_start_style()
-        self.launch_btn.setEnabled(True)
+        self.refresh_game_sessions()
+        self.launch_btn.set_stop_style()
         self.launch_btn.setToolTip('游戏正在运行，点击停止游戏')
         logger.info('minecraft_handle_started 游戏已启动')
     
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""
-        self.current_client = False
-        self.running_instance = None
-        self.instance_changed.emit()
-        self.launch_btn.set_texts('启动游戏', self.launcher.minecraft_version)
-        self.launch_btn.set_start_style()
-        self.launch_btn.setEnabled(True)
+        self.refresh_game_sessions()
+        if not self.current_client:
+            self.launch_btn.set_start_style()
         self.launch_btn.setToolTip('' if exit_code == 0 else f'游戏已退出，退出代码：{exit_code}')
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
 
@@ -179,7 +200,7 @@ class StartGamePage(QWidget):
     
     def on_page_activate(self):
         """事件：页面被激活时"""
-        print("页面被激活")
+        self.refresh_game_sessions()
     
     def on_page_deactivate(self):
         """事件：页面被隐藏时"""
@@ -268,6 +289,16 @@ class StartGamePage(QWidget):
                                   self.launcher.minecraft_version or '请下载或导入游戏')
         self.launch_btn.clicked.connect(self.started_changed.emit)
         tab_content_layout.addWidget(self.launch_btn, 0, Qt.AlignCenter)
+        self.session_combo = QComboBox(self)
+        self.session_combo.setAccessibleName('选择要停止的游戏进程')
+        self.session_combo.currentIndexChanged.connect(self.select_game_session)
+        self.session_combo.hide()
+        tab_content_layout.addWidget(self.session_combo, 0, Qt.AlignCenter)
+        self.additional_game_btn = QPushButton('再启动一个', self)
+        self.additional_game_btn.setToolTip('按当前选择的版本和角色启动另一个游戏进程')
+        self.additional_game_btn.clicked.connect(lambda: self.started_game(additional=True))
+        self.additional_game_btn.hide()
+        tab_content_layout.addWidget(self.additional_game_btn, 0, Qt.AlignCenter)
 
         # 创建进入联机大厅按钮
         self.multiplayer_lobby_btn = QLabel("进入联机大厅")
@@ -797,7 +828,7 @@ class StartGamePage(QWidget):
         pending = getattr(self, '_pending_auth_launch', None)
         if pending is not None:
             self._pending_auth_launch = None
-            QTimer.singleShot(0, lambda: self.started_game(pending[0]))
+            QTimer.singleShot(0, lambda: self.started_game(pending[0], additional=pending[1] if len(pending) > 1 else False))
 
         # 登录成功后进入联机大厅按钮保持显示（包括离线登录）
 

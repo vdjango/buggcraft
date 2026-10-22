@@ -153,6 +153,12 @@ def main(report):
             def exercise():
                 try:
                     window.show()
+                    from core.game_sessions import GameSessions
+                    if not isinstance(window.launcher, GameSessions):
+                        raise RuntimeError('Missing independent game session ownership')
+                    if not hasattr(window.started_page, 'additional_game_btn'):
+                        raise RuntimeError('Missing additional game launch control')
+                    result['checks'].append('independent-game-sessions')
                     window.started_page.show_multiplayer_dialog()
                     lobby = window.started_page._multiplayer_dialog
                     from ui.dialog.ModpackImportDialog import ModpackImportDialog

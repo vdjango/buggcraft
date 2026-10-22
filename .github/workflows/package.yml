@@ -67,7 +67,27 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
-        run: python -m unittest tests.test_datachannel_transport tests.test_peer_shutdown tests.test_visibility tests.test_slim_packaging tests.test_system_fonts tests.test_qt_runtime tests.test_macos_packaging tests.test_portable_game_directory tests.test_connection_diagnostics tests.test_modpack_no_key -v
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess, sys
+          modules = ['test_datachannel_transport', 'test_peer_shutdown', 'test_visibility',
+                     'test_slim_packaging', 'test_system_fonts', 'test_qt_runtime',
+                     'test_macos_packaging', 'test_portable_game_directory',
+                     'test_connection_diagnostics', 'test_modpack_no_key',
+                     'test_inherited_launch', 'test_game_sessions']
+          result = subprocess.run([sys.executable, '-m', 'unittest',
+                                   *['tests.' + name for name in modules], '-v'],
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, encoding='utf-8', errors='replace',
+                                  env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+          pathlib.Path('dist').mkdir(exist_ok=True)
+          pathlib.Path('dist/preflight.log').write_text(result.stdout, encoding='utf-8')
+          print(result.stdout)
+          if result.returncode:
+              tail = result.stdout[-14000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Launcher preflight failed::' + tail)
+          raise SystemExit(result.returncode)
+          PY
       - name: Prepare macOS application icon
         if: runner.os == 'macOS'
         run: |
@@ -156,6 +176,7 @@ jobs:
             dist/qt-trim-report.json
             dist/package-check.*
             dist/build.log
+            dist/preflight.log
       - name: Link downloads in the run summary
         env:
           BUILD_PLATFORM: ${{ matrix.platform }}
