@@ -125,7 +125,7 @@ def make_command(onefile=False, output=None, jobs=None):
             raise ValueError('macOS builds use a standalone .app bundle; omit --onefile')
         command += ['--macos-create-app-bundle', '--macos-app-name=Buggcraft',
                     '--output-filename=Buggcraft',
-                    f'--macos-app-icon={resources / "icons/512x512/app.png"}',
+                    f'--macos-app-icon={resources / "icons/app.icns"}',
                     '--macos-app-category-type=public.app-category.games']
     exclusions, _ = qml_exclusions()
     command.extend(exclusions)

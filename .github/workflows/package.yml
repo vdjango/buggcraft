@@ -53,6 +53,18 @@ jobs:
         run: |
           python -m pip install -r requirements.txt -r requirements-build.txt
           python -m pip check
+      - name: Prepare macOS application icon
+        if: runner.os == 'macOS'
+        run: |
+          iconset="dist/Buggcraft.iconset"
+          mkdir -p "$iconset"
+          for entry in '16 16' '16 32' '32 32' '32 64' '128 128' '128 256' '256 256' '256 512' '512 512' '512 1024'; do
+            read -r size pixels <<< "$entry"
+            suffix=''
+            [[ "$pixels" == 32 || "$pixels" == 64 || "$pixels" == 256 || "$pixels" == 512 || "$pixels" == 1024 ]] && suffix='@2x'
+            sips -z "$pixels" "$pixels" resources/icons/512x512/app.png --out "$iconset/icon_${size}x${size}${suffix}.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o resources/icons/app.icns
       - name: Build native package
         run: |
           python -u - <<'PY'
@@ -70,7 +82,8 @@ jobs:
                   tail.append(line.rstrip())
               status = process.wait()
           if status:
-              message = '\n'.join(tail).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              message = '\n'.join(line[-700:] for line in tail)[-3500:]
+              message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print('::error title=Native package build failed::' + message)
           raise SystemExit(status)
           PY
