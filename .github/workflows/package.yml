@@ -39,6 +39,8 @@ jobs:
             platform: macos-arm64
             arch: arm64
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONIOENCODING: utf-8
     timeout-minutes: 60
     defaults:
       run:
@@ -70,12 +72,13 @@ jobs:
         run: |
           python - <<'PY'
           import os, pathlib, subprocess, sys
+          sys.stdout.reconfigure(encoding='utf-8')
           modules = ['test_datachannel_transport', 'test_peer_shutdown', 'test_visibility',
                      'test_slim_packaging', 'test_system_fonts', 'test_qt_runtime',
                      'test_macos_packaging', 'test_portable_game_directory',
                      'test_connection_diagnostics', 'test_modpack_no_key',
                      'test_inherited_launch', 'test_game_sessions']
-          result = subprocess.run([sys.executable, '-m', 'unittest',
+          result = subprocess.run([sys.executable, '-u', '-m', 'unittest',
                                    *['tests.' + name for name in modules], '-v'],
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                   text=True, encoding='utf-8', errors='replace',
@@ -84,7 +87,7 @@ jobs:
           pathlib.Path('dist/preflight.log').write_text(result.stdout, encoding='utf-8')
           print(result.stdout)
           if result.returncode:
-              tail = result.stdout[-14000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              tail = result.stdout[-3500:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print('::error title=Launcher preflight failed::' + tail)
           raise SystemExit(result.returncode)
           PY

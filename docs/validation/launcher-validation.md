@@ -18,6 +18,8 @@
 
 第八项实测：使用实际导入的 `NW-0.9.1-Test-2`（Minecraft 1.20.1、Forge 47.4.0、263 个模组），Microsoft Java 21、4 GiB 堆、低优先级，约 90 秒完成游戏初始化；可见“终焉决斗”窗口继续观察 30 秒未退出，随后仅停止测试 PID。记录在本地 `dist/modpack-jar-launch-20261023/validation.json` 与 `game-launch.log`，未进入存档。新增八项回归使用真实命令生成、两个独立子进程及首页控件，覆盖继承核心、Forge 模块排除、默认单开、配置快照及只停止选中进程。
 
+多开时每个进程使用独立的临时原生库目录，退出后清理，避免第二次启动改写第一个游戏正在加载的 DLL。相关双进程、首页控件、继承解析与底层启动回归共 16 项通过。
+
 2026-10-22 补充：26.3 的官方版本元数据要求 Java 25。最新错误日志已经使用 Java 25，并进入 SDL 渲染初始化；日志未记录游戏退出原因，尚不能将无法启动归因于 Java 版本。已修正离线启动缺少 UUID/token 时传入 `{uuid}`、`{token}` 占位符的问题，补齐新版 `clientId`/`auth_xuid` 参数，启动前按版本及其继承元数据检查 Java 要求，并在工作线程直接留存游戏输出、进程 PID 和退出码。离线 UUID 使用 Java 离线身份算法；已有身份继续保留。
 
 使用真实官方 26.3 元数据和实际命令生成库验证，生成命令无未替换占位符，Java 要求识别为 25。随后按用户要求，在独立测试目录下载并实际启动原版 26.3：使用 Mojang Java 25.0.1，SDL/Windows 与 NVIDIA OpenGL 完成 GUI 图集渲染，可见 Minecraft 26.3 窗口持续 30 秒未闪退，之后仅关闭测试进程。测试没有进入世界，不代表已复现或排除用户电脑的闪退。记录位于本地 `dist/minecraft-26.3-live/validation.json` 与实例 `logs/latest.log`；参数验证记录为 `dist/minecraft-26.3-launch-validation.json`，构建目录不提交。

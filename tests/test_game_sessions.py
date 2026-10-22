@@ -32,6 +32,10 @@ class GameSessionTests(unittest.TestCase):
             self.settings.set_setting(key, value)
         self.script = self.root / 'fake_game.py'
         self.script.write_text('import sys\nprint("game ready", flush=True)\nsys.stdin.readline()\n')
+        self.native_directories = []
+        def command(version, directory, options):
+            self.native_directories.append(Path(options['nativesDirectory']))
+            return [sys.executable, str(self.script)]
         for module in ('core.game_sessions', 'core.launcher'):
             patcher = patch(module + '.get_settings_manager', return_value=self.settings)
             patcher.start()
@@ -41,7 +45,7 @@ class GameSessionTests(unittest.TestCase):
             patcher = patch(name, return_value=value)
             mocked = patcher.start()
             if value is None:
-                mocked.side_effect = lambda *args: [sys.executable, str(self.script)]
+                mocked.side_effect = command
             self.addCleanup(patcher.stop)
         self.sessions = GameSessions(str(self.root))
         self.sessions.set_options(version='fixture', username='Fixture', uuid=None, token=None)
@@ -64,6 +68,9 @@ class GameSessionTests(unittest.TestCase):
         self.wait_for(lambda: not self.sessions._sessions)
 
     def test_default_rejects_second_process_and_multi_open_stops_only_selected(self):
+        native_source = self.root / 'game/versions/fixture/natives'
+        native_source.mkdir(parents=True, exist_ok=True)
+        (native_source / 'fixture.dll').write_bytes(b'native fixture')
         self.assertTrue(self.sessions.start())
         self.wait_for(lambda: self.sessions.running)
         first = self.sessions.selected
@@ -75,11 +82,16 @@ class GameSessionTests(unittest.TestCase):
         second = self.sessions.selected
         second_process = second['launcher'].process
         self.assertNotEqual(first_process.pid, second_process.pid)
+        self.assertNotEqual(*self.native_directories)
+        self.assertTrue(all((path / 'fixture.dll').read_bytes() == b'native fixture'
+                            for path in self.native_directories))
         self.sessions.selected_id = first['id']
         self.sessions.stop()
         self.wait_for(lambda: first_process.poll() is not None and len(self.sessions.sessions) == 1)
         self.assertIsNone(second_process.poll())
         self.assertTrue(self.sessions.running)
+        self.assertFalse(self.native_directories[0].exists())
+        self.assertTrue(self.native_directories[1].exists())
         self.assertEqual(self.sessions.running_instance, second['instance'])
         self.sessions.stop()
         self.wait_for(lambda: not self.sessions.sessions)

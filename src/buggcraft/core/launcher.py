@@ -7,6 +7,8 @@ import platform
 import subprocess
 import signal
 import time
+import shutil
+import tempfile
 import psutil
 import logging
 import minecraft_launcher_lib
@@ -185,6 +187,7 @@ class MinecraftLibLauncher(QObject):
     
     def _start_game(self):
         """在工作线程中启动游戏"""
+        native_workspace = None
         try:
             self.minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
             self.minecraft_version = self.settings_manager.get_setting('minecraft.version.enable')
@@ -292,6 +295,15 @@ class MinecraftLibLauncher(QObject):
                         "setMax": lambda max_value: self.signals.output.emit(f"[最大] {max_value}")
                     }
                 )
+
+            # Each process loads its own native files. A second inherited launch
+            # can then prepare libraries without overwriting DLLs used by the first.
+            native_source = Path(options.get('nativesDirectory', str(
+                Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')))
+            native_workspace = tempfile.TemporaryDirectory(prefix='buggcraft-game-natives-', ignore_cleanup_errors=True)
+            if native_source.is_dir():
+                shutil.copytree(native_source, native_workspace.name, dirs_exist_ok=True)
+            options['nativesDirectory'] = native_workspace.name
 
             # 获取启动命令
             command: list[str] = inherited_command(
@@ -430,6 +442,8 @@ class MinecraftLibLauncher(QObject):
                     if stream is not None:
                         stream.close()
             self.process = None
+            if native_workspace is not None:
+                native_workspace.cleanup()
 
     def _ensure_language_setting(self):
         """确保游戏语言设置文件正确配置"""
