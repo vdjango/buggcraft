@@ -56,6 +56,9 @@ jobs:
           cache-dependency-path: requirements-bridge*.txt
       - name: Install networking and build dependencies
         run: |
+          if [[ "${{ matrix.platform }}" == macos-x64 ]]; then
+            OPENSSL_STATIC=1 OPENSSL_DIR="$(brew --prefix openssl@3)" python -m pip install --no-cache-dir --no-binary cryptography cryptography==50.0.2
+          fi
           python -m pip install -r requirements-bridge-build.txt
           python -m pip check
       - name: Test source protocol and game transport

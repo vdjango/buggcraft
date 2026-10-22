@@ -58,6 +58,8 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 
 在目标系统使用 Python 3.11 安装 `requirements-bridge-build.txt`，执行 `python scripts/build_bridge.py`。不安装启动器 UI 依赖。当前传输实现使用完整 aiortc，因此包含其 PyAV 等依赖；没有宣称已完成网络库裁剪。发行目录附带许可、对应 Git 源码和依赖清单，压缩包旁提供 SHA-256。当前没有受信任的代码签名或 Apple 公证。
 
+macOS Intel 的 cryptography 50.0.2 没有对应预编译 wheel。源码构建需准备 Rust 和 Homebrew OpenSSL，并先执行 `OPENSSL_STATIC=1 OPENSSL_DIR="$(brew --prefix openssl@3)" python -m pip install --no-cache-dir --no-binary cryptography cryptography==50.0.2`，再安装上述构建依赖。静态链接避免与 Python 自带的另一个 OpenSSL 3 动态库混用；CI 执行同一步骤。打包后的用户不需要这些构建工具。Linux/macOS 复制发行目录时须保留符号链接，发行文件因此采用 tar.gz。
+
 设置 `BUGGCRAFT_NODE_SOURCE` 为节点源码仓库路径，运行 `python -m unittest tests.test_bridge_package -v`。设置 `BUGGCRAFT_BRIDGE_EXECUTABLE` 指向构建后的程序后，同一套用例还会复制完整发行目录到带空格路径，移除 Python 环境变量与开发工具 PATH，从无关工作目录运行二进制，验证两进程 P2P、中转、混合路径、兆字节传输、EOF、关闭释放端口、公钥拒绝及错误帧。
 
 本机 P2P 测试不代表覆盖所有公网 NAT；跨运营商、对称 NAT、UDP 阻断仍需不同网络的设备验收。CI 只有测试通过才上传对应平台发行包。
