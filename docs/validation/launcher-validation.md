@@ -10,13 +10,15 @@
 - 原版 Minecraft **26.3** 使用独立测试目录与 Mojang Java 25.0.1 实际启动，显示游戏窗口并完成 GUI 图集渲染，继续观察 **30 秒** 未闪退。仅结束本轮测试进程，没有进入世界、修改玩家存档或停止其他游戏。[实测结果](../../../buggcraft/dist/minecraft-26.3-live/validation.json)
 - Windows 成品在清除 Python/Qt 开发路径、PATH 仅保留系统目录、工作目录位于包外的条件下，分别以 offscreen 和原生 windows 平台运行 `--package-check`，**19 项均通过**。覆盖完整 QML 页面、原生 API、TLS/压缩解包、实例隔离、无 API key 导入及网络拓扑/游戏崩溃/模组清单导出。
 - 实际安装器从旁置 ZIP 离线安装到独立中文路径成功，并校验全部文件；安装后的 EXE 再次通过上述 **19 项成品检查**。EXE 为 GUI 子系统，启动不附带 CMD 窗口。
-- 本地文件：`dist/release-20261023/Buggcraft-runtime-windows-x64.zip` **59,540,571 字节**（56.78 MiB），`Buggcraft-Setup.exe` **430,592 字节**。运行包 SHA-256：`2d1de44d83469f64a667b9bea7944e8508880280318a204b25d1034e01034db3`。本次安装器没有远程下载地址，须与 ZIP 放在一起；未经受信任证书签名。
+- 本地文件：`dist/release-20261023/release/Buggcraft-runtime-windows-x64.zip` **59,545,800 字节**（56.79 MiB），`Buggcraft-Setup.exe` **430,592 字节**。运行包 SHA-256：`8802712fe7933cd35b8c0dd08b31dce3cd7307d2e07e1a8e65a32d5961c27d38`。本次安装器没有远程下载地址，须与 ZIP 放在一起；未经受信任证书签名。
 
 本轮修复了原生适配中再次出现的固定 `parents[3]` 浅层路径假设，以及 Windows 使用 `os.execv` 启动桥接时父进程提前退出的问题；Windows 兼容入口现在等待原生子进程，保留退出状态。两套 GitHub 构建任务改为编译同一固定版本原生组件，不再生成旧 Python 网络运行包；macOS Intel/Apple Silicon 包须由对应平台构建和运行检查后才能称为完成。
 
 证据目录：本地 `error/release-validation-20261023/`，含 `launcher-tests.log`、`native-library-tests.log`、`native-glue-tests.log`、`package-rules-tests.log`、`final-regression.log`、`windows-build.log`、`installer-validation.log`，以及 `packaged/windows.json`、`packaged/offscreen.json`、`installed-package-check.json`。证据和游戏资产不提交 Git。
 
 补充修复：旧节点忽略分页大小/搜索条件时，启动器按实际消费位置继续获取，防止列表丢房间；同时拒绝不前进的游标和非法总数，5 项分页专项回归通过。原生 Windows CI 暴露了非法 UTF-8 游戏字符串未拒绝的问题，现增加 UTF-8/UTF-16 往返校验，原生 CTest 重新通过。
+
+最终代码 `4ef408c` 与原生库 `8853609` 的组合回归 **146 项通过**（76.546 秒），覆盖原生发现/切换、全 QML 页面、打包裁剪、Java/多进程启动、日志导出、个人码升级、真实本地节点关闭清理、房间启动流程和旧节点分页。以上与前述分组有重叠，不累加为独立用例数。重新编译安装到中文路径后，成品 **19 项检查通过**，ZIP 中原生 DLL 与最终安装树逐字节一致；证据为 `combined-final-regression.log`、`installer-validation-final.log`、`package-integrity-final.json`。实际游戏日志及 49 份原生玩家日志导出为 `live-game-and-network-diagnostics.zip`，包含新采集网络拓扑，无采集错误；原版未生成的 `debug.log` 如实标为缺失。
 
 验收边界：本机 P2P/中继不代表全部公网 NAT；未在本轮部署生产节点。整合包导入与核心解析有回归，本轮实际新启动的是原版 26.3。仓库历史 Python 传输专项测试仍引用已归档的实现，直接全量 discover 不能视为原生迁移后的全量验收；本轮按上述在用模块及原生集成套件执行，保留失败/中断记录，不声称全部历史测试通过。
 
