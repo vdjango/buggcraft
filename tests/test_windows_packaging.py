@@ -36,6 +36,62 @@ class WindowsBootstrapTests(unittest.TestCase):
             self.manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
         build.build_bootstrap(self.manifest_path, self.root)
 
+    def test_directory_publish_waits_for_file_handles_and_supports_cancel(self):
+        source = self.root / 'move-check.cs'
+        source.write_text('''using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+class MoveCheck {
+    static void Require(bool condition) { if (!condition) throw new Exception("move assertion failed"); }
+    static string Prepare(string name) {
+        Directory.CreateDirectory(name); File.WriteAllText(Path.Combine(name, "runtime.dll"), "fixture"); return name;
+    }
+    static void Main() {
+        Log.Initialize(Directory.GetCurrentDirectory());
+        string source = Prepare("locked"), target = "published";
+        Task pending;
+        using (File.Open(Path.Combine(source, "runtime.dll"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
+            pending = RuntimeInstaller.MoveDirectoryAsync(source, target, CancellationToken.None);
+            Thread.Sleep(250); Require(!pending.IsCompleted);
+        }
+        pending.GetAwaiter().GetResult(); Require(File.Exists(Path.Combine(target, "runtime.dll")));
+        source = Prepare("cancelled");
+        using (var cancel = new CancellationTokenSource())
+        using (File.Open(Path.Combine(source, "runtime.dll"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
+            pending = RuntimeInstaller.MoveDirectoryAsync(source, "not-published", cancel.Token);
+            cancel.Cancel();
+            try { pending.GetAwaiter().GetResult(); throw new Exception("cancellation ignored"); }
+            catch (OperationCanceledException) { }
+        }
+        Require(Directory.Exists(source) && !Directory.Exists("not-published"));
+        try {
+            RuntimeInstaller.MoveDirectoryAsync(source, target, CancellationToken.None).GetAwaiter().GetResult();
+            throw new Exception("existing target replaced");
+        } catch (IOException) { }
+        source = Prepare("permanently-locked");
+        using (File.Open(Path.Combine(source, "runtime.dll"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
+            try {
+                RuntimeInstaller.MoveDirectoryAsync(source, "blocked", CancellationToken.None).GetAwaiter().GetResult();
+                throw new Exception("permanent lock ignored");
+            } catch (IOException) { }
+        }
+        Require(Directory.Exists(source) && !Directory.Exists("blocked"));
+    }
+}''', encoding='utf-8')
+        compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        executable = self.root / 'move-check.exe'
+        subprocess.run([str(compiler), '/nologo', '/target:exe', '/platform:x64', '/main:MoveCheck',
+            '/r:System.Net.Http.dll', '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
+            '/r:System.Runtime.Serialization.dll', '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll',
+            '/out:' + str(executable), str(ROOT / 'packaging/windows/Bootstrap.cs'), str(source)],
+            check=True, capture_output=True)
+        result = self.launch_installer([str(executable)], cwd=self.root, timeout=15,
+                                      capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
+        self.assertIn('waiting for installation directory handle',
+                      (self.root / 'Buggcraft-install.log').read_text('utf-8'))
+
     def launch_installer(self, *args, **kwargs):
         try:
             return subprocess.run(*args, **kwargs)

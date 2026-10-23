@@ -255,6 +255,21 @@ internal sealed class RuntimeInstaller {
         using (var stream = File.OpenRead(path))
             return BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
     }
+    internal static async Task MoveDirectoryAsync(string source, string destination, CancellationToken cancel) {
+        // A scanner can briefly hold a freshly extracted DLL without delete
+        // sharing. Wait for that handle; never replace a destination or alter ACLs.
+        for (int attempt = 0; ; attempt++) {
+            cancel.ThrowIfCancellationRequested();
+            try { Directory.Move(source, destination); return; }
+            catch (IOException error) {
+                int code = error.HResult & 0xffff;
+                if (attempt >= 39 || (code != 5 && code != 32 && code != 33) ||
+                    !Directory.Exists(source) || Directory.Exists(destination)) throw;
+                if (attempt == 0) Log.Exception("waiting for installation directory handle", error);
+            }
+            await Task.Delay(100, cancel);
+        }
+    }
     void Verify(string directory, CancellationToken cancel) {
         foreach (var file in release.files) {
             cancel.ThrowIfCancellationRequested();
@@ -375,9 +390,9 @@ internal sealed class RuntimeInstaller {
                     Verify(staging, cancel);
                     if (Directory.Exists(installed)) {
                         string old = installed + ".damaged-" + Guid.NewGuid().ToString("N");
-                        Directory.Move(installed, old);
+                        await MoveDirectoryAsync(installed, old, cancel);
                     }
-                    Directory.Move(staging, installed);
+                    await MoveDirectoryAsync(staging, installed, cancel);
                     if (File.Exists(downloaded)) File.Delete(downloaded);
                     progress("准备完成", 100);
                     return SafePath(installed, release.entrypoint);
