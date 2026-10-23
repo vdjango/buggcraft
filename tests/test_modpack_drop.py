@@ -21,6 +21,7 @@ class ModpackDropTests(LauncherQmlCase):
             current = self.window.content_stack.currentWidget()
             quick = current.findChild(QQuickWidget)
             target = quick or current
+            self.assertTrue(target.acceptDrops())
             mime = QMimeData()
             mime.setUrls([QUrl.fromLocalFile(str(archive))])
             for event in (QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier),

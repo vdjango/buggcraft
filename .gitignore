@@ -3,7 +3,12 @@ venv
 .build-venv/
 native-source/
 resources/icons/app.icns
+resources/fonts/
 *.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.ruff_cache/
 .secret
 dist*
 *.log

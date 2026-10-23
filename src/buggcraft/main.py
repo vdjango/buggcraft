@@ -5,6 +5,9 @@ import logging.handlers
 import platform
 import faulthandler
 from pathlib import Path
+from time import perf_counter
+
+_STARTUP_STARTED = perf_counter()
 
 if platform.system().lower() == "linux":
     # 设置环境变量（关键！）
@@ -12,12 +15,13 @@ if platform.system().lower() == "linux":
     os.environ.setdefault("XLIB_SKIP_ARGB_VISUALS", "1")
 
 
-APP_DIR = Path(sys.executable).resolve().parent
 IS_PACKAGED = getattr(sys, 'frozen', False) or '__compiled__' in globals()
-BASE_DIR = APP_DIR if IS_PACKAGED else Path.cwd()
+from utils.path_helper import get_launcher_directory
+APP_DIR = Path(__file__).resolve().parent if IS_PACKAGED else Path(sys.executable).resolve().parent
+BASE_DIR = get_launcher_directory() if IS_PACKAGED else Path.cwd()
 _default_log_dir = (Path.home() / 'Library/Logs/Buggcraft'
                     if IS_PACKAGED and platform.system() == 'Darwin'
-                    else APP_DIR if IS_PACKAGED else BASE_DIR)
+                    else BASE_DIR)
 LOG_DIR = Path(os.environ.get('BUGGCRAFT_LOG_DIR') or _default_log_dir).resolve()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / 'buggcraft.log'
@@ -153,6 +157,7 @@ def initialize_application():
         check_settings._settings_manager_instance = check_settings.SettingsManager(startup_config.name)
     from windows.main_window import MinecraftLauncher
     import PySide6
+    imports_seconds = perf_counter() - _STARTUP_STARTED
 
     logger.info('Qt diagnostics: PySide6=%s; Qt=%s; plugin_path=%s',
                 PySide6.__version__, qVersion(), QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath))
@@ -184,14 +189,28 @@ def initialize_application():
         config_path=CONFIG_DIR,
         resource_path=RESOURCE_DIR
     )
+    window_seconds = perf_counter() - _STARTUP_STARTED
+    if startup_report is not None:
+        from PySide6.QtCore import Qt
+        launcher.setAttribute(Qt.WA_ShowWithoutActivating)
+        launcher.move(-20000, -20000)
     launcher.show()
+    logger.info('Startup timing: imports=%.3fs; window=%.3fs; shown=%.3fs',
+                imports_seconds, window_seconds, perf_counter() - _STARTUP_STARTED)
     if startup_report is not None:
         from PySide6.QtCore import QTimer
         import json
         def finish_startup_check():
+            snapshot = launcher.grab()
+            snapshot.save(str(startup_report.with_suffix('.png')))
             result = {'passed': launcher.isVisible() and launcher.width() > 0,
                       'resource_directory': str(RESOURCE_DIR),
                       'game_directory': str(launcher.launcher.minecraft_directory),
+                      'launcher_directory': str(BASE_DIR),
+                      'rendered': not snapshot.isNull(),
+                      'imports_seconds': imports_seconds,
+                      'window_seconds': window_seconds,
+                      'ready_seconds': perf_counter() - _STARTUP_STARTED,
                       'normal_startup': True}
             startup_report.write_text(json.dumps(result, indent=2), encoding='utf-8')
             launcher.close()

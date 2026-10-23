@@ -525,7 +525,10 @@ class ContentBrowserPage(QWidget):
         super().__init__(download_pages)
         self.controller = ContentBrowserController(download_pages)
         self.host = QmlPage(self, download_pages.resource_path, 'DownloadHub.qml', 'contentController', self.controller)
-        self.quick = self.host.quick
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.host)
+
+    @property
+    def quick(self):
+        return self.host.quick

@@ -305,11 +305,14 @@ class TasksPage(QWidget):
 
     def init_ui(self):
         self.host = QmlPage(self, self.resource_path, 'TaskHistory.qml', 'taskHistory', self.view_controller)
-        self.quick = self.host.quick
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self.host)
+
+    @property
+    def quick(self):
+        return self.host.quick
 
     def start_install(self, version: str, game_dir: str, loader=None, base_version=None,
                       loader_version=None, modpack=None, api_key=None, content=None, addons=None):

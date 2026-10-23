@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src/buggcraft'))
 
 from PySide6.QtCore import QObject, QPoint, Qt, qInstallMessageHandler
-from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQuickWidgets import QQuickWidget
@@ -26,10 +25,6 @@ class LauncherQmlCase(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setQuitOnLastWindowClosed(False)
-        font = ROOT / 'resources/fonts/SourceHanSansCN-Normal.otf'
-        if font.is_file():
-            QFontDatabase.addApplicationFont(str(font))
-            cls.app.setFont(QFont('Source Han Sans CN', 9))
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='buggcraft-qml-test-')

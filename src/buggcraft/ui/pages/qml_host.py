@@ -17,18 +17,30 @@ class QmlPage(QWidget):
         self.controller = controller
         if own_controller:
             controller.setParent(self)
-        self.quick = QQuickWidget(self)
-        self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self.quick.setClearColor(Qt.transparent)
+        self._quick = None
         self._context_name = context_name
         self._source = QUrl.fromLocalFile(str(Path(resource_path) / 'qml' / 'launcher' / source))
         self._loaded = False
-        self.quick.statusChanged.connect(self._on_status)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.quick)
-        quick = self.quick
-        self.destroyed.connect(lambda: quick.setSource(QUrl()))
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+
+    @property
+    def quick(self):
+        # Hidden pages retain their controllers without creating unused engines.
+        if self._quick is None:
+            self._quick = QQuickWidget(self)
+            self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
+            self._quick.setClearColor(Qt.transparent)
+            self._quick.statusChanged.connect(self._on_status)
+            self._layout.addWidget(self._quick)
+            window = self.window()
+            drop_filter = getattr(window, '_modpack_drop_filter', None)
+            if drop_filter is not None:
+                self._quick.setAcceptDrops(True)
+                self._quick.installEventFilter(drop_filter)
+            quick = self._quick
+            self.destroyed.connect(lambda: quick.setSource(QUrl()))
+        return self._quick
 
     def ensure_loaded(self):
         if not self._loaded:

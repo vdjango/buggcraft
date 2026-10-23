@@ -1,12 +1,24 @@
 # Windows 下载与打包
 
-Windows x64 发布分成小型启动程序和完整运行包。首次启动时将运行包下载、校验后放进安装器旁边的 `Buggcraft-runtime\<版本号>`，随后启动真正的应用。安装器目录不可写时才回退到 `%LOCALAPPDATA%\Buggcraft\runtime`，回退原因会写入日志。相同版本只下载一次。新版本使用新的内容哈希目录，旧版本缓存保留，正在运行的文件不会被覆盖。完整包的实际大小见[体积审计](launcher-size-audit.md)，不能用小型安装器的大小代替。
+Windows x64 支持完整单文件 `Buggcraft.exe`，以及原有的安装器与 ZIP 分发方式。单文件内置 Python、Qt、QML 和原生联机库，不需要旁边的 ZIP 或另行下载 DLL；首次运行将内置依赖解压至当前用户缓存，再次运行复用校验过的文件。游戏与默认日志仍放在外层 EXE 旁，不能放进解压缓存目录。
+
+安装器与 ZIP 模式首次启动时将运行包下载、校验后放进安装器旁边的 `Buggcraft-runtime\<版本号>`，随后启动真正的应用。安装器目录不可写时才回退到 `%LOCALAPPDATA%\Buggcraft\runtime`，回退原因会写入日志。相同版本只下载一次。新版本使用新的内容哈希目录，旧版本缓存保留，正在运行的文件不会被覆盖。完整包的实际大小见[体积审计](launcher-size-audit.md)，不能用小型安装器的大小代替。
 
 完整包内包含 Python、Qt/PySide6 和 QML 运行组件、Windows C++ 运行库、原生联机库、HTTPS CA 文件及图片资源。联机由 `native` 中的 C++ 库提供 SSH、ICE/DTLS/SCTP，不打包 Python AsyncSSH/aioice/aiortc、PyAV、FFmpeg、音视频编解码器或 pylibsrtp。启动器按 PE 导入和 QML 实际导入结果排除未使用的 Qt 组件，并排除 PDF 图像插件及两份自带字体。
 
 ## 构建
 
-Widgets 和 QML 均使用系统默认字体，保留各控件的字号与粗细，不再加载资源目录里的字体。构建时通过 `--noinclude-data-files=resources/fonts/*` 排除字体目录；源码中的字体文件保留，但不是运行必需资源。体积基线与后续减重结果见 [启动器体积审计](launcher-size-audit.md)。
+完整单文件构建：
+
+```powershell
+python build.py --onefile --native-bridge-dir ../minecraft-tunnel-native/runtime --output dist/windows-onefile
+```
+
+产物是 `dist/windows-onefile/Buggcraft.exe`；`release.json` 记录大小、SHA-256 和缓存版本。固定版本 Nuitka 的构建插件会在压缩前放入完整原生安装树，并执行与目录版相同的 Qt DLL 裁剪。使用压缩归档格式和按源码/原生文件内容隔离的缓存路径，避免每次重复解压全部文件。[Nuitka 官方单文件与缓存说明](https://nuitka.net/user-documentation/use-cases.html)。升级 Nuitka 时须重新验收插件、完整依赖和启动耗时。
+
+运行 `Buggcraft.exe --startup-check <报告.json>` 可隔离用户配置验证正常首屏并生成截图和内部启动阶段耗时；测试窗口不会抢占焦点。外部计时应从创建进程到报告生成，包含单文件解压/校验；首次空缓存与再次运行分别记录，不将内部 Python 耗时当作完整启动耗时。`--package-check` 另行验证全部页面、原生联机库及诊断导出。
+
+Widgets 和 QML 均使用系统默认字体，保留各控件的字号与粗细。源码已移除不用的字体和重复尺寸图标；保留 Windows ICO 及用于生成 macOS 图标的 1024 像素原图。构建规则仍排除旧工作区可能残留的字体文件。体积基线与后续减重结果见 [启动器体积审计](launcher-size-audit.md)。
 
 Windows 默认设置 `QT_QUICK_BACKEND=software`，由 Qt 自带的二维光栅场景图绘制大厅和好友页，避免为这些二维界面捆绑约 19.7 MiB 的 Mesa `opengl32sw.dll`。它不依赖 GPU，也不改变 Minecraft 游戏自身的渲染。现有 QML 未使用 ShaderEffect 或 3D 效果；以后引入这些功能必须重新评估该规则。二维软件渲染会使用 CPU，显式设置的 `QT_QUICK_BACKEND` 会被保留；选硬件后端时需要系统驱动支持，包内不提供软件 OpenGL 回退。macOS 保持原生默认渲染后端。
 

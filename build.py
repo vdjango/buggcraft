@@ -141,7 +141,26 @@ def qml_exclusions():
     return excluded, sorted(m['name'] for m in modules)
 
 
-def make_command(onefile=False, output=None, jobs=None):
+def onefile_cache_tag(native=None):
+    """Keep cached payloads separate when application or native contents change."""
+    digest = hashlib.sha256()
+    paths = [ROOT / 'build.py', ROOT / 'requirements.txt', ROOT / 'requirements-build.txt',
+             ROOT / 'scripts/nuitka_launcher_plugin.py']
+    for folder in (ROOT / 'src/buggcraft', ROOT / 'resources', native):
+        if folder:
+            paths.extend(path for path in Path(folder).rglob('*') if path.is_file()
+                         and '__pycache__' not in path.parts
+                         and path.suffix not in ('.pyc', '.pyo', '.otf', '.icns'))
+    digest.update(sys.version.encode())
+    for path in sorted(set(paths)):
+        if path.is_file():
+            # Content, not an absolute build-machine path, identifies the release.
+            digest.update(path.name.encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:20]
+
+
+def make_command(onefile=False, output=None, jobs=None, native=None):
     root = Path(__file__).resolve().parent
     resources = root / 'resources'
     required = [resources / 'qml/multiplayer/Lobby.qml', resources / 'images/minecraft_bg.png',
@@ -178,6 +197,13 @@ def make_command(onefile=False, output=None, jobs=None):
                     '--noinclude-dlls=PySide6/qt-plugins/platforms/qminimal.dll',
                     '--include-windows-runtime-dlls=yes', '--msvc=latest',
                     f'--windows-icon-from-ico={resources / "icons/app.ico"}']
+        if onefile:
+            if native is None:
+                raise ValueError('Single-file releases require --native-bridge-dir')
+            command += [f'--user-plugin={root / "scripts/nuitka_launcher_plugin.py"}',
+                        f'--launcher-native={Path(native).resolve()}',
+                        '--onefile-cache-mode=cached', '--onefile-as-archive',
+                        '--onefile-tempdir-spec={CACHE_DIR}/Buggcraft/' + onefile_cache_tag(native)]
     elif platform.system() == 'Darwin':
         if onefile:
             raise ValueError('macOS builds use a standalone .app bundle; omit --onefile')
@@ -352,8 +378,8 @@ def main():
     parser.add_argument('--require-signature', action='store_true',
                         help='Fail the build unless the installer and launcher are signed')
     args = parser.parse_args()
-    if args.onefile and args.native_bridge_dir:
-        parser.error('--native-bridge-dir requires a standalone runtime; omit --onefile')
+    if args.onefile and not args.native_bridge_dir:
+        parser.error('--onefile requires --native-bridge-dir with the complete native runtime')
     if platform.system() not in ('Windows', 'Darwin'):
         parser.error('Release packaging currently supports Windows and macOS hosts')
     if platform.system() == 'Darwin' and (args.runtime_url or args.certificate_pin or
@@ -368,7 +394,7 @@ def main():
             parser.error('Certificate pin must be HOST:PORT=64-hex-digit-SHA256')
         pins[authority.lower()] = digest.lower()
     output = args.output.resolve()
-    command = make_command(args.onefile, output, args.jobs)
+    command = make_command(args.onefile, output, args.jobs, args.native_bridge_dir)
     if args.dry_run:
         print('\n'.join(command))
         return 0
@@ -398,6 +424,15 @@ def main():
                                  require=args.require_signature, names=['Buggcraft.exe'],
                                  thumbprint=args.sign_thumbprint, machine_store=args.sign_machine_store)
         (output / 'signing-status.json').write_text(json.dumps(signing, indent=2), encoding='utf-8')
+        executable = output / 'Buggcraft.exe'
+        with executable.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        manifest = dict(schema=1, platform='windows-x64', format='onefile', entrypoint=executable.name,
+                        size=executable.stat().st_size, sha256=digest,
+                        cache_tag=onefile_cache_tag(args.native_bridge_dir),
+                        signed=signing['signed'])
+        (output / 'release.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+        print(json.dumps(manifest))
     if not args.onefile:
         if args.native_bridge_dir:
             stage_native_bridge(output / 'main.dist', args.native_bridge_dir)

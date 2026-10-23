@@ -30,6 +30,8 @@
 
 ## 快速开始
 
+Windows 也可构建完整单文件 `Buggcraft.exe`，内置界面与原生联机依赖，无需旁边的 ZIP；首次解压内置依赖后复用本机缓存。构建方法、体积和启动计时见 [Windows 打包说明](docs/technical/windows-packaging.md)。
+
 最新开发包在 [GitHub Actions → Package launcher](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)：打开最近一次绿色通过的构建，在页面底部 **Artifacts** 下载对应系统的 `Buggcraft-…`。Windows 请解压后保留安装程序和运行包 ZIP 在同一目录。Actions 下载需要登录 GitHub；面向用户的版本包放在 Releases。详见[构建与下载说明](docs/technical/github-builds.md)。
 
 日常使用请从 [Releases](https://github.com/vdjango/buggcraft/releases) 下载构建包。Windows 版本使用小型启动程序，第一次运行时会将校验过的运行时下载到启动程序旁边；完整的 Qt 和 WebRTC 运行时会明显大于启动程序本身。构建或分发前请阅读 [Windows 打包说明](docs/technical/windows-packaging.md)。

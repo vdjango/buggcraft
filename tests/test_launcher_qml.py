@@ -7,6 +7,22 @@ from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
 class AllLauncherPagesTests(LauncherQmlCase):
+    def test_hidden_download_pages_create_hosts_only_when_displayed(self):
+        downloads = self.window.download_page
+        self.assertIsNone(downloads.tasks_page.host._quick)
+        self.assertIsNone(downloads.content_page.host._quick)
+        downloads.tasks_page.refresh_tasks()
+        self.assertIsNone(downloads.tasks_page.host._quick)
+        self.window.switch_pages('下载')
+        downloads.activate_index(1)
+        self.pump()
+        self.assertIsNotNone(downloads.tasks_page.quick.rootObject())
+        self.assertIsNone(downloads.content_page.host._quick)
+        downloads.activate_index(2)
+        self.pump()
+        self.assertIsNotNone(downloads.content_page.quick.rootObject())
+        self.assert_no_qml_errors()
+
     def test_same_main_button_handles_default_stop_and_multiple_start(self):
         from types import SimpleNamespace
         page = self.window.started_page
