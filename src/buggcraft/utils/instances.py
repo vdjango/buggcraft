@@ -1,5 +1,9 @@
 """Read local instance IDs without trusting a cached installation list."""
 from pathlib import Path
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def installed_instance_ids(directory):
@@ -7,8 +11,20 @@ def installed_instance_ids(directory):
         return []
     try:
         versions = Path(directory) / 'versions'
-        return sorted((p.name for p in versions.iterdir()
-                       if p.is_dir() and (p / (p.name + '.json')).is_file()), key=str.casefold)
+        result = []
+        for folder in versions.iterdir():
+            metadata = folder / (folder.name + '.json')
+            if not folder.is_dir() or not metadata.is_file():
+                continue
+            try:
+                data = json.loads(metadata.read_text(encoding='utf-8-sig'))
+                if not isinstance(data, dict):
+                    raise ValueError('版本 JSON 必须为对象')
+            except (OSError, ValueError) as exc:
+                logger.warning('跳过无法读取的版本文件 %s: %s；其他版本仍可正常使用', metadata, exc)
+                continue
+            result.append(folder.name)
+        return sorted(result, key=str.casefold)
     except OSError:
         return []
 

@@ -129,16 +129,18 @@ class TaskHistoryController(QObject):
 
 class DownloadWorkerSignals(QObject):
     status = Signal(str, str)
-    progress = Signal(str, int, int)
+    # Byte totals may exceed Qt's signed 32-bit int (large modpacks).
+    progress = Signal(str, object, object)
     resolved = Signal(str, str)
     downloaded = Signal(str, object)
+    archive_identified = Signal(str, str)
     finished = Signal(str, bool, str)
 
 
 class DownloadWorker(QRunnable):
     def __init__(self, task_id: str, version: str, game_dir: str, source: str,
                  loader=None, base_version=None, loader_version=None, java=None, modpack=None, api_key=None, content=None,
-                 addons=None, isolated=True):
+                 addons=None, isolated=True, archive_sha256=None):
         super().__init__()
         self.task_id = task_id
         self.version = version
@@ -149,6 +151,7 @@ class DownloadWorker(QRunnable):
         self.loader_version = loader_version
         self.java = java
         self.modpack = modpack
+        self.archive_sha256 = archive_sha256
         self.api_key = api_key
         self.content = content
         self.addons = addons or []
@@ -175,7 +178,9 @@ class DownloadWorker(QRunnable):
             if self.modpack:
                 from core.modpacks import ModpackImporter
                 ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
-                                status, progress, self.api_key).install(self.modpack, self.version)
+                                status, progress, self.api_key).install(
+                                    self.modpack, self.version, expected_archive_sha256=self.archive_sha256,
+                                    archive_identified=lambda digest: self.signals.archive_identified.emit(self.task_id, digest))
             elif self.content:
                 from core.content import download_content
                 files = download_content(self.content['version'], self.content['target'], self.content['kind'],
@@ -237,7 +242,7 @@ class TasksPage(QWidget):
         self._workers = {}
         self._closing = False
         self.pool = QThreadPool(self)
-        self.pool.setMaxThreadCount(1)
+        self.pool.setMaxThreadCount(4)
         self.view_controller = TaskHistoryController(self)
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -354,23 +359,50 @@ class TasksPage(QWidget):
                              key=lambda item: item["created_at"], reverse=True)
         self.view_controller.resetFilters()
         self._persist_and_refresh()
+        self._start_worker(task, api_key)
+        self.parent.on_progress_clicked()
+        return True
 
+    def _start_worker(self, task, api_key=None):
         source = self.settings_manager.get_setting(
             "settings.general.mirrors", "自动选择下载源（自动选择速度快的源）"
         )
         java = self.settings_manager.get_version_setting("java.path", None)
-        worker = DownloadWorker(task_id, version, game_dir, source, loader, base_version, loader_version, java,
-                                modpack, api_key, content, addons=addons,
-                                isolated=bool(self.settings_manager.get_version_setting('minecraft.isolation', True)))
+        task_id = task['id']
+        task['source'] = source
+        worker = DownloadWorker(task_id, task['version'], task['game_dir'], source,
+                                task.get('loader') or None, task.get('base_version') or None,
+                                task.get('loader_version') or None, java,
+                                task.get('modpack') or None, api_key, task.get('content') or None,
+                                addons=task.get('addons') or [],
+                                isolated=bool(self.settings_manager.get_version_setting('minecraft.isolation', True)),
+                                archive_sha256=task.get('archive_sha256'))
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
         worker.signals.resolved.connect(self.resolve_version)
         worker.signals.downloaded.connect(self.resolve_files)
+        worker.signals.archive_identified.connect(self.resolve_archive)
         worker.signals.finished.connect(self.finish_task)
         self._workers[task_id] = worker
         self.pool.start(worker)
+        self._schedule_save()
+
+    def _resume_modpack(self, task):
+        if self._closing or task['state'] == '已完成':
+            return
+        if any(item.get('version') == task['version'] and item.get('game_dir') == task['game_dir']
+               and item.get('state') in self.ACTIVE for item in self._tasks):
+            self.parent.on_progress_clicked()
+            return
+        task.update(state='等待中', status='正在恢复整合包安装，复用已校验的下载文件…',
+                    error='', progress=0, maximum=0,
+                    resumed_at=datetime.now(timezone.utc).isoformat(timespec='seconds'))
+        task.pop('finished_at', None)
+        self._log(task, task['status'])
+        self.view_controller.resetFilters()
+        self._persist_and_refresh()
+        self._start_worker(task)
         self.parent.on_progress_clicked()
-        return True
 
     def import_modpack(self, archive='', identity='', game_dir=None):
         controller = self.parent.content_page.controller
@@ -388,6 +420,13 @@ class TasksPage(QWidget):
         task = self._find_task(task_id)
         if task:
             task['downloaded_files'] = files
+            self._schedule_save()
+
+    @Slot(str, str)
+    def resolve_archive(self, task_id, digest):
+        task = self._find_task(task_id)
+        if task:
+            task['archive_sha256'] = digest
             self._schedule_save()
 
     @Slot(str, str)
@@ -409,15 +448,20 @@ class TasksPage(QWidget):
             self._update_row(task)
             self._schedule_save()
 
-    @Slot(str, int, int)
+    @Slot(str, object, object)
     def update_progress(self, task_id, progress, maximum):
         task = self._find_task(task_id)
         if not task:
             return
+        if maximum >= 0:
+            if progress < 0 or maximum != task.get('maximum'):
+                task['progress'] = 0
+            task["maximum"] = maximum
         if progress >= 0:
             task["progress"] = progress
-        if maximum >= 0:
-            task["maximum"] = maximum
+        # Different installation phases count bytes/files/processors. Never
+        # interpret an old phase's count against the new phase's total.
+        task['progress'] = max(0, min(task['progress'], task['maximum'])) if task['maximum'] else 0
         self._update_row(task)
         self._schedule_save()
 
@@ -506,7 +550,7 @@ class TasksPage(QWidget):
             from PySide6.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(os.path.abspath(task['downloaded_files'][0]))))
         elif task.get('modpack'):
-            self.import_modpack(task['modpack'], task['version'], task['game_dir'])
+            self._resume_modpack(task)
         elif task.get('content'):
             self.start_install(task['version'], task['game_dir'], content=task['content'])
         else:

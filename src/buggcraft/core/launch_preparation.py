@@ -39,8 +39,8 @@ def prepare_inherited(directory, version, callback, source='自动'):
     if not verified_installation(directory, base):
         MinecraftDownloader(directory, source=source, status=callback.get('setStatus'),
                             progress=lambda current, maximum: (
-                                callback.get('setProgress', lambda _: None)(current),
-                                callback.get('setMax', lambda _: None)(maximum))).install(base)
+                                callback.get('setMax', lambda _: None)(maximum),
+                                callback.get('setProgress', lambda _: None)(current))).install(base)
     # Import locally: the loader module also uses MinecraftDownloader.
     from core.loaders import _use_download_source
     with _use_download_source(source):

@@ -243,7 +243,7 @@ class ModpackImporter:
         if self.cancel.is_set():
             raise DownloadCancelled('整合包导入已取消，已校验下载会在重试时复用')
 
-    def install(self, archive_path, identity):
+    def install(self, archive_path, identity, *, expected_archive_sha256=None, archive_identified=None):
         instance_name(identity)
         info = inspect_pack(archive_path)
         target = disk_path(self.root / 'versions' / identity)
@@ -252,6 +252,16 @@ class ModpackImporter:
         self.check()
         self.progress(0, 0)
         self.status('[1/5] 正在解析 ' + info.source + ' 文件清单…')
+        digest = hashlib.sha256()
+        with open(archive_path, 'rb') as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                self.check()
+                digest.update(chunk)
+        archive_hash = digest.hexdigest()
+        if expected_archive_sha256 and archive_hash != expected_archive_sha256:
+            raise ValueError('原整合包文件已被替换，无法继续上次任务。请恢复原文件；新整合包请使用新的实例名称导入。')
+        if archive_identified:
+            archive_identified(archive_hash)
         if info.source == 'Modrinth':
             jobs = [(item['downloads'][0], item['path'], item['hashes']['sha1'].lower(), item['fileSize']) for item in info.files]
             for _, relative, _, _ in jobs:
@@ -261,12 +271,6 @@ class ModpackImporter:
         else:
             jobs = self.client.resolve(info.files) if info.files else []
         self.check()
-        digest = hashlib.sha256()
-        with open(archive_path, 'rb') as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b''):
-                self.check()
-                digest.update(chunk)
-        archive_hash = digest.hexdigest()
         cache = self.root / '.buggcraft-downloads' / 'modpacks' / archive_hash
         cache.mkdir(parents=True, exist_ok=True)
         downloader = MinecraftDownloader(cache / 'files', source=self.source, cancel=self.cancel,
@@ -361,6 +365,12 @@ class ModpackImporter:
                                             'loader': info.loader, 'loaderVersion': info.loader_version,
                                             'archiveSha256': archive_hash, 'recommendedRam': info.recommended_ram,
                                             'source': info.source}}
+            # Display metadata is optional for aliases. Include it when available
+            # for compatibility with other launchers, without inventing dates.
+            for key in ('type', 'time', 'releaseTime'):
+                value = parent.get(key)
+                if isinstance(value, str) and value:
+                    metadata[key] = value
             (stage / (identity + '.json')).write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8')
             (stage / 'buggcraft-modpack.json').write_text(json.dumps(metadata['buggcraftModpack'], ensure_ascii=False, indent=2), encoding='utf-8')
             self.check()

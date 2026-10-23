@@ -96,28 +96,27 @@ class SettingsManager:
         }
 
         # 获取已安装版本列表
-        import minecraft_launcher_lib
+        from utils.instances import installed_instance_ids
         # System installations remain available for explicit import/selection.
         # Fresh downloads belong next to this launcher, even if another game exists.
         minecraft_dirs = [str(get_default_minecraft_dir())]
 
         if minecraft_dirs and len(minecraft_dirs) > 0:
             minecraft_path = minecraft_dirs[0]
-            installed_versions = minecraft_launcher_lib.utils.get_installed_versions(minecraft_path)
+            # Imported aliases may inherit all display fields from their parent.
+            # The third-party scanner indexes optional releaseTime/type fields
+            # directly and can prevent the entire launcher from opening.
+            installed_versions = installed_instance_ids(minecraft_path)
             logger.info(f"在目录 {minecraft_path} 中找到 {len(installed_versions)} 个已安装版本:")
             if installed_versions and len(installed_versions) > 0 and minecraft_path:
                 # 默认启用版本
-                minecraft_version = [i['id'] for i in installed_versions]
+                minecraft_version = installed_versions
                 minecraft['directory']['enable'] = minecraft_path
                 minecraft['directory']['installed'] = minecraft_dirs
                 minecraft['version']['enable'] = minecraft_version[0]
                 minecraft['version']['installed'] = minecraft_version
 
-                for version in installed_versions:
-                    logger.info(f"版本ID: {version['id']}")
-                    logger.info(f"  类型: {version['type']}")
-                    logger.info(f"  发布日期: {version['releaseTime']}")
-                    logger.info("---")
+                logger.info("可用版本: %s", installed_versions)
 
         # 默认配置
         self.default_settings = {

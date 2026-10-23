@@ -92,11 +92,16 @@ def main(report):
                 or complete_auth_arguments(['${clientid}', '${auth_xuid}']) != ['', '0']):
             raise RuntimeError('Broken modern Minecraft authentication arguments')
         result['checks'].append('modern-minecraft-auth-arguments')
+        if os.name == 'nt':
+            import ctypes
+            if ctypes.windll.kernel32.GetConsoleWindow():
+                raise RuntimeError('Packaged launcher unexpectedly owns a console window')
+            result['checks'].append('no-windows-console')
         asyncio.run(check_peer())
         result['checks'].append('native-multiplayer-api')
 
         from PySide6.QtWidgets import QApplication
-        from PySide6.QtCore import QTimer, QObject
+        from PySide6.QtCore import QTimer, QObject, Qt
         from PySide6.QtQuickWidgets import QQuickWidget
         import config.settings as settings
         resources = Path(__import__('sys').executable).resolve().parent / 'resources'
@@ -109,6 +114,18 @@ def main(report):
         app = QApplication([])
         failures = []
         with tempfile.TemporaryDirectory(prefix='buggcraft-package-check-') as temp:
+            from utils.instances import installed_instance_ids
+            fixture_root = Path(temp) / 'test-game'
+            for identity, metadata in [('base', {'id': 'base'}),
+                                       ('imported', {'id': 'imported', 'inheritsFrom': 'base'})]:
+                path = fixture_root / 'versions' / identity / (identity + '.json')
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(metadata), encoding='utf-8')
+            (fixture_root / 'versions/broken').mkdir()
+            (fixture_root / 'versions/broken/broken.json').write_text('{broken', encoding='utf-8')
+            if installed_instance_ids(fixture_root) != ['base', 'imported']:
+                raise RuntimeError('Missing safe version scanning for inherited modpacks')
+            result['checks'].append('inherited-version-scan-safety')
             settings.get_conf_or_cache_manager = lambda: ('package-check', temp)
             settings._settings_manager_instance = settings.SettingsManager(temp)
             from utils.path_helper import get_default_minecraft_dir
@@ -119,6 +136,8 @@ def main(report):
             result['checks'].append('portable-game-directory')
             from windows.main_window import MinecraftLauncher
             window = MinecraftLauncher(str(resources.parent), temp, temp, str(resources))
+            window.setAttribute(Qt.WA_ShowWithoutActivating)
+            window.move(-20000, -20000)
             def exercise():
                 try:
                     window.show()
@@ -129,8 +148,29 @@ def main(report):
                     if '"launch-game"' not in home or 'launch-additional-game' in home:
                         raise RuntimeError('Game launch and multi-launch must reuse one primary control')
                     result['checks'].append('independent-game-sessions')
-                    window.started_page.show_multiplayer_dialog()
-                    lobby = window.started_page._multiplayer_dialog
+                    from ui.dialog.MultiplayerDialog import MultiplayerDialog
+                    lobby = MultiplayerDialog(window.started_page)
+                    window.started_page._multiplayer_dialog = lobby
+                    lobby.setAttribute(Qt.WA_ShowWithoutActivating)
+                    lobby.move(-20000, -20000)
+                    lobby.show()
+                    if lobby.parentWidget() is not None or lobby.windowHandle().transientParent() is not None:
+                        raise RuntimeError('Lobby must minimize independently of launcher')
+                    window.showMinimized()
+                    app.processEvents()
+                    if not lobby.isVisible() or lobby.isMinimized():
+                        raise RuntimeError('Launcher minimize incorrectly minimized lobby')
+                    result['checks'].append('independent-lobby-window')
+                    if window.download_page.tasks_page.pool.maxThreadCount() < 2:
+                        raise RuntimeError('Downloads unexpectedly restricted to one task')
+                    from utils.install_progress import InstallProgress
+                    percentages = []
+                    tracker = InstallProgress(percentages.append)
+                    tracker.set_max(5 * 1024 ** 3)
+                    tracker.set_progress(4 * 1024 ** 3)
+                    if percentages[-1] != 80:
+                        raise RuntimeError('Broken large-byte installer progress')
+                    result['checks'].extend(['concurrent-download-tasks', 'bounded-installer-progress'])
                     importer = window.download_page.content_page.controller
                     if hasattr(importer, 'key_input') or hasattr(importer, 'api_key'):
                         raise RuntimeError('Modpack import must not request an API key')
@@ -143,7 +183,7 @@ def main(report):
                     from utils.diagnostics import export_diagnostics
                     from zipfile import ZipFile
                     game_logs = Path(temp) / 'test-game/logs'
-                    game_logs.mkdir(parents=True)
+                    game_logs.mkdir(parents=True, exist_ok=True)
                     (game_logs / 'latest.log').write_text('fixture --accessToken package-check-secret', encoding='utf-8')
                     diagnostic = export_diagnostics(Path(temp) / 'diagnostics.zip', game_directory=game_logs.parent)
                     with ZipFile(diagnostic) as bundle:
@@ -159,7 +199,11 @@ def main(report):
                             raise RuntimeError('Missing mod and runtime inventory')
                     result['checks'].extend(['modpack-no-api-key', 'diagnostic-export',
                                              'network-topology-export', 'game-crash-log-export', 'mod-runtime-inventory'])
-                    lobby.show_friends()
+                    from ui.dialog.FriendsDialog import FriendsDialog
+                    lobby.friends_window = FriendsDialog(lobby, lobby.resources)
+                    lobby.friends_window.setAttribute(Qt.WA_ShowWithoutActivating)
+                    lobby.friends_window.move(-20000, -20000)
+                    lobby.friends_window.show()
                     app.processEvents()
                     quicks = window.findChildren(QQuickWidget) + [lobby.quick, lobby.friends_window.quick]
                     for quick in quicks:

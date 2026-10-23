@@ -27,6 +27,7 @@ from core.downloads import verified_installation
 from core.launch_preparation import prepare_inherited, inherited_command
 from core.memory import AdvancedMemoryRecommender
 from core.java_runtime import select_java, JavaRuntimeUnavailable
+from utils.install_progress import InstallProgress
 
 
 logger = logging.getLogger(__name__)
@@ -276,10 +277,11 @@ class MinecraftLibLauncher(QObject):
             
             # 安装游戏库文件
             self.signals.output.emit("正在安装游戏库文件...")
+            install_progress = InstallProgress(self.signals.progress.emit)
             callback = {
                 "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
-                "setProgress": self.signals.progress.emit,
-                "setMax": lambda value: self.signals.output.emit(f"[最大] {value}")
+                "setProgress": install_progress.set_progress,
+                "setMax": install_progress.set_max,
             }
             jar_owner = None
             if metadata.get('inheritsFrom'):
@@ -288,15 +290,10 @@ class MinecraftLibLauncher(QObject):
                     self.settings_manager.get_setting('settings.general.mirrors', '自动'))
                 options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')
             elif not verified_installation(self.minecraft_directory, self.minecraft_version):
-                minecraft_launcher_lib.install.install_minecraft_version(
-                    self.minecraft_version,
-                    self.minecraft_directory,
-                    callback={
-                        "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
-                        "setProgress": lambda progress: self.signals.progress.emit(progress),
-                        "setMax": lambda max_value: self.signals.output.emit(f"[最大] {max_value}")
-                    }
-                )
+                from core.loaders import _use_download_source
+                with _use_download_source(self.settings_manager.get_setting('settings.general.mirrors', '自动')):
+                    minecraft_launcher_lib.install.install_minecraft_version(
+                        self.minecraft_version, self.minecraft_directory, callback=callback)
 
             # Each process loads its own native files. A second inherited launch
             # can then prepare libraries without overwriting DLLs used by the first.

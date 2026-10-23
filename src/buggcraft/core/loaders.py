@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import logging
 import json
 import os
 import re
@@ -17,11 +18,47 @@ import minecraft_launcher_lib
 import requests
 
 from core.downloads import MinecraftDownloader
+from utils.download_locks import download_lock
 
 
 BMCLAPI = "https://bmclapi2.bangbang93.com"
 _MAVEN_MIRROR = BMCLAPI + "/maven"
 _PATCH_LOCK = threading.RLock()
+logger = logging.getLogger(__name__)
+
+
+class _QuietSubprocess:
+    """Local facade for dependency installers; never patch global subprocess."""
+    def __init__(self, original, cancel=None):
+        self.original = original
+        self.cancel = cancel
+
+    def __getattr__(self, name):
+        return getattr(self.original, name)
+
+    def run(self, command, **kwargs):
+        if self.cancel is not None and self.cancel.is_set():
+            raise InterruptedError('安装已取消')
+        if os.name == 'nt':
+            kwargs['creationflags'] = kwargs.get('creationflags', 0) | subprocess.CREATE_NO_WINDOW
+        kwargs.setdefault('stdin', subprocess.DEVNULL)
+        # Forge processors previously inherited the console and ignored failures.
+        if not kwargs.get('capture_output'):
+            kwargs.setdefault('stdout', subprocess.PIPE)
+            kwargs.setdefault('stderr', subprocess.STDOUT)
+        kwargs.setdefault('check', True)
+        try:
+            result = self.original.run(command, **kwargs)
+        except subprocess.CalledProcessError as exc:
+            output = exc.stdout or exc.stderr or ''
+            if isinstance(output, bytes):
+                output = output.decode('utf-8', errors='replace')
+            logger.error('Installer processor failed: exit=%s\n%s', exc.returncode, output[-12000:])
+            raise RuntimeError(f'依赖处理器运行失败（退出码 {exc.returncode}）：{output[-2000:]}') from exc
+        if result.stdout:
+            output = result.stdout.decode('utf-8', errors='replace') if isinstance(result.stdout, bytes) else str(result.stdout)
+            logger.info('Installer processor output:\n%s', output[-12000:])
+        return result
 
 
 def _source_mode(source):
@@ -207,6 +244,11 @@ class _LoaderSession:
 def _routed_downloader(download_file, source, cancel=None):
     def download(url, path, callback=None, sha1=None, lzma_compressed=False, session=None,
                  minecraft_directory=None, overwrite=False):
+        with download_lock(path, cancel):
+            return perform(url, path, callback, sha1, lzma_compressed, session, minecraft_directory, overwrite)
+
+    def perform(url, path, callback=None, sha1=None, lzma_compressed=False, session=None,
+                minecraft_directory=None, overwrite=False):
         path = os.fspath(path)
         if os.path.isfile(path) and not overwrite:
             if sha1 is None or _file_sha1(path) == sha1.lower():
@@ -304,14 +346,21 @@ def _use_download_source(source, cancel=None):
                minecraft_launcher_lib.quilt]
     with _PATCH_LOCK:
         originals = []
+        process_modules = []
         try:
             for module in modules:
+                process = getattr(module, 'subprocess', None)
+                if process is not None:
+                    process_modules.append((module, process))
+                    module.subprocess = _QuietSubprocess(process, cancel)
                 original = getattr(module, "download_file", None)
                 if original:
                     originals.append((module, original))
                     module.download_file = _routed_downloader(original, source, cancel)
             yield
         finally:
+            for module, original in process_modules:
+                module.subprocess = original
             for module, original in originals:
                 module.download_file = original
 
@@ -391,6 +440,14 @@ def _neo_forge(version, directory, java, callback, cancel, source):
 
 def install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel,
                    source="自动（官方优先，失败切换镜像）"):
+    # Installers also write shared profiles and extract native files, outside
+    # fetch(). Serialize this mutation phase per game root; resource downloads
+    # and modpack file batches remain parallel.
+    with download_lock(Path(directory) / '.buggcraft-loader-install', cancel):
+        return _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source)
+
+
+def _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source):
     def report(name):
         def checked(value):
             if cancel.is_set():
@@ -403,8 +460,8 @@ def install_loader(loader, minecraft_version, loader_version, directory, java, c
     downloader = MinecraftDownloader(
         directory, source=source, cancel=cancel,
         status=monitored["setStatus"],
-        progress=lambda current, maximum: (monitored["setProgress"](current),
-                                            monitored["setMax"](maximum)),
+        progress=lambda current, maximum: (monitored["setMax"](maximum),
+                                            monitored["setProgress"](current)),
     )
     downloader.install(minecraft_version)
     if cancel.is_set():

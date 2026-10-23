@@ -1,6 +1,7 @@
 """Compatibility command that replaces itself with the native stdio bridge."""
 import os
 import asyncio
+import subprocess
 from .native_routes import executable
 
 async def main():
@@ -11,7 +12,8 @@ async def main():
         os.execv(binary, [binary])
     # Windows execv exits the wrapper before the native child has finished.
     # Keep ownership of its pipes and lifetime for CLI callers and test tools.
-    process = await asyncio.create_subprocess_exec(binary)
+    process = await asyncio.create_subprocess_exec(
+        binary, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     try:
         status = await process.wait()
     finally:

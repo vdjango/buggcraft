@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import requests
 
 from utils.archives import extract_zip
+from utils.download_locks import download_lock
 
 
 MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
@@ -151,6 +152,10 @@ class MinecraftDownloader:
         return target
 
     def fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None):
+        with download_lock(self.inside(relative), self.cancel):
+            return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress)
+
+    def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None):
         """Download into a temporary file; never publish truncated files."""
         target = self.inside(relative)
         self.check_cancelled()
@@ -316,6 +321,10 @@ class MinecraftDownloader:
     def install(self, version):
         if not version or version in (".", "..") or any(c in version for c in '/\\:'):
             raise ValueError("无效的游戏版本")
+        with download_lock(self.inside(f'versions/{version}/.buggcraft-install'), self.cancel):
+            return self._install(version)
+
+    def _install(self, version):
         self.status(f"正在准备 Minecraft {version}…")
         manifest = self.manifest()
         entry = next((item for item in manifest["versions"] if item["id"] == version), None)

@@ -74,7 +74,7 @@ class FriendsDialog(QDialog):
     def __init__(self, owner, resources):
         # Anchor to the launcher, not to the hideable lobby. This window must
         # remain independently usable when opened directly from the home page.
-        anchor = owner.parentWidget()
+        anchor = getattr(owner, 'launcher_page', None) or owner.parentWidget()
         while anchor is not None and not anchor.isWindow():
             anchor = anchor.parentWidget()
         super().__init__(anchor or owner, Qt.Window | Qt.FramelessWindowHint)

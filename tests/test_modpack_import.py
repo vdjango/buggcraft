@@ -97,6 +97,23 @@ class ModpackTests(unittest.TestCase):
         self.assertFalse((self.game / 'versions' / 'cancelled').exists())
         self.assertEqual(list((self.game / '.buggcraft-downloads/modpacks').glob('*/instance-*')), [])
 
+    def test_imported_alias_copies_display_fields_from_core_for_other_launchers(self):
+        self.manifest['files'] = []
+        self.pack()
+        def loader(*args, **kwargs):
+            identity = self.install_loader(*args, **kwargs)
+            core = self.game / 'versions/1.20.1/1.20.1.json'
+            data = json.loads(core.read_text(encoding='utf-8'))
+            data.update(type='release', time='2023-06-12T12:00:00Z', releaseTime='2023-06-12T12:00:00Z')
+            core.write_text(json.dumps(data), encoding='utf-8')
+            return identity
+        with patch('core.modpacks.install_loader', side_effect=loader):
+            ModpackImporter(self.game).install(self.archive, 'Display-fields')
+        metadata = json.loads((self.game / 'versions/Display-fields/Display-fields.json').read_text(encoding='utf-8'))
+        self.assertEqual(metadata['type'], 'release')
+        self.assertEqual(metadata['releaseTime'], '2023-06-12T12:00:00Z')
+        self.assertEqual(metadata['time'], metadata['releaseTime'])
+
     def test_bundled_copy_of_manifest_file_is_deduplicated_only_if_identical(self):
         payload = b'identical bundled and downloaded resource'
         jobs = [('https://edge.forgecdn.net/files/0/20/resource.zip', 'resourcepacks/resource.zip',

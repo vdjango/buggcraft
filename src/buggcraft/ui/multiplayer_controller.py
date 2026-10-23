@@ -34,6 +34,7 @@ class MultiplayerController(QObject):
     def __init__(self, window, storage_path=None):
         super().__init__(window)
         self.window = window
+        self.launcher_page = getattr(window, "launcher_page", None) or window.parent()
         self.service = TunnelService()
         self.jobs = set()
         self.game = {}
@@ -73,7 +74,7 @@ class MultiplayerController(QObject):
                            instances=[], instanceId='', instanceLoading=False, instanceError='',
                            instanceLocked=False, chatMessages=[], chatState=self.chat_state,
                            bridgeStatus=self.bridge_status, chatError='', chatDraft='', chatSending=False)
-        start_page = window.parent()
+        start_page = self.launcher_page
         main_window = getattr(start_page, 'parent', None)
         cache = getattr(main_window, 'cache_path', None)
         root = Path(cache or QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)) / 'multiplayer'
@@ -520,7 +521,7 @@ class MultiplayerController(QObject):
         self.job(key, check())
 
     def select_instance(self, version):
-        page = self.window.parent()
+        page = self.launcher_page
         launcher = getattr(page, 'launcher', None)
         if not launcher or self._state['instanceLocked'] or getattr(launcher, 'running', False):
             raise ValueError('请先退出当前游戏，再切换游戏配置。')
@@ -538,7 +539,7 @@ class MultiplayerController(QObject):
     def detect_instance(self):
         if self.closed:
             return
-        page = self.window.parent()
+        page = self.launcher_page
         launcher = getattr(page, 'launcher', None)
         if not launcher:
             return
@@ -569,7 +570,7 @@ class MultiplayerController(QObject):
         self.job(key, asyncio.to_thread(instance_metadata, directory, version, game_directory))
 
     def detect_runtime(self):
-        page = self.window.parent()
+        page = self.launcher_page
         launcher = getattr(page, 'launcher', None)
         if launcher and not self.runtime_job and not self.closed:
             self.runtime_job = True
@@ -611,7 +612,7 @@ class MultiplayerController(QObject):
         if game_chat_enabled:
             from hookup.chat_validation import bridge_player_name
             game_chat_name = bridge_player_name(data.get('gameChatName', 'BuggChat'))
-            current = getattr(getattr(self.window.parent(), 'auth_manager', None), 'current', None)
+            current = getattr(getattr(self.launcher_page, 'auth_manager', None), 'current', None)
             username = getattr(current, 'username', '')
             if isinstance(username, str) and game_chat_name.casefold() == username.casefold():
                 raise ValueError('虚拟玩家不能与当前游戏玩家重名，请更换英文名称。')
@@ -677,7 +678,7 @@ class MultiplayerController(QObject):
                               'bridgeStatus': endpoint.bridge_status if endpoint.role == 'host' else
                                               '正在读取房主的游戏聊天设置…'}
         self.records[name]['availability'] = 'ready'
-        page = self.window.parent()
+        page = self.launcher_page
         current = getattr(getattr(page, 'auth_manager', None), 'current', None)
         nickname = getattr(current, 'username', '') or '玩家'
         endpoint.chat_name = ''.join(ch for ch in nickname if ch.isprintable() and ch != '§')[:32] or '玩家'
@@ -792,7 +793,7 @@ class MultiplayerController(QObject):
         name = self._state['selected']
         record = self.records.get(name)
         endpoint = self.service.endpoints.get(name)
-        page = self.window.parent()
+        page = self.launcher_page
         if not record or not endpoint or record['state'] != 'online':
             raise ValueError('房间尚未连接。')
         if record.get('availability') == 'waiting' and record['role'] != 'host':
@@ -825,7 +826,7 @@ class MultiplayerController(QObject):
         name = self._state['selected']
         record = self.records.get(name)
         endpoint = self.service.endpoints.get(name)
-        page = self.window.parent()
+        page = self.launcher_page
         if not record or not endpoint or record['role'] != 'client' or record['state'] != 'online':
             raise ValueError('请先加入一个房间。')
         if page.current_client or self.external_running or getattr(page.launcher, 'running', False):
@@ -986,7 +987,7 @@ class MultiplayerController(QObject):
                 # Metadata refresh is asynchronous. The selected room is now
                 # isolated and verified; startup uses its local proxy address.
                 endpoint = self.service.endpoints.get(name)
-                page = self.window.parent()
+                page = self.launcher_page
                 if endpoint and page.auth_manager.is_authenticated() and record.get('availability') != 'waiting':
                     page.started_game(server=f'127.0.0.1:{endpoint.listen_port}')
                     self.patch(notice='配置已准备完成，游戏正在启动并连接房间。')

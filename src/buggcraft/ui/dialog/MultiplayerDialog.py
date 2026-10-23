@@ -10,9 +10,14 @@ from ui.multiplayer_controller import MultiplayerController
 
 class MultiplayerDialog(QDialog):
     def __init__(self, parent=None, storage_path=None):
-        super().__init__(parent)
+        # A native owned dialog is minimized automatically with its owner on
+        # Windows. Lifecycle remains explicitly managed by the launcher.
+        super().__init__(None, Qt.Window | Qt.FramelessWindowHint)
+        self.launcher_page = parent
+        self._shutdown = False
+        if parent is not None:
+            parent.destroyed.connect(self.deleteLater)
         self.setWindowTitle('Buggcraft · 一起玩')
-        self.setWindowFlag(Qt.FramelessWindowHint)
         # Match the launcher's original collapsed canvas (926 - 205, 505).
         main_window = getattr(parent, 'parent', None)
         background = getattr(main_window, 'bg_image', None)
@@ -63,6 +68,9 @@ class MultiplayerDialog(QDialog):
         self.friends_window.activateWindow()
 
     def shutdown(self):
+        if self._shutdown:
+            return
+        self._shutdown = True
         self.timer.stop()
         self.runtime_timer.stop()
         if self.friends_window:

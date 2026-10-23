@@ -126,7 +126,9 @@ class LauncherProcessTests(unittest.TestCase):
     def test_debug_command_redacts_secret_and_final_output_is_delivered(self):
         output = []
         self.launcher.signals.output.connect(output.append)
-        self._start()
+        process = self._start()
+        if os.name == 'nt':
+            self.assertTrue(process['creationflags'] & subprocess.CREATE_NO_WINDOW)
         self.assertNotIn('fixture-token', '\n'.join(output))
         self.assertIn('final child output', output)
 

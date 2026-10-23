@@ -16,6 +16,19 @@ import requests
 
 
 class DownloadTransportTests(unittest.TestCase):
+    def test_parallel_tasks_share_one_verified_target_without_part_file_races(self):
+        from concurrent.futures import ThreadPoolExecutor
+        second = MinecraftDownloader(self.temp.name, source='官方')
+        digest = hashlib.sha1(self.payload).hexdigest()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(downloader.fetch, self.url, 'shared/mod.jar', digest, len(self.payload))
+                       for downloader in (self.downloader, second)]
+            paths = [future.result(timeout=5) for future in futures]
+        self.assertEqual(paths[0], paths[1])
+        self.assertEqual(paths[0].read_bytes(), self.payload)
+        self.assertEqual(self.requests, ['/artifact'])
+        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part')))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
