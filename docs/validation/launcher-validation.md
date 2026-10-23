@@ -12,6 +12,10 @@
 
 本轮在用模块组合回归 **135 项通过**（56.267 秒），覆盖下载/导入、全 QML、Java/继承/多开启动、游戏日志、浅目录启动、可移植目录及打包裁剪。证据：本地 `error/content-fix-20261023/regression-final.log`、`downloads-after.json`、`packs-after.json`、`forgecdn-samples.json`；不提交游戏文件或用户日志。
 
+补充验证：三个原始压缩包全部条目的 CRC 检查通过；Windows 窗口平台的两个拖放专项通过，测试窗口禁止在屏幕显示。打包排除原生绑定的 `__pycache__`、`.pyc`、`.pyo`，保留 `.py` 绑定；打包专项 **15 项通过**（含与前述组合重叠的用例）。运行时新生成的字节码不进入发行清单，避免本地路径引起缓存变化后误报损坏。
+
+最终 Windows 输出：`dist/release-20261023-content-fix/release/`。运行 ZIP **59,557,916 字节**（56.80 MiB），安装器 **430,592 字节**；SHA-256 为 `2c4b2611622879c3195d599133e371cb68819d8783f2cc3b6dc38dd5a8fd8e92`。在隔离中文目录安装成功，启动器 **19 项成品检查通过**，ZIP CRC、清单内 **652 个文件**的包内/安装后哈希均一致，PE GUI 子系统为 2，不带控制台。初次产物曾被本机应用控制策略以 4551 拦截；最终重打包的安装器与启动器验证均正常，未改动系统安全策略，不推断拦截消失的原因。安装包仍未签名，安装器与 ZIP 须放在一起使用。证据：`package-validation.json`、`installed-package-check.json`、`archives-crc.json`。当前玩家进程未重启或关闭。
+
 ## 2026-10-23 发布前复核与 Windows 成品
 
 本节更新先前“尚未编译发布包”的状态。正式联机链路已切换到 C++ 原生库；历史 Python 实现保存在 `compatibility/legacy_hookup/`，不进入发行包。原生组件源码固定为 `minecraft-tunnel-native@8853609ec127fb9de79d5196c2a989d240ae6266`。

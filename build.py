@@ -39,7 +39,7 @@ def stage_native_bridge(runtime, package):
     for folder in ('bin', 'lib', 'share'):
         if (package / folder).is_dir():
             shutil.copytree(package / folder, destination / folder,
-                ignore=shutil.ignore_patterns('buggcraft-core', 'buggcraft-core.exe'))
+                ignore=shutil.ignore_patterns('buggcraft-core', 'buggcraft-core.exe', '__pycache__', '*.pyc', '*.pyo'))
     files = {path.relative_to(destination).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
              for path in destination.rglob('*') if path.is_file()}
     (destination / 'manifest.json').write_text(json.dumps(dict(schema=1, files=files), indent=2), encoding='utf-8')

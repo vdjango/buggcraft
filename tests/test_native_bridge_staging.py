@@ -51,6 +51,23 @@ class NativeBridgeStagingTests(unittest.TestCase):
             build.stage_native_bridge(self.runtime, self.package)
         self.assertEqual((staged / 'existing').read_bytes(), b'keep')
 
+    def test_binding_bytecode_caches_are_not_packaged_or_hashed(self):
+        binding = self.package / 'share/buggcraft-native/python'
+        cache = binding / '__pycache__'
+        cache.mkdir(parents=True)
+        (cache / 'buggcraft_bridge.cpython-311.pyc').write_bytes(b'local build cache')
+        (binding / 'old.pyc').write_bytes(b'local bytecode')
+        (binding / 'old.pyo').write_bytes(b'local optimized bytecode')
+        (binding / 'buggcraft_bridge.py').write_text('# source binding')
+        build.stage_native_bridge(self.runtime, self.package)
+        staged = self.runtime / 'native'
+        self.assertTrue((staged / 'share/buggcraft-native/python/buggcraft_bridge.py').is_file())
+        self.assertFalse(list(staged.rglob('__pycache__')))
+        self.assertFalse(list(staged.rglob('*.pyc')))
+        self.assertFalse(list(staged.rglob('*.pyo')))
+        manifest = json.loads((staged / 'manifest.json').read_text())
+        self.assertFalse(any('__pycache__' in name or name.endswith(('.pyc', '.pyo')) for name in manifest['files']))
+
     def test_replacement_removes_stale_native_files_and_preserves_launcher(self):
         staged = self.runtime / 'native'
         staged.mkdir(parents=True)
