@@ -3,12 +3,14 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+import test_game_status as status_fixture
+
 if __package__:
     from . import test_room_chat as fixture
 else:
     import test_room_chat as fixture
 from hookup.relay import TunnelHost, TunnelClient
-from hookup.rooms import request
+from hookup.rooms import discover_local_worlds, request
 
 
 class RoomLifecycleTests(unittest.IsolatedAsyncioTestCase):
@@ -123,6 +125,26 @@ class RoomLifecycleTests(unittest.IsolatedAsyncioTestCase):
         await host.stop()
         await self.wait(lambda: client._stopped)
         self.assertEqual(client.room_state, 'closed')
+
+    async def test_waiting_room_becomes_ready_after_detecting_unadvertised_world(self):
+        port = await status_fixture.GameStatusTests.server(self)
+        host = await self.endpoint(TunnelHost, game_port=0, room_settings={
+            'title': 'Game opened later', 'public': False, 'capacity': 10,
+            'game': {'version': '1.21.8', 'protocol': 772, 'loader': 'vanilla'}})
+        client = await self.endpoint(TunnelClient, host.invite)
+        await self.wait(lambda: client.room_state == 'waiting')
+        original_invite = host.invite.encode()
+        with patch('hookup.rooms._advertised_world_ports', return_value=set()), \
+                patch('hookup.rooms._java_listening_ports', return_value={port}):
+            worlds = await discover_local_worlds(seconds=0)
+        self.assertEqual([world['port'] for world in worlds], [port])
+        await host.retarget_world(worlds[0]['port'])
+        await self.wait(lambda: client.room_state == 'ready')
+        self.assertEqual(host.game_port, port)
+        self.assertEqual(host.invite.encode(), original_invite)
+        await client.send_chat('world discovered, room still connected')
+        await self.wait(lambda: any(event.get('text') == 'world discovered, room still connected'
+                                   for event in self.events[host]))
 
 
 if __name__ == '__main__':

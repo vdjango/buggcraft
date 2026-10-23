@@ -61,32 +61,15 @@ def check_python_runtime():
 
 
 async def check_peer():
-    from hookup.peer import PeerTransport
-    transport = PeerTransport(None)
-    first = transport.create_pc()
-    second = transport.create_pc()
-    payload = os.urandom(65536)
-    received = asyncio.get_running_loop().create_future()
-    channel = first.createDataChannel('package-check', ordered=True)
-    channel.on('open', lambda: channel.send(payload))
-    @second.on('datachannel')
-    def on_channel(remote):
-        @remote.on('message')
-        def on_message(data):
-            remote.send(data)
-    @channel.on('message')
-    def on_message(data):
-        if not received.done():
-            received.set_result(data)
+    from hookup.native_routes import manager, close
     try:
-        await first.setLocalDescription(await first.createOffer())
-        await second.setRemoteDescription(first.localDescription)
-        await second.setLocalDescription(await second.createAnswer())
-        await first.setRemoteDescription(second.localDescription)
-        if await asyncio.wait_for(received, 15) != payload:
-            raise RuntimeError('P2P payload mismatch')
+        result = await manager().request('bridge.initialize', {'protocol': 1})
+        if result.get('build', {}).get('implementation') != 'cpp':
+            raise RuntimeError('The installed multiplayer bridge is not C++')
+        if not {'mods.fetch', 'room.host', 'room.join', 'social.operate'} <= set(result.get('methods', [])):
+            raise RuntimeError('The native multiplayer bridge is out of date')
     finally:
-        await asyncio.gather(transport.close_pc(first), transport.close_pc(second))
+        await close()
 
 
 def main(report):
@@ -100,33 +83,19 @@ def main(report):
         result['checks'].extend(['python-stdlib-extensions', 'zip-bzip2-lzma',
                                  'java-tar-gz-bz2-xz', 'xml-decimal-uuid',
                                  'threaded-hashing-tls'])
-        import asyncssh
         import certifi
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        key = asyncssh.generate_private_key('ssh-ed25519')
-        signature = key.sign(b'package-check', b'ssh-ed25519')
-        if not asyncssh.import_public_key(key.export_public_key()).verify(b'package-check', signature):
-            raise RuntimeError('SSH signature failed')
-        cipher = AESGCM(AESGCM.generate_key(bit_length=256))
-        nonce = os.urandom(12)
-        if cipher.decrypt(nonce, cipher.encrypt(nonce, b'check', b'context'), b'context') != b'check':
-            raise RuntimeError('AES-GCM failed')
         if not Path(certifi.where()).is_file():
             raise RuntimeError('Missing HTTPS CA bundle')
-        from hookup.game_chat import PROFILES
-        from hookup.legacy_chat import PACKETS
-        if not PROFILES or not PACKETS:
-            raise RuntimeError('Missing protocol resources')
-        result['checks'].extend(['ssh-ed25519', 'aes-gcm', 'https-ca', 'game-protocol-data'])
+        result['checks'].append('https-ca')
         from core.launch_options import complete_auth_arguments, offline_uuid
         if (offline_uuid('Notch') != 'b50ad385-829d-3141-a216-7e7d7539ba7f'
                 or complete_auth_arguments(['${clientid}', '${auth_xuid}']) != ['', '0']):
             raise RuntimeError('Broken modern Minecraft authentication arguments')
         result['checks'].append('modern-minecraft-auth-arguments')
         asyncio.run(check_peer())
-        result['checks'].extend(['webrtc-dtls-key', 'webrtc-65536-bytes-roundtrip'])
+        result['checks'].append('native-multiplayer-api')
 
-        from PySide6.QtWidgets import QApplication, QLineEdit
+        from PySide6.QtWidgets import QApplication
         from PySide6.QtCore import QTimer, QObject
         from PySide6.QtQuickWidgets import QQuickWidget
         import config.settings as settings
@@ -156,16 +125,19 @@ def main(report):
                     from core.game_sessions import GameSessions
                     if not isinstance(window.launcher, GameSessions):
                         raise RuntimeError('Missing independent game session ownership')
-                    if not hasattr(window.started_page, 'additional_game_btn'):
-                        raise RuntimeError('Missing additional game launch control')
+                    home = (resources / 'qml/launcher/Home.qml').read_text(encoding='utf-8')
+                    if '"launch-game"' not in home or 'launch-additional-game' in home:
+                        raise RuntimeError('Game launch and multi-launch must reuse one primary control')
                     result['checks'].append('independent-game-sessions')
                     window.started_page.show_multiplayer_dialog()
                     lobby = window.started_page._multiplayer_dialog
-                    from ui.dialog.ModpackImportDialog import ModpackImportDialog
-                    importer = ModpackImportDialog()
-                    if hasattr(importer, 'key_input') or len(importer.findChildren(QLineEdit)) != 2:
+                    importer = window.download_page.content_page.controller
+                    if hasattr(importer, 'key_input') or hasattr(importer, 'api_key'):
                         raise RuntimeError('Modpack import must not request an API key')
-                    importer.close()
+                    from ui.pages.qml_host import QmlPage
+                    for host in window.findChildren(QmlPage):
+                        host.ensure_loaded()
+                    result['checks'].append('qml-all-launcher-pages')
                     if lobby.quick.rootObject().findChild(QObject, 'export-diagnostics') is None:
                         raise RuntimeError('Missing multiplayer diagnostic export action')
                     from utils.diagnostics import export_diagnostics

@@ -152,6 +152,20 @@ class LauncherProcessTests(unittest.TestCase):
             self._start()
         self.assertTrue(self.record.exists())
 
+    def test_configured_java_25_is_passed_to_command_without_overwriting_selected_java(self):
+        metadata = self.root / 'versions/fixture/fixture.json'
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({'javaVersion': {'majorVersion': 25}}), encoding='utf-8')
+        java25 = self.work / 'java25.exe'
+        java25.touch()
+        self.manager.set_setting('java.installations', [[str(java25), 'cached', [25]]])
+        with patch('config.javafinder.JavaPathFinder._get_java_version', side_effect=lambda path:
+                   ('25', (25, 0, 1)) if path == str(java25) else ('21', (21, 0, 1))):
+            self._start()
+        self.assertEqual(self.options['executablePath'], str(java25))
+        self.assertEqual(self.manager.get_version_setting('java.path'), sys.executable)
+        self.assertTrue(self.record.exists())
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

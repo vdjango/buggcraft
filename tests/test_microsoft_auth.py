@@ -328,7 +328,7 @@ class LoginDialogTests(unittest.TestCase):
             self.app.processEvents()
         self.assertEqual(start.call_count, 2)
         self.dialog.auth.signals.progress.emit('latest status')
-        self.assertEqual(self.dialog.info_label.text(), 'latest status')
+        self.assertEqual(self.dialog.controller.message, 'latest status')
 
     def test_reject_before_queued_start_prevents_background_login(self):
         with patch.object(self.dialog.auth, 'start_login') as start:
@@ -339,7 +339,7 @@ class LoginDialogTests(unittest.TestCase):
 
     def test_device_code_copy_has_real_clipboard_behavior(self):
         self.dialog.show_device_code('TEST-CODE', 'https://microsoft.com/devicelogin')
-        self.dialog.copy_code_button.click()
+        self.dialog.controller.copyCode()
         self.assertEqual(self.app.clipboard().text(), 'TEST-CODE')
 
 

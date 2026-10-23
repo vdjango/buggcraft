@@ -1,5 +1,115 @@
 # 启动器操作排查与验收
 
+## 2026-10-23 发布前复核与 Windows 成品
+
+本节更新先前“尚未编译发布包”的状态。正式联机链路已切换到 C++ 原生库；历史 Python 实现保存在 `compatibility/legacy_hookup/`，不进入发行包。原生组件源码固定为 `minecraft-tunnel-native@415adda8b781f44dc18d93f04a7270e4412b8d07`。
+
+- 启动器日志、网络拓扑与游戏/模组诊断、Java 选择、游戏进程、整合包、下载与全部 QML 页面相关回归 **147 项通过**（31.792 秒）。新增浅层目录保护后，原生库定位/路由/切换回归 **14 项通过**（1.333 秒）；打包裁剪、macOS 规则及原生安装树回归 **11 项通过**（0.167 秒）。用例有重叠，不合计为独立用例数。
+- 补充安装器、窗口状态、字体、资源详情、导入入口与登录回归 **80 项通过**（35.339 秒）。原生仓库 CTest **2 项通过**；真实 C ABI/可执行程序互通、P2P 与中继混合、模组校验传输、好友授权及玩家日志测试 **18 项中 17 项通过、1 项跳过**（Windows 未授予创建符号链接权限，20.965 秒）。
+- 原版 Minecraft **26.3** 使用独立测试目录与 Mojang Java 25.0.1 实际启动，显示游戏窗口并完成 GUI 图集渲染，继续观察 **30 秒** 未闪退。仅结束本轮测试进程，没有进入世界、修改玩家存档或停止其他游戏。[实测结果](../../../buggcraft/dist/minecraft-26.3-live/validation.json)
+- Windows 成品在清除 Python/Qt 开发路径、PATH 仅保留系统目录、工作目录位于包外的条件下，分别以 offscreen 和原生 windows 平台运行 `--package-check`，**19 项均通过**。覆盖完整 QML 页面、原生 API、TLS/压缩解包、实例隔离、无 API key 导入及网络拓扑/游戏崩溃/模组清单导出。
+- 实际安装器从旁置 ZIP 离线安装到独立中文路径成功，并校验全部文件；安装后的 EXE 再次通过上述 **19 项成品检查**。EXE 为 GUI 子系统，启动不附带 CMD 窗口。
+- 本地文件：`dist/release-20261023/Buggcraft-runtime-windows-x64.zip` **59,540,571 字节**（56.78 MiB），`Buggcraft-Setup.exe` **430,592 字节**。运行包 SHA-256：`2d1de44d83469f64a667b9bea7944e8508880280318a204b25d1034e01034db3`。本次安装器没有远程下载地址，须与 ZIP 放在一起；未经受信任证书签名。
+
+本轮修复了原生适配中再次出现的固定 `parents[3]` 浅层路径假设，以及 Windows 使用 `os.execv` 启动桥接时父进程提前退出的问题；Windows 兼容入口现在等待原生子进程，保留退出状态。两套 GitHub 构建任务改为编译同一固定版本原生组件，不再生成旧 Python 网络运行包；macOS Intel/Apple Silicon 包须由对应平台构建和运行检查后才能称为完成。
+
+证据目录：本地 `error/release-validation-20261023/`，含 `launcher-tests.log`、`native-library-tests.log`、`native-glue-tests.log`、`package-rules-tests.log`、`final-regression.log`、`windows-build.log`、`installer-validation.log`，以及 `packaged/windows.json`、`packaged/offscreen.json`、`installed-package-check.json`。证据和游戏资产不提交 Git。
+
+验收边界：本机 P2P/中继不代表全部公网 NAT；未在本轮部署生产节点。整合包导入与核心解析有回归，本轮实际新启动的是原版 26.3。仓库历史 Python 传输专项测试仍引用已归档的实现，直接全量 discover 不能视为原生迁移后的全量验收；本轮按上述在用模块及原生集成套件执行，保留失败/中断记录，不声称全部历史测试通过。
+
+## 2026-10-23 安装页 QML 重构与 Java 检查
+
+本次按原布局参照重构 QML，不恢复 Widgets 页面。新游戏安装及组件版本选择改为页内返回，组件保留 140×150 尺寸与 18 px 间距；原小窗口滚动可点击第二行。Fabric/Quilt 与 API 分开选择，兼容组合会交给下载任务，API 写入实际生成实例或共享目录并验证大小与哈希；不兼容组合在安装前拒绝。OptiFine 仍需官方安装器，不将可展示的组件当作已实现自动安装。
+
+下载记录复用原 `CatalogueList`/`ListRow`，保留状态筛选、错误、进度、日志、取消和重试。Java 检查验证实际路径及版本，不信任缓存版本号；26.1+ 按至少 Java 25 处理，加载器不能通过较低元数据覆盖父版本要求。配置中有合适 Java 时自动用于本次启动，无合适版本时阻止启动并显示 QML 操作弹窗；其他启动失败及异常退出也弹窗，主动停止不误报崩溃。
+
+- 相关回归 **66 项全部通过**（25.717 秒）：含全部在用页面无 Widgets 控件检查、按需加载、安装页真实点击、第二行滚动、组件组合及过期响应、API 目标/校验失败、Java 实际选择传入启动命令、缺失 Java 弹窗、普通错误弹窗、多进程停止与导航细节。[回归日志](../../../error/content-redesign-20261023/installation-regression.log)
+- Windows 原生隐藏窗口检查 **33 项全部通过**（独立于上项，不相加描述为不同用例）：含全部页面、组件选择、Java 弹窗、版本下拉与侧栏几何。[日志](../../../error/content-redesign-20261023/installation-qml/windows-installation.log)
+- 原生平台另外补测第二行组件滚动点击 **1 项通过**。[日志](../../../error/content-redesign-20261023/installation-qml/windows-installation-scroll.log) Java 探测补充支持 `javaw.exe` 使用同目录 `java.exe` 查询版本、只有主版本号的 GA 输出及预发布后缀；相应 Java/启动/停止回归 **21 项通过**（2.939 秒，与前述用例有重叠）。[日志](../../../error/content-redesign-20261023/installation-qml/java-probe-regression.log)
+- `python build.py --dry-run` 通过，包含新增安装与记录 QML，保留 Windows 禁用控制台参数。本次未编译发布包，也未新启动公开整合包游戏；Java 选择的进程测试使用隔离的临时子进程，不代替完整游戏运行验收。
+
+截图：[安装组件](../../../error/content-redesign-20261023/installation-qml/install-components-forge.png)、[组件版本](../../../error/content-redesign-20261023/installation-qml/install-component-versions.png)、[第二行滚动](../../../error/content-redesign-20261023/installation-qml/install-components-scrolled.png)、[下载记录](../../../error/content-redesign-20261023/installation-qml/history-mixed-states.png)、[Java 提示](../../../error/content-redesign-20261023/installation-qml/java-25-required.png)。
+
+最终验证后通过 `pythonw` 重开源码启动器（PID `337196`），主窗口 `926×505`，启动错误计数为零，无 CMD 窗口。本机已登记且存在的两个 Java 实测为 21.0.8 和 21.0.7，没有 Java 25，因此当前版本的 Java 环境提示为预期行为。检查时没有运行中的 Java 游戏，没有启动游戏或修改存档。[启动结果](../../../error/content-redesign-20261023/installation-qml/visible-launcher/startup-validation.json)
+
+## 2026-10-23 导航细节与透明度
+
+按后续反馈整理并完成以下调整，取代下方早期记录中重复导入入口和手动追加加载的说明：
+
+- 通用设置新增启动器透明度，默认 85%，范围 35%–100%；即时应用主窗口并保存，旧配置有默认值，异常值回退，越界值限制。
+- 左侧导航在原固定区域中左移 10 px，保留背景裁切及 686 px 主内容宽度。顶部只显示“版本”，当前版本每次打开排第一；下拉添加游戏图标和分隔线。“版本”“实例”移除悬浮提示，实例文字与实际可见图标整体居中。
+- 下载详情隐藏顶部分类。项目与版本文件共用滚动续载组件，接近底部自动追加并保留位置；失败后停止自动重试。
+- 导入入口统一只保留下载页，实例页不再跳转；下载完成记录提供“打开目录”。导入页只保留文件、环境摘要、名称、开始操作与返回，返回保留分类、搜索结果和位置。
+- 下载记录复用原搜索栏和列表容器，缩小进度条，保留状态筛选、失败重试、取消及日志。
+
+专项回归 **94 项通过**（41.898 秒），包括真实本地 HTTP 下载、两来源整合包预览、导入与加载器核心测试，以及新增的透明度保存/限值/键盘、列表滚动、导入返回和记录操作。[测试日志](../../../error/content-redesign-20261023/navigation-full-tests.log)
+
+Windows 原生平台隐藏窗口另测 **9 项通过**（12.498 秒），包括六项新增交互、所有大页面侧栏反复切换、18 次下拉键鼠操作，以及真实项目资料的布局。隐藏窗口不抢前台焦点，几何检查不代替不同显卡下的长期观察。[Windows 日志](../../../error/content-redesign-20261023/navigation-polish/windows-polish.log)
+
+截图：[透明度设置](../../../error/content-redesign-20261023/navigation-polish/opacity-setting.png)、[简化导入页](../../../error/content-redesign-20261023/navigation-polish/import.png)、[下载记录](../../../error/content-redesign-20261023/navigation-polish/history-mixed-states.png)。`build.py --dry-run` 通过并包含新增分页组件；本次未编译发布包、部署网关或重新启动完整整合包游戏。
+
+验证后使用 `pythonw` 打开更新源码启动器（PID `338792`），主窗口 `926 × 505`，启动日志未发现 QML 或致命异常。仅向上一轮源码启动器主窗口发送正常关闭事件，没有强制终止其他进程。[启动结果](../../../error/content-redesign-20261023/navigation-polish/visible-launcher/startup-validation.json)
+
+## 2026-10-23 下载页内详情与视觉整理
+
+本节取代下方早期记录中的「资源版本弹层」「按实例自动过滤」及「收起不改变窗口尺寸」行为说明。列表仍使用原 `CatalogueList` / `ListRow`，项目进入页内详情；紧凑页头、介绍/版本标签、支持版本与元数据、固定安装栏使用原紫色边框和统一控件。项目图标加载中或失败时显示首字占位，长标题与简介截断后可查看提示。文件支持手动搜索、更多版本及兼容建议，默认不自动按实例过滤。返回列表保留浏览结果，顶部大页面返回触发刷新，子页面不刷新；成功结果不显示数量。
+
+- 专项回归 **88 项通过**：QML 页面、无默认过滤、分页与过期响应、详情与目标切换、两种来源的下载到导入入口、MRPACK 覆盖层和双哈希校验、下载传输、加载器互斥、单按钮多开与停止。[日志](../../../error/content-redesign-20261023/regression.log)
+- 最后视觉调整后，在 Windows 原生平台补测 **3 项通过**：真实项目介绍/文件布局、全部四个大页面连续侧栏切换、版本下拉复用与键鼠取消。收起裁去左侧 205 像素，保持窗口右边缘和内容位置；隐藏测试窗口避免抢焦点。此几何验证不代替不同显卡环境的长期闪烁观察。[日志](../../../error/content-redesign-20261023/windows-layout.log)
+- 公网只读查询：Modrinth、CurseForge 的模组、资源包、光影和整合包共八种组合均非空并可继续翻页；另验证两来源模组第二页及文件列表。CurseForge 旧线上网关尚不支持长介绍路由，客户端降级显示摘要与项目原站；新路由的分类校验及缓存通过本地 HTTP 测试，**此次未部署线上网关**。[结果](../../../error/content-redesign-20261023/live-catalogue.json)
+- 两来源整合包下载到导入预览使用真实本地 HTTP 文件，MRPACK 的下载、备用地址及实例发布使用隔离目录；本次没有另行下载并启动完整公开整合包，也没有改动玩家游戏进程或存档。
+- `python build.py --dry-run` 通过，包含新增 QML 详情文件，Windows 控制台禁用参数保留；本次未重新编译安装包。
+
+视觉检查：[介绍页](../../../error/content-redesign-20261023/windows-real-description-False.png)、[版本文件](../../../error/content-redesign-20261023/windows-real-versions-False.png)、[侧栏收起](../../../error/content-redesign-20261023/windows-real-versions-True.png)。
+
+验证后通过 `pythonw` 打开更新后的源码启动器，加载原玩家配置；本次 PID `320808`，可见窗口 `926 × 505`，启动日志无 QML 引用、类型、循环绑定或致命错误。原隐藏启动器进程未强制结束。[启动检查](../../../error/content-redesign-20261023/visible-launcher/startup-validation.json)
+
+## 2026-10-23 顶部样式与本机世界发现补测
+
+本机正在运行的 Forge 1.21.8 世界已在 `51695` 端口开放局域网：旧的广播发现返回空列表，但直接 Minecraft 状态查询正常。补充本机 Java 监听端口检测后，在广播仍为空的情况下发现该世界；本次验证使用 1 秒广播等待，总耗时约 1 秒。这个端口是本次游戏的临时端口，不是固定配置。
+
+两种顺序均通过临时本地加密中继验证：先有世界再创建房间，以及先创建等待房间再发现并绑定世界。两条路径都能通过访客代理查询到真实世界版本 `1.21.8` / 协议 `772`，原邀请码保留；用例耗时分别为 1767 ms、1756 ms。不启动或关闭玩家游戏、不加入游戏角色、不修改存档；这是实际游戏状态转发验证，不是跨 NAT 或玩家入服验收。结果见 [本机实测结果](../../../error/p2p-analysis/lan-discovery-20261023/result.json)、[探测与转发日志](../../../error/p2p-analysis/lan-discovery-20261023/live-check.log)。
+
+- 世界发现、状态、创建流程和房间生命周期 **32 项通过**，41.883 秒；包含无广播发现、UDP 不可用、进程无权限、去重与排除客户端代理、无效 Java 服务过滤、取消清理、两种操作顺序，以及等待房间重选后恢复、邀请码/聊天保留和实际加密转发。[测试日志](../../../error/p2p-analysis/lan-discovery-20261023/room-tests.log)
+- 启动器 QML、大厅布局和大厅导航 **62 项通过**，29.463 秒；覆盖原顶部控件尺寸、下拉最大尺寸、屏幕边界、长列表当前项滚动可见、当前项与键盘预选分离、设置布局与世界重选入口。[测试日志](../../../error/p2p-analysis/lan-discovery-20261023/ui-tests.log)
+- Windows 原生平台下另测顶部弹窗 **3 项通过**，含连续 18 次鼠标/键盘/取消操作、宿主复用和选择只生效一次。窗口隐藏运行，避免打断玩家操作。[测试日志](../../../error/p2p-analysis/lan-discovery-20261023/windows-header-tests.log)
+
+视觉检查：[顶部控件](../../../error/p2p-analysis/lan-discovery-20261023/header-home.png)、[版本下拉](../../../error/p2p-analysis/lan-discovery-20261023/header-version-dropdown.png)。上述回归为专项验证，不代替全版本、跨设备和长时间联机验收。当前为源码修复，未重新构建安装包。
+
+验证后确认旧启动器没有活动节点连接，再打开更新后的源码启动器（PID `321028`），通过正常窗口关闭事件隐藏旧窗口；旧进程仅继续持有游戏输出工作线程，等待游戏自己退出，不强制结束进程。原 Java 游戏 PID `318164` 保持运行，窗口更新后仍可正常查询 `51695` 世界的版本与协议。新启动器标准输出/错误输出位于执行机临时目录的 `buggcraft-world-fixed-stdout.log` / `buggcraft-world-fixed-stderr.log`。
+
+## 2026-10-23 下载内容、实例目录与退出排查
+
+游戏和模组、资源包、光影、整合包改为直接共用 `CatalogueList.qml` 的搜索栏和全宽列表。资源版本选择通过弹层完成，移除固定的右侧版本列表。顶部切换实例后，兼容版本重新查询、旧文件选择失效；底部显示实际安装目录，分别遵守共享目录、版本隔离及整合包实例的目录规则。
+
+自动来源原先必须等所有来源完成才显示内容；现按完成顺序发送部分结果，慢来源不会遮住已有结果，来源失败会提示并可重试。隔离配置下真实联网查询 Modrinth，模组、资源包、光影、整合包各返回 20 条并显示为 656px 宽的列表行，单类约 1.8–2.0 秒；不是静态演示数据。临时截图为执行机 `buggcraft-content-live/live-*.png`。
+
+相关 **64 项回归通过**，涵盖实际 QML 行点击、项目版本弹层、四类非空列表、部分结果先显示、来源失败后重试、顶部实例切换和过期选择清理。另通过真实本地 HTTP 服务驱动下载任务，校验模组、资源包、光影在共享/隔离两种设置下共六次文件写入、SHA-1、下载记录跳转及其他目录未写入。正式 Modrinth CDN 的一次 Lithium 下载返回 HTTP 200 后未收到正文，独立重试也读取超时，因此未计为真实 CDN 下载成功；只停止该隔离测试进程，没有停止玩家游戏。
+
+用户本次退出记录为 Windows `0xc0000005`，故障模块 `Qt6Widgets.dll 6.8.1`，偏移对应 `QWidget::childAt`，Python 栈仅停留在 Qt 事件循环。顶部版本弹层改用 QWidget 窗口宿主、保留原 ChoiceBox 外观并延后选择提交。Windows 窗口插件下三项专项通过，其中包括 18 轮鼠标选择、键盘选择和取消，以及弹层显示时的窗口命中测试；测试窗口禁止在屏幕显示，未操作玩家窗口。原始崩溃未稳定复现，这属于针对可疑路径的规避，仍需用户环境复测。`main.py --startup-check` 和构建参数检查通过；本轮尚未重新打包。
+
+## 2026-10-23 原有列表与设置样式恢复
+
+对照迁移前的 Widgets 代码复用原图片、尺寸和颜色：游戏下载恢复 70px 直角半透明列表行、30px 图标及整行点击；实例行保持 68px，Java 列表恢复文件夹/删除图标和分隔线。设置恢复原折叠分组、单选图片、同行说明、内存滑块与占用条，保存其他设置时保持折叠状态。相关图片重新保留，不再将仍有用途的素材算作清理项。
+
+下载页顶部采用原文字下划线分类，游戏、模组、资源包、光影包、整合包在同一页面切换；左侧只保留游戏下载、下载记录。导入整合包仍使用独立导入流程，返回游戏下载可以正常显示目录内容。
+
+Windows / Python 3.11 / PySide6 6.8.1：`test_launcher_qml`、`test_content_dialog`、`test_instance_modpack_entry`、`test_loader_selection`、`test_modpack_no_key`、`test_task_history_qml`、`test_settings_isolation`、`test_modpack_settings`、`test_game_sessions`、`test_launcher_process` 共 **44 项通过**。覆盖真实 QML 点击、分类原地切换、导入返回、设置保存与折叠保持、文字边界、列表尺寸和原图引用；模型、配置、文件选择和联网结果使用隔离测试数据。截图可通过 `BUGGCRAFT_QML_SNAPSHOTS` 导出。这些检查不代表重新验证真实内容源下载或所有系统缩放比例；本轮未重新打包。
+
+## 2026-10-23 大厅房间延迟
+
+补上大厅房间行的接入节点往返延迟，明确区别于加入后的实际游戏延迟。节点列表请求和后台健康检查都提供独立的 ping 计时；未知、断线、切换节点不会沿用旧数字，0 ms 正常显示。未新增依赖或额外轮询。
+
+`test_room_node_availability`、`test_lobby_layout`、`test_lobby_opening`、`test_launcher_qml` 共 **74 项通过**（75.676 秒），包括本地真实 SSH 节点十轮断开恢复、分页、延迟计时范围及 QML 显示/位置。独立 `main.py --startup-check` 正常启动检查通过；另以 `pythonw.exe` 打开更新后的源码启动器，确认 Windows 可见窗口为 926 × 505，启动日志无异常。这次未重新打包。
+
+## 2026-10-23 全页面 QML 迁移
+
+全部在用页面、标题栏、侧栏及自绘弹窗已迁为 QML；组件与控制器清单见 [界面结构](../technical/qml-interface.md)。保留原始窗口尺寸、首页素材和侧栏宽度。删除旧 Widgets 页面、控件、copy 文件及确认无引用的旧图片，原列表和设置控件所需素材继续复用；系统文件选择器和 Qt 初始化失败时的系统错误提示继续保留。
+
+Windows / Python 3.11 / PySide6 6.8.1：相关 **176 项测试全部通过**（117.522 秒）。涵盖所有启动器页面非空模型的实际加载、真实 QML 点击、分类/来源与过期结果、无 key 导入及进度跳转、加载器互斥、独立设置、实例导入、长名称定位、菜单收起、版本键盘选择、关闭期间对象清理、多开和目标停止；包含既有大厅/好友/节点导航与本地 Minecraft 服务端的四角色双向聊天十轮及公开/邀请码访问集成。未触碰玩家已有存档或重启正式节点。
+
+测试日志位于执行机临时目录 `buggcraft-qml-validation.log`；可通过环境变量 `BUGGCRAFT_QML_SNAPSHOTS` 指定逐页截图目录。主页面测试入口为 `python -m unittest discover -s tests -p test_launcher_qml.py -v`。本轮 `python build.py --dry-run` 与 Qt QML 依赖扫描通过；尚未重新编译本轮 Windows/macOS 安装包，前面的成品记录不代表本轮源码已打包。
+
 ## 2026-10-23 九项收尾任务
 
 | 序号 | 任务 | 状态与验收边界 |

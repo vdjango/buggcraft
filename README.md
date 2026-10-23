@@ -26,6 +26,8 @@
 
 文档导航：[使用指南、技术说明与验证记录](docs/README.md)。
 
+启动器全部在用页面已统一为 QML 布局，保留原有首页和侧栏设计。包含游戏/加载器下载、资源浏览、整合包导入、统一任务进度、实例与设置；界面结构和验证方法见 [QML 界面说明](docs/technical/qml-interface.md)。
+
 ## 快速开始
 
 最新开发包在 [GitHub Actions → Package launcher](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)：打开最近一次绿色通过的构建，在页面底部 **Artifacts** 下载对应系统的 `Buggcraft-…`。Windows 请解压后保留安装程序和运行包 ZIP 在同一目录。Actions 下载需要登录 GitHub；面向用户的版本包放在 Releases。详见[构建与下载说明](docs/technical/github-builds.md)。
@@ -34,7 +36,7 @@
 
 游戏默认下载到启动器所在目录的 `.minecraft`。Windows 从 `Buggcraft-Setup.exe` 启动时，位于该入口旁边；直接运行解压后的 `Buggcraft.exe` 时，位于该 EXE 旁边。macOS 位于 `.app` 旁边。已有手动选择的游戏目录继续生效，可以在实例页切换。
 
-从源码运行需要 Python 3.11 或更新版本。项目依赖包含 Qt 和 WebRTC 组件，安装需要一定时间和磁盘空间。
+从源码运行需要 Python 3.11 或更新版本，以及同平台的原生联机运行库。Python 依赖用于 Qt 界面、游戏下载和进程管理；SSH、ICE/P2P、数据通道及联机传输由独立的 C++ 原生库提供。
 
 ```powershell
 git clone https://github.com/vdjango/buggcraft.git
@@ -46,6 +48,8 @@ $env:PYTHONPATH = "$PWD\src"
 ```
 
 上面是 Windows 命令。Linux 和 macOS 还需要准备对应的 Qt 环境，目前没有完成相同范围的真机验收。联机仅携带数据通道实现，不需要 PyAV、FFmpeg 或音视频编解码器。已验证的行为见[启动器验收记录](docs/validation/launcher-validation.md)。
+
+联机运行库来源为 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native)。源码开发可将它放在启动器仓库旁并按其说明构建、安装到 `runtime`；发布包会把完整安装树放在启动器的 `native` 目录，包括平台库、FFI 调用文件及第三方许可。不要只复制一个 DLL。普通玩家使用完整启动器包，无需安装 Python、CMake 或编译器。
 
 ## 联机流程
 
@@ -82,7 +86,7 @@ $env:PYTHONPATH = "$PWD\src"
 
 完整测试和网络验收记录见[启动器验收记录](docs/validation/launcher-validation.md)、[联机验证记录](docs/validation/multiplayer-validation.md)和[联机路线图](docs/planning/multiplayer-roadmap.md)。单元测试、本地游戏服务端和不同公网中的真实客户端属于不同验证层级，文档会标明实际执行的范围。
 
-联机使用从 aiortc 1.15.0 裁出的数据通道子集，保留上游 ICE、DTLS、SCTP 和证书指纹检查；来源、许可和更新方法见[子集说明](src/buggcraft/hookup/_rtc/README.md)。新旧客户端互通测试可在独立开发环境额外安装 `requirements-interop.txt` 后运行 `python -m unittest tests.test_datachannel_transport -v`。该文件里的音视频依赖只供旧客户端测试，不用于发布构建。
+联机使用原生库提供的 ICE、DTLS、SCTP 和证书指纹检查。之前的 Python 数据通道实现及来源记录保留在 [兼容性参考](compatibility/legacy_hookup/_rtc/README.md)，不进入发布包；`requirements-interop.txt` 中的音视频依赖仅供旧实现的开发兼容测试，不用于发布构建。原生库协议、传输和日志专项在原生仓库执行，启动器仓库验证调用边界、生命周期、日志导出和界面行为。
 
 使用 `build.bat` 构建 Windows 运行包，macOS 使用 `bash build_macos.sh`。GitHub Actions 的「Package launcher」会分别生成 Windows x64、macOS Intel 和 Apple Silicon 产物，并执行运行包检查。[Windows 打包说明](docs/technical/windows-packaging.md)和 [macOS 打包说明](docs/technical/macos-packaging.md)记录了 Qt 裁剪、运行检查与签名边界。
 

@@ -13,7 +13,7 @@ OFFICIAL_API = 'https://api.curseforge.com/v1'
 PUBLIC_API = 'https://download.bugg.icu/api/curseforge/v1'
 CLASSES = {'mod': 6, 'resourcepack': 12, 'shader': 6552, 'modpack': 4471}
 LOADERS = {'forge': 1, 'fabric': 4, 'quilt': 5, 'neoforge': 6}
-ROUTE = re.compile(r'/mods(?:/search|/files|/[1-9][0-9]*(?:/files(?:/[1-9][0-9]*)?)?)?')
+ROUTE = re.compile(r'/mods(?:/search|/files|/[1-9][0-9]*(?:/description|/files(?:/[1-9][0-9]*)?)?)?')
 
 
 class CurseForgeAPI:
@@ -54,7 +54,8 @@ class CurseForgeAPI:
                     raise DownloadCancelled('内容查询已取消') from None
         if self.cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
-        if not isinstance(payload, dict) or not isinstance(payload.get('data'), (dict, list)):
+        allowed = (dict, list, str) if route.endswith('/description') else (dict, list)
+        if not isinstance(payload, dict) or not isinstance(payload.get('data'), allowed):
             raise ValueError('CurseForge 返回格式无效')
         return payload['data']
 
@@ -117,11 +118,11 @@ def fallback_url(project_id, file_id):
 
 
 class CurseForgeContentClient(CurseForgeAPI):
-    def search(self, query, kind, game_version='', loader='', limit=20):
+    def search(self, query, kind, game_version='', loader='', limit=20, offset=0):
         if kind not in CLASSES:
             raise ValueError('不支持的内容类型')
         params = {'gameId': 432, 'classId': CLASSES[kind], 'searchFilter': query or '',
-                  'pageSize': max(1, min(int(limit), 50)), 'sortField': 2, 'sortOrder': 'desc'}
+                  'pageSize': max(1, min(int(limit), 50)), 'index': max(0, int(offset)), 'sortField': 2, 'sortOrder': 'desc'}
         if game_version:
             params['gameVersion'] = game_version
         if loader and game_version and kind in ('mod', 'modpack'):
@@ -132,18 +133,43 @@ class CurseForgeContentClient(CurseForgeAPI):
         if not isinstance(data, list):
             raise ValueError('CurseForge 返回的项目列表无效')
         return [{'project_id': str(item['id']), 'title': item.get('name', ''),
-                 'description': item.get('summary', ''), 'source': 'CurseForge'}
+                 'description': item.get('summary', ''), 'source': 'CurseForge',
+                 'author': ', '.join(a.get('name', '') for a in item.get('authors', []) if isinstance(a, dict)),
+                 'icon_url': (item.get('logo') or {}).get('thumbnailUrl', ''),
+                 'downloads': item.get('downloadCount', 0), 'date_modified': item.get('dateModified', ''),
+                 'categories': [c.get('name', '') for c in item.get('categories', []) if isinstance(c, dict)]}
                 for item in data if isinstance(item, dict) and type(item.get('id')) is int
                 and item.get('gameId') == 432 and item.get('classId') == CLASSES[kind]]
 
-    def versions(self, project_id, game_version='', loader='', kind='mod'):
+    def project(self, project_id, kind='mod'):
+        if kind not in CLASSES or not re.fullmatch('[1-9][0-9]*', str(project_id)):
+            raise ValueError('CurseForge 项目信息无效')
+        item = self.get('/mods/' + str(project_id))
+        if not isinstance(item, dict) or item.get('gameId') != 432 or item.get('classId') != CLASSES[kind]:
+            raise ValueError('CurseForge 项目与所选内容类型不符')
+        detail_error = ''
+        try:
+            body = self.get('/mods/' + str(project_id) + '/description')
+        except ValueError:
+            body = ''
+            detail_error = '完整介绍暂不可用，可查看项目原站；仍可选择版本文件。'
+        return {'title': item.get('name', ''), 'description': item.get('summary', ''),
+                'body': body if isinstance(body, str) else '', 'body_html': True, 'detail_error': detail_error,
+                'author': ', '.join(a.get('name', '') for a in item.get('authors', []) if isinstance(a, dict)),
+                'downloads': item.get('downloadCount', 0), 'updated': item.get('dateModified', ''),
+                'categories': [c.get('name', '') for c in item.get('categories', []) if isinstance(c, dict)],
+                'game_versions': list(dict.fromkeys(entry['gameVersion'] for entry in item.get('latestFilesIndexes', [])
+                                      if isinstance(entry, dict) and isinstance(entry.get('gameVersion'), str))),
+                'website_url': (item.get('links') or {}).get('websiteUrl', ''), 'license_name': '请查看项目原站许可'}
+
+    def versions(self, project_id, game_version='', loader='', kind='mod', offset=0, page_info=False):
         if kind not in CLASSES or not re.fullmatch('[1-9][0-9]*', str(project_id)):
             raise ValueError('CurseForge 项目信息无效')
         project = self.get('/mods/' + str(project_id))
         if (not isinstance(project, dict) or project.get('id') != int(project_id) or
                 project.get('gameId') != 432 or project.get('classId') != CLASSES[kind]):
             raise ValueError('CurseForge 项目与所选内容类型不符')
-        params = {'pageSize': 50}
+        params = {'pageSize': 50, 'index': max(0, int(offset))}
         if game_version:
             params['gameVersion'] = game_version
         if loader and kind in ('mod', 'modpack'):
@@ -169,5 +195,8 @@ class CurseForgeContentClient(CurseForgeAPI):
             versions.append({'id': str(item['id']), 'project_id': str(project_id),
                              'name': item.get('displayName') or item.get('fileName'),
                              'date_published': item.get('fileDate', ''), 'source': 'CurseForge',
+                             'game_versions': [str(tag) for tag in tags if re.match(r'^\d', str(tag))],
+                             'loaders': [str(tag).lower() for tag in tags if str(tag).lower() in LOADERS],
+                             'version_type': {1: 'release', 2: 'beta', 3: 'alpha'}.get(item.get('releaseType'), ''),
                              'files': [file]})
-        return versions
+        return {'versions': versions, 'has_more': len(data) >= 50, 'next_offset': offset + 50} if page_info else versions

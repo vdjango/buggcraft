@@ -1,2 +1,1 @@
--r requirements-bridge.txt
-pyinstaller==6.16.0
+# Install CMake, a C++20 compiler and OpenSSL 3. See minecraft-tunnel-native/README.md.

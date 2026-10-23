@@ -2,7 +2,7 @@
 
 Windows x64 发布分成小型启动程序和完整运行包。首次启动时将运行包下载、校验后放进安装器旁边的 `Buggcraft-runtime\<版本号>`，随后启动真正的应用。安装器目录不可写时才回退到 `%LOCALAPPDATA%\Buggcraft\runtime`，回退原因会写入日志。相同版本只下载一次。新版本使用新的内容哈希目录，旧版本缓存保留，正在运行的文件不会被覆盖。完整包的实际大小见[体积审计](launcher-size-audit.md)，不能用小型安装器的大小代替。
 
-完整包内包含 Python、Qt/PySide6 和 QML 运行组件、Windows C++ 运行库、数据通道所需 ICE/DTLS/SCTP、HTTPS CA 文件及图片资源。联机使用裁出的 aiortc 数据通道子集，不再打包完整 aiortc、PyAV、FFmpeg、音视频编解码器或 pylibsrtp。启动器按 PE 导入和 QML 实际导入结果排除未使用的 Qt 组件，并排除 PDF 图像插件及两份自带字体。
+完整包内包含 Python、Qt/PySide6 和 QML 运行组件、Windows C++ 运行库、原生联机库、HTTPS CA 文件及图片资源。联机由 `native` 中的 C++ 库提供 SSH、ICE/DTLS/SCTP，不打包 Python AsyncSSH/aioice/aiortc、PyAV、FFmpeg、音视频编解码器或 pylibsrtp。启动器按 PE 导入和 QML 实际导入结果排除未使用的 Qt 组件，并排除 PDF 图像插件及两份自带字体。
 
 ## 构建
 
@@ -10,7 +10,7 @@ Widgets 和 QML 均使用系统默认字体，保留各控件的字号与粗细�
 
 Windows 默认设置 `QT_QUICK_BACKEND=software`，由 Qt 自带的二维光栅场景图绘制大厅和好友页，避免为这些二维界面捆绑约 19.7 MiB 的 Mesa `opengl32sw.dll`。它不依赖 GPU，也不改变 Minecraft 游戏自身的渲染。现有 QML 未使用 ShaderEffect 或 3D 效果；以后引入这些功能必须重新评估该规则。二维软件渲染会使用 CPU，显式设置的 `QT_QUICK_BACKEND` 会被保留；选硬件后端时需要系统驱动支持，包内不提供软件 OpenGL 回退。macOS 保持原生默认渲染后端。
 
-`build.py` 在生成运行包前检查依赖清单；若旧构建残留 PyAV、SRTP、PDF 或 Windows 软件 OpenGL 文件，会拒绝打包。升级这些裁剪规则后必须重新编译，不能直接对旧 `main.dist` 使用 `--package-only`。数据通道来源、许可及重现方法见[子集说明](../../src/buggcraft/hookup/_rtc/README.md)。
+`build.py` 在生成运行包前检查依赖清单；若旧构建残留 Python 网络实现、PyAV、SRTP、PDF 或 Windows 软件 OpenGL 文件，会拒绝打包。升级这些裁剪规则后必须重新编译，不能直接对旧 `main.dist` 使用 `--package-only`。原生运行库使用固定的 `minecraft-tunnel-native` 提交构建，打包时传入 `--native-bridge-dir <CMake 安装目录>`，会保留 bin/lib/share、FFI 文件和许可证并生成文件哈希；不要直接传 build 目录或仅复制 DLL。旧数据通道来源记录见[兼容性参考](../../compatibility/legacy_hookup/_rtc/README.md)。
 
 Python 运行时保留 `python311.dll` 及稳定 ABI 的 `python3.dll`，两者都有本机扩展依赖。未使用的多进程、进程池、`_uuid`、通知库及其日志依赖不再打包；UUID4 使用标准库回退，CPU 数查询改用 `os.cpu_count()`。BZIP2/LZMA、XML、SSL 和 Unicode 扩展继续保留以支持游戏安装、Java 解包及网络功能。逐项理由与实测结果见[Python DLL 审计](launcher-size-audit.md#python-dll-专项结论)。
 
@@ -66,7 +66,7 @@ $env:PATH = "$env:WINDIR\System32"
 & .\dist\main.dist\Buggcraft.exe --package-check .\package-check.json
 ```
 
-检查会实际打开主窗口、大厅和好友页面，运行 ZIP DEFLATE/BZIP2/LZMA、TAR GZ/BZ2/XZ、XML、Decimal、UUID4、ctypes、线程池哈希、TLS 上下文、SSH 签名、AES-GCM、TLS CA、WebRTC DTLS 证书及 64 KiB 本地数据通道传输。需分别设置 `QT_QPA_PLATFORM=windows` 和 `offscreen` 跑一次。发布前仍需在一台干净的 Windows 10/11 虚拟机上，从临时下载页安装并启动一次。
+检查会实际打开主窗口、大厅和好友页面，运行 ZIP DEFLATE/BZIP2/LZMA、TAR GZ/BZ2/XZ、XML、Decimal、UUID4、ctypes、线程池哈希、TLS 上下文与 CA、原生联机 ABI 初始化和方法清单，以及诊断导出的网络快照、游戏日志和模组清单。该成品自检不等同于跨 NAT 验收；真实原生传输由原生仓库专项测试覆盖。需分别设置 `QT_QPA_PLATFORM=windows` 和 `offscreen` 跑一次。发布前仍需在一台干净的 Windows 10/11 虚拟机上，从临时下载页安装并启动一次。
 
 ## 临时下载页
 

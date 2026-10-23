@@ -56,6 +56,7 @@ class ConnectionOnly(logging.Filter):
 def configure_connection_logging(directory):
     global _session_file, _log_root
     _log_root = Path(directory).resolve()
+    os.environ['BUGGCRAFT_BRIDGE_LOG_DIR'] = str(_log_root / 'players')
     sessions = _log_root / 'p2p-sessions'
     sessions.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
@@ -66,7 +67,7 @@ def configure_connection_logging(directory):
     handler.addFilter(ConnectionOnly())
     handler.setFormatter(SafeFormatter('%(asctime)s %(levelname)s [%(threadName)s] %(name)s %(message)s'))
     logging.getLogger().addHandler(handler)
-    for name in ('hookup.peer', 'hookup.relay', 'hookup._rtc.rtcpeerconnection',
+    for name in ('hookup.peer', 'hookup.relay', 'hookup.ice', 'hookup._rtc.rtcpeerconnection',
                  'hookup._rtc.rtcicetransport', 'hookup._rtc.rtcdtlstransport', 'aioice'):
         logging.getLogger(name).setLevel(logging.DEBUG)
     # Packet-by-packet SCTP logging would add synchronous disk IO to game traffic.
@@ -118,6 +119,15 @@ def export_diagnostics(destination, directory=None, game_directory=None, java_pa
         files += list(sessions.glob('*.log*'))
         files += list(sessions.glob('network-*.json'))
     sources = [(path, path.relative_to(root).as_posix()) for path in files]
+    player_logs = root / 'players'
+    if player_logs.is_dir() and not player_logs.is_symlink():
+        # Native bridge records only bounded metadata. Keep each player's directory
+        # in the support archive so host-side streams can be correlated separately.
+        for player in player_logs.iterdir():
+            if player.is_symlink() or not player.is_dir() or not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', player.name):
+                continue
+            sources.extend((path, path.relative_to(root).as_posix())
+                           for path in player.glob('*.jsonl') if not path.is_symlink())
     inventory = None
     if game_directory:
         game_root = Path(game_directory).resolve()

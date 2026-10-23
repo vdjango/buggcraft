@@ -73,6 +73,38 @@ class ConnectionDiagnosticsTests(unittest.TestCase):
                 self.assertEqual(len(metadata['files']), 5)
                 self.assertEqual(metadata['network_collection']['status'], 'collected')
 
+    def test_export_keeps_native_player_logs_separate_and_allowlisted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            account = root / 'players/account-abc'
+            anonymous = root / 'players/anonymous-def'
+            account.mkdir(parents=True)
+            anonymous.mkdir(parents=True)
+            (account / 'first.jsonl').write_text('{"event":"connected","player":"account-abc"}\n', encoding='utf-8')
+            (account / 'first.1.jsonl').write_text('{"event":"sample","player":"account-abc"}\n', encoding='utf-8')
+            (anonymous / 'second.jsonl').write_text('{"event":"connected","player":"anonymous-def"}\n', encoding='utf-8')
+            (account / 'ignored.txt').write_text('not a journal', encoding='utf-8')
+            with patch('utils.network_diagnostics.capture_network', return_value={'trace_id': 'native'}):
+                destination = export_diagnostics(root / 'diagnostics.zip', root)
+            with ZipFile(destination) as archive:
+                names = set(archive.namelist())
+                self.assertIn('players/account-abc/first.jsonl', names)
+                self.assertIn('players/account-abc/first.1.jsonl', names)
+                self.assertIn('players/anonymous-def/second.jsonl', names)
+                self.assertNotIn('players/account-abc/ignored.txt', names)
+                self.assertEqual(json.loads(archive.read('players/account-abc/first.jsonl'))['player'], 'account-abc')
+
+    def test_configure_logging_sets_native_bridge_child_log_root(self):
+        import utils.diagnostics as diagnostics
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ):
+            with patch.object(diagnostics, '_session_file', None), patch.object(diagnostics, '_log_root', None), \
+                    patch('utils.diagnostics.atexit.register'), patch('utils.diagnostics.RotatingFileHandler'), \
+                    patch('logging.getLogger') as logger:
+                logger.return_value.handlers = []
+                session = diagnostics.configure_connection_logging(temporary)
+            self.assertTrue(session.parent.is_dir())
+            self.assertEqual(os.environ['BUGGCRAFT_BRIDGE_LOG_DIR'], str(Path(temporary).resolve() / 'players'))
+
     def test_export_without_room_keeps_network_failure_and_selected_game_crash_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

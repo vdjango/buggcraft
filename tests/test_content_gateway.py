@@ -51,6 +51,23 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status, 400)
         self.assertEqual(len(self.calls), 1)
 
+    async def test_description_is_cached_only_after_validating_minecraft_parent(self):
+        calls = []
+        async def fetch(method, route, params, body):
+            calls.append(route)
+            if route.endswith('/description'):
+                return {'data': '<p>Minecraft project description</p>'}
+            return {'data': {'id': 10, 'gameId': 432 if route == '/mods/10' else 1, 'classId': 6}}
+        async with TestClient(TestServer(gateway.create_app('server-secret', fetch))) as client:
+            for _ in range(2):
+                async with client.get('/v1/mods/10/description') as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual((await response.json())['data'], '<p>Minecraft project description</p>')
+            self.assertEqual(calls, ['/mods/10', '/mods/10/description'])
+            async with client.get('/v1/mods/11/description') as response:
+                self.assertEqual(response.status, 404)
+            self.assertNotIn('/mods/11/description', calls)
+
     async def test_rate_limit_applies_to_cached_results(self):
         for index in range(121):
             async with self.client.get('/v1/mods/10') as response:

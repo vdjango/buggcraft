@@ -10,7 +10,8 @@
 | --- | --- | --- |
 | GET | `/mods/search` | 搜索，固定 `gameId=432`，限定内容类别 |
 | GET | `/mods/{project}` | 项目信息 |
-| GET | `/mods/{project}/files` | 兼容版本列表 |
+| GET | `/mods/{project}/description` | 项目介绍，查询前核验 Minecraft 项目及分类 |
+| GET | `/mods/{project}/files` | 文件列表，可分页；客户端默认不加版本条件 |
 | GET | `/mods/{project}/files/{file}` | 精确文件信息 |
 | POST | `/mods` | 批量项目查询，最多 50 个编号 |
 | POST | `/mods/files` | 批量文件查询，最多 50 个编号 |
@@ -24,7 +25,7 @@
 
 实现位于 `packaging/content_gateway.py`，与联机节点独立部署。准备 Python 3.11 以上环境，将该文件及 `packaging/content-gateway-requirements.txt` 放入 `/opt/buggcraft-content/`，在该目录创建 `venv` 并安装依赖。
 
-将密钥写入 `/etc/buggcraft-content.env` 的 `CURSEFORGE_API_KEY`，文件权限设为 root 所有、`0600`；不要将真实值提交到 Git。复制 `packaging/content-gateway.service` 到 `/etc/systemd/system/buggcraft-content.service`，再执行 `systemctl daemon-reload` 和 `systemctl enable --now buggcraft-content`。更新程序后用 `systemctl restart buggcraft-content`。
+将密钥写入 `/etc/buggcraft-content.env` 的 `CURSEFORGE_API_KEY`，文件权限设为 root 所有、`0600`；不要将真实值提交到 Git。复制 `packaging/content-gateway.service` 到 `/etc/systemd/system/buggcraft-content.service`，再执行 `systemctl daemon-reload` 和 `systemctl enable --now buggcraft-content`。更新程序后用 `systemctl restart buggcraft-content`。项目长介绍需要服务端更新后才可用；旧版服务不支持该接口时，启动器仍展示项目摘要、其他元数据及文件列表，并提供项目原站链接。
 
 服务仅监听 `127.0.0.1:18447`，由现有 HTTPS 网站代理：
 

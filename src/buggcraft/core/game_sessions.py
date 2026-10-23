@@ -90,6 +90,7 @@ class GameSessions(QObject):
         launcher.signals.started.connect(lambda: self._started(record))
         launcher.signals.stopped.connect(lambda code: self._stopped(record, code))
         launcher.signals.error.connect(self.signals.error)
+        launcher.signals.java_required.connect(self.signals.java_required)
         launcher.start()
         # The worker clears launcher.start_thread in its first finished slot;
         # retain the QThread until our own completion slot has also run.
@@ -109,7 +110,7 @@ class GameSessions(QObject):
         if self.selected_id == record['id']:
             self.selected_id = self.sessions[-1]['id'] if self.sessions else None
         self.changed.emit()
-        self.signals.stopped.emit(code)
+        self.signals.stopped.emit(0 if record.get('stop_requested') else code)
 
     def _finished(self, record):
         if record['phase'] != 'exited':
@@ -121,6 +122,7 @@ class GameSessions(QObject):
     def stop(self, force=False):
         record = self.selected
         if record is not None and record['phase'] == 'running':
+            record['stop_requested'] = True
             record['launcher'].stop(force=force)
 
     def is_running(self):

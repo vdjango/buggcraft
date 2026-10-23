@@ -177,6 +177,12 @@ class DataOnlyDtls(ast.NodeTransformer):
 
 
 def transform(name, source):
+    if name == 'rtcicetransport.py':
+        # Scope our address policy to this adapter, without patching aioice
+        # globally or changing its ICE checks / nomination implementation.
+        source = source.replace('from aioice import Candidate, Connection, ConnectionClosed\n',
+                                'from aioice import Candidate, ConnectionClosed\n\nfrom ..ice import Connection\n')
+        return HEADER + source
     if name == 'sdp.py':
         # The SDP parser needs just the reserved RTP payload range, no packet
         # codec or PyAV module. Keep its mature parser / serializer intact.

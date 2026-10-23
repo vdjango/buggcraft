@@ -1,5 +1,1 @@
-# Network component only; no Qt or launcher UI dependencies.
-asyncssh==2.24.1
-cryptography==50.0.2
-aiortc==1.15.0
-av==16.1.0
+# The multiplayer bridge is built with CMake. No Python runtime dependencies.

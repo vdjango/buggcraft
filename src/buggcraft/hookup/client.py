@@ -1,4 +1,4 @@
 """Compatibility import for the encrypted room SDK."""
-from .relay import TunnelClient
+from .native_transport import TunnelClient
 
 __all__ = ["TunnelClient"]

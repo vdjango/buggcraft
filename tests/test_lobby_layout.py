@@ -220,6 +220,25 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertTrue(find_item(self.window, 'join-public-0').isVisible())
         self.assertTrue(find_item(self.window, 'join-public-1').isVisible())
 
+    def test_room_latency_is_visible_and_distinguishes_unavailable_from_zero(self):
+        for value, available, expected in [(57.4, True, '节点 57 ms'),
+                                            (0, True, '节点 0 ms'),
+                                            (None, True, '延迟 —'),
+                                            (57, False, '延迟 —')]:
+            self.backend._view = {**self.backend._view, 'nodeLatencyMs': value,
+                                  'nodeAvailable': available}
+            self.backend.viewChanged.emit()
+            QTest.qWait(30)
+            for index in range(2):
+                latency = find_item(self.window, 'room-latency-' + str(index))
+                self.assertTrue(latency.isVisible())
+                self.assertEqual(latency.property('text'), expected)
+                join = find_item(self.window, 'join-public-' + str(index))
+                self.assertLess(latency.mapToScene(QPointF(latency.width(), 0)).x(),
+                                join.mapToScene(QPointF(0, 0)).x())
+                self.assertLessEqual(join.mapToScene(QPointF(join.width(), 0)).x(),
+                                     self.window.width())
+
     def test_current_room_entry_opens_room_without_a_navigation_menu(self):
         self.backend._view = {**self.backend._view, 'connections': [
             {'id': 'mine', 'title': 'My world', 'role': 'host', 'state': 'online'}]}

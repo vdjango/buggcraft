@@ -4,7 +4,8 @@ import asyncio
 import logging
 import signal
 import os
-from .relay import RelayProfile, RoomInvite, TunnelHost, TunnelClient
+from .profiles import RelayProfile, RoomInvite
+from .native_transport import TunnelHost, TunnelClient
 
 
 async def main(args):

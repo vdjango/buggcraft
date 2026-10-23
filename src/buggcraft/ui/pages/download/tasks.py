@@ -10,41 +10,135 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QDialog,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QScrollArea,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 
 from config.settings import get_settings_manager
+from ui.pages.qml_host import QmlPage
 from utils.path_helper import get_default_minecraft_dir
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
-from ui.widgets.ComboBox import QMComboBox
 
 logger = logging.getLogger(__name__)
+
+
+class TaskHistoryController(QObject):
+    """QML presentation model for the existing download task engine."""
+
+    changed = Signal()
+
+    def __init__(self, page):
+        super().__init__(page)
+        self.page = page
+        self._tasks = []
+        self._query = ""
+        self._filter = "全部记录"
+        self._log_task_id = ""
+        self._log_title = ""
+        self._log_lines = []
+        self._tasks_timer = QTimer(self)
+        self._tasks_timer.setSingleShot(True)
+        self._tasks_timer.setInterval(80)
+        self._tasks_timer.timeout.connect(self.changed.emit)
+        self._log_timer = QTimer(self)
+        self._log_timer.setInterval(500)
+        self._log_timer.timeout.connect(self._refresh_log)
+
+    @Property("QVariantList", notify=changed)
+    def tasks(self):
+        query = self._query.casefold()
+        return [task for task in self._tasks
+                if query in (task.get("version", "") + " " + task.get("game_dir", "")).casefold()
+                and (self._filter == "全部记录" or task.get("state") == self._filter
+                     or (self._filter in ("进行中", "正在安装") and task.get("state") in TasksPage.ACTIVE))]
+
+    @Property(bool, notify=changed)
+    def canClear(self):
+        return any(task.get("state") not in TasksPage.ACTIVE for task in self._tasks)
+
+    @Property(str, notify=changed)
+    def filterValue(self):
+        return self._filter
+
+    @Property(str, notify=changed)
+    def query(self):
+        return self._query
+
+    @Property(str, notify=changed)
+    def logTitle(self):
+        return self._log_title
+
+    @Property("QVariantList", notify=changed)
+    def logLines(self):
+        return self._log_lines
+
+    @Slot(str)
+    def setQuery(self, value):
+        self._query = value.strip()
+        self.changed.emit()
+
+    @Slot(str)
+    def setFilter(self, value):
+        self._filter = value
+        self.changed.emit()
+
+    @Slot()
+    def resetFilters(self):
+        self._query = ""
+        self._filter = "全部记录"
+        self.changed.emit()
+
+    @Slot()
+    def clearCompleted(self):
+        self.page.clear_completed()
+
+    @Slot(str)
+    def taskAction(self, task_id):
+        self.page.task_action(task_id)
+
+    @Slot(str)
+    def showLog(self, task_id):
+        task = self.page._find_task(task_id)
+        if not task:
+            return
+        self._log_task_id = task_id
+        self._log_title = f"{task['version']} · 任务日志"
+        self._refresh_log()
+        self._log_timer.start()
+        self.changed.emit()
+
+    @Slot()
+    def closeLog(self):
+        self._log_timer.stop()
+        self._log_task_id = ""
+
+    def set_tasks(self, tasks):
+        self._tasks = tasks
+        if not self._tasks_timer.isActive():
+            self._tasks_timer.start()
+
+    def _refresh_log(self):
+        task = self.page._find_task(self._log_task_id)
+        if task:
+            self._log_lines = list(task.get("logs", []))
+            self.changed.emit()
 
 
 class DownloadWorkerSignals(QObject):
     status = Signal(str, str)
     progress = Signal(str, int, int)
     resolved = Signal(str, str)
+    downloaded = Signal(str, object)
     finished = Signal(str, bool, str)
 
 
 class DownloadWorker(QRunnable):
     def __init__(self, task_id: str, version: str, game_dir: str, source: str,
-                 loader=None, base_version=None, loader_version=None, java=None, modpack=None, api_key=None, content=None):
+                 loader=None, base_version=None, loader_version=None, java=None, modpack=None, api_key=None, content=None,
+                 addons=None, isolated=True):
         super().__init__()
         self.task_id = task_id
         self.version = version
@@ -57,6 +151,8 @@ class DownloadWorker(QRunnable):
         self.modpack = modpack
         self.api_key = api_key
         self.content = content
+        self.addons = addons or []
+        self.isolated = isolated
         self.cancel_event = threading.Event()
         self.signals = DownloadWorkerSignals()
 
@@ -67,14 +163,24 @@ class DownloadWorker(QRunnable):
                 self.task_id, int(current), int(maximum)
             )
             status = lambda value: self.signals.status.emit(self.task_id, str(value))
+            if self.addons:
+                from core.loader_rules import incompatibility
+                for addon in self.addons:
+                    if addon['name'] not in ('Fabric API', 'QSL/QFAPI') or self.loader not in ('Fabric', 'Quilt') \
+                            or incompatibility(addon['name'], self.loader):
+                        raise ValueError('API 与所选加载器不兼容')
+                    supported = addon['version'].get('game_versions', [])
+                    if supported and self.base_version not in supported:
+                        raise ValueError(addon['name'] + ' 不支持所选游戏版本')
             if self.modpack:
                 from core.modpacks import ModpackImporter
                 ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
                                 status, progress, self.api_key).install(self.modpack, self.version)
             elif self.content:
                 from core.content import download_content
-                download_content(self.content['version'], self.content['target'], self.content['kind'],
-                                 self.cancel_event, status, progress)
+                files = download_content(self.content['version'], self.content['target'], self.content['kind'],
+                                         self.cancel_event, status, progress)
+                self.signals.downloaded.emit(self.task_id, files)
             elif self.loader:
                 version_id = install_loader(self.loader, self.base_version, self.loader_version,
                     self.game_dir, self.java, {"setStatus": status,
@@ -95,6 +201,12 @@ class DownloadWorker(QRunnable):
                 version_json = os.path.join(self.game_dir, "versions", self.version, f"{self.version}.json")
                 if not os.path.isfile(version_json):
                     raise RuntimeError("下载结束，但版本文件没有生成")
+            if self.addons:
+                from core.content import download_content
+                target = os.path.join(self.game_dir, 'versions', self.version) if self.isolated else self.game_dir
+                for addon in self.addons:
+                    status('正在安装 ' + addon['name'])
+                    download_content(addon['version'], target, 'mod', self.cancel_event, status, progress)
             if self.loader:
                 self.signals.resolved.emit(self.task_id, self.version)
             message = '整合包导入完成' if self.modpack else '内容下载完成' if self.content else f"{self.loader + ' ' if self.loader else ''}安装完成"
@@ -122,10 +234,10 @@ class TasksPage(QWidget):
         )
         self._tasks = self._load_history()
         self._workers = {}
-        self._rows = {}
         self._closing = False
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(1)
+        self.view_controller = TaskHistoryController(self)
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
@@ -186,53 +298,15 @@ class TasksPage(QWidget):
                 os.unlink(temporary)
 
     def init_ui(self):
+        self.host = QmlPage(self, self.resource_path, 'TaskHistory.qml', 'taskHistory', self.view_controller)
+        self.quick = self.host.quick
         root = QVBoxLayout(self)
-        root.setContentsMargins(15, 10, 15, 0)
-        root.setSpacing(10)
-        self.setStyleSheet('''
-            QPushButton { background: #383047; color: #eeeaf6; border: 1px solid #625277;
-                          border-radius: 4px; padding: 5px 10px; }
-            QPushButton:hover { background: #514065; }
-            QPushButton:disabled { color: #77717e; border-color: #45404c; }
-            QLineEdit { background: #211f2b; color: #efedf5; border: 1px solid #494152;
-                        border-radius: 4px; padding: 6px; }
-        ''')
-
-        header = QHBoxLayout()
-        title = QLabel("游戏安装记录")
-        title.setStyleSheet("color: #f2f2f2; font-size: 14px; font-weight: bold;")
-        header.addWidget(title)
-        header.addStretch(1)
-        self.clear_button = QPushButton("清除已结束记录")
-        self.clear_button.clicked.connect(self.clear_completed)
-        header.addWidget(self.clear_button)
-        root.addLayout(header)
-
-        filters = QHBoxLayout()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索版本或安装目录")
-        self.search.textChanged.connect(self.refresh_tasks)
-        self.filter = QMComboBox(self)
-        self.filter.addItems(["全部记录", "正在安装", "已完成", "失败", "已取消", "已中断"])
-        self.filter.currentTextChanged.connect(self.refresh_tasks)
-        filters.addWidget(self.search, 1)
-        filters.addWidget(self.filter)
-        root.addLayout(filters)
-
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        self.list_widget = QWidget()
-        self.list_widget.setStyleSheet('background: transparent;')
-        self.list_layout = QVBoxLayout(self.list_widget)
-        self.list_layout.setContentsMargins(0, 0, 0, 0)
-        self.list_layout.setSpacing(8)
-        self.scroll.setWidget(self.list_widget)
-        root.addWidget(self.scroll, 1)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self.host)
 
     def start_install(self, version: str, game_dir: str, loader=None, base_version=None,
-                      loader_version=None, modpack=None, api_key=None, content=None):
+                      loader_version=None, modpack=None, api_key=None, content=None, addons=None):
         """Record the requested install and run it off the UI thread."""
         if self._closing:
             return False
@@ -261,6 +335,7 @@ class TasksPage(QWidget):
             "loader_version": loader_version or "",
             "modpack": modpack or "",
             "content": content or {},
+            "addons": addons or [],
             "game_dir": game_dir,
             "state": "等待中",
             "status": "已加入安装队列…",
@@ -276,8 +351,7 @@ class TasksPage(QWidget):
         ended = [item for item in self._tasks if item["state"] not in self.ACTIVE]
         self._tasks = sorted(live + ended[:max(0, 200 - len(live))],
                              key=lambda item: item["created_at"], reverse=True)
-        self.filter.setCurrentIndex(0)
-        self.search.clear()
+        self.view_controller.resetFilters()
         self._persist_and_refresh()
 
         source = self.settings_manager.get_setting(
@@ -285,10 +359,12 @@ class TasksPage(QWidget):
         )
         java = self.settings_manager.get_version_setting("java.path", None)
         worker = DownloadWorker(task_id, version, game_dir, source, loader, base_version, loader_version, java,
-                                modpack, api_key, content)
+                                modpack, api_key, content, addons=addons,
+                                isolated=bool(self.settings_manager.get_version_setting('minecraft.isolation', True)))
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
         worker.signals.resolved.connect(self.resolve_version)
+        worker.signals.downloaded.connect(self.resolve_files)
         worker.signals.finished.connect(self.finish_task)
         self._workers[task_id] = worker
         self.pool.start(worker)
@@ -296,42 +372,22 @@ class TasksPage(QWidget):
         return True
 
     def import_modpack(self, archive='', identity='', game_dir=None):
-        from ui.dialog.ModpackImportDialog import ModpackImportDialog
-        directory = game_dir or self.settings_manager.get_setting('minecraft.directory.enable') or str(get_default_minecraft_dir())
-        dialog = ModpackImportDialog(self, directory, archive, identity)
-        if dialog.exec() == QDialog.Accepted:
-            self.start_install(dialog.identity, directory, modpack=dialog.archive)
+        controller = self.parent.content_page.controller
+        controller.setImportDirectory(game_dir or self.settings_manager.get_setting('minecraft.directory.enable') or '')
+        controller.pack_name = identity
+        if archive:
+            controller.inspectPack(archive)
+        self.parent.open_content('modpack', 'import')
 
     def download_content(self, kind=None):
-        from ui.dialog.ContentDownloadDialog import ContentDownloadDialog
-        directory = self.settings_manager.get_setting('minecraft.directory.enable') or ''
-        version = self.settings_manager.get_setting('minecraft.version.enable') or ''
-        if kind != 'modpack' and (not directory or not version):
-            QMessageBox.warning(self, '无法下载内容', '请先选择或安装一个 Minecraft 实例。')
-            return
-        game_version, loader = version, ''
-        if directory and version:
-            try:
-                from core.content import instance_environment
-                game_version, loader = instance_environment(directory, version)
-            except (OSError, ValueError, TypeError) as exc:
-                QMessageBox.warning(self, '无法读取实例', f'当前实例的版本信息无效：{exc}')
-                return
-        dialog = ContentDownloadDialog(self, game_version, loader, kind or 'mod')
-        if kind in ('mod', 'resourcepack', 'shader', 'modpack'):
-            dialog.kind.setCurrentIndex({'mod': 0, 'resourcepack': 1, 'shader': 2, 'modpack': 3}[kind])
-        if dialog.exec() != QDialog.Accepted or not dialog.selected_version:
-            return
-        kind = dialog.kind.currentData()
-        if kind != 'modpack' and (not directory or not version):
-            QMessageBox.warning(self, '无法下载内容', '请先选择或安装一个 Minecraft 实例。')
-            return
-        target = (os.path.join(self.settings_manager.config_path, 'downloads')
-                  if kind == 'modpack'
-                  else self.settings_manager.get_minecraft_isolation_directory() or directory)
-        title = dialog.selected_version.get('name') or dialog.selected_version.get('version_number') or '内容'
-        task_version = f'{version + "-" if version else ""}{kind}-{title}'
-        self.start_install(task_version, directory, content={'kind': kind, 'version': dialog.selected_version, 'target': target})
+        self.parent.open_content(kind or 'mod', 'browse')
+
+    @Slot(str, object)
+    def resolve_files(self, task_id, files):
+        task = self._find_task(task_id)
+        if task:
+            task['downloaded_files'] = files
+            self._schedule_save()
 
     @Slot(str, str)
     def resolve_version(self, task_id, version):
@@ -430,118 +486,10 @@ class TasksPage(QWidget):
         del log[:-200]
 
     def refresh_tasks(self):
-        while self.list_layout.count():
-            item = self.list_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
-        self._rows.clear()
-        query = self.search.text().strip().casefold()
-        selected = self.filter.currentText()
-        tasks = [task for task in self._tasks if query in (task["version"] + " " + task["game_dir"]).casefold()
-                 and (selected == "全部记录" or task["state"] == selected
-                      or (selected == "正在安装" and task["state"] in self.ACTIVE))]
-        if not tasks:
-            empty = QLabel("还没有安装记录。选择一个 Minecraft 版本并点击安装后，进度和结果会显示在这里。")
-            empty.setWordWrap(True)
-            empty.setStyleSheet("color: rgba(255,255,255,0.68); padding: 18px;")
-            self.list_layout.addWidget(empty)
-        else:
-            for task in tasks:
-                row = self._create_task_row(task)
-                self.list_layout.addWidget(row)
-                self._rows[task["id"]] = row
-        self.list_layout.addStretch(1)
-        self.clear_button.setEnabled(any(task.get("state") not in self.ACTIVE for task in self._tasks))
-
-    def _create_task_row(self, task):
-        row = QWidget()
-        row.setObjectName('downloadTask')
-        row.setStyleSheet("QWidget#downloadTask { background-color: rgba(190, 183, 255, 0.10); border-radius: 8px; }")
-        row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        row.setMinimumHeight(175 if not task.get('error') else 220)
-        layout = QVBoxLayout(row)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(5)
-
-        top = QHBoxLayout()
-        name = QLabel(("整合包 " if task.get('modpack') else "Minecraft ") + task.get('version', ''))
-        name.setTextFormat(Qt.PlainText)
-        name.setStyleSheet("color: #f2f2f2; font-weight: bold;")
-        state = QLabel(task.get("state", "未知"))
-        state.setStyleSheet("color: #bfb4ff;")
-        top.addWidget(name)
-        top.addStretch(1)
-        top.addWidget(state)
-        layout.addLayout(top)
-
-        path = QLabel(task["game_dir"])
-        path.setToolTip(task["game_dir"])
-        path.setWordWrap(True)
-        path.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
-        layout.addWidget(path)
-
-        status = QLabel(task.get("status", ""))
-        status.setWordWrap(True)
-        status.setStyleSheet("color: rgba(255,255,255,0.72);")
-        layout.addWidget(status)
-
-        progress = QProgressBar()
-        self._set_progress(progress, task)
-        layout.addWidget(progress)
-
-        created = task.get("created_at", "")
-        if created:
-            date = QLabel(created.replace("T", " ").replace("+00:00", " UTC"))
-            date.setStyleSheet("color: rgba(255,255,255,0.45); font-size: 9px;")
-            layout.addWidget(date)
-        if task.get("error"):
-            error = QLabel(task["error"])
-            error.setWordWrap(True)
-            error.setStyleSheet("color: #ff9b9b;")
-            layout.addWidget(error)
-        actions = QHBoxLayout()
-        actions.addStretch()
-        log = QPushButton("查看日志")
-        log.clicked.connect(lambda checked=False, tid=task["id"]: self.show_log(tid))
-        actions.addWidget(log)
-        action = QPushButton("取消" if task["state"] in self.ACTIVE else "重新安装" if task["state"] == "已完成" else "重试")
-        action.setEnabled(task["state"] != "正在取消" and not (task.get('modpack') and task['state'] == '已完成'))
-        if task.get('modpack') and task['state'] == '已完成':
-            action.setText('已导入')
-        action.clicked.connect(lambda checked=False, tid=task["id"]: self.task_action(tid))
-        actions.addWidget(action)
-        layout.addLayout(actions)
-        row._status = status
-        row._state = state
-        row._progress = progress
-        return row
-
-    def _set_progress(self, bar, task):
-        maximum = int(task.get("maximum") or 0)
-        current = int(task.get("progress") or 0)
-        if task["state"] == "已完成":
-            bar.setRange(0, 100)
-            bar.setValue(100)
-            bar.setFormat("安装完成")
-        elif maximum > 0:
-            bar.setRange(0, maximum)
-            bar.setValue(min(current, maximum))
-            bar.setFormat(f"%p%  ·  {current}/{maximum} 个文件")
-        elif task["state"] in self.ACTIVE:
-            bar.setRange(0, 0)
-        else:
-            bar.setRange(0, 100)
-            bar.setValue(0)
-            bar.setFormat(task["state"])
-        bar.setStyleSheet("QProgressBar {border: none; background: #242232; color: white; text-align: center; min-height: 18px;} QProgressBar::chunk {background: #7859db;}")
+        self.view_controller.set_tasks(self._tasks)
 
     def _update_row(self, task):
-        row = self._rows.get(task["id"])
-        if row:
-            row._status.setText(task["status"])
-            row._state.setText(task["state"])
-            self._set_progress(row._progress, task)
+        self.view_controller.set_tasks(self._tasks)
 
     def task_action(self, task_id):
         task = self._find_task(task_id)
@@ -552,6 +500,10 @@ class TasksPage(QWidget):
             task["status"] = "正在停止下载，已完成文件会保留…"
             self._workers[task_id].cancel_event.set()
             self._persist_and_refresh()
+        elif task.get('state') == '已完成' and task.get('content', {}).get('kind') == 'modpack' and task.get('downloaded_files'):
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(os.path.abspath(task['downloaded_files'][0]))))
         elif task.get('modpack'):
             self.import_modpack(task['modpack'], task['version'], task['game_dir'])
         elif task.get('content'):
@@ -559,34 +511,13 @@ class TasksPage(QWidget):
         else:
             self.start_install(task["version"], task["game_dir"], task.get("loader") or None,
                                task.get("base_version") or None,
-                               task.get("loader_version") or None)
+                               task.get("loader_version") or None, addons=task.get('addons') or [])
 
     def show_log(self, task_id):
-        task = self._find_task(task_id)
-        if not task:
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Minecraft {task['version']} · 安装日志")
-        dialog.resize(640, 400)
-        dialog.setStyleSheet('QDialog { background: #211e2d; } '
-                            'QTextEdit { background: #2c273b; color: #e8e1ef; '
-                            'border: 1px solid #514461; border-radius: 7px; padding: 10px; }')
-        layout = QVBoxLayout(dialog)
-        text = QTextEdit()
-        text.setReadOnly(True)
-        layout.addWidget(text)
-        def refresh():
-            updated = "\n".join(task.get("logs", []))
-            if text.toPlainText() != updated:
-                text.setPlainText(updated)
-                text.moveCursor(text.textCursor().MoveOperation.End)
-        refresh()
-        timer = QTimer(dialog)
-        timer.timeout.connect(refresh)
-        timer.start(1000)
-        dialog.exec()
+        self.view_controller.showLog(task_id)
 
     def shutdown(self):
+        self.view_controller._log_timer.stop()
         if self._closing:
             return not self._workers
         self._closing = True

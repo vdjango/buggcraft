@@ -11,7 +11,7 @@ from aiohttp import ClientSession, ClientTimeout, TCPConnector, web
 
 
 API = 'https://api.curseforge.com/v1'
-ROUTE = re.compile(r'/mods(?:/search|/files|/[1-9][0-9]{0,9}(?:/files(?:/[1-9][0-9]{0,9})?)?)?')
+ROUTE = re.compile(r'/mods(?:/search|/files|/[1-9][0-9]{0,9}(?:/description|/files(?:/[1-9][0-9]{0,9})?)?)?')
 CLASSES = {6, 12, 6552, 4471}
 
 
@@ -128,6 +128,12 @@ class Gateway:
         cached = self.cache.get(key)
         if cached and now - cached[0] < 300:
             return cached[1]
+        description = route.endswith('/description')
+        if description:
+            # Descriptions have no gameId of their own; verify the parent first.
+            parent = (await self.metadata('GET', route.rsplit('/', 1)[0])).get('data')
+            if not isinstance(parent, dict) or parent.get('gameId') != 432 or parent.get('classId') not in CLASSES:
+                raise web.HTTPNotFound()
         try:
             async with asyncio.timeout(25):
                 async with self.semaphore:
@@ -139,7 +145,8 @@ class Gateway:
                         payload = await self.fetch(method, route, params, body)
                         data = payload.get('data') if isinstance(payload, dict) else None
                         records = data if isinstance(data, list) else [data]
-                        if data is None or any(not isinstance(x, dict) or x.get('gameId') != 432 for x in records):
+                        if (description and not isinstance(data, str)) or (not description and
+                                (data is None or any(not isinstance(x, dict) or x.get('gameId') != 432 for x in records))):
                             raise web.HTTPNotFound()
                         # Bound cache memory independently of the number of requests.
                         if len(json.dumps(payload).encode('utf-8')) > 1024 * 1024:

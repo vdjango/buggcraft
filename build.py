@@ -8,6 +8,7 @@ import hashlib
 import json
 import platform
 import plistlib
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -16,9 +17,37 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 
 
+def stage_native_bridge(runtime, package):
+    """Ship one complete CMake install tree; preserve relative runtime paths."""
+    runtime, package = Path(runtime).resolve(), Path(package).resolve()
+    name = 'buggcraft-bridge.exe' if os.name == 'nt' else 'buggcraft-bridge'
+    library = 'buggcraft_bridge.dll' if os.name == 'nt' else (
+        'libbuggcraft_bridge.dylib' if sys.platform == 'darwin' else 'libbuggcraft_bridge.so')
+    has_library = any((package / folder / library).is_file() for folder in ('bin', 'lib'))
+    if not has_library and not (package / 'bin' / name).is_file():
+        raise FileNotFoundError('Use the native project CMake install directory: ' + str(package))
+    if has_library and not (package / 'share/buggcraft-native/python/buggcraft_bridge.py').is_file():
+        raise FileNotFoundError('Native library binding missing from install directory: ' + str(package))
+    destination = runtime / 'native'
+    if package == destination or destination in package.parents:
+        raise ValueError('Native install source must be outside the runtime destination')
+    if destination.exists():
+        if destination.resolve().parent != runtime or destination.is_symlink():
+            raise ValueError('Unexpected native runtime destination')
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+    for folder in ('bin', 'lib', 'share'):
+        if (package / folder).is_dir():
+            shutil.copytree(package / folder, destination / folder,
+                ignore=shutil.ignore_patterns('buggcraft-core', 'buggcraft-core.exe'))
+    files = {path.relative_to(destination).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+             for path in destination.rglob('*') if path.is_file()}
+    (destination / 'manifest.json').write_text(json.dumps(dict(schema=1, files=files), indent=2), encoding='utf-8')
+
+
 def validate_runtime_inventory(directory):
     """Fail a release if an unused media or PDF dependency reappears."""
-    forbidden_packages = {'aiortc', 'av', 'av.libs', 'pylibsrtp', 'notifypy', 'loguru', 'plyer'}
+    forbidden_packages = {'asyncssh', 'aioice', 'aiortc', 'av', 'av.libs', 'pylibsrtp', 'notifypy', 'loguru', 'plyer'}
     unexpected = []
     for path in directory.rglob('*'):
         if not path.is_file():
@@ -115,7 +144,14 @@ def qml_exclusions():
 def make_command(onefile=False, output=None, jobs=None):
     root = Path(__file__).resolve().parent
     resources = root / 'resources'
-    required = [resources / 'qml/multiplayer/Lobby.qml', resources / 'images/minecraft_bg.png']
+    required = [resources / 'qml/multiplayer/Lobby.qml', resources / 'images/minecraft_bg.png',
+                *[resources / 'qml/launcher' / name for name in
+                  ('LauncherHeader.qml', 'Home.qml', 'Downloads.qml', 'GameCatalogue.qml', 'GameInstallation.qml',
+                   'InstallationComponent.qml', 'DownloadHub.qml',
+                   'TaskHistory.qml', 'TaskRecord.qml', 'SettingsForm.qml', 'Instances.qml', 'RecordList.qml',
+                   'DialogContent.qml', 'ChoiceBox.qml', 'ModalDialog.qml', 'SettingsSection.qml', 'SettingOption.qml',
+                   'ListRow.qml', 'IconButton.qml', 'CatalogueList.qml', 'ContentCatalogue.qml', 'VersionPicker.qml',
+                   'HeaderAction.qml', 'ContentDetails.qml', 'PagedListView.qml')]]
     if any(not path.is_file() for path in required):
         raise FileNotFoundError('Missing launcher resources; build from a complete checkout')
     command = [sys.executable, '-m', 'nuitka', '--onefile' if onefile else '--standalone',
@@ -124,14 +160,8 @@ def make_command(onefile=False, output=None, jobs=None):
                '--noinclude-qt-translations',
                '--include-module=PySide6.QtQuickWidgets', '--include-module=PySide6.QtQml',
                '--include-package=minecraft_launcher_lib', '--include-package-data=minecraft_launcher_lib',
-               '--include-package=asyncssh',
-               '--include-package=aioice',
-               '--nofollow-import-to=aiortc,av,pylibsrtp',
+               '--nofollow-import-to=asyncssh,aioice,aiortc,av,pylibsrtp,hookup._rtc,hookup.peer,hookup.ice,hookup.compression,hookup.game_chat,hookup.legacy_chat',
                '--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid',
-               f'--include-data-files={root / "src/buggcraft/hookup/_rtc/LICENSE"}=hookup/_rtc/LICENSE',
-               f'--include-data-files={root / "src/buggcraft/hookup/_rtc/UPSTREAM.json"}=hookup/_rtc/UPSTREAM.json',
-               f'--include-data-files={root / "src/buggcraft/hookup/chat_protocols.json"}=hookup/chat_protocols.json',
-               f'--include-data-files={root / "src/buggcraft/hookup/legacy_packets.json"}=hookup/legacy_packets.json',
                f'--include-data-files={root / "src/buggcraft/hookup/THIRD_PARTY_NOTICES.txt"}=hookup/THIRD_PARTY_NOTICES.txt',
                f'--include-data-dir={resources}=resources',
                f'--output-dir={output or root / "dist"}',
@@ -310,6 +340,8 @@ def main():
                         help='HTTPS URL for the generated runtime ZIP; repeat for mirrors')
     parser.add_argument('--package-only', action='store_true',
                         help='Package an existing main.dist without recompiling')
+    parser.add_argument('--native-bridge-dir', type=Path,
+                        help='CMake install directory for this platform; bundle the native bridge and all its libraries')
     parser.add_argument('--certificate-pin', action='append', default=[], metavar='HOST:PORT=SHA256',
                         help='Pin a temporary HTTPS endpoint certificate SHA-256')
     parser.add_argument('--sign-certificate', type=Path,
@@ -320,6 +352,8 @@ def main():
     parser.add_argument('--require-signature', action='store_true',
                         help='Fail the build unless the installer and launcher are signed')
     args = parser.parse_args()
+    if args.onefile and args.native_bridge_dir:
+        parser.error('--native-bridge-dir requires a standalone runtime; omit --onefile')
     if platform.system() not in ('Windows', 'Darwin'):
         parser.error('Release packaging currently supports Windows and macOS hosts')
     if platform.system() == 'Darwin' and (args.runtime_url or args.certificate_pin or
@@ -351,6 +385,12 @@ def main():
         if status:
             return status
     if platform.system() == 'Darwin':
+        if args.native_bridge_dir:
+            bundles = list(output.glob('*.app'))
+            if len(bundles) != 1:
+                raise RuntimeError('Expected one .app to stage the native bridge')
+            stage_native_bridge(bundles[0] / 'Contents/MacOS', args.native_bridge_dir)
+            subprocess.run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(bundles[0])], check=True)
         print(json.dumps(package_macos(output)))
         return 0
     if args.onefile:
@@ -359,6 +399,8 @@ def main():
                                  thumbprint=args.sign_thumbprint, machine_store=args.sign_machine_store)
         (output / 'signing-status.json').write_text(json.dumps(signing, indent=2), encoding='utf-8')
     if not args.onefile:
+        if args.native_bridge_dir:
+            stage_native_bridge(output / 'main.dist', args.native_bridge_dir)
         removed = trim_qt_libraries(output / 'main.dist', output / 'qt-unused')
         (output / 'qt-trim-report.json').write_text(json.dumps(removed, indent=2), encoding='utf-8')
         runtime_binaries = [path.relative_to(output).as_posix()

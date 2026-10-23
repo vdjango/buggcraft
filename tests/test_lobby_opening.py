@@ -25,6 +25,8 @@ class LobbyOpeningTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.page = QDialog()
+        from unittest.mock import Mock
+        self.page._social_changed = Mock()
         self.addCleanup(self.page.close)
         self.dialog = MultiplayerDialog(self.page, Path(self.temporary.name) / 'lobby.json')
         self.page._multiplayer_dialog = self.dialog

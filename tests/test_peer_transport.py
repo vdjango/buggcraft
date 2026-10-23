@@ -1,6 +1,7 @@
 """Real encrypted peer sockets, relay fallback, stream EOF and room boundaries."""
 import asyncio
 import secrets
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -147,6 +148,110 @@ class PeerTransportTests(unittest.IsolatedAsyncioTestCase):
             client = await self.endpoint(TunnelClient, host.invite)
         self.assertEqual(client.transport_state, 'relay')
         await self.exchange(client)
+
+    async def test_explicit_ice_failure_immediately_falls_back_and_transfers_over_relay(self):
+        from hookup.ice import Connection
+        host = await self.endpoint(TunnelHost, game_port=await self.world())
+        # Real SDP/signaling and local forwarding; connectivity checks report
+        # failure instead of waiting for the whole 15-second peer budget.
+        with patch.object(Connection, 'connect', new=AsyncMock(side_effect=ConnectionError('UDP denied'))), \
+                self.assertLogs('hookup.relay', level='WARNING') as logs:
+            client = await asyncio.wait_for(self.endpoint(TunnelClient, host.invite), 5)
+        self.assertEqual(client.transport_state, 'relay')
+        self.assertTrue(any('reason=ConnectionError stage=ice-connect' in line for line in logs.output))
+        await self.exchange(client)
+
+    async def test_unavailable_signal_immediately_falls_back_without_waiting_for_answer(self):
+        from hookup.peer import PeerTransport
+        host = await self.endpoint(TunnelHost, game_port=await self.world())
+        original = PeerTransport.send
+        def unavailable(peer, message):
+            if message.get('type') == 'answer':
+                target = next(p for p in self.relay.peers if p.role == 'client' and p.peer_signal)
+                target.peer_signal.send({'type': 'unavailable'})
+            else:
+                original(peer, message)
+        with patch.object(PeerTransport, 'send', new=unavailable), \
+                self.assertLogs('hookup.relay', level='WARNING') as logs:
+            client = await asyncio.wait_for(self.endpoint(TunnelClient, host.invite), 5)
+        self.assertEqual(client.transport_state, 'relay')
+        self.assertTrue(any('stage=host-unavailable' in line for line in logs.output))
+        await self.exchange(client)
+
+    async def test_closed_signal_immediately_falls_back_while_ssh_stays_usable(self):
+        from hookup.peer import PeerTransport
+        host = await self.endpoint(TunnelHost, game_port=await self.world())
+        original = PeerTransport.send
+        def close_signal(peer, message):
+            if message.get('type') == 'answer':
+                target = next(p for p in self.relay.peers if p.role == 'client' and p.peer_signal)
+                target.peer_signal.close()
+            else:
+                original(peer, message)
+        with patch.object(PeerTransport, 'send', new=close_signal), \
+                self.assertLogs('hookup', level='WARNING') as logs:
+            client = await asyncio.wait_for(self.endpoint(TunnelClient, host.invite), 5)
+        self.assertEqual(client.transport_state, 'relay')
+        self.assertTrue(any('peer_signal_failed' in line for line in logs.output))
+        self.assertTrue(any('peer_fallback' in line and 'stage=waiting-answer' in line for line in logs.output))
+        await self.exchange(client)
+
+    async def test_leaving_during_answer_cancels_host_work_and_keeps_room_usable(self):
+        from hookup.peer import PeerTransport
+        host = await self.endpoint(TunnelHost, game_port=await self.world())
+        started, cancelled = asyncio.Event(), asyncio.Event()
+        async def pending_answer(peer, message):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        with patch.object(PeerTransport, 'answer', new=pending_answer):
+            client = TunnelClient(self.profile, host.invite, listen_port=0, announce=False)
+            self.endpoints.append(client)
+            self.tasks.append(asyncio.create_task(client.run()))
+            await asyncio.wait_for(started.wait(), 3)
+            await client.stop()
+            await asyncio.wait_for(cancelled.wait(), 1)
+        await self.wait(lambda: not host.peer_transport.answer_jobs, timeout=1)
+        visitor = await self.endpoint(TunnelClient, host.invite)
+        self.assertEqual(visitor.transport_state, 'p2p')
+        await self.exchange(visitor, 65536)
+
+    async def test_slow_stun_gathering_does_not_cancel_negotiation(self):
+        """Unanswered adapter probes take 5s on each side, before ICE starts."""
+        from hookup.peer import PeerTransport
+        from aioice.ice import get_host_addresses
+        from hookup.ice import usable_addresses
+
+        class Blackhole(asyncio.DatagramProtocol):
+            packets = 0
+
+            def datagram_received(self, data, address):
+                self.packets += 1
+
+        loop = asyncio.get_running_loop()
+        transport, server = await loop.create_datagram_endpoint(
+            Blackhole, local_addr=('0.0.0.0', 0))
+        self.addCleanup(transport.close)
+        address = usable_addresses(get_host_addresses(True, False))[-1]
+        profile = SimpleNamespace(server_host=address,
+                                  server_port=transport.get_extra_info('sockname')[1])
+
+        async def select_stun(peer):
+            peer.stun_profile = profile
+
+        with patch.object(PeerTransport, 'select_stun', new=select_stun):
+            host = await self.endpoint(TunnelHost, game_port=await self.world())
+            client = TunnelClient(self.profile, host.invite, listen_port=0, announce=False)
+            self.endpoints.append(client)
+            self.tasks.append(asyncio.create_task(client.run()))
+            await self.wait(lambda: client.listener is not None, timeout=20)
+
+        self.assertEqual(client.transport_state, 'p2p')
+        self.assertGreater(server.packets, 0)
+        with patch('tunnel.relay.RoomPeer.connection_requested', side_effect=AssertionError('Relay used')):
+            await self.exchange(client)
 
     async def test_unanswered_negotiation_times_out_to_relay_without_harming_direct_visitor(self):
         host = await self.endpoint(TunnelHost, game_port=await self.world())

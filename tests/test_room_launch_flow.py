@@ -1,4 +1,5 @@
 """Room membership, runtime locking and launch decisions in the real controller."""
+import asyncio
 import os
 from pathlib import Path
 import sys
@@ -70,6 +71,45 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.controller.records['room'].update(role='host', availability='waiting')
         self.controller.launch_room()
         self.parent.started_game.assert_called_once_with(server=None)
+
+    def run_job(self, key, coroutine):
+        self.controller.finish(key, asyncio.run(coroutine), None)
+
+    def test_running_game_discovery_can_proceed_to_room_creation(self):
+        world = dict(port=51234, version='1.21.8', protocol=772)
+        self.controller.game = {'version': '1.21.8', 'loader': 'forge'}
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch.object(self.controller, 'profile', return_value=Mock()), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
+                    request=AsyncMock(side_effect=[{'worlds': [world]}, world]))) as bridge:
+            self.controller.act('discover', {})
+            self.assertEqual(self.controller.view['worlds'], [world])
+            self.assertFalse(self.controller.view['busy'])
+            bridge.return_value.request.assert_awaited_once_with('game.discover', {'exclude': [34567], 'duration_ms': 3000})
+            self.controller.act('probe', {'port': world['port']})
+        self.assertEqual(self.controller.view['step'], 1)
+        self.assertEqual(self.controller.view['worldPort'], world['port'])
+        with patch.object(self.controller, 'profile', return_value=Mock()), \
+                patch.object(self.controller, 'start') as start:
+            self.controller.act('create', {'title': 'Already running world'})
+        self.assertEqual(start.call_args.args[0].game_port, world['port'])
+
+    def test_waiting_host_can_discover_and_reselect_world_after_starting_game(self):
+        world = dict(port=51234, version='1.21.8', protocol=772)
+        self.controller.records['room'].update(role='host', availability='waiting')
+        endpoint = SimpleNamespace(role='host', retarget_world=AsyncMock(return_value=world))
+        self.service.endpoints['room'] = endpoint
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
+                    request=AsyncMock(return_value={'worlds': [world]}))):
+            self.controller.act('reopenWorld', {})
+            self.assertEqual(self.controller.view['page'], 'worldPicker')
+            self.assertEqual(self.controller.view['worlds'], [world])
+            self.controller.act('applyWorld', {'port': world['port']})
+        endpoint.retarget_world.assert_awaited_once_with(world['port'])
+        self.assertEqual(self.controller.view['page'], 'connected')
+        self.assertFalse(self.controller.view['busy'])
+        self.assertEqual(self.controller.view['error'], '')
 
     def test_membership_and_chat_do_not_require_installed_version(self):
         self.service.endpoints.clear()

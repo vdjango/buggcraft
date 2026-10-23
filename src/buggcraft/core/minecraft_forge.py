@@ -860,7 +860,7 @@ class CrossPlatformMinecraftInstaller:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # 将 stderr 合并到 stdout
                 universal_newlines=True,
-                bufsize=1
+                bufsize=1, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
             # 实时读取输出
@@ -920,9 +920,9 @@ class CrossPlatformMinecraftInstaller:
         try:
             # 使用which/where命令查找java
             if self.current_os == OSPlatform.WINDOWS:
-                result = subprocess.run(["where", java_executable], capture_output=True, text=True)
+                result = subprocess.run(["where", java_executable], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             else:
-                result = subprocess.run(["which", java_executable], capture_output=True, text=True)
+                result = subprocess.run(["which", java_executable], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             
             if result.returncode == 0:
                 return result.stdout.strip().split('\n')[0]  # 返回第一个找到的java路径

@@ -103,7 +103,7 @@ class JavaPathFinder:
                     ["where", "java.exe"], 
                     capture_output=True, 
                     text=True, 
-                    timeout=10
+                    timeout=10, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 )
                 if result.returncode == 0:
                     for line in result.stdout.strip().split('\n'):
@@ -118,7 +118,7 @@ class JavaPathFinder:
                     ["which", "java"], 
                     capture_output=True, 
                     text=True, 
-                    timeout=5
+                    timeout=5, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 )
                 if result.returncode == 0:
                     java_path = result.stdout.strip()
@@ -206,11 +206,14 @@ class JavaPathFinder:
     def _get_java_version(self, java_path: str) -> Tuple[Optional[str], Optional[Tuple[int, int, int]]]:
         """获取Java版本信息并解析为元组"""
         try:
+            probe_path = Path(java_path)
+            if probe_path.name.lower() == 'javaw.exe' and probe_path.with_name('java.exe').is_file():
+                probe_path = probe_path.with_name('java.exe')
             result = subprocess.run(
-                [java_path, "-version"],
+                [str(probe_path), "-version"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             if result.returncode == 0 or result.stderr:
                 # Java版本信息通常输出到stderr
@@ -220,7 +223,7 @@ class JavaPathFinder:
                 
                 # 查找包含版本信息的行
                 for line in lines:
-                    if "version" in line.lower():
+                    if "version" in line.lower() or re.match(r'^\s*(?:openjdk|java)\s+\d', line, re.I):
                         raw_version = line.strip()
                         break
                 
@@ -238,8 +241,8 @@ class JavaPathFinder:
         解析Java版本字符串为(主版本, 次版本, 补丁版本)元组
         """
         try:
-            # 尝试匹配带引号的版本号
-            quoted_match = re.search(r'["\'](\d+\.\d+\.\d+[^"\']*)["\']', version_str)
+            # Accept major-only GA releases and suffixes such as 25-ea or 25.0.1+8.
+            quoted_match = re.search(r'["\'](\d+(?:\.\d+)*(?:_\d+)?(?:[-+][^"\']*)?)["\']', version_str)
             if quoted_match:
                 version_part = quoted_match.group(1)
             else:
@@ -253,10 +256,16 @@ class JavaPathFinder:
                     if version_match:
                         version_part = version_match.group(0)
                     else:
-                        return (0, 0, 0)
+                        version_match = re.search(r'\b(?:openjdk|java)(?:\s+version)?\s+(\d+)(?:[-+\s]|$)', version_str, re.I)
+                        if version_match:
+                            version_part = version_match.group(1)
+                        elif re.fullmatch(r'\d+(?:[-+][\w.-]+)?', version_str):
+                            version_part = version_str
+                        else:
+                            return (0, 0, 0)
             
             # 提取版本号各部分
-            version_parts = version_part.split('.')
+            version_parts = re.split(r'[-+]', version_part, maxsplit=1)[0].split('.')
             major = int(version_parts[0])
             
             # 处理Java 9+的版本格式
@@ -342,7 +351,7 @@ class JavaPathFinder:
                 [java_path, "-version"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             output = result.stderr or result.stdout
             

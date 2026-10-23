@@ -199,6 +199,18 @@ ColumnLayout {
                         }
                     }
                     CopyText {
+                        objectName: "room-latency-" + index
+                        property bool measured: !!vm.nodeAvailable && typeof vm.nodeLatencyMs === "number" && isFinite(vm.nodeLatencyMs) && vm.nodeLatencyMs >= 0
+                        text: measured ? "节点 " + Math.round(vm.nodeLatencyMs) + " ms" : "延迟 —"
+                        color: !measured ? "#aaa4b3" : vm.nodeLatencyMs < 100 ? "#a7c9b5" : vm.nodeLatencyMs < 250 ? "#d0b895" : "#e8b3b3"
+                        font.pixelSize: 11
+                        Layout.preferredWidth: 86
+                        horizontalAlignment: Text.AlignRight
+                        ToolTip.visible: roomLatencyHover.hovered
+                        ToolTip.text: "到当前接入节点的实测往返延迟，不含登录和加载列表耗时。P2P 或跨节点联机的实际游戏延迟，请加入后查看房间详情。"
+                        HoverHandler { id: roomLatencyHover }
+                    }
+                    CopyText {
                         objectName: "room-access-" + index
                         text: modelData.require_invite ? "需要邀请码" : "直接加入"
                         color: modelData.require_invite ? "#d0b895" : "#a7c9b5"; font.pixelSize: 11

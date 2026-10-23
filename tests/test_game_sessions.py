@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QSignalSpy
 from config.settings import SettingsManager
 from core.game_sessions import GameSessions
 
@@ -107,12 +108,25 @@ class GameSessionTests(unittest.TestCase):
         self.assertEqual(launcher.settings_manager.get_setting('minecraft.version.enable'), 'fixture')
         self.assertEqual(launcher.settings_manager.get_setting('memory.allocation'), 1024)
 
-    def test_home_button_stops_selected_process_and_additional_button_launches_another(self):
+    def test_manual_stop_is_not_reported_as_crash_but_unexpected_exit_is(self):
+        stopped = QSignalSpy(self.sessions.signals.stopped)
+        self.assertTrue(self.sessions.start())
+        self.wait_for(lambda: self.sessions.running)
+        self.sessions.stop()
+        self.wait_for(lambda: not self.sessions._sessions)
+        self.assertEqual(stopped.at(0), [0])
+        self.assertTrue(self.sessions.start())
+        self.wait_for(lambda: self.sessions.running)
+        self.sessions.selected['launcher'].process.terminate()
+        self.wait_for(lambda: not self.sessions._sessions)
+        self.assertNotEqual(stopped.at(1), [0])
+
+    def test_one_home_button_starts_multiple_games_and_menu_stops_only_selected(self):
         from PySide6.QtWidgets import QWidget
         from ui.pages.started_game import StartGamePage
         parent = QWidget()
         parent.config_path = str(self.root)
-        with patch('ui.pages.started_game.get_settings_manager', return_value=self.settings):
+        with patch('ui.pages.qml_start.get_settings_manager', return_value=self.settings):
             page = StartGamePage(parent, str(Path(__file__).resolve().parents[1] / 'resources'), str(self.root / 'cache'))
         # Reuse the real session manager created by the page for process cleanup.
         self.sessions = page.launcher
@@ -121,19 +135,23 @@ class GameSessionTests(unittest.TestCase):
         with patch.object(page.auth_manager, 'is_authenticated', return_value=True):
             page.started_game()
             self.wait_for(lambda: page.current_client)
-            self.assertEqual(page.launch_btn.line1_label.text(), '停止游戏')
+            self.assertEqual(page.controller.view['launchTitle'], '停止游戏')
             self.settings.set_setting('launcher.allow_multiple', True)
             page.on_page_activate()
-            self.assertFalse(page.additional_game_btn.isHidden())
-            page.additional_game_btn.click()
+            self.assertTrue(page.controller.view['allowMultiple'])
+            self.assertEqual(page.controller.view['launchTitle'], '启动游戏')
+            page.controller.launch(True)
             self.wait_for(lambda: len([r for r in self.sessions.sessions if r['phase'] == 'running']) == 2)
             first, second = self.sessions.sessions
             second_process = second['launcher'].process
-            page.session_combo.setCurrentIndex(page.session_combo.findData(first['id']))
-            page.started_game()
+            page.controller.selectSession(first['id'])
+            page.controller.stopSelected()
             self.wait_for(lambda: len(self.sessions.sessions) == 1)
             self.assertIsNone(second_process.poll())
-            self.assertEqual(page.launch_btn.line1_label.text(), '停止游戏')
+            self.assertEqual(page.controller.view['launchTitle'], '启动游戏')
+            self.settings.set_setting('launcher.allow_multiple', False)
+            page.on_page_activate()
+            self.assertEqual(page.controller.view['launchTitle'], '停止游戏')
         self.cleanup()
         page.auth_refresh_timer.stop()
         parent.close()

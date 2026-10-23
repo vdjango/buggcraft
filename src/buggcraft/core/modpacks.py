@@ -1,4 +1,4 @@
-"""Validated CurseForge pack inspection and transactional instance import."""
+"""Validated CurseForge/Modrinth inspection and transactional instance import."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +12,7 @@ import stat
 import tempfile
 import threading
 import zipfile
+from urllib.parse import urlsplit
 
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
@@ -71,6 +72,64 @@ class PackInfo:
     files: tuple
     recommended_ram: int
     expanded_bytes: int
+    source: str = 'CurseForge'
+    override_layers: tuple = ()
+
+
+def _inspect_modrinth(manifest, expanded, path):
+    if not isinstance(manifest, dict) or type(manifest.get('formatVersion')) is not int or manifest['formatVersion'] != 1 or manifest.get('game') != 'minecraft':
+        raise ValueError('不支持的 Modrinth 整合包清单版本')
+    dependencies = manifest.get('dependencies')
+    mapping = {'forge': 'Forge', 'neoforge': 'NeoForge', 'fabric-loader': 'Fabric', 'quilt-loader': 'Quilt'}
+    if not isinstance(dependencies, dict) or not re.fullmatch(r'[A-Za-z0-9_.+-]{1,64}', str(dependencies.get('minecraft', ''))):
+        raise ValueError('整合包 Minecraft 版本无效')
+    parsed = []
+    for key, value in dependencies.items():
+        if key == 'minecraft':
+            continue
+        if key not in mapping or not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.+-]{1,64}', value):
+            raise ValueError('整合包包含暂不支持的依赖：' + str(key))
+        parsed.append((mapping[key], value))
+    validate_loaders([name for name, version in parsed])
+    files = manifest.get('files')
+    if not isinstance(files, list) or len(files) > 10000:
+        raise ValueError('整合包文件清单无效')
+    refs, names, total = [], set(), 0
+    hosts = {'cdn.modrinth.com', 'github.com', 'raw.githubusercontent.com', 'gitlab.com'}
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError('Modrinth 文件条目无效')
+        relative = str(safe_path(item.get('path')))
+        if relative.casefold() in names:
+            raise ValueError('整合包包含重名下载文件：' + relative)
+        names.add(relative.casefold())
+        hashes = item.get('hashes')
+        if not isinstance(hashes, dict) or any(not isinstance(hashes.get(key), str) or
+                not re.fullmatch('[0-9a-fA-F]{' + str(length) + '}', hashes[key]) for key, length in (('sha1', 40), ('sha512', 128))):
+            raise ValueError('Modrinth 文件缺少有效 SHA1/SHA512 校验值')
+        urls = item.get('downloads')
+        if not isinstance(urls, list) or not 1 <= len(urls) <= 16:
+            raise ValueError('Modrinth 文件下载地址无效')
+        for url in urls:
+            if not isinstance(url, str) or len(url) > 8192 or re.search(r'[\s\x00-\x1f]', url):
+                raise ValueError('Modrinth 文件下载地址无效')
+            parsed_url = urlsplit(url)
+            if parsed_url.scheme != 'https' or parsed_url.hostname not in hosts or parsed_url.username or parsed_url.password:
+                raise ValueError('Modrinth 文件下载地址不属于受支持的 HTTPS 来源')
+        if type(item.get('fileSize')) is not int or item['fileSize'] < 0:
+            raise ValueError('Modrinth 文件大小无效')
+        total += item['fileSize']
+        if total + expanded > MAX_EXPANDED:
+            raise ValueError('整合包展开和下载总大小超过 8 GiB')
+        env = item.get('env', {})
+        if not isinstance(env, dict) or any(value not in ('required', 'optional', 'unsupported') for value in env.values()):
+            raise ValueError('Modrinth 文件环境声明无效')
+        if env.get('client') == 'unsupported':
+            continue
+        refs.append(dict(item, path=relative, hashes={key: hashes[key].lower() for key in ('sha1', 'sha512')}))
+    return PackInfo(str(manifest.get('name') or Path(path).stem), str(manifest.get('versionId', '')),
+                    dependencies['minecraft'], *(parsed[0] if parsed else ('', '')), 'overrides',
+                    tuple(refs), 0, expanded, 'Modrinth', ('overrides', 'client-overrides'))
 
 
 def inspect_pack(path):
@@ -85,13 +144,15 @@ def inspect_pack(path):
             if normalized in seen or stat.S_ISLNK(item.external_attr >> 16) or item.flag_bits & 1:
                 raise ValueError(f'整合包包含重复、链接或加密文件：{item.filename}')
             seen.add(normalized)
-        try:
-            info = archive.getinfo('manifest.json')
-        except KeyError as exc:
-            raise ValueError('暂只支持 CurseForge 整合包（ZIP 根目录需包含 manifest.json）') from exc
+        manifests = [name for name in ('manifest.json', 'modrinth.index.json') if name in archive.namelist()]
+        if len(manifests) != 1:
+            raise ValueError('整合包根目录需包含唯一的 manifest.json（CurseForge）或 modrinth.index.json（Modrinth）')
+        info = archive.getinfo(manifests[0])
         if info.file_size > 4 * 1024 ** 2:
             raise ValueError('整合包清单过大')
         manifest = json.loads(archive.read(info).decode('utf-8-sig'))
+        if manifests[0] == 'modrinth.index.json':
+            return _inspect_modrinth(manifest, expanded, path)
     if not isinstance(manifest, dict) or manifest.get('manifestType') != 'minecraftModpack' \
             or manifest.get('manifestVersion') != 1:
         raise ValueError('不支持的 CurseForge 整合包清单版本')
@@ -188,8 +249,15 @@ class ModpackImporter:
             raise ValueError('该实例名称已存在，请更换名称；整合包导入不会覆盖已有实例')
         self.check()
         self.progress(0, 0)
-        self.status('[1/5] 正在解析 CurseForge 文件清单…')
-        jobs = self.client.resolve(info.files) if info.files else []
+        self.status('[1/5] 正在解析 ' + info.source + ' 文件清单…')
+        if info.source == 'Modrinth':
+            jobs = [(item['downloads'][0], item['path'], item['hashes']['sha1'].lower(), item['fileSize']) for item in info.files]
+            for _, relative, _, _ in jobs:
+                first = safe_path(relative).parts[0].casefold()
+                if first.startswith('.buggcraft') or first in ('natives', 'buggcraft-modpack.json', identity.casefold() + '.json', identity.casefold() + '.jar'):
+                    raise ValueError('整合包不能覆盖启动器元数据：' + relative)
+        else:
+            jobs = self.client.resolve(info.files) if info.files else []
         self.check()
         digest = hashlib.sha256()
         with open(archive_path, 'rb') as source:
@@ -203,7 +271,19 @@ class ModpackImporter:
                                          status=self.status, progress=self.progress)
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
+        if info.source == 'Modrinth':
+            downloader.file_mirrors = {item['downloads'][0]: item['downloads'][1:] for item in info.files}
         downloader._batch(jobs, '[2/5] 正在下载并校验整合包模组和资源…')
+        if info.source == 'Modrinth':
+            for item in info.files:
+                self.check()
+                digest = hashlib.sha512()
+                with downloader.inside(item['path']).open('rb') as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        self.check()
+                        digest.update(chunk)
+                if digest.hexdigest().lower() != item['hashes']['sha512'].lower():
+                    raise ValueError('Modrinth 文件 SHA512 校验失败：' + item['path'])
         self.check()
         self.progress(0, 0)
         self.status('[3/5] 正在安装 Minecraft 和加载器…')
@@ -230,16 +310,17 @@ class ModpackImporter:
             self.progress(0, 0)
             self.status('[4/5] 正在解压整合包配置…')
             with zipfile.ZipFile(archive_path) as archive:
-                prefix = info.overrides.rstrip('/') + '/'
-                overrides = [item for item in archive.infolist() if item.filename.startswith(prefix) and not item.is_dir()]
+                prefixes = [layer.rstrip('/') + '/' for layer in info.override_layers or (info.overrides,)]
+                overrides = [(item, prefix) for prefix in prefixes for item in archive.infolist()
+                             if item.filename.startswith(prefix) and not item.is_dir()]
                 downloaded = {relative.casefold(): (sha1, size) for url, relative, sha1, size in jobs}
-                for index, item in enumerate(overrides):
+                for index, (item, prefix) in enumerate(overrides):
                     self.check()
                     relative = safe_path(item.filename[len(prefix):])
-                    if relative.parts[0].casefold().startswith('.buggcraft') or relative.parts[0].casefold() in ('natives', identity.casefold() + '.json', identity.casefold() + '.jar'):
+                    if relative.parts[0].casefold().startswith('.buggcraft') or relative.parts[0].casefold() in ('natives', 'buggcraft-modpack.json', identity.casefold() + '.json', identity.casefold() + '.jar'):
                         raise ValueError(f'整合包不能覆盖启动器元数据：{relative}')
                     destination = stage.joinpath(*relative.parts)
-                    if destination.exists():
+                    if destination.exists() and info.source != 'Modrinth':
                         expected = downloaded.get(str(relative).casefold())
                         digest = hashlib.sha1()
                         with archive.open(item) as source:
@@ -276,7 +357,8 @@ class ModpackImporter:
             metadata = {'id': identity, 'inheritsFrom': installed, 'jar': jar,
                         'buggcraftModpack': {'name': info.name, 'version': info.version, 'minecraft': info.minecraft,
                                             'loader': info.loader, 'loaderVersion': info.loader_version,
-                                            'archiveSha256': archive_hash, 'recommendedRam': info.recommended_ram}}
+                                            'archiveSha256': archive_hash, 'recommendedRam': info.recommended_ram,
+                                            'source': info.source}}
             (stage / (identity + '.json')).write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8')
             (stage / 'buggcraft-modpack.json').write_text(json.dumps(metadata['buggcraftModpack'], ensure_ascii=False, indent=2), encoding='utf-8')
             self.check()

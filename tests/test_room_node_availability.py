@@ -46,6 +46,26 @@ class NodeAvailabilityControllerTests(unittest.TestCase):
         self.job = self.job_patch.start()
         self.addCleanup(self.job_patch.stop)
 
+    def test_latency_updates_clears_on_failure_and_ignores_old_node_response(self):
+        c = self.controller
+        key = 'rooms:' + c.room_generation + ':0'
+        c.finish(key, {'rooms': [], 'next': None, 'total': 0,
+                       'node_latency_ms': 42.6, 'connect_ms': 9000}, None)
+        self.assertEqual(c.view['nodeLatencyMs'], 42.6)
+        health = 'nodehealth:' + c.node_check_generation
+        c.finish(health, 0.0, None)
+        self.assertEqual(c.view['nodeLatencyMs'], 0.0)
+        c.finish(health, None, 'offline')
+        self.assertIsNone(c.view['nodeLatencyMs'])
+        c.refresh()
+        c.finish(health, 23, None)
+        self.assertIsNone(c.view['nodeLatencyMs'])
+        c.finish(key, {'rooms': [], 'next': None, 'total': 0,
+                       'node_latency_ms': 77}, None)
+        self.assertIsNone(c.view['nodeLatencyMs'])
+        for invalid in (None, True, -1, float('nan'), float('inf'), '20'):
+            self.assertIsNone(c.valid_latency(invalid))
+
     def test_no_configured_node_blocks_create_and_invite_join(self):
         self.controller.node_path = ''
         self.controller.act('createWaiting', {})
@@ -53,6 +73,16 @@ class NodeAvailabilityControllerTests(unittest.TestCase):
         invite = RoomInvite.create().encode()
         self.controller.act('join', {'invite': invite})
         self.assertIn('可用的联机节点', self.controller.view['error'])
+        self.assertEqual(self.service.endpoints, {})
+
+    def test_route_change_tip_is_nonmodal_and_ignores_previous_selected_node(self):
+        controller = self.controller
+        controller.show_route_tip('other-node', 'Node B')
+        self.assertEqual(controller.view['notice'], '')
+        page = controller.view['page']
+        controller.show_route_tip(controller.node_path, 'Node B')
+        self.assertIn('Node B', controller.view['notice'])
+        self.assertEqual(controller.view['page'], page)
         self.assertEqual(self.service.endpoints, {})
 
     def test_configured_but_unverified_node_blocks_every_join_path(self):
@@ -183,6 +213,23 @@ class NodeAvailabilityControllerTests(unittest.TestCase):
 
 
 class RoomPageSdkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_latency_excludes_connection_topology_and_list_loading(self):
+        profile = SimpleNamespace(server_host='node', server_port=1, server_public_key='key')
+        class Connection:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return False
+        async def request(connection, operation, **fields):
+            if operation == 'ping':
+                return {'capabilities': ['room-list-page-v1']}
+            return {'rooms': [], 'next': None, 'total': 0}
+        with patch.object(room_sdk, 'connect_directory', AsyncMock(return_value=Connection())), \
+                patch.object(room_sdk, 'request', side_effect=request), \
+                patch.object(room_sdk, 'remember_topology', AsyncMock()), \
+                patch.object(room_sdk.time, 'perf_counter', side_effect=[0, 5, 5.025, 12]):
+            result = await room_sdk.list_room_page(profile)
+        self.assertEqual(result['node_latency_ms'], 25.0)
+        self.assertEqual(result['connect_ms'], 12000.0)
+
     def room(self, number, title=None):
         return {'id': f'{number:032x}', 'title': title or f'Room {number}',
                 'require_invite': False, 'connections': 1, 'capacity': 100,

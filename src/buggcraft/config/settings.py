@@ -14,6 +14,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def launcher_opacity(settings):
+    """Return a valid window opacity percentage, including for older configs."""
+    try:
+        return max(35, min(100, int(settings.get_setting('launcher.opacity', 85))))
+    except (TypeError, ValueError, OverflowError):
+        return 85
+
+
 def find_minecraft_dirs():
     """
     查找系统中的 Minecraft 目录
@@ -119,6 +127,7 @@ class SettingsManager:
                 "process_priority": "平衡模式",
                 "window_size": "默认",
                 "allow_multiple": False,
+                "opacity": 85,
                 "debug": "否（推荐）"
             },
             "java": {

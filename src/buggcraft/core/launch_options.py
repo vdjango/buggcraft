@@ -3,6 +3,7 @@ import shlex
 import json
 import hashlib
 import uuid
+import re
 from pathlib import Path
 
 
@@ -19,21 +20,25 @@ def complete_auth_arguments(command, client_id='', xuid='0'):
 
 def required_java(directory, version):
     current, seen = version, set()
+    required = 0
     while current:
         if current in seen:
             raise ValueError('游戏版本继承存在循环')
         seen.add(current)
         if not isinstance(current, str) or not current or Path(current).name != current or any(c in current for c in '/\\:'):
             raise ValueError('游戏版本标识无效')
+        match = re.fullmatch(r'(\d+)\.(\d+)(?:\.\d+)?(?:[- ].*)?', current)
+        if match and tuple(map(int, match.groups())) >= (26, 1):
+            required = max(required, 25)
         path = Path(directory) / 'versions' / current / (current + '.json')
         if not path.is_file():
-            return None
+            return required or None
         metadata = json.loads(path.read_text(encoding='utf-8'))
         major = metadata.get('javaVersion', {}).get('majorVersion')
         if type(major) is int and major > 0:
-            return major
+            required = max(required, major)
         current = metadata.get('inheritsFrom')
-    return None
+    return required or None
 
 
 def split_arguments(value):

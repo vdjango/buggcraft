@@ -2,203 +2,53 @@
 import asyncio
 import hashlib
 import json
-from pathlib import Path
-import socket
+import logging
 import time
-import struct
+from pathlib import Path
 import re
 
-import asyncssh
 
-
-def varint(value):
-    value &= 0xffffffff
-    result = bytearray()
-    while True:
-        part, value = value & 127, value >> 7
-        result.append(part | (128 if value else 0))
-        if not value:
-            return bytes(result)
-
-
-async def read_varint(reader):
-    value = 0
-    for index in range(5):
-        byte = (await reader.readexactly(1))[0]
-        value |= (byte & 127) << (index * 7)
-        if not byte & 128:
-            return value
-    raise ValueError('Invalid Minecraft variable integer')
+logger = logging.getLogger(__name__)
 
 
 async def game_status(port, timeout=4):
-    class Probe:
-        def __init__(self):
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.setblocking(False)
-            self.loop = asyncio.get_running_loop()
-
-        async def connect(self):
-            await self.loop.sock_connect(self.sock, ('127.0.0.1', port))
-
-        async def readexactly(self, count):
-            data = bytearray()
-            while len(data) < count:
-                chunk = await self.loop.sock_recv(self.sock, count - len(data))
-                if not chunk:
-                    raise asyncio.IncompleteReadError(bytes(data), count)
-                data.extend(chunk)
-            return bytes(data)
-
-        async def send(self, data):
-            await self.loop.sock_sendall(self.sock, data)
-
-    async def query():
-        probe = Probe()
-        try:
-            async with asyncio.timeout(min(timeout / 2, 2)):
-                await probe.connect()
-                address = b'localhost'
-                handshake = b'\x00' + varint(-1) + varint(len(address)) + address + struct.pack('>H', port) + b'\x01'
-                await probe.send(varint(len(handshake)) + handshake + b'\x01\x00')
-                length = await read_varint(probe)
-                if not 1 <= length <= 1024 * 1024:
-                    raise ValueError('Minecraft status exceeds size limit')
-                packet = await probe.readexactly(length)
-            if packet[0] != 0:
-                raise ValueError('Unexpected Minecraft status packet')
-            offset = 1
-            size = 0
-            for index in range(5):
-                byte = packet[offset]
-                offset += 1
-                size |= (byte & 127) << (7 * index)
-                if not byte & 128:
-                    break
-            if offset + size != len(packet):
-                raise ValueError('Invalid Minecraft status string')
-            status = json.loads(packet[offset:].decode('utf-8'))
-            if not isinstance(status, dict) or not isinstance(status.get('version', {}), dict):
-                raise ValueError('Invalid Minecraft status')
-            version = status.get('version', {})
-            latency = None
-            # Minecraft server-list ping/pong, after status, on the game path.
-            # Missing pong must not discard valid version/player information.
-            nonce = struct.pack('>q', time.monotonic_ns())
-            started = time.perf_counter()
-            try:
-                await probe.send(b'\x09\x01' + nonce)
-                async with asyncio.timeout(min(.7, timeout / 4)):
-                    pong_length = await read_varint(probe)
-                    if pong_length == 9 and await probe.readexactly(9) == b'\x01' + nonce:
-                        latency = round((time.perf_counter() - started) * 1000)
-            except (OSError, ValueError, asyncio.TimeoutError, asyncio.IncompleteReadError):
-                pass
-            return {'port':port, 'version':str(version.get('name', ''))[:64],
-                    'protocol':version.get('protocol'), 'players':status.get('players', {}),
-                    'latency_ms':latency}
-        finally:
-            probe.sock.close()
-    async def legacy_query():
-        from .legacy_chat import text
-        probe = Probe()
-        try:
-            await probe.connect()
-            payload = b'\x4e' + text('localhost') + struct.pack('>i', port)
-            await probe.send(b'\xfe\x01\xfa' + text('MC|PingHost') + struct.pack('>H', len(payload)) + payload)
-            if await probe.readexactly(1) != b'\xff':
-                raise ValueError('Unexpected legacy status packet')
-            length = struct.unpack('>H', await probe.readexactly(2))[0]
-            if length > 32767:
-                raise ValueError('Legacy status exceeds limit')
-            fields = (await probe.readexactly(length * 2)).decode('utf-16-be').split('\0')
-            if len(fields) != 6 or fields[0] != '§1':
-                raise ValueError('Invalid legacy game status')
-            protocol = int(fields[1])
-            # Modern servers cap the legacy ping field at 127. Resolve only an
-            # exact known release name; never mistake that sentinel for its ID.
-            if protocol == 127:
-                from .game_chat import PROFILES
-                protocol = next((int(key) for key, profile in PROFILES.items()
-                                 if fields[2] in profile.get('releases', [])), protocol)
-            return {'port':port, 'version':fields[2][:64], 'protocol':protocol,
-                    'players':{'online':int(fields[4]), 'max':int(fields[5])}}
-        finally:
-            probe.sock.close()
-    async def detect():
-        try:
-            return await query()
-        except (OSError, ValueError, asyncio.TimeoutError, asyncio.IncompleteReadError, IndexError):
-            return await legacy_query()
-    return await asyncio.wait_for(detect(), timeout)
+    from .native_routes import manager
+    return await manager().request('game.status', {'port': int(port), 'timeout_ms': int(timeout * 1000)})
 
 
 async def discover_local_worlds(excluded_ports=(), seconds=3):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('', 4445))
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                    socket.inet_aton('224.0.2.60') + socket.inet_aton('0.0.0.0'))
-    sock.setblocking(False)
-    ports = set()
-    deadline = asyncio.get_running_loop().time() + seconds
-    try:
-        while asyncio.get_running_loop().time() < deadline:
-            remaining = deadline - asyncio.get_running_loop().time()
-            try:
-                packet, _ = await asyncio.wait_for(asyncio.get_running_loop().sock_recvfrom(sock, 2048), remaining)
-            except asyncio.TimeoutError:
-                break
-            text = packet.decode('utf-8', errors='replace')
-            if '[AD]' not in text or '[/AD]' not in text:
-                continue
-            port = text.split('[AD]', 1)[1].split('[/AD]', 1)[0]
-            if port.isdecimal() and 1 <= int(port) <= 65535 and int(port) not in excluded_ports:
-                ports.add(int(port))
-                if len(ports) >= 32:
-                    break
-    finally:
-        sock.close()
-    # Probe loopback only: an advertisement cannot turn this into a LAN scanner.
-    results = await asyncio.gather(*(game_status(port) for port in ports), return_exceptions=True)
-    return [result for result in results if isinstance(result, dict)]
+    from .native_routes import manager
+    result = await manager().request('game.discover', {'exclude': list(excluded_ports), 'duration_ms': int(seconds * 1000)})
+    return result['worlds']
 
 
 async def request(connection, operation, **fields):
-    async with connection.create_process(subsystem='buggcraft-rooms-v1', encoding='utf-8') as process:
-        process.stdin.write(json.dumps({'op': operation, **fields}, ensure_ascii=True) + '\n')
-        # Read incrementally: an untrusted community node cannot allocate an unbounded line.
-        response = ''
-        while not response.endswith('\n'):
-            chunk = await asyncio.wait_for(process.stdout.read(4096), 10)
-            if not chunk:
-                raise ConnectionError('节点未返回房间信息')
-            response += chunk
-            if len(response) > 65536:
-                raise ValueError('节点响应超过限制')
-        value = json.loads(response)
-        if not isinstance(value, dict) or value.get('ok') is not True:
-            raise ConnectionError(value.get('error', '房间操作失败') if isinstance(value, dict) else '无效节点响应')
-        return value['result']
+    return await connection.request(operation, **fields)
 
 
 async def connect_directory(profile, failover=True):
-    from .nodes import candidates
-    error = None
-    for node in candidates(profile) if failover else [profile]:
-        try:
-            connection = await asyncssh.connect(node.server_host, node.server_port, username='directory:rooms',
-                password=json.dumps({'token': node.token.split('~', 1)[0]}), known_hosts=node.known_hosts(),
-                client_keys=[], agent_path=None, preferred_auth=['password'], encoding=None,
-                config=None, x509_trusted_certs=None, x509_trusted_cert_paths=[],
-                connect_timeout=2, login_timeout=4, keepalive_interval=10, keepalive_count_max=2)
-            connection._buggcraft_profile = node
-            return connection
-        except asyncssh.HostKeyNotVerifiable:
-            raise
-        except (OSError, asyncssh.Error) as exc:
-            error = exc
-    raise error or ConnectionError('没有可用节点')
+    from .native_routes import manager
+    routes = manager()
+    handle = await routes.handle(profile)
+    return NativeDirectoryConnection(routes, handle, profile)
+
+
+class NativeDirectoryConnection:
+    """Compatibility-shaped directory session; all I/O is a C++ bridge RPC."""
+    _native_bridge = True
+
+    def __init__(self, routes, handle, profile):
+        self.routes, self.handle, self._buggcraft_profile = routes, handle, profile
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return None
+
+    async def request(self, operation, **fields):
+        return await self.routes.request('node.request', {
+            'node': self.handle, 'request': {'op': operation, **fields}})
 
 
 async def lookup_account(profile, identifier):
@@ -216,7 +66,7 @@ async def lookup_account(profile, identifier):
         if not isinstance(item, dict):
             raise ValueError('节点返回的账号信息无效')
         account, username = item.get('account'), item.get('username')
-        if (not isinstance(account, str) or not re.fullmatch('[0-9a-f]{32}\\.[0-9a-f]{32}', account) or
+        if (not isinstance(account, str) or not re.fullmatch(r'[0-9a-f]{32}\.[0-9a-f]{32}', account) or
                 not isinstance(username, str) or not re.fullmatch('[A-Za-z0-9_-]{3,32}', username) or
                 (identifier != account and identifier.casefold() != username.casefold()) or account in seen):
             raise ValueError('节点返回的账号信息与查询不符')
@@ -237,7 +87,7 @@ async def remember_topology(profile, connection):
 
 
 async def locate_room(profile, room_id):
-    from .relay import RelayProfile
+    from .profiles import RelayProfile
     try:
         async with await connect_directory(profile) as connection:
             try:
@@ -246,7 +96,7 @@ async def locate_room(profile, room_id):
                 pass
             result = await request(connection, 'locate', id=room_id)
             return RelayProfile(**result['profile']) if result.get('profile') else None
-    except (OSError, asyncssh.Error):
+    except (OSError, ConnectionError):
         return None
 
 
@@ -259,55 +109,14 @@ async def list_room_page(profile, offset=0, limit=20, query=''):
     if not isinstance(query, str) or len(query) > 100:
         raise ValueError('无效房间搜索条件')
     query = query.strip()
-    started = time.perf_counter()
-    async with await connect_directory(profile) as connection:
-        info = await request(connection, 'ping')
-        if offset == 0:
-            try:
-                await remember_topology(profile, connection)
-            except (OSError, ValueError, KeyError):
-                pass
-        paged = isinstance(info, dict) and 'room-list-page-v1' in info.get('capabilities', [])
-        rooms, total = [], None
-        while True:
-            page = await request(connection, 'list', offset=offset, limit=limit, query=query)
-            if not isinstance(page, dict) or not isinstance(page.get('rooms'), list) or len(page['rooms']) > 50:
-                raise ValueError('节点房间列表格式无效')
-            entries = [validate_room(room) for room in page['rooms']]
-            following = page.get('next')
-            if following is not None and (type(following) is not int or not offset < following <= 4096
-                                           or following != offset + len(entries)):
-                raise ValueError('节点分页响应无效')
-            if paged:
-                total = page.get('total')
-                if len(entries) > limit or type(total) is not int or not offset + len(entries) <= total <= 100000:
-                    raise ValueError('节点分页数量无效')
-                if (following is None) != (offset + len(entries) >= total):
-                    raise ValueError('节点分页响应无效')
-                rooms, next_offset = entries, following
-                break
-            # Older nodes return up to 50 entries and do not filter. Keep the
-            # cursor at the last consumed entry so no rooms are lost on slicing.
-            next_offset = following
-            for index, room in enumerate(entries):
-                game = room['game']
-                haystack = ' '.join([room['title'], game.get('version', ''), game.get('loader', '')])
-                if query.casefold() in haystack.casefold():
-                    rooms.append(room)
-                if len(rooms) == limit:
-                    next_offset = offset + index + 1 if index + 1 < len(entries) else following
-                    break
-            if len(rooms) == limit or next_offset is None:
-                break
-            offset = next_offset
-        entry = getattr(connection, '_buggcraft_profile', profile)
-        name = info.get('name', '') if isinstance(info, dict) else ''
-        same_entry = (entry.server_host, entry.server_port, entry.server_public_key) == (
-            profile.server_host, profile.server_port, profile.server_public_key)
-        return {'rooms': rooms, 'next': next_offset, 'total': total,
-                'connect_ms': round((time.perf_counter() - started) * 1000, 1),
-                'node_name': name if same_entry and isinstance(name, str) and
-                0 < len(name) <= 80 and all(c.isprintable() for c in name) else ''}
+    from .native_routes import manager
+    bridge = manager()
+    result = await bridge.request('room.list', {'node': await bridge.handle(profile),
+        'offset': offset, 'limit': limit, 'query': query})
+    if not isinstance(result, dict) or not isinstance(result.get('rooms'), list) or len(result['rooms']) > 50:
+        raise ValueError('Invalid native room list')
+    result['rooms'] = [validate_room(room) for room in result['rooms']]
+    return result
 
 
 async def list_rooms(profile):
@@ -341,15 +150,11 @@ async def list_rooms(profile):
 
 
 async def resolve_room(profile, room_id):
-    async with await connect_directory(profile) as connection:
-        result = await request(connection, 'resolve', id=room_id)
-        validate_room(result['room'])
-        if 'secret' not in result and result.get('profile'):
-            from .relay import RelayProfile
-            async with await connect_directory(RelayProfile(**result['profile']), failover=False) as owner:
-                result = await request(owner, 'resolve', id=room_id)
-                validate_room(result['room'])
-        return result
+    from .native_routes import manager
+    bridge = manager()
+    result = await bridge.request('room.resolve', {'node': await bridge.handle(profile), 'id': room_id})
+    validate_room(result['room'])
+    return result
 
 
 def validate_room(value):
@@ -441,29 +246,12 @@ def instance_metadata(directory, version, game_directory=None):
 
 
 class LanAnnouncer:
-    """Deliver LAN discovery to this computer only, matching the loopback proxy.
-
-    Minecraft's MulticastSocket also receives unicast on UDP 4445. Sending to
-    127.0.0.1 keeps the packet source reachable without exposing a LAN listener.
-    """
+    """Compatibility control wrapper; native code owns the UDP socket."""
     def __init__(self, port, title):
-        self.port = port
-        self.title = ''.join(ch for ch in str(title) if ch.isprintable() and ch not in '[]')[:80]
-
-    def packet(self):
-        return f'[MOTD]{self.title}[/MOTD][AD]{self.port}[/AD]'.encode('utf-8')
+        self.port, self.title = port, title
 
     async def run(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('127.0.0.1', 0))
-        sock.setblocking(False)
-        try:
-            while True:
-                try:
-                    await asyncio.get_running_loop().sock_sendto(sock, self.packet(), ('127.0.0.1', 4445))
-                except OSError:
-                    # Discovery is optional; a blocked UDP socket must not kill game traffic.
-                    pass
-                await asyncio.sleep(1.5)
-        finally:
-            sock.close()
+        from .native_routes import manager
+        while True:
+            await manager().request('game.announce', {'port': self.port, 'title': self.title})
+            await asyncio.sleep(1.5)

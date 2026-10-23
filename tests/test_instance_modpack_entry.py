@@ -1,100 +1,46 @@
-import os
-import sys
-import unittest
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
-
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
-from PySide6.QtCore import QCoreApplication, QEvent
-from PySide6.QtWidgets import QApplication, QWidget
-from ui.pages.version.versions import VersionsPage
+from unittest.mock import patch
+from _qml_test_support import LauncherQmlCase
 
 
-class InstanceModpackEntryTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+class InstanceModpackEntryTests(LauncherQmlCase):
+    def test_import_uses_selected_directory_after_each_directory_change(self):
+        page = self.window.version_page.versions_page
+        empty = self.directory / 'empty'
+        empty.mkdir()
+        for directory in (self.game_dir, empty, self.game_dir):
+            self.manager.set_setting('minecraft.directory.installed', [str(self.game_dir), str(empty)])
+            page.controller.reload()
+            page.controller.selectDirectory(str(directory))
+            downloads = self.window.download_page
+            with patch.object(downloads.content_page.controller, 'choosePack'):
+                downloads.games_page.controller.importPack()
+            controller = self.window.download_page.content_page.controller
+            self.assertEqual(controller.import_directory, str(directory))
+            self.assertEqual(controller.view, 'import')
+            self.assertIs(self.window.download_page.stack.currentWidget(), self.window.download_page.content_page)
+        self.assert_no_qml_errors()
 
-    def test_entry_remains_clickable_after_refresh_and_directory_changes(self):
-        tasks = Mock()
-        parent = QWidget()
-        parent.resource_path = str(Path(__file__).resolve().parents[1] / 'resources')
-        parent.parent = SimpleNamespace(download_page=SimpleNamespace(tasks_page=tasks))
-        manager = Mock()
-        manager.get_setting.return_value = 'E:/games/default'
-        with patch('ui.pages.version.versions.get_settings_manager', return_value=manager), \
-                patch.object(VersionsPage, 'load_directory_data', return_value=[]), \
-                patch.object(VersionsPage, 'scan_versions'), \
-                patch.object(VersionsPage, 'on_add_directory') as import_game, \
-                patch.object(VersionsPage, 'load_version_data') as load_versions:
-            page = VersionsPage(parent)
-            parent.resize(900, 600)
-            page.resize(900, 600)
-            parent.show()
-            page.show()
-            try:
-                button = page.import_modpack_button
-                for directory, versions in (
-                    ('E:/games/first', [{'version': '1.20.1', 'description': 'Forge', 'is_selected': True}]),
-                    ('E:/games/second', []),
-                    ('E:/games/first', [{'version': '1.21', 'description': 'Fabric', 'is_selected': False}]),
-                ):
-                    item = QWidget()
-                    item.setProperty('is_selected', True)
-                    item.setProperty('path', directory)
-                    page.directory_items = [item]
-                    load_versions.return_value = versions
-                    page.refresh_version_list(directory)
-                    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-                    self.app.processEvents()
-                    self.assertTrue(button.isVisible())
-                    self.assertTrue(page.import_game_button.isVisible())
-                    self.assertEqual(len(page.version_items), len(versions))
-                    self.assertEqual(page.version_items_layout.count(), len(versions) + 1)
-                    button.click()
-                    tasks.import_modpack.assert_called_with(game_dir=directory)
-                    page.import_game_button.click()
-                    import_game.assert_called_with(None)
-                self.assertEqual(tasks.import_modpack.call_count, 3)
-                self.assertEqual(import_game.call_count, 3)
-            finally:
-                page.close()
-                parent.close()
+    def test_instance_heading_stays_fixed_and_has_no_duplicate_import_entry(self):
+        self.window.switch_pages('实例')
+        page = self.window.version_page.versions_page
+        self.pump()
+        button = self.item(page, 'instance-heading')
+        geometry = (button.x(), button.y(), button.width(), button.height())
+        page.controller._versions = [dict(version='长名称-' * 45, description='Forge')]
+        page.controller.changed.emit()
+        self.pump()
+        self.assertEqual((button.x(), button.y(), button.width(), button.height()), geometry)
+        def names(item):
+            return [item.objectName()] + [name for child in item.childItems() for name in names(child)]
+        self.assertNotIn('import-modpack', names(page.quick.rootObject()))
+        self.assertIs(self.window.content_stack.currentWidget(), self.window.version_page)
+        self.assert_no_qml_errors()
 
-    def test_import_uses_the_selected_game_directory(self):
-        selected = SimpleNamespace(property=lambda key: {
-            'path': 'E:/games/selected', 'is_selected': True,
-        }[key])
-        tasks = Mock()
-        page = SimpleNamespace(
-            directory_items=[selected],
-            settings_manager=Mock(),
-            parent=SimpleNamespace(parent=SimpleNamespace(
-                download_page=SimpleNamespace(tasks_page=tasks),
-            )),
-        )
-
-        VersionsPage.import_modpack(page)
-
-        tasks.import_modpack.assert_called_once_with(game_dir='E:/games/selected')
-
-    def test_import_falls_back_to_configured_game_directory(self):
-        tasks = Mock()
-        manager = Mock()
-        manager.get_setting.return_value = 'E:/games/default'
-        page = SimpleNamespace(
-            directory_items=[], settings_manager=manager,
-            parent=SimpleNamespace(parent=SimpleNamespace(
-                download_page=SimpleNamespace(tasks_page=tasks),
-            )),
-        )
-
-        VersionsPage.import_modpack(page)
-
-        tasks.import_modpack.assert_called_once_with(game_dir='E:/games/default')
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_running_instance_is_protected_from_deletion(self):
+        from types import SimpleNamespace
+        page = self.window.version_page.versions_page
+        with patch.object(page.controller, '_running', return_value=[(str(self.game_dir), '1.21.8', str(self.game_dir))]):
+            page.controller.action('1.21.8', 'deleteVersion')
+            page.controller.confirmDelete(True)
+        self.assertTrue((self.game_dir / 'versions/1.21.8').exists())
+        self.assertIn('退出', page.controller.view['status'])

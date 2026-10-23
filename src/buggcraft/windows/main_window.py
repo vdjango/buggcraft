@@ -5,14 +5,14 @@ import logging
 import webbrowser
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QPushButton, QPlainTextEdit
+    QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor, QIcon
 
 from utils.helpers import scale_component
 from config.javafinder import JavaPathFinder
-from config.settings import get_settings_manager
+from config.settings import get_settings_manager, launcher_opacity
 from core.visibility import LauncherVisibilityManager
 from core.auth.microsoft import MicrosoftAuthenticator
 from core.launcher import MinecraftLibLauncher
@@ -20,7 +20,7 @@ from ui.widgets.titlebar import TitleBar
 from ui.pages import StartGamePage, SettingsPage, VersionsPages, DownloadPages
 from ui.dialog.NotFuilMinecraftVersionDialog import VersionNotFuilDialog, QDialog
 from ui.dialog.NotFuilJavaDialog import JavaRuntimeNotFuilDialog
-from ui.dialog.NoVersionDialog import NoVersionDialog
+from ui.dialog.qml_dialog import DebugOutputDialog, QmlDialog
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,6 +54,8 @@ class MinecraftLauncher(QMainWindow):
         self._close_after_game = False
         self._debug_output = []
         self._debug_dialog = None
+        self._launch_error_dialog = None
+        self._launch_error_reported = False
         self.setWindowIcon(get_app_icon(self.resource_path))
 
         # 窗口拖动
@@ -68,14 +70,14 @@ class MinecraftLauncher(QMainWindow):
         java_path = self.settings_manager.get_version_setting('java.path', None)
         if not (java_path and os.path.isfile(java_path)):
             self.settings_manager.set_version_setting('java.path', None)
-            self.settings_manager.set_setting('java.installations', [])
             self.settings_manager.save_settings()
         
-        for i in self.settings_manager.get_setting('java.installations', []):
-            """校验格式"""
-            if len(i) != 3:
-                self.settings_manager.set_setting('java.installations', [])
-                self.settings_manager.save_settings()
+        installations = self.settings_manager.get_setting('java.installations', []) or []
+        valid_installations = [entry for entry in installations
+                               if isinstance(entry, (list, tuple)) and len(entry) == 3
+                               and isinstance(entry[0], str)]
+        if installations != valid_installations:
+            self.settings_manager.set_setting('java.installations', valid_installations)
         
         # 同步 TitleBar 菜单顺序，同时主页面添加堆叠页面顺序也需要同步
         self.tab_names = [
@@ -100,7 +102,6 @@ class MinecraftLauncher(QMainWindow):
         
         # 预缓存
         self.cache_expanded = QPixmap()
-        self.cache_collapsed = QPixmap()
         # 启用双缓冲
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground, False)
@@ -109,14 +110,18 @@ class MinecraftLauncher(QMainWindow):
         self.set_window_size()  # 根据背景图片尺寸设置窗口大小
         
         self.init_ui()
+        self.apply_window_opacity()
         
-        self.java_runtime_full = JavaRuntimeNotFuilDialog()
-        self.gamed_version_full = VersionNotFuilDialog()
+        self.java_runtime_full = JavaRuntimeNotFuilDialog(self)
+        self.gamed_version_full = VersionNotFuilDialog(self)
         self.java_runtime_full.download_signal.connect(self.on_java_download_signal)
         self.gamed_version_full.download_signal.connect(self.on_gamed_download_signal)
         self.gamed_version_full.import_signal.connect(self.on_gamed_import_signal)
 
         QTimer.singleShot(500, self.minecraft_not_java_runtime)
+
+    def apply_window_opacity(self):
+        self.setWindowOpacity(launcher_opacity(self.settings_manager) / 100)
 
     def init_ui(self):
         # 主布局
@@ -216,14 +221,15 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.started.connect(self.minecraft_handle_started)
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
+        self.launcher.signals.java_required.connect(self.minecraft_java_required)
         self.launcher.signals.progress.connect(self.minecraft_handle_progress)
     
     def minecraft_not_java_runtime(self):
         """打开启动器检查Java环境"""
         if self._closing:
             return
-        if self.settings_manager.get_version_setting('java.path', None) is None:
-            # https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.msi
+        if self.settings_manager.get_version_setting('java.path', None) is None \
+                and not self.settings_manager.get_setting('java.installations', []):
             # 尝试本地搜索
             self.load_java_path()
             logger.warning('尝试本地搜索Java')
@@ -284,23 +290,16 @@ class MinecraftLauncher(QMainWindow):
         self.search_thread.start()
 
     def minecraft_not_java_version_runtime(self):
-        finder = JavaPathFinder()
-        from core.launch_options import required_java
-        required = required_java(self.settings_manager.get_setting('minecraft.directory.enable') or '',
-                                 self.settings_manager.get_setting('minecraft.version.enable')) or 17
-        finder.min_required_version = (required, 0)
-        
-        best_java = self.settings_manager.get_version_setting('java.path')
-        parsed = finder._get_java_version(best_java)[1]
-        current_version = parsed[:2] if parsed else ()
-        current_version = '.'.join(list(str(i) for i in current_version))
-        if finder.is_java_version_low(best_java):
-            """版本过低"""
-            logger.warning(f'版本过低 {best_java}')
-            self.java_runtime_full.set_title(f'Java版本过低')
-            self.java_runtime_full.set_message(f'当前Java版本 {current_version or "无法识别"}，当前游戏需要 Java {required} 或更高版本，请在设置中更换。')
+        from core.java_runtime import select_java, JavaRuntimeUnavailable
+        try:
+            select_java(self.settings_manager,
+                        self.settings_manager.get_setting('minecraft.directory.enable') or '',
+                        self.settings_manager.get_setting('minecraft.version.enable') or '')
+        except JavaRuntimeUnavailable as exc:
+            self._required_java_download = exc.required
+            self.java_runtime_full.set_title('需要安装 Java')
+            self.java_runtime_full.set_message(str(exc))
             return True
-
         return False
 
     def on_java_search_finished(self, java_installations):
@@ -337,7 +336,7 @@ class MinecraftLauncher(QMainWindow):
         """Java搜索错误处理"""
         print("搜索出错", f"错误信息: {error_message}")
         self.settings_page.java_page.refresh_list()
-        self.settings_page.java_page.java_versions_panel.set_messages('搜索失败，请重试')
+        self.settings_page.java_page.set_status('搜索失败，请重试')
 
     def on_gamed_import_signal(self):
         """用户选择了导入游戏向导"""
@@ -356,11 +355,14 @@ class MinecraftLauncher(QMainWindow):
     def on_java_download_signal(self):
         """用户选择了下载Java向导"""
         logger.info("用户选择了下载Java向导")
-        webbrowser.open('https://www.oracle.com/java/technologies/downloads/#java21')
+        major = getattr(self, '_required_java_download', 0) or 25
+        webbrowser.open(f'https://adoptium.net/temurin/releases/?version={major}')
         pass
 
     def switch_pages(self, name):
         """切换标签页"""
+        if name in self.tab_names and self.content_stack.currentIndex() == self.tab_names.index(name):
+            return
         # 获取当前活动页面的索引
         current_index = self.content_stack.currentIndex()
         
@@ -373,21 +375,20 @@ class MinecraftLauncher(QMainWindow):
         # 切换到新页面
         self.current_tab = self.tab_names.index(name)
         self.content_stack.setCurrentIndex(self.current_tab)
+        self.title_bar.set_active_tab(name)
         
         # 调用新页面的激活方法
         new_widget = self.content_stack.widget(self.current_tab)
         if hasattr(new_widget, 'on_page_activate'):
             new_widget.on_page_activate()
         
-        print('switch_pages', self.tab_names, name)
+        logger.debug('Launcher page selected: %s', name)
 
     def set_window_size(self):
         """根据背景图片尺寸设置窗口大小"""
         bg_width = self.bg_image.width()
         bg_height = self.bg_image.height()
-        self.resize(bg_width, bg_height)
-        self.setMinimumSize(bg_width - self.menu_width, bg_height)
-        self.setMaximumSize(bg_width, bg_height)
+        self.setFixedSize(bg_width, bg_height)
         
     def minecraft_handle_output(self, message):
         """处理输出"""
@@ -399,13 +400,7 @@ class MinecraftLauncher(QMainWindow):
 
     def _show_debug_output(self):
         if self._debug_dialog is None:
-            self._debug_dialog = QPlainTextEdit(self)
-            self._debug_dialog.setWindowFlag(Qt.Window)
-            self._debug_dialog.setWindowTitle('Minecraft · 调试输出')
-            self._debug_dialog.setReadOnly(True)
-            self._debug_dialog.setMaximumBlockCount(5000)
-            self._debug_dialog.resize(760, 440)
-            self._debug_dialog.setPlainText('\n'.join(self._debug_output))
+            self._debug_dialog = DebugOutputDialog(self, self._debug_output)
         self._debug_dialog.show()
         self._debug_dialog.raise_()
         self._debug_dialog.activateWindow()
@@ -425,6 +420,44 @@ class MinecraftLauncher(QMainWindow):
             QTimer.singleShot(100, self.close)
         else:
             self.visibility_manager.restore_if_needed()
+            if exit_code and not self._launch_error_reported:
+                self.show_launch_error('游戏异常退出',
+                    f'Minecraft 已退出，退出代码：{exit_code}。',
+                    '请查看游戏日志中的异常、模组冲突或崩溃报告；导出诊断日志时会一并收集。')
+
+    def show_launch_error(self, title, message, detail='', required=0):
+        if self._closing or self._close_after_game:
+            return
+        self._launch_error_reported = True
+        if self._launch_error_dialog is None:
+            self._launch_error_dialog = QmlDialog(self, width=620, height=390)
+            self._launch_error_dialog.controller.actionRequested.connect(self._launch_error_action)
+        dialog = self._launch_error_dialog
+        self._required_java_download = required
+        dialog.set_title(title)
+        dialog.set_message(message)
+        dialog.set_message_text(detail)
+        dialog.controller.actions = ['下载 Java', 'Java 设置', '关闭'] if required else ['查看日志', '关闭']
+        dialog.controller.changed.emit()
+        self.showNormal()
+        dialog.open()
+        dialog.raise_()
+
+    def _launch_error_action(self, action):
+        self._launch_error_dialog.accept()
+        if action == '下载 Java':
+            self.on_java_download_signal()
+        elif action == 'Java 设置':
+            self.switch_pages('设置')
+            self.settings_page.java_tab_btn_clicked()
+        elif action == '查看日志':
+            self._show_debug_output()
+
+    def minecraft_java_required(self, version, required, detail):
+        self.minecraft_handle_output(f'[Java 检查] {detail}')
+        self.show_launch_error('缺少适合的 Java',
+            f'Minecraft {version} 需要 Java {required} 或更高版本。' if required else '没有可用的 Java 运行环境。',
+            detail, required=required or 25)
     
     def minecraft_handle_error(self, message):
         """错误处理"""
@@ -436,6 +469,8 @@ class MinecraftLauncher(QMainWindow):
             QTimer.singleShot(100, self.close)
         else:
             self.visibility_manager.restore_if_needed()
+            self.show_launch_error('游戏启动失败', str(message),
+                                  '游戏启动未完成。可查看日志获取完整输出，或导出诊断日志进一步排查。')
     
     def minecraft_handle_progress(self, progress):
         """处理进度更新"""
@@ -461,62 +496,39 @@ class MinecraftLauncher(QMainWindow):
         painter.drawRect(self.cache_expanded.rect().adjusted(0, 0, -1, -1))
         painter.end()
 
-        original_size = self.cache_expanded.size()
-        collapsed_width = original_size.width() - self.menu_width
-        collapsed_height = original_size.height()
-        collapsed_size = QSize(collapsed_width, collapsed_height)
-        
-        self.cache_collapsed = QPixmap(collapsed_size)
-        self.cache_collapsed.fill(Qt.transparent)
-        
-        painter = QPainter(self.cache_collapsed)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # 只绘制右侧内容部分
-        content_rect = QRect(0, 0, collapsed_width, collapsed_height)
-        source_rect = QRect(self.menu_width, 0, collapsed_width, collapsed_height)
-        painter.drawPixmap(content_rect, self.bg_image, source_rect)
-        painter.setPen(QPen(QColor("#565656"), 1))
-        painter.drawRect(self.cache_collapsed.rect().adjusted(0, 0, -1, -1))
-        painter.end()
-        
         logger.info("预缓存初始化完成。")
+        self.cache_collapsed = self.cache_expanded.copy(
+            self.menu_width, 0, self.cache_expanded.width() - self.menu_width,
+            self.cache_expanded.height())
 
     def toggle_menu(self):
-        """切换菜单状态"""
-        current_geometry = self.frameGeometry()
-        current_pos = current_geometry.topLeft()
-        current_width = current_geometry.width()
-        current_height = current_geometry.height()
-        
-        if self.menu_collapsed:
-            new_width = current_width + self.menu_width
-            new_pos = QPoint(current_pos.x() - self.menu_width, current_pos.y())
-        else:
-            new_width = current_width - self.menu_width
-            new_pos = QPoint(current_pos.x() + self.menu_width, current_pos.y())
-        
-        self.setGeometry(new_pos.x(), new_pos.y(), new_width, current_height)
-        self.menu_collapsed = not self.menu_collapsed
-
-        for i in reversed(range(self.content_stack.layout().count())):
-            # 收起/打开所有页面菜单
-            item = self.content_stack.layout().itemAt(i)
-            widget = item.widget()
-            if widget and hasattr(widget, 'toggle_menu'):
-                widget.toggle_menu(self.menu_collapsed)
-        
-        self.update() # 触发paintEvent
+        """Crop the original background and commit one layout/paint update."""
+        right = self.x() + self.width()
+        self.setUpdatesEnabled(False)
+        try:
+            self.menu_collapsed = not self.menu_collapsed
+            for index in range(self.content_stack.count()):
+                page = self.content_stack.widget(index)
+                if hasattr(page, 'toggle_menu'):
+                    page.toggle_menu(self.menu_collapsed)
+                if page.layout():
+                    page.layout().activate()
+            size = self.cache_collapsed.size() if self.menu_collapsed else self.cache_expanded.size()
+            self.setFixedSize(size)
+            self.move(right - size.width(), self.y())
+            self.title_bar.controller.collapsed = self.menu_collapsed
+            self.title_bar.controller.changed.emit()
+            self.centralWidget().layout().activate()
+        finally:
+            self.setUpdatesEnabled(True)
+        self.update()
     
     def paintEvent(self, event):
         """绘制事件 - 使用预缓存"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        if self.menu_collapsed:
-            target_pixmap = self.cache_collapsed
-        else:
-            target_pixmap = self.cache_expanded
+        target_pixmap = self.cache_collapsed if self.menu_collapsed else self.cache_expanded
         
         if not target_pixmap.isNull():
             painter.drawPixmap(0, 0, target_pixmap)
@@ -560,8 +572,21 @@ class MinecraftLauncher(QMainWindow):
                 QTimer.singleShot(100, self.close)
                 return
         if self._debug_dialog is not None:
+            self._debug_dialog.shutdown()
             self._debug_dialog.close()
+        self.started_page.auth_refresh_timer.stop()
+        self.started_page.auth_manager.cancel_refresh()
+        self.started_page.login_dialog.auth.cancel_authentication()
+        # Closing can originate in a QML button. Unload only after that handler
+        # returns, otherwise its visual object is deleted while onClicked runs.
+        QTimer.singleShot(0, self, self._release_qml)
         super().closeEvent(event)
+
+    def _release_qml(self):
+        from PySide6.QtQuickWidgets import QQuickWidget
+        from PySide6.QtCore import QUrl
+        for quick in self.findChildren(QQuickWidget):
+            quick.setSource(QUrl())
 
     # 窗口拖动功能
     def mousePressEvent(self, event: QMouseEvent):

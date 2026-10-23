@@ -6,7 +6,7 @@ import json
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -40,7 +40,7 @@ class ModrinthClient:
             raise ValueError('Modrinth 返回格式无效')
         return data
 
-    def search(self, query, kind, game_version='', loader='', limit=20):
+    def search(self, query, kind, game_version='', loader='', limit=20, offset=0):
         if kind not in KINDS:
             raise ValueError('不支持的内容类型')
         facets = [[f'project_type:{kind}']]
@@ -48,7 +48,7 @@ class ModrinthClient:
             facets.append([f'versions:{game_version}'])
         if loader and kind in ('mod', 'modpack'):
             facets.append([f'categories:{loader.lower()}'])
-        data = self._get('/search', {'query': query or '', 'limit': max(1, min(int(limit), 100)),
+        data = self._get('/search', {'query': query or '', 'limit': max(1, min(int(limit), 100)), 'offset': max(0, int(offset)),
                                      'facets': _json_param(facets), 'index': 'relevance'})
         return data.get('hits', []) if isinstance(data, dict) else []
 
@@ -61,6 +61,14 @@ class ModrinthClient:
         data = self._get('/project/' + str(project_id) + '/version', params)
         return data if isinstance(data, list) else []
 
+    def project(self, project_id, kind='mod'):
+        data = self._get('/project/' + str(project_id))
+        if not isinstance(data, dict):
+            raise ValueError('Modrinth 项目详情无效')
+        license = data.get('license') or {}
+        return dict(data, license_name=license.get('name') or license.get('id') or '未声明',
+                    website_url='https://modrinth.com/' + kind + '/' + str(data.get('slug') or project_id))
+
 
 class ContentCatalogue:
     SOURCES = ('自动', 'Modrinth', 'CurseForge')
@@ -71,37 +79,55 @@ class ContentCatalogue:
                         'CurseForge': CurseForgeContentClient(cancel=self.cancel)}
         self.warnings = []
 
-    def search(self, query, kind, game_version='', loader='', source='自动'):
+    def search(self, query, kind, game_version='', loader='', source='自动', progress=None,
+               offset=0, limit=20, page_info=False):
         if source not in self.SOURCES:
             raise ValueError('不支持的资源来源')
         names = list(self.clients) if source == '自动' else [source]
         self.warnings = []
-        hits, successful = [], 0
+        hits, successful, by_source, warnings, has_more = [], 0, {}, [], False
         # Catalogues contain different projects, not interchangeable file mirrors.
         with ThreadPoolExecutor(max_workers=len(names)) as pool:
-            futures = {name: pool.submit(self.clients[name].search, query, kind, game_version, loader)
+            futures = {pool.submit(self.clients[name].search, query, kind, game_version, loader, limit, offset): name
                        for name in names}
-            for name, future in futures.items():
+            for future in as_completed(futures):
+                name = futures[future]
                 try:
                     records = future.result()
                     successful += 1
-                    hits.extend(dict(record, source=name) for record in records)
+                    has_more = has_more or len(records) >= limit
+                    by_source[name] = [dict(record, source=name) for record in records]
+                    hits = [record for provider in names for record in by_source.get(provider, [])]
                 except DownloadCancelled:
                     raise
                 except (requests.RequestException, ValueError):
                     if source != '自动':
                         raise
-                    self.warnings.append(name + ' 暂不可用')
+                    warnings.append(name + ' 暂不可用')
+                if progress is not None and hits:
+                    progress(list(hits))
         if not successful:
             raise ValueError('资源来源暂不可用，请检查网络后重试。')
-        return hits
+        self.warnings = warnings
+        return {'hits': hits, 'has_more': has_more, 'warnings': warnings} if page_info else hits
 
-    def versions(self, project, game_version='', loader='', kind='mod'):
+    def versions(self, project, game_version='', loader='', kind='mod', offset=0, page_info=False):
         if not isinstance(project, dict) or project.get('source') not in self.clients:
             raise ValueError('请重新选择资源项目')
         name = project['source']
-        return [dict(version, source=name) for version in
-                self.clients[name].versions(project['project_id'], game_version, loader, kind)]
+        options = {'offset': offset} if name == 'CurseForge' and offset else {}
+        if page_info and name == 'CurseForge':
+            options['page_info'] = True
+        data = self.clients[name].versions(project['project_id'], game_version, loader, kind, **options)
+        records = data.get('versions', []) if isinstance(data, dict) else data
+        versions = [dict(version, source=name) for version in records]
+        return dict(data, versions=versions) if isinstance(data, dict) else (
+            {'versions': versions, 'has_more': False, 'next_offset': 0} if page_info else versions)
+
+    def project(self, project, kind='mod'):
+        if not isinstance(project, dict) or project.get('source') not in self.clients:
+            raise ValueError('请重新选择资源项目')
+        return self.clients[project['source']].project(project['project_id'], kind)
 
 
 def _safe_file_name(name):

@@ -1,6 +1,7 @@
 .minecraft
 venv
 .build-venv/
+native-source/
 resources/icons/app.icns
 *.pyc
 .secret

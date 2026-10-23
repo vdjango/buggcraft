@@ -7,10 +7,34 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
-from core.content import ModrinthClient, download_content, instance_environment
+from core.content import ContentCatalogue, ModrinthClient, download_content, instance_environment
+from core.curseforge import CurseForgeContentClient
 
 
 class ContentDownloadTests(unittest.TestCase):
+    def test_both_provider_searches_receive_offset_without_implicit_version_filters(self):
+        catalogue = ContentCatalogue()
+        with patch.object(catalogue.clients['Modrinth'], 'search', return_value=[dict(project_id='mr')]) as mr, \
+                patch.object(catalogue.clients['CurseForge'], 'search', return_value=[dict(project_id='cf')]) as cf:
+            data = catalogue.search('fixture', 'mod', offset=20, limit=1, page_info=True)
+        for call in (mr, cf):
+            call.assert_called_once_with('fixture', 'mod', '', '', 1, 20)
+        self.assertTrue(data['has_more'])
+        self.assertEqual([row['source'] for row in data['hits']], ['Modrinth', 'CurseForge'])
+
+    def test_curseforge_keeps_pagination_when_page_contains_unavailable_files(self):
+        client = CurseForgeContentClient()
+        project = dict(id=10, gameId=432, classId=6)
+        item = dict(id=20, modId=10, fileName='fixture.jar', fileLength=1,
+            gameVersions=['1.20.1', '1.20.2', 'Forge'], hashes=[dict(algo=1, value='0' * 40)])
+        with patch.object(client, 'get', side_effect=[project, [dict(item, id=i, isAvailable=i != 1) for i in range(1, 51)]]):
+            page = client.versions('10', page_info=True)
+        self.assertEqual(len(page['versions']), 49)
+        self.assertTrue(page['has_more'])
+        self.assertEqual(page['next_offset'], 50)
+        self.assertEqual(page['versions'][0]['game_versions'], ['1.20.1', '1.20.2'])
+        self.assertEqual(page['versions'][0]['loaders'], ['forge'])
+
     def _response(self, payload):
         response = MagicMock()
         response.__enter__.return_value = response

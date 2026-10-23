@@ -4,12 +4,12 @@ import json
 import os
 from pathlib import Path
 import tempfile
-import asyncssh
 
 
 def node_identity(profile):
     """A pinned SSH key identifies a node across address aliases and key comments."""
-    return asyncssh.import_public_key(profile.server_public_key).get_fingerprint()
+    parts = profile.server_public_key.strip().split()
+    return 'SHA256:' + __import__('hashlib').sha256((parts[0] + ' ' + parts[1]).encode()).hexdigest()
 
 
 def profile_data(profile):
@@ -36,7 +36,7 @@ def save_json(path, value):
 
 
 def decode_code(code):
-    from .relay import RelayProfile
+    from .profiles import RelayProfile
     code = code.strip()
     if not code.startswith('buggnode1-') or len(code) > 4096:
         raise ValueError('请粘贴节点网页提供的 buggnode1- 添加码。')
@@ -55,7 +55,7 @@ def encode_code(profile):
 
 
 def candidates(profile):
-    from .relay import RelayProfile
+    from .profiles import RelayProfile
     values = list(profile._nodes)
     if not values and profile._source:
         path = Path(profile._source + '.network.json')
@@ -80,7 +80,7 @@ def candidates(profile):
 
 
 def remember(profile, nodes):
-    from .relay import RelayProfile
+    from .profiles import RelayProfile
     if not isinstance(nodes, list) or len(nodes) > 32:
         raise ValueError('节点网络列表超过限制')
     cleaned = [profile_data(RelayProfile(**item)) for item in nodes]

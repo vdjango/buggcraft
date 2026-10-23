@@ -143,7 +143,8 @@ class MinecraftDownloader:
         errors = []
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".buggcraft-part")
-        for candidate in self.urls(url):
+        candidates = list(dict.fromkeys(self.urls(url) + getattr(self, 'file_mirrors', {}).get(url, [])))
+        for candidate in candidates:
             for attempt in range(3):
                 self.check_cancelled()
                 try:

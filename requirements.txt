@@ -3,9 +3,3 @@ minecraft-launcher-lib==7.1
 requests==2.33.0
 psutil==7.0.0
 pypng==0.20220715.0
-asyncssh==2.24.1
-cryptography==50.0.2
-aioice==0.10.2
-pyee==13.0.1
-google-crc32c==1.9.0
-pyOpenSSL==26.4.0

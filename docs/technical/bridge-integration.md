@@ -10,9 +10,9 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 
 ## 下载与启动
 
-从 [Package bridge 构建任务](https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml) 下载对应系统的产物。Windows x64 为 ZIP，Linux x64、macOS Intel 与 Apple Silicon 为 tar.gz。解压并保留整个 `buggcraft-bridge/` 目录；Windows 启动 `buggcraft-bridge.exe`，其他系统启动 `buggcraft-bridge`。不能只复制可执行文件而丢弃 `_internal/`。
+从 [Package bridge 构建任务](https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml) 下载对应系统的产物。Windows x64 为 ZIP，Linux x64、macOS Intel 与 Apple Silicon 为 tar.gz。解压并保留整个 `buggcraft-bridge/` 目录；Windows 启动 `bin/buggcraft-bridge.exe`，其他系统启动 `bin/buggcraft-bridge`。`bin/`、`lib/`、`share/` 中的动态库、FFI 绑定和许可属于同一安装树，不能只复制可执行文件。
 
-启动器以子进程启动它，重定向 stdin、stdout、stderr；Windows 可通过 `CREATE_NO_WINDOW` 隐藏控制台窗口。不要使用 shell 拼接命令，不要通过命令行传入接入码。程序没有公开 HTTP 端口，也不注册常驻系统服务。`--version` 输出构建提交、平台与协议版本。
+启动器以子进程启动它，重定向 stdin、stdout、stderr；Windows 可通过 `CREATE_NO_WINDOW` 隐藏控制台窗口。不要使用 shell 拼接命令，不要通过命令行传入接入码。程序没有公开 HTTP 端口，也不注册常驻系统服务。`--version` 输出原生组件版本与协议版本；准确源码提交以构建工作流固定的 revision 为准。
 
 每行一条 UTF-8 JSON 消息，换行后刷新 stdin。stdout 只含 JSON-RPC 响应；stderr 是诊断输出，应持续读取。当前请求串行处理，不支持 batch，不发送事件通知；启动器按需调用 `session.list` 刷新状态。初始化返回 `methods`，界面只展示组件实际支持的功能。
 
@@ -31,7 +31,7 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 {"jsonrpc":"2.0","id":4,"method":"room.close","params":{"session":"返回的会话句柄"}}
 ```
 
-句柄只在当前桥接进程内有效，重启后重新添加节点。桥接程序不将用户接入码写入磁盘；启动器自行使用操作系统安全存储。匿名接入可联机，个人接入码携带账号授权，但当前桥接接口尚未提供好友操作和网页登录；不能因身份为 `account` 就声称已有好友接口。
+句柄只在当前桥接进程内有效，重启后重新添加节点。桥接程序不将用户接入码写入磁盘；启动器负责自己的配置存储。匿名接入可联机，个人接入码携带账号授权；原生组件提供 `social.operate`，具体操作及权限以 `bridge.initialize` 的方法清单和节点响应为准。
 
 ## 接口
 
@@ -46,7 +46,7 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 | `room.close` | `session` | `closed` |
 | `session.list` | 空对象 | 当前会话列表、实际路径和本机地址 |
 
-`transport` 默认为 `auto`，先尝试 P2P；指定 `relay` 只使用中转。一个房间的不同访客可以使用不同路径。默认创建的是邀请码房间；当前 `room.host` 尚未开放大厅公开房间设置，`room.join` 需要邀请码。节点原生协议中的扩展能力不等于桥接接口已经支持。
+`transport` 默认为 `auto`，先尝试 P2P；指定 `relay` 只使用中转。一个房间的不同访客可以使用不同路径。`room.host` 可传入 `settings`，`room.configure` 更新房间设置，`room.retarget` 切换实际游戏端口；`room.join` 使用邀请码。扩展接口还包括 `game.discover/status`、`mods.*`、`chat.*` 和 `session.events`，完整参数以原生仓库接口文档为准，调用前检查初始化返回的方法清单。
 
 同一房间的直连对端会得知网络地址，需隐藏对端地址时选择中转。已建立的游戏 TCP 连接不能在网络断开后无损迁移；断线后需重新连接。公开节点协议和服务配置见[节点文档](https://github.com/vdjango/minecraft-tunnel/blob/main/PROTOCOL_STANDARD.md)。
 
@@ -56,10 +56,10 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 
 ## 构建与验证
 
-在目标系统使用 Python 3.11 安装 `requirements-bridge-build.txt`，执行 `python scripts/build_bridge.py`。不安装启动器 UI 依赖。当前传输实现使用完整 aiortc，因此包含其 PyAV 等依赖；没有宣称已完成网络库裁剪。发行目录附带许可、对应 Git 源码和依赖清单，压缩包旁提供 SHA-256。当前没有受信任的代码签名或 Apple 公证。
+原生源码位于 [minecraft-tunnel-native](https://github.com/vdjango/minecraft-tunnel-native)，CI 固定源码提交后构建，避免启动器与组件版本漂移。在目标系统准备 CMake、C++20 编译器和 OpenSSL 3，执行 `python scripts/build_bridge.py --native-source ../minecraft-tunnel-native --output dist/bridge-build`。Python 只编排构建步骤，组件运行时不需要 Python，也不安装启动器 UI 依赖或 aiortc/AsyncSSH。发行目录附带原生组件许可，压缩包旁提供 SHA-256。当前没有受信任的代码签名或 Apple 公证。
 
-macOS Intel 的 cryptography 50.0.2 没有对应预编译 wheel。源码构建需准备 Rust 和 Homebrew OpenSSL，并先执行 `OPENSSL_STATIC=1 OPENSSL_DIR="$(brew --prefix openssl@3)" python -m pip install --no-cache-dir --no-binary cryptography cryptography==50.0.2`，再安装上述构建依赖。静态链接避免与 Python 自带的另一个 OpenSSL 3 动态库混用；CI 执行同一步骤。打包后的用户不需要这些构建工具。Linux/macOS 复制发行目录时须保留符号链接，发行文件因此采用 tar.gz。
+Windows CI 使用 vcpkg OpenSSL，macOS 使用 Homebrew OpenSSL，Linux 使用系统开发包；构建脚本收集组件实际需要的动态库。打包后的用户不需要这些构建工具。Linux/macOS 复制发行目录时须保留可执行权限与符号链接，发行文件因此采用 tar.gz。旧 Python 传输实现仅作为 `compatibility/legacy_hookup/` 中的历史参考，不进入正式运行包。
 
-设置 `BUGGCRAFT_NODE_SOURCE` 为节点源码仓库路径，运行 `python -m unittest tests.test_bridge_package -v`。设置 `BUGGCRAFT_BRIDGE_EXECUTABLE` 指向构建后的程序后，同一套用例还会复制完整发行目录到带空格路径，移除 Python 环境变量与开发工具 PATH，从无关工作目录运行二进制，验证两进程 P2P、中转、混合路径、兆字节传输、EOF、关闭释放端口、公钥拒绝及错误帧。
+先运行原生仓库的 `ctest --test-dir build --build-config Release --output-on-failure`，再安装该仓库测试依赖并运行 `python -m unittest tests.test_bridge_library tests.test_player_logs -v`。使用 `BUGGCRAFT_BRIDGE_PACKAGE`、`BUGGCRAFT_BRIDGE_LIBRARY`、`BUGGCRAFT_BRIDGE_EXECUTABLE`、`BUGGCRAFT_NATIVE_CORE` 指定同一 CMake 安装树中的文件。当前 CI 验证 C ABI、可执行程序互通、P2P/中转混合路径、控制与游戏数据并行、模组哈希校验下载、身份/好友与玩家日志留存。启动器成品另以清除开发路径的 `--package-check` 验证实际加载原生库、页面与诊断导出；旧 Python 传输专项用例不能替代原生组件验收。
 
 本机 P2P 测试不代表覆盖所有公网 NAT；跨运营商、对称 NAT、UDP 阻断仍需不同网络的设备验收。CI 只有测试通过才上传对应平台发行包。

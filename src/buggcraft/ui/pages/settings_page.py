@@ -1,227 +1,39 @@
-# 设置页面
-
-import os
-from typing import Any
-
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QStackedWidget, QLineEdit, QComboBox, QSlider,
-    QRadioButton, QButtonGroup, QScrollArea, QFormLayout, QSpacerItem, QSizePolicy
-)
-from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
-from ui.fonts import system_font
-from PySide6.QtCore import Qt, Signal, QSize, QRect
-from .base_page import BasePage
-from utils.helpers import MemorySliderManager
-from config.settings import get_settings_manager
-from config.javafinder import JavaPathFinder
-from core.visibility import VisibilitySettings
-from ui.widgets.collapse import CollapsePanel
-from ui.pages.settings import GeneralSettingsPages
+"""QML settings navigation; every content page is rendered by Qt Quick."""
+from PySide6.QtCore import Signal
+from ui.pages.qml_navigation import NavigationPage
+from ui.pages.settings.general import GeneralSettingsPages
 from ui.pages.settings.java import JavaManagementPage
 from ui.pages.settings.about import AboutPage
 from ui.pages.settings.version_settings import GlobalVersionSettingsPage
 
 
-import logging
-logger = logging.getLogger(__name__)
+class SettingsPage(NavigationPage):
+    settings_changed = Signal(str, object)
 
-
-class SettingsPage(BasePage):
-    """设置页面 - 继承BasePage"""
-    
-    # 定义信号
-    settings_changed = Signal(str, object)  # 设置改变信号，参数为设置键和值
-    
-    def __init__(self, parent=None, config_path=None, resource_path=None, scale_ratio=1.0, ):
-        super().__init__(parent, config_path, resource_path, scale_ratio)
+    def __init__(self, parent=None, config_path=None, resource_path=None, scale_ratio=1.0):
+        super().__init__(parent, resource_path)
         self.cache_path = parent.cache_path
-        self.resource_path = parent.resource_path
-        self.settings_manager = get_settings_manager()  # 获取配置管理器
-        
-        # 通用设置
+        self.config_path = config_path
         self.general_page = GeneralSettingsPages(self)
-        # Java管理页面
         self.java_page = JavaManagementPage(self)
-        # 全局版本设置页面
         self.global_version_page = GlobalVersionSettingsPage(self)
-        # 关于页面
         self.about_page = AboutPage(self)
-        self.init_ui()
+        self.settings_stack = self.stack
+        for page in (self.general_page, self.java_page, self.global_version_page, self.about_page):
+            self.stack.addWidget(page)
+        self.set_entries(['通用设置', '全局设置', 'Java管理', '关于'])
 
-    def on_page_activate(self):
-        """事件：页面被激活时"""
-        print("设置页面被激活")
-    
-    def on_page_deactivate(self):
-        """事件：页面被隐藏时"""
-        print("设置页面被隐藏")
-
-    def toggle_menu(self, menu_collapsed=False):
-        """事件：左侧菜单折叠"""
-        if menu_collapsed:
-            self.tab_buttons_widget.hide()
-        else:
-            self.tab_buttons_widget.show()
-        pass
-    
-    def init_ui(self):
-        """初始化用户界面"""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # 创建选项卡容器
-        self.tab_container = QWidget()
-        tab_container_layout = QHBoxLayout(self.tab_container)
-        tab_container_layout.setContentsMargins(15, 0, 15, 0)
-        
-        # 创建选项卡按钮区域
-        self.tab_buttons_widget = self.create_tab_buttons()
-        # self.tab_buttons_widget.setStyleSheet("background-color: #225500;")
-
-        # 右侧堆叠内容
-        self.settings_stack = QStackedWidget()
-        self.settings_stack.setFixedWidth(926 - 178 - 62)
-        self.settings_stack.setContentsMargins(0, 0, 0, 0)
-        # self.settings_stack.setStyleSheet("background-color: #552299;")
-
-        tab_container_layout.addWidget(self.tab_buttons_widget)
-        tab_container_layout.addWidget(self.settings_stack)
-        
-        # 通用设置/Java管理/全局版本设置/关于
-        self.settings_stack.addWidget(self.general_page)       # 索引0
-        self.settings_stack.addWidget(self.java_page)          # 索引1
-        self.settings_stack.addWidget(self.global_version_page) # 索引2
-        self.settings_stack.addWidget(self.about_page)         # 索引3
-        # self.settings_stack.addWidget(self.settings_page)
-
-        main_layout.addWidget(self.tab_container)
-
-    def create_tab_buttons(self):
-        """创建选项卡按钮区域  """
-        tab_buttons_widget = QWidget()
-        tab_buttons_widget.setFixedWidth(178 + 21)
-        tab_buttons_widget.setContentsMargins(0, 0, 0, 0)   
-        tab_buttons_layout = QVBoxLayout(tab_buttons_widget)
-        tab_buttons_layout.setContentsMargins(0, 0, 21, 0)
-        tab_buttons_layout.addSpacing(20)   
-
-        # 创建紫色分隔线
-        shared_separator = QFrame()
-        shared_separator.setFrameShape(QFrame.HLine)
-        shared_separator.setStyleSheet("background-color: rgba(139, 133, 218, 1);")
-        shared_separator.setFixedWidth(155)
-        shared_separator.setFixedHeight(2)
-        tab_buttons_layout.addWidget(shared_separator, 0, Qt.AlignCenter)
-        tab_buttons_layout.addSpacing(10)
-        
-        # 通用设置按钮
-        self.general_tab_btn = self.create_tab_button(
-            "通用设置",
-            self.general_tab_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.general_tab_btn, 0, Qt.AlignCenter)
-        
-        # 游戏全局设置按钮
-        self.global_tab_btn = self.create_tab_button(
-            "全局设置",
-            self.global_tab_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.global_tab_btn, 0, Qt.AlignCenter)
-        
-        # Java管理按钮
-        self.java_tab_btn = self.create_tab_button(
-            "Java管理",
-            self.java_tab_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.java_tab_btn, 0, Qt.AlignCenter)
-        
-        # 关于按钮
-        self.about_tab_btn = self.create_tab_button(
-            "关于",
-            self.about_tab_btn_clicked,
-            size=(155, 44), font_size=10
-        )
-        tab_buttons_layout.addWidget(self.about_tab_btn, 0, Qt.AlignCenter)
-        tab_buttons_layout.addStretch()
-        
-        # 设置初始状态：通用设置默认选中
-        self.update_tab_button_style("通用设置", True)
-        return tab_buttons_widget
-
-    def create_tab_button(self, text, click_handler, size=(155, 44), font_size=12):
-        """创建选项卡按钮 """
-        button = QLabel()
-        button.mousePressEvent = lambda event: click_handler() if event.button() == Qt.LeftButton else None
-        button.setCursor(Qt.PointingHandCursor)
-        button.setFixedSize(*size)
-        button.setStyleSheet("background-color: transparent;")
-        
-        # 添加文本
-        text_label = QLabel(text, button)
-        text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        text_label.setFont(system_font(font_size, QFont.Weight.Bold))
-        text_label.setAlignment(Qt.AlignCenter)  
-        text_label.setStyleSheet("color: white; background-color: transparent;")
-        text_label.setGeometry(0, 0, *size)   
-        return button
-
-    def update_tab_button_style(self, tab_name, is_active):
-        """更新选项卡按钮样式 """
-        if tab_name == "通用设置":
-            btn = self.general_tab_btn
-        elif tab_name == "全局设置":
-            btn = self.global_tab_btn
-        elif tab_name == "Java管理":
-            btn = self.java_tab_btn
-        elif tab_name == "关于":
-            btn = self.about_tab_btn
-        else:
-            return
-            
-        active_image = os.path.join(self.resource_path, 'images', 'user', 'external_tab_btn_active.png')
-        
-        if is_active and os.path.exists(active_image):
-            btn.setPixmap(QPixmap(active_image).scaled(155, 44, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        else:
-            btn.clear()
-            btn.setStyleSheet("background-color: transparent;")
+    def on_navigation(self, index):
+        self.activate_index((0, 2, 1, 3)[index])
 
     def general_tab_btn_clicked(self):
-        """通用设置按钮点击事件"""
-        self.settings_stack.setCurrentIndex(0)
-        self.update_tab_button_style("通用设置", True)
-        self.update_tab_button_style("全局设置", False)
-        self.update_tab_button_style("Java管理", False)
-        
-        self.update_tab_button_style("关于", False)
-
-    def java_tab_btn_clicked(self):
-        """Java管理按钮点击事件"""
-        self.settings_stack.setCurrentIndex(1)
-        self.java_page.on_page_activate()
-        self.update_tab_button_style("通用设置", False)
-        self.update_tab_button_style("全局设置", False)
-        self.update_tab_button_style("Java管理", True)
-        self.update_tab_button_style("关于", False)
+        self.navigation.activate(0)
 
     def global_tab_btn_clicked(self):
-        """全局设置按钮点击事件 - 切换到全局版本设置页面"""
-        self.settings_stack.setCurrentIndex(2)  # 切换到全局版本设置页面（索引2）
-        self.global_version_page.on_page_activate()  # 激活全局版本设置页面
-        self.update_tab_button_style("通用设置", False)
-        self.update_tab_button_style("全局设置", True)
-        self.update_tab_button_style("Java管理", False)
-        self.update_tab_button_style("关于", False)
+        self.navigation.activate(1)
+
+    def java_tab_btn_clicked(self):
+        self.navigation.activate(2)
 
     def about_tab_btn_clicked(self):
-        """关于按钮点击事件"""
-        self.settings_stack.setCurrentIndex(3)  # 更新关于页面的索引为3
-        self.update_tab_button_style("通用设置", False)
-        self.update_tab_button_style("全局设置", False)
-        self.update_tab_button_style("Java管理", False)
-        self.update_tab_button_style("关于", True)
+        self.navigation.activate(3)

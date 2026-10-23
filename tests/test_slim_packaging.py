@@ -38,15 +38,17 @@ class SlimPackagingTests(unittest.TestCase):
                     patch.object(build.platform, 'system', return_value=platform), \
                     patch.object(build, 'qml_exclusions', return_value=([], [])):
                 command = build.make_command()
-                self.assertIn('--nofollow-import-to=aiortc,av,pylibsrtp', command)
+                excluded = {name for argument in command if argument.startswith('--nofollow-import-to=')
+                            for name in argument.split('=', 1)[1].split(',')}
+                self.assertTrue({'asyncssh', 'aioice', 'aiortc', 'av', 'pylibsrtp', 'hookup._rtc'} <= excluded)
                 self.assertIn('--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid', command)
                 self.assertIn('--noinclude-dlls=PySide6/qt-plugins/imageformats/*qpdf*', command)
                 self.assertFalse(any(arg in command for arg in ('--include-package=aiortc', '--include-package=av')))
-                self.assertTrue(any('hookup/_rtc/LICENSE' in arg for arg in command))
+                self.assertTrue(any('hookup/THIRD_PARTY_NOTICES.txt' in arg for arg in command))
                 self.assertEqual('--noinclude-dlls=opengl32sw.dll' in command, platform == 'Windows')
 
     def test_vendored_source_matches_recorded_hashes(self):
-        root = ROOT / 'src/buggcraft/hookup/_rtc'
+        root = ROOT / 'compatibility/legacy_hookup/_rtc'
         manifest = json.loads((root / 'UPSTREAM.json').read_text(encoding='utf-8'))
         for name, record in manifest['files'].items():
             with self.subTest(module=name):

@@ -26,6 +26,7 @@ from core.launch_options import (split_arguments, redacted_command, offline_uuid
 from core.downloads import verified_installation
 from core.launch_preparation import prepare_inherited, inherited_command
 from core.memory import AdvancedMemoryRecommender
+from core.java_runtime import select_java, JavaRuntimeUnavailable
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class MinecraftSignals(QObject):
     started = Signal()
     stopped = Signal(int)  # 退出代码
     error = Signal(str)
+    java_required = Signal(str, int, str)
     progress = Signal(int)  # 进度百分比
 
 
@@ -89,6 +91,8 @@ class StartGameThread(QThread):
         """线程主函数"""
         try:
             self.launcher._start_game()
+        except JavaRuntimeUnavailable as exc:
+            self.launcher.signals.java_required.emit(exc.version, exc.required, str(exc))
         except Exception as e:
             self.error.emit(f"启动错误: {str(e)}")
             import traceback
@@ -216,14 +220,12 @@ class MinecraftLibLauncher(QObject):
 
             logger.info(f'[JavaRunTime] -> {java_path}')
         
-            if not java_path:
-                raise ValueError('请在设置中选择有效的 Java 可执行文件')
-            java_major = required_java(self.minecraft_directory, self.minecraft_version)
-            if java_major:
-                from config.javafinder import JavaPathFinder
-                parsed = JavaPathFinder()._get_java_version(java_path)[1]
-                if not parsed or parsed[0] < java_major:
-                    raise ValueError(f'Minecraft {self.minecraft_version} 需要 Java {java_major} 或更高版本，请在设置中更换 Java。')
+            requirement = required_java(self.minecraft_directory, self.minecraft_version)
+            if requirement or not java_path:
+                selection = select_java(self.settings_manager, self.minecraft_directory, self.minecraft_version)
+                java_path = selection.path
+                if selection.switched:
+                    self.signals.output.emit(f'已自动选择 Java {selection.major}：{java_path}')
             
             jvmArguments = [
                 f"-Xmx{memory}M", 
@@ -338,7 +340,7 @@ class MinecraftLibLauncher(QObject):
             # 启动游戏进程
             startup_flags = 0
             if platform.system() == "Windows":
-                startup_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+                startup_flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
             
             # 创建环境变量副本
             env = os.environ.copy()
@@ -607,7 +609,7 @@ class MinecraftLibLauncher(QObject):
                             "/F",  # 强制
                             "/T",  # 终止子进程
                             "/PID", str(pid)
-                        ], capture_output=True, timeout=5)
+                        ], capture_output=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
                         logger.info(f'[Stop] 已强制终止Windows进程 {pid}')
                     else:
                         # Unix: 发送SIGKILL

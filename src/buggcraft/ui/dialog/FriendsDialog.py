@@ -1,5 +1,5 @@
 """Independent modeless contacts window sharing the lobby's store and service."""
-from PySide6.QtCore import QObject, Property, Signal, Slot, Qt, QUrl
+from PySide6.QtCore import QObject, Property, Signal, Slot, Qt, QUrl, QTimer
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QDialog, QVBoxLayout
 
@@ -85,12 +85,15 @@ class FriendsDialog(QDialog):
         self.quick = QQuickWidget(self)
         self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
         self.quick.rootContext().setContextProperty('lobby', self.backend)
-        self.quick.setSource(QUrl.fromLocalFile(str(resources / 'qml/multiplayer/FriendsWindow.qml')))
+        self._source = QUrl.fromLocalFile(str(resources / 'qml/multiplayer/FriendsWindow.qml'))
+        self.quick.setSource(self._source)
         if self.quick.status() == QQuickWidget.Error:
             raise RuntimeError('好友窗口加载失败：' + '\n'.join(e.toString() for e in self.quick.errors()))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.quick)
+        quick = self.quick
+        self.destroyed.connect(lambda: quick.setSource(QUrl()))
 
     def shutdown(self):
         self.quick.setSource(QUrl())
@@ -98,4 +101,17 @@ class FriendsDialog(QDialog):
 
     def closeEvent(self, event):
         self.backend.backend.cancel_friend_lookup()
+        # Release bindings before their QObject context can be destroyed; the
+        # model remains available when this independent window is reopened.
+        # A QML close button can still be executing its handler at this point.
+        QTimer.singleShot(0, self, self._release_content)
         super().closeEvent(event)
+
+    def _release_content(self):
+        if not self.isVisible():
+            self.quick.setSource(QUrl())
+
+    def showEvent(self, event):
+        if self.quick.source().isEmpty():
+            self.quick.setSource(self._source)
+        super().showEvent(event)

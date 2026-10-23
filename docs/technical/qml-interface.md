@@ -1,8 +1,12 @@
 # 界面结构与迁移范围
 
-2026-10-20：联机大厅完整迁为 QML，包括创建、加入、好友、房间连接详情和节点管理。原启动游戏、下载、设置、实例页面保留 Widgets 与已有布局；本轮没有迁移这些页面。
+2026-10-23：启动器全部在用页面及自绘弹窗均使用 QML 布局。首页、标题栏、侧栏、游戏下载、模组/资源包/光影/整合包、安装记录、通用设置、全局/实例设置、Java 管理、关于、实例管理、登录、环境提示及调试输出均已迁移；联机大厅、创建/加入、节点、房间详情与好友窗口继续使用既有 QML 页面。Python 负责业务状态和后台任务；原生窗口宿主与系统文件选择器保留。
 
 ## 操作与页面
+
+「安装新游戏」使用 `GameInstallation.qml` 页内布局，不创建安装弹窗；旧 Widgets 文件仅作布局参照，不恢复旧实现。安装信息行、18 px 间距、140×150 组件块沿用原设计，较小窗口通过滚动查看第二行。点击组件进入 QML 版本列表，选择后返回；已选组件可重新选版本或移除，兼容 API 独立保存，底层加载器按互斥矩阵处理。下载记录复用 `ListRow` 的标题/目录/操作行，并通过可选 footer 显示进度和错误。
+
+启动线程通过 `core/java_runtime.py` 验证当前及设置中已登记的 Java 路径，按照版本元数据和继承链取最高要求；26.1 及以后至少要求 Java 25（[Mojang 26.1 说明](https://www.minecraft.net/en-us/article/minecraft-26-1-snapshot-1)）。已有合适 Java 时自动用于本次启动，保留玩家全局/独立实例的原选择；没有时不创建游戏进程，通过 QML 弹窗显示版本、要求、当前 Java 和路径，并提供下载/设置入口。其他启动失败和非主动停止的异常退出也使用 QML 弹窗。
 
 |页面|主要操作|下一步|
 |---|---|---|
@@ -45,11 +49,16 @@
 
 ## 回归与打包
 
-    python multiplayer-tests/ui_integration.py
-    python multiplayer-tests/launcher_smoke.py
-    python buggcraft/build.py --dry-run
+以下命令在启动器仓库目录执行：
 
-前两个命令在工作区根目录运行。界面测试实际点击 QML 控件并通过键盘粘贴填写表单，覆盖输入纠正后错误清除、输入不被状态刷新覆盖；使用本地加密节点、真实 LAN 报文与状态探测/回显测试端，执行连续十次加入、64 KiB 数据校验及离开。此项不代替游戏角色验收。主窗口测试覆盖页面切换、原有几何布局、启动状态、Java 搜索中关闭及联机后台清理。
+```powershell
+python -m unittest discover -s tests -p test_launcher_qml.py -v
+python -m unittest discover -s tests -p test_instance_modpack_entry.py -v
+python -m unittest discover -s tests -p test_loader_selection.py -v
+python build.py --dry-run
+```
+
+界面测试使用独立临时配置与受控内容源，实际点击 QML 控件，覆盖所有页面有内容时的加载、分类切换、导入到进度页、互斥、长名称、下拉键盘选择、侧栏收起和关闭清理。不会读取玩家配置、修改其游戏目录或调用正式节点。网络/真实游戏集成的验证范围单独记录在 [启动器操作验收](../validation/launcher-validation.md)。
 
 `build.py` 默认输出独立目录，可加 `--onefile`。按 [Nuitka 官方配置](https://nuitka.net/user-documentation/user-manual.html) 包含 QML 插件、Qt Quick 模块及资源目录，移除旧脚本中排除全部 Qt DLL/插件的参数。本轮只检查构建参数，尚未编译或验证签名安装包。
 
@@ -59,6 +68,54 @@
 
 创建房间的第一步将“游戏配置”与“局域网世界”分成两块：配置与首页同步，世界区域仅放查找、说明和单选列表；手动端口采用文字入口，点击才展开。“先创建房间”固定在底部左侧，确认世界的主操作固定在右侧，不随世界列表滚动。第二步先填写房间名称与公开范围，再选择是否同步游戏聊天；默认关闭，开启时明确说明会增加一个占用人数名额的虚拟玩家，并显示英文名称输入与规则。关闭后保持大厅聊天，重连和重新选择世界不会绕过开关。界面与行为分别由 `tests/test_lobby_layout.py`、`tests/test_room_launch_flow.py`、`tests/test_room_chat.py`、`tests/test_game_chat.py`、`tests/test_game_chat_ui.py` 覆盖。
 
-## 其余页面
+## 全页面组件与控制器
 
-原页面保留设计。启动/停止状态竞争、Java 搜索退出和关闭清理已修复；原版下载、真实进度、持久化记录、失败重试和 Java 管理已有本轮操作回归，具体边界及未完成项见 [启动器操作验收](../validation/launcher-validation.md)。后续迁移这些页面时应复用本目录的视觉组件，并先拆出各自控制器，再分别验收完整操作；不能只更换布局却遗失现有行为。
+迁移以 Git 中的原页面样式为基准：设置沿用原折叠面板的 60 px 标题/摘要、15 px 内边距与 10 px 间距，单选项的标题与说明同行显示，复用原来的选中、未选中和展开/收起图片。内存保留自动分配、步进滑块、占用/分配条与设备信息；Java 列表恢复原版本/供应商/路径和目录、移除图标。游戏下载恢复原来的 70 px 直角半透明列表、左图标和整行点击，不额外增加“安装”按钮；实例列表沿用 68 px 行高和原有图标操作。对应实现复用 `SettingsSection`、`SettingOption`、`ListRow`、`IconButton`，不另设主题。
+
+下载左侧只保留“游戏下载”“下载记录”。游戏、模组、资源包、光影包、整合包在原来的顶部文字下划线分类栏切换，只更新下方内容，不跳转页面或改变侧栏选中状态。原版筛选和目录保留；本地导入有独立按钮，提交任务后进入下载记录看进度。
+
+这些分类直接共用 `CatalogueList.qml` 的搜索栏、状态区和全宽 `ListRow` 列表，不为资源另设左右两栏。资源项目点击后进入 `ContentDetails.qml` 页内详情，介绍与版本文件分标签展示，底部固定显示安装目标、文件及兼容建议。搜索和文件列表默认不按当前实例过滤；玩家可手动搜索文件版本，兼容建议不阻止选择。切换实例只更新目标与建议，保留正在浏览的项目和文件选择。项目与版本文件列表共用 `PagedListView.qml`，滚动到距底部 100 px 内自动续载；追加后保留位置，后台失败阻止自动重试，返回时保留浏览位置。自动来源通过后台进度信号陆续显示结果，一个来源缓慢时不会挡住另一来源已经返回的项目；失败有提示和重试入口。
+
+顶部版本选择继续复用 `ChoiceBox.qml` 的列表外观，由持久的 `QWidget(Qt.Popup)` 宿主承载 `VersionPicker.qml`，避免在 `QQuickWidget` 的离屏窗口上创建独立的 Quick 弹层。Qt 对 `Popup.Window` 的定义见 [官方说明](https://doc.qt.io/qt-6.8/qml-qtquick-controls-popup.html#popup-type)。选择提交延后到当前激活回调结束，同一实例不重复保存和发出切换信号。此次调整针对本机 `Qt6Widgets.dll / QWidget::childAt` 原生访问冲突的可疑弹层路径；尚未稳定复现原始触发过程，不能据此宣称所有原生崩溃已经排除。
+
+大厅房间列表显示当前接入节点的实测往返延迟（`节点 xx ms`），首次加载、分页和每 15 秒的节点检查均会更新；未测得或断线显示 `延迟 —`。计时只包含已建立连接上的 `ping` 请求，不把 SSH 登录、拓扑同步或列表加载算作延迟。它不代表跨节点或 P2P 的游戏延迟；后者加入房间后在房间详情查看。切换节点会清除旧值并忽略旧请求返回。
+
+| 页面 | QML 布局 | Python 状态与操作 |
+|---|---|---|
+| 标题栏、版本选择 | `LauncherHeader.qml`、`HeaderAction.qml`、`VersionPicker.qml` | `ui/qml_header.py` |
+| 首页、角色、启动/停止、多开选择 | `Home.qml` | `ui/pages/qml_start.py` |
+| 三组侧栏 | `Sidebar.qml`、`SidebarView.qml` | `ui/pages/qml_navigation.py` |
+| 游戏下载顶部分类、版本与加载器安装 | `Downloads.qml`、`GameCatalogue.qml`、`GameInstallation.qml`、`InstallationComponent.qml` | `ui/pages/qml_games.py` |
+| 模组、资源包、光影、整合包浏览和本地导入 | `DownloadHub.qml` | `ui/pages/download/content_browser.py` |
+| 安装记录、进度、任务日志 | `TaskHistory.qml`、`TaskRecord.qml`（复用 `ListRow`） | `ui/pages/download/tasks.py` |
+| 通用、全局、独立实例设置 | `SettingsForm.qml`、`SettingsSection.qml`、`SettingOption.qml` | `ui/pages/qml_settings.py` |
+| Java 管理、关于 | `RecordList.qml` | `ui/pages/qml_lists.py` |
+| 实例、目录、删除确认 | `Instances.qml` | `ui/pages/qml_instances.py` |
+| 微软登录、Java/游戏环境提示、调试输出 | `DialogContent.qml` | `ui/dialog/qml_dialog.py` 及登录控制器 |
+| 大厅、好友、节点、房间和聊天 | `qml/multiplayer/` | `ui/multiplayer_controller.py` |
+
+布局位于 `resources/qml/launcher/`，统一复用 `ActionButton`、`InputField`、`ChoiceBox`、`Surface`、`ModalDialog`。保留原始背景、首页素材、展开时的窗口尺寸与侧栏宽度；长实例名称省略，不参与标题行定位。左侧导航在原固定宽度内左移 10 px，主内容区尺寸保持不变。侧栏收起时裁去完整背景左侧的 205 像素，同时缩小窗口并保持右边缘及内容位置；展开恢复原图。背景预先缓存，布局与窗口几何更新期间暂停绘制。标题栏当前页随页面路由同步。
+
+顶部版本与实例入口复用原有紫色双层边框素材，尺寸分别保留 `125×32`、`110×32`，由 `HeaderAction` 共用悬停、按下与键盘焦点状态；实例页保留当前页图标。版本下拉恢复 `310` 宽、每行 `59` 高、最大 `420` 高，提供描边、当前版本侧标与“✓ 当前”、长名称省略、游戏图标与条目分隔线。顶部只显示“版本”，版本与实例按钮均无悬浮提示；实例按钮未选中时不为透明图标预留空位。当前版本与键盘预选分别标记；每次打开时将当前版本排第一，支持方向键、Home/End、PageUp/PageDown、回车和 Escape。下拉仍使用复用的 QWidget Popup 宿主承载 QML，避免为每次展开创建/销毁原生 Quick Popup 窗口。
+
+首次打开及通过顶部大页面返回下载时自动刷新，资源子页面返回不额外刷新；切换类型/来源使旧请求失效。成功状态不显示结果数量，不设置常驻刷新按钮。资源详情复用原列表行与紫色边框；两个来源均可下载整合包，完成记录提供“打开目录”，本地导入统一只保留游戏下载页一个入口。导入页提供返回，保留原分类、搜索与位置，只呈现文件、环境摘要及新实例名称。下载与成功加入队列的整合包导入都转到同一个进度页。加载器互斥由既有 `core/loader_rules.py` 同时约束 QML 状态和 Python 操作入口，兼容表见 [整合包和兼容性](../guides/modpack-import-and-compatibility.md)。不支持自动安装的组件明确禁用并解释原因。
+
+`QmlPage` 在首次显示时加载，后台下载不会因页面切换而中断。游戏、项目、实例与记录使用虚拟列表；任务状态合并到 80 ms 通知，移除资源页每 700 ms 的无条件轮询；调试输出合并刷新并保留 5000 行。关闭时在 QML 点击处理结束后释放绑定，好友窗关闭后再次打开恢复其控制器状态。
+
+移除旧 Widgets 控件、旧安装/导入/内容弹窗、无入口的页面及 copy 文件；原列表、搜索和设置控件需要的图片保留并复用，只清理实际无引用的旧资源。不增加运行依赖。
+
+Windows 编译入口继续使用 `--windows-console-mode=disable`。源码可双击根目录 `launch-hidden.vbs`，优先使用本地虚拟环境的 `pythonw.exe`；Java 检测、加载器和游戏子进程捕获输出并使用 `CREATE_NO_WINDOW`，不会为日志另开 CMD。
+
+启动/停止状态竞争、Java 搜索退出和关闭清理已修复；原版下载、真实进度、持久化记录、失败重试和 Java 管理已有操作回归，具体边界及未完成项见 [启动器操作验收](../validation/launcher-validation.md)。
+
+## 本机世界查找与重选
+
+2026-10-23 修复仅依赖局域网广播导致本机世界漏检的问题：并行监听 Minecraft 的 `224.0.2.60:4445` 广播、通过已有的 psutil 读取本机 Java/Javaw 的 TCP 监听端口，再对合并去重后的候选执行 Minecraft 状态握手。所有连接仅发往 `127.0.0.1`，忽略已加入房间的客户端代理端口；其他 Java 服务不会因为存在监听端口就被当成游戏。UDP 创建/绑定/入组失败保留本机检测，单个 Java 进程无访问权限不影响其他进程，取消时关闭广播 socket。本机枚举在后台线程执行，不采集完整启动命令或账号参数，不增加运行依赖。
+
+先启动游戏并开放局域网，可以查找、确认世界并创建房间；先创建等待中的房间，则在房间内重新选择世界，校验后更新转发目标，保留邀请码和聊天。未开放的端口或协议不匹配时返回明确错误。会话日志新增 `lan_discovery_start/candidates/world/rejected/complete` 与广播/进程检查异常；重选记录 `world_retarget_start/probe_failed/version_mismatch/complete`。这些 `hookup.*` 日志进入既有 P2P 会话文件和诊断导出。
+
+首页始终复用一个启动按钮：默认有游戏进程时显示「停止游戏」，允许多开时点击继续启动；按钮内更多菜单可停止当前游戏，不另设第二个启动按钮。联机大厅与好友入口沿用原有按钮素材。
+
+## 启动器透明度
+
+「设置 → 通用设置」新增启动器透明度滑块，保存 `launcher.opacity`（整数百分比）。默认 85%，最低 35%，最高 100%（完全不透明）；旧配置自动补齐，异常值回退 85%，越界值限制到范围内。松开滑块或用键盘调整后立即应用主窗口 `windowOpacity` 并保存，重新打开仍生效。不改变游戏窗口透明度或实例独立设置。

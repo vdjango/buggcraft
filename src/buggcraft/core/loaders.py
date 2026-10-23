@@ -354,7 +354,7 @@ def _neo_forge(version, directory, java, callback, cancel, source):
         command = [java, "-jar", str(installer), "--installClient", "--installDir", str(root)]
         callback["setStatus"]("正在运行 NeoForge 安装器…")
         process = subprocess.Popen(command, cwd=str(root), stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+                                   stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         try:
             while True:
                 if cancel.is_set():

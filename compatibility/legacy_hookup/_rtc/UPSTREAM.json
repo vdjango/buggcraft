@@ -1,0 +1,60 @@
+{
+  "project": "aiortc",
+  "version": "1.15.0",
+  "url": "https://github.com/aiortc/aiortc/tree/1.15.0",
+  "license": "BSD-3-Clause",
+  "files": {
+    "clock.py": {
+      "upstream_sha256": "531238d0b28a3abb61c6269590b81a40eabc8b7214e9e3f58f3cb6c59d4f7e2e",
+      "generated_sha256": "9fbe6626040139279184eb640eec1377cafefee8579583008e33d2a0b39aa40c"
+    },
+    "exceptions.py": {
+      "upstream_sha256": "74652dd0cb2486308a078442326f2d5ad164607759324902543dafa0eab88f54",
+      "generated_sha256": "03ef74054b033e317582841c6c1f4e4f9a0b2592c1452bcbe354706c65c1f01a"
+    },
+    "rtcconfiguration.py": {
+      "upstream_sha256": "b661882ba734e0ce5c89fdc77c3da0865c4a77d6ad45ed39b7f18540d5e82b6e",
+      "generated_sha256": "e472272620ca4357d29dba3eaca013d82b8a448caef4c66602bb79a61695661a"
+    },
+    "rtcdatachannel.py": {
+      "upstream_sha256": "4cbc9e4fd37394aa9747c82fc638d1f44ad4c0b6d2110c28b79a594283495587",
+      "generated_sha256": "6c12baa2035677d19ec540b463eb962ffe304d79c8c953e00fc7fa6647c4032d"
+    },
+    "rtcicetransport.py": {
+      "upstream_sha256": "aeb677fe97b988e23df7d85c7c315214715b69cf1671013e1699fde66586e015",
+      "generated_sha256": "7fa611be9e8f62f80599ebd89b575c7f54ec3f43ff14cf187ec77c487f8db695"
+    },
+    "rtcrtpparameters.py": {
+      "upstream_sha256": "edab9da231de862c63dc2b418859e9698cd6017f65c11cd5742becc91ceafe4e",
+      "generated_sha256": "d685b46837891762fa3e097ea597a27a69c90f5885b0d986294c27857b907e6a"
+    },
+    "rtcsctptransport.py": {
+      "upstream_sha256": "d0d42fd9b568d44e687b564ca17bb384ea06c481bf8f38091ccb09d20be716c6",
+      "generated_sha256": "5ce6814a1372d16e291babcc71ebb91d3310bb43d3be2c7919af554c3c757396"
+    },
+    "rtcsessiondescription.py": {
+      "upstream_sha256": "a22257c1fbdd5a000ad964972f4346478491eb5d21b8b9119dc6322526d6d2c6",
+      "generated_sha256": "4897ab75f3f98166dabdd0dab142661bb364d440809112259834b2359d0cb6b5"
+    },
+    "stats.py": {
+      "upstream_sha256": "ecf4b08892429483f28d5c426fc985c0d6ce9794532e9f20e76388fc5ca18768",
+      "generated_sha256": "589a78fe7d24eab78c613889532e2f867e7e4ae2331fe8b8d4f8d63a56a83bf5"
+    },
+    "utils.py": {
+      "upstream_sha256": "dd1e1b5678f972bcfb4ac2a6cf3f8eb223594aeab2d5df3cf37c49d52a244b80",
+      "generated_sha256": "52e7d2d636d1966b50f4ad09cf1b38849e2c5aa4e69b12870538522082fc34a5"
+    },
+    "sdp.py": {
+      "upstream_sha256": "0fae9213911b75a548deb434d4d1e2036da77d7c96a7049c9c315752e6135a22",
+      "generated_sha256": "37cf460a3c4cc40e838aee9fcbbeae7b42270b26d3767c1504b162645f52e22f"
+    },
+    "rtcpeerconnection.py": {
+      "upstream_sha256": "eac8d77f50c27396716258a8e8fe007b5f4e8a205f8b59cc191f86d347d0bff2",
+      "generated_sha256": "0fe9764711ea6add9f18806acf96d9ece1a29fab4dd37a7e043ab5912b4c75f6"
+    },
+    "rtcdtlstransport.py": {
+      "upstream_sha256": "af315bbdf74e6d3228dbd7959e1341c54921469955d0f2eaa8b7973c02cad805",
+      "generated_sha256": "a216c2c6664b13a11e733a0c59e82fefa7c414bff790be0a18e0633c92bcb066"
+    }
+  }
+}

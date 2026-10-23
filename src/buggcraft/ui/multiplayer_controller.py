@@ -1,17 +1,20 @@
-"""Qt Quick presentation state; networking stays in the Python room SDK."""
+"""Qt presentation state; all multiplayer I/O belongs to the C++ bridge."""
 import asyncio
 import hashlib
+import math
 from pathlib import Path
 import re
 import threading
+import time
 import uuid
-import asyncssh
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, QStandardPaths, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog
 
-from hookup.relay import RelayProfile, RoomInvite, TunnelHost, TunnelClient, TunnelService
-from hookup.rooms import instance_metadata, list_room_page, resolve_room, discover_local_worlds, game_status, compatibility, lookup_account
+from hookup.profiles import RelayProfile, RoomInvite
+from hookup.native_transport import TunnelHost, TunnelClient, TunnelService
+from hookup.native_routes import manager as native_bridge
+from hookup.rooms import instance_metadata, list_room_page, resolve_room, compatibility, lookup_account
 from hookup.storage import LobbyStore
 from hookup.nodes import decode_code, probe, save_json, profile_data, remember, node_identity
 from utils.instances import installed_instance_ids, running_games
@@ -26,6 +29,7 @@ class MultiplayerController(QObject):
     preparation_progress = Signal(str, str, object, object)
     copied = Signal(str)
     friend_finished = Signal(bool, str)
+    route_changed = Signal(str, str)
 
     def __init__(self, window, storage_path=None):
         super().__init__(window)
@@ -57,7 +61,7 @@ class MultiplayerController(QObject):
         self.room_search_timer.setSingleShot(True)
         self.room_search_timer.setInterval(300)
         self.room_search_timer.timeout.connect(self.refresh)
-        self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False,
+        self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
                            rooms=[], contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False, socialError='',
                            connections=[], worlds=[], selected='', busy=False, friendBusy=False, loading=False,
                            error='', notice='', nodeDraft='', roomError='', needsVersion=False,
@@ -83,6 +87,7 @@ class MultiplayerController(QObject):
         self.chat_event.connect(self.update_chat)
         self.chat_sent.connect(self.finish_chat)
         self.preparation_progress.connect(self.update_preparation)
+        self.route_changed.connect(self.show_route_tip)
         QApplication.instance().aboutToQuit.connect(self.close)
         self.reload_store()
         self.friend_timer = QTimer(self)
@@ -97,6 +102,11 @@ class MultiplayerController(QObject):
     def patch(self, **values):
         self._state.update(values)
         self.changed.emit()
+
+    @staticmethod
+    def valid_latency(value):
+        return (round(value, 1) if type(value) in (int, float) and
+                math.isfinite(value) and value >= 0 else None)
 
     def reload_store(self, select=None, refresh_identity=False):
         nodes = []
@@ -192,7 +202,10 @@ class MultiplayerController(QObject):
             elif action == 'discover':
                 self.patch(busy=True, error='', worlds=[])
                 excluded = [e.listen_port for e in self.service.endpoints.values() if e.role == 'client']
-                self.job('lan:' + self.generation, discover_local_worlds(excluded))
+                async def discover():
+                    result = await native_bridge().request('game.discover', {'exclude': excluded, 'duration_ms': 3000})
+                    return result.get('worlds', [])
+                self.job('lan:' + self.generation, discover())
             elif action == 'probe':
                 self.probe(data)
             elif action == 'createWaiting':
@@ -245,11 +258,7 @@ class MultiplayerController(QObject):
                 endpoint = self.service.endpoints.get(name)
                 if endpoint:
                     from hookup.modpack import fetch_manifest
-                    if endpoint.role == 'host':
-                        from hookup.modpack import manifest
-                        self.job('manifest:' + name, asyncio.to_thread(manifest, endpoint.game_directory))
-                    else:
-                        self.job('manifest:' + name, fetch_manifest(endpoint))
+                    self.job('manifest:' + name, fetch_manifest(endpoint))
             elif action == 'copyInvite':
                 endpoint = self.service.endpoints.get(data['id'])
                 if endpoint and self.records[data['id']]['state'] == 'online':
@@ -382,7 +391,15 @@ class MultiplayerController(QObject):
     def profile(self):
         if not self.node_path:
             raise ValueError('请先通过大厅的节点菜单添加可信节点。')
-        return RelayProfile.load(self.node_path)
+        profile = RelayProfile.load(self.node_path)
+        path = self.node_path
+        object.__setattr__(profile, '_route_notice', lambda name: self.route_changed.emit(path, name))
+        return profile
+
+    @Slot(str, str)
+    def show_route_tip(self, path, name):
+        if not self.closed and path == self.node_path and not self._state.get('error'):
+            self.patch(notice='已选择节点「' + name + '」，后续连接使用新线路。')
 
     def require_available_node(self):
         """Require a node that has completed a successful directory check."""
@@ -451,7 +468,7 @@ class MultiplayerController(QObject):
         self.room_generation = uuid.uuid4().hex
         self.node_check_generation = uuid.uuid4().hex
         self.patch(rooms=[], roomNext=None, roomTotal=None, loadingMore=False,
-                   roomError='', nodeAvailable=False)
+                   roomError='', nodeAvailable=False, nodeLatencyMs=None)
         if not self.node_path:
             self.patch(loading=False)
             return
@@ -484,12 +501,12 @@ class MultiplayerController(QObject):
         if self.closed or self._state['loading'] or self._state['loadingMore']:
             return
         if not self.node_path:
-            self.patch(nodeAvailable=False)
+            self.patch(nodeAvailable=False, nodeLatencyMs=None)
             return
         try:
             profile = self.profile()
         except Exception:
-            self.patch(nodeAvailable=False, roomError='节点配置不可用，请重新导入。')
+            self.patch(nodeAvailable=False, nodeLatencyMs=None, roomError='节点配置不可用，请重新导入。')
             return
         key = 'nodehealth:' + self.node_check_generation
         if key in self.jobs:
@@ -497,7 +514,9 @@ class MultiplayerController(QObject):
         from hookup.rooms import connect_directory, request
         async def check():
             async with await connect_directory(profile) as connection:
+                started = time.perf_counter()
                 await request(connection, 'ping')
+                return (time.perf_counter() - started) * 1000
         self.job(key, check())
 
     def select_instance(self, version):
@@ -572,7 +591,9 @@ class MultiplayerController(QObject):
         game = dict(self.game)
         self.creation = {'path': self.node_path, 'game': game, 'port': port}
         self.patch(busy=True, error='')
-        self.job('probe:' + self.generation, game_status(port))
+        async def inspect_world():
+            return await native_bridge().request('game.status', {'port': port, 'timeout_ms': 4000})
+        self.job('probe:' + self.generation, inspect_world())
 
     def create(self, data):
         self.require_available_node()
@@ -748,6 +769,7 @@ class MultiplayerController(QObject):
                 record['chatState'] = '已断开'
         endpoint = self.service.endpoints.get(name)
         if endpoint and endpoint.room_info:
+            record['availability'] = endpoint.room_info.get('availability', record.get('availability', 'ready'))
             record['title'] = endpoint.room_info.get('title', record['title'])
             record['game'] = endpoint.room_info.get('game', record.get('game', {}))
             record['public'] = endpoint.room_info.get('public', False)
@@ -990,7 +1012,7 @@ class MultiplayerController(QObject):
                     self.reload_store()
                 if error:
                     self.patch(loading=False, loadingMore=False,
-                               nodeAvailable=False, roomError='暂时无法连接节点，请检查网络后重试。')
+                               nodeAvailable=False, nodeLatencyMs=None, roomError='暂时无法连接节点，请检查网络后重试。')
                 else:
                     rooms = [] if first else list(self._state['rooms'])
                     seen = {room['id'] for room in rooms}
@@ -999,11 +1021,13 @@ class MultiplayerController(QObject):
                             rooms.append(room)
                             seen.add(room['id'])
                     self.patch(loading=False, loadingMore=False, nodeAvailable=True, rooms=rooms,
+                               nodeLatencyMs=self.valid_latency(value.get('node_latency_ms')),
                                roomNext=value['next'], roomTotal=value['total'], roomError='')
             return
         if key.startswith('nodehealth:'):
             if key == 'nodehealth:' + self.node_check_generation:
                 self.patch(nodeAvailable=not bool(error),
+                           nodeLatencyMs=None if error else self.valid_latency(value),
                            roomError='暂时无法连接节点，请检查网络后重试。' if error else '')
             return
         if key.startswith('socialstatus:') or key.startswith('socialop:'):

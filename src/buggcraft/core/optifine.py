@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Dict, Optional
@@ -83,7 +84,7 @@ class OptiFineInstaller:
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5分钟超时
-                cwd=str(self.minecraft_dir)
+                cwd=str(self.minecraft_dir), creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
             if result.returncode == 0:
