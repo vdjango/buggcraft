@@ -125,7 +125,7 @@ class BridgeProtocolTests(unittest.IsolatedAsyncioTestCase):
                             asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode())
         process = await self.process()
         response = await self.call(process, 'node.add', {'code': encode_code(wrong)})
-        self.assertEqual(response['error']['code'], -32000)
+        self.assertEqual(response['error']['code'], -32030)
         self.assertNotIn(self.profile.token, json.dumps(response))
 
 

@@ -11,12 +11,8 @@ on:
       - 'build*'
       - 'requirements*.txt'
       - 'scripts/stage_release.py'
-      - 'tests/test_curseforge.py'
-      - 'tests/test_content_gateway.py'
-      - 'tests/test_portable_game_directory.py'
-      - 'tests/test_qt_runtime.py'
-      - 'tests/test_game_sessions.py'
-      - 'tests/test_inherited_launch.py'
+      - 'scripts/build_bridge.py'
+      - 'tests/**'
       - '.github/workflows/package.yml'
   workflow_dispatch:
 

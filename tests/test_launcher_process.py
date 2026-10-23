@@ -77,7 +77,8 @@ class LauncherProcessTests(unittest.TestCase):
             launch = json.loads(self.record.read_text(encoding='utf-8'))
             self.assertEqual(Path(self.options['gameDirectory']), data)
             self.assertEqual(Path(process['cwd']), data)
-            self.assertEqual(Path(launch['cwd']), data)
+            # macOS reports /private/var for the /var temporary-directory alias.
+            self.assertEqual(Path(launch['cwd']).resolve(), data.resolve())
             self.assertEqual(launch['args'][launch['args'].index('--gameDir') + 1], str(data))
             self.assertIn('--width', launch['args'])
             self.assertIn('--height', launch['args'])

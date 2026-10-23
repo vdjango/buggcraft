@@ -15,7 +15,8 @@ class ServiceShutdownTests(unittest.IsolatedAsyncioTestCase):
         endpoint = kind(self.profile, invite, listen_port=0,
                         game_port=0 if kind is TunnelHost else 25565, announce=False)
         service.add(kind.__name__, endpoint)
-        await self.wait(lambda: endpoint.chat_process is not None, 15)
+        # The native endpoint exposes a session handle, not a Python SSH channel.
+        await self.wait(lambda: endpoint.session is not None and endpoint.connection is not None, 15)
         return endpoint
 
     async def test_client_launcher_close_releases_member_and_keeps_host_room(self):
@@ -40,7 +41,8 @@ class ServiceShutdownTests(unittest.IsolatedAsyncioTestCase):
             host = await self.service_endpoint(host_service, TunnelHost)
             visitor = await self.service_endpoint(client_service, TunnelClient, host.invite)
             await asyncio.to_thread(host_service.close)
-            await self.wait(lambda: host.invite.room_id not in self.relay.rooms and visitor._stopped)
+            await self.wait(lambda: host.invite.room_id not in self.relay.rooms
+                            and visitor.connection is None and visitor.room_state == 'closed')
             self.assertFalse(host_service.thread.is_alive())
             self.assertTrue(host_service.loop.is_closed())
             self.assertEqual(visitor.room_state, 'closed')
