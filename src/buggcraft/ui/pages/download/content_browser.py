@@ -92,7 +92,7 @@ class ContentBrowserController(QObject):
         self.selected_project = None
         self.pack_path = ""
         self.pack_name = ""
-        self.pack_summary = "支持 CurseForge ZIP 和 Modrinth MRPACK 整合包。"
+        self.pack_summary = "支持 CurseForge ZIP 和 Modrinth ZIP / MRPACK，可拖入启动器任意页面。"
         self.pack_error = ""
         self.view = "browse"
         self.import_directory = ""
@@ -471,9 +471,10 @@ class ContentBrowserController(QObject):
     def inspectPack(self, path):
         try:
             info = inspect_pack(path)
-            self.pack_path = str(Path(path).resolve())
-            if not self.pack_name:
+            resolved = str(Path(path).resolve())
+            if not self.pack_name or self.pack_path != resolved:
                 self.pack_name = suggested_name(path)
+            self.pack_path = resolved
             self.pack_summary = (f"{info.name} · {info.version} · {info.source}\nMinecraft {info.minecraft} · "
                                  f"{info.loader + ' ' + info.loader_version if info.loader else '原版'}\n"
                                  f"{len(info.files)} 个下载文件 · 内置内容 {info.expanded_bytes / 1024**2:.1f} MiB")
@@ -495,7 +496,7 @@ class ContentBrowserController(QObject):
         try:
             instance_name(self.pack_name)
             if not self.pack_path:
-                raise ValueError("请先选择并检查 CurseForge ZIP 或 Modrinth MRPACK 整合包。")
+                raise ValueError("请先选择并检查 CurseForge ZIP 或 Modrinth ZIP / MRPACK 整合包。")
             if directory and (Path(directory) / "versions" / self.pack_name).exists():
                 raise ValueError("该实例名称已存在，请更换名称。")
             if not directory:

@@ -125,7 +125,7 @@ class SettingsController(QObject):
                 self._field('settings.general.mirrors', '下载源',
                             s.get_setting('settings.general.mirrors', '自动（官方优先，失败切换镜像）'),
                             ['自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI'],
-                            '用于游戏和加载器下载；自动模式失败时切换镜像。'),
+                            '适用于游戏、加载器、整合包及资源文件。游戏自动模式优先官方；资源自动模式和 BMCLAPI 模式优先 MCIM 国内镜像，失败回退官方。'),
                 self._field('launcher.allow_multiple', '允许多开游戏',
                             bool(s.get_setting('launcher.allow_multiple', False)), kind='toggle',
                             description='首页可按版本和 PID 选择停止目标。'),

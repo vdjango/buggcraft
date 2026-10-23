@@ -95,7 +95,8 @@ def _inspect_modrinth(manifest, expanded, path):
     if not isinstance(files, list) or len(files) > 10000:
         raise ValueError('整合包文件清单无效')
     refs, names, total = [], set(), 0
-    hosts = {'cdn.modrinth.com', 'github.com', 'raw.githubusercontent.com', 'gitlab.com'}
+    hosts = {'cdn.modrinth.com', 'github.com', 'raw.githubusercontent.com', 'gitlab.com',
+             'edge.forgecdn.net', 'mediafilez.forgecdn.net'}
     for item in files:
         if not isinstance(item, dict):
             raise ValueError('Modrinth 文件条目无效')
@@ -114,7 +115,8 @@ def _inspect_modrinth(manifest, expanded, path):
             if not isinstance(url, str) or len(url) > 8192 or re.search(r'[\s\x00-\x1f]', url):
                 raise ValueError('Modrinth 文件下载地址无效')
             parsed_url = urlsplit(url)
-            if parsed_url.scheme != 'https' or parsed_url.hostname not in hosts or parsed_url.username or parsed_url.password:
+            if (parsed_url.scheme != 'https' or parsed_url.hostname not in hosts or parsed_url.username
+                    or parsed_url.password or parsed_url.port not in (None, 443)):
                 raise ValueError('Modrinth 文件下载地址不属于受支持的 HTTPS 来源')
         if type(item.get('fileSize')) is not int or item['fileSize'] < 0:
             raise ValueError('Modrinth 文件大小无效')

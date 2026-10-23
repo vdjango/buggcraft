@@ -1,7 +1,6 @@
 """Content catalogues and verified installation from their original publishers."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -12,7 +11,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from core.downloads import DownloadCancelled, _DownloadSession
+from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.curseforge import CurseForgeContentClient, fallback_url
 
 API = 'https://api.modrinth.com/v2'
@@ -161,7 +160,7 @@ def instance_environment(directory, identity):
     raise ValueError('实例缺少有效版本元数据')
 
 
-def download_content(version, target_root, kind, cancel=None, status=None, progress=None):
+def download_content(version, target_root, kind, cancel=None, status=None, progress=None, source='自动'):
     """Download one selected version, preserving its source and expected hashes."""
     if kind not in KINDS:
         raise ValueError('不支持的内容下载类型')
@@ -195,44 +194,32 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
             raise ValueError(f'文件校验值格式无效：{name}')
         if type(item.get('size')) is not int or item['size'] <= 0:
             raise ValueError(f'文件大小无效：{name}')
-        jobs.append((item['url'], destination / name, sha512, sha1, item.get('size')))
+        jobs.append((item, destination / name, sha512, sha1, item.get('size')))
     if not jobs:
         raise ValueError('项目版本没有有效下载文件')
-    progress(0, len(jobs))
-    for index, (url, target, sha512, sha1, size) in enumerate(jobs, 1):
+    downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status)
+    downloader.curseforge_key = os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
+    downloader.curseforge_fallbacks = {}
+    progress(0, 1000)
+    for index, (item, target, sha512, sha1, size) in enumerate(jobs, 1):
+        url = item['url']
         if cancel.is_set():
             raise DownloadCancelled('内容下载已取消')
         status(f'正在下载 {target.name}')
         if not target.resolve().is_relative_to(Path(target_root).resolve()):
             raise ValueError('内容目录超出目标实例')
-        temporary = target.with_name(target.name + '.buggcraft-part')
-        session = None
-        get = requests.get
         project_id, file_id = item.get('curseforge_project_id'), item.get('curseforge_file_id')
         if version.get('source') == 'CurseForge' and type(project_id) is int and type(file_id) is int:
-            session = _DownloadSession(os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', ''),
-                                       {url: fallback_url(project_id, file_id)})
-            get = session.get
+            downloader.curseforge_fallbacks[url] = fallback_url(project_id, file_id)
         try:
-            with get(url, stream=True, timeout=(8, 30),
-                              headers={'User-Agent': 'Buggcraft/1.0'}) as response:
-                response.raise_for_status()
-                d512, d1, count = hashlib.sha512(), hashlib.sha1(), 0
-                with temporary.open('wb') as output:
-                    for chunk in response.iter_content(128 * 1024):
-                        if cancel.is_set():
-                            raise DownloadCancelled('内容下载已取消')
-                        if chunk:
-                            output.write(chunk); d512.update(chunk); d1.update(chunk); count += len(chunk)
-                if (sha512 and d512.hexdigest().lower() != sha512.lower()) or (sha1 and d1.hexdigest().lower() != sha1.lower()):
-                    raise ValueError(f'文件校验失败：{target.name}')
-                if size is not None and count != int(size):
-                    raise ValueError(f'文件长度不完整：{target.name}')
-            os.replace(temporary, target)
+            downloader.fetch(url, target.relative_to(Path(target_root).resolve()), sha1, size, sha512=sha512,
+                             file_progress=lambda done, total: progress(
+                                 int(((index - 1) + (done / total if total else 0)) * 1000 / len(jobs)), 1000))
         finally:
-            temporary.unlink(missing_ok=True)
+            session = getattr(downloader._sessions, 'session', None)
             if session is not None:
                 session.close()
-        progress(index, len(jobs))
+                del downloader._sessions.session
+        progress(index * 1000 // len(jobs), 1000)
     status('内容安装完成')
     return [str(path) for _, path, *_ in jobs]

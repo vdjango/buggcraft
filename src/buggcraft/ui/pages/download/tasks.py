@@ -179,7 +179,7 @@ class DownloadWorker(QRunnable):
             elif self.content:
                 from core.content import download_content
                 files = download_content(self.content['version'], self.content['target'], self.content['kind'],
-                                         self.cancel_event, status, progress)
+                                         self.cancel_event, status, progress, source=self.source)
                 self.signals.downloaded.emit(self.task_id, files)
             elif self.loader:
                 version_id = install_loader(self.loader, self.base_version, self.loader_version,
@@ -206,7 +206,7 @@ class DownloadWorker(QRunnable):
                 target = os.path.join(self.game_dir, 'versions', self.version) if self.isolated else self.game_dir
                 for addon in self.addons:
                     status('正在安装 ' + addon['name'])
-                    download_content(addon['version'], target, 'mod', self.cancel_event, status, progress)
+                    download_content(addon['version'], target, 'mod', self.cancel_event, status, progress, source=self.source)
             if self.loader:
                 self.signals.resolved.emit(self.task_id, self.version)
             message = '整合包导入完成' if self.modpack else '内容下载完成' if self.content else f"{self.loader + ' ' if self.loader else ''}安装完成"
@@ -214,7 +214,8 @@ class DownloadWorker(QRunnable):
         except DownloadCancelled as exc:
             self.signals.finished.emit(self.task_id, False, str(exc))
         except Exception as exc:
-            logger.exception("Minecraft loader installation failed: %s", self.version)
+            logger.exception("Download/install failed: version=%s kind=%s source=%s", self.version,
+                             self.content.get('kind') if self.content else 'modpack' if self.modpack else 'game', self.source)
             self.signals.finished.emit(self.task_id, False, str(exc))
 
 

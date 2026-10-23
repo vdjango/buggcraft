@@ -29,12 +29,12 @@ class ContentBrowserTests(LauncherQmlCase):
         thread.start()
         get = requests.get
         def local_get(url, **kwargs):
-            self.assertTrue(url.startswith('https://cdn.modrinth.com/test-'))
+            self.assertTrue(url.startswith('https://mod.mcimirror.top/test-'))
             return get(f'http://127.0.0.1:{server.server_port}/fixture', **kwargs)
         downloads = self.window.download_page
         controller = downloads.content_page.controller
         try:
-            with patch('core.content.requests.get', side_effect=local_get):
+            with patch('core.downloads._DownloadSession.get', side_effect=local_get):
                 for isolated in (False, True):
                     self.manager.set_setting('minecraft.isolation', isolated)
                     for kind, folder, extension in (('mod', 'mods', 'jar'), ('resourcepack', 'resourcepacks', 'zip'), ('shader', 'shaderpacks', 'zip')):
@@ -339,7 +339,7 @@ class ContentBrowserTests(LauncherQmlCase):
         self.addCleanup(server.shutdown)
         get = requests.get
         def local_get(url, **kwargs):
-            self.assertTrue(url.startswith('https://cdn.modrinth.com/fixture-'))
+            self.assertTrue(url.startswith('https://mod.mcimirror.top/fixture-'))
             return get(f'http://127.0.0.1:{server.server_port}/pack', **kwargs)
         downloads = self.window.download_page
         controller = downloads.content_page.controller
@@ -348,7 +348,7 @@ class ContentBrowserTests(LauncherQmlCase):
                  name='CurseForge fixture', minecraft={'version': '1.21.8', 'modLoaders': []}, files=[])),
             ('Modrinth', 'mrpack', 'modrinth.index.json', dict(formatVersion=1, game='minecraft',
                  name='Modrinth fixture', versionId='1', dependencies={'minecraft': '1.21.8'}, files=[]))]
-        with patch('core.content.requests.get', side_effect=local_get):
+        with patch('core.downloads._DownloadSession.get', side_effect=local_get):
             for provider, extension, manifest_name, manifest in manifests:
                 stream = io.BytesIO()
                 with zipfile.ZipFile(stream, 'w') as archive:

@@ -7,7 +7,7 @@ import webbrowser
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
-from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect, QEvent, QObject
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor, QIcon
 
 from utils.helpers import scale_component
@@ -39,6 +39,27 @@ def get_app_icon(RESOURCE_DIR) -> QIcon:
             icon = QIcon(icon_path)
 
     return icon
+
+
+class _ModpackDropFilter(QObject):
+    """Observe launcher drops without overriding QMainWindow's own event filter."""
+
+    def eventFilter(self, watched, event):
+        window = self.parent()
+        if event.type() in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop) and isinstance(watched, QWidget) \
+                and (watched is window or window.isAncestorOf(watched)):
+            mime = event.mimeData()
+            urls = mime.urls() if mime.hasUrls() else []
+            if len(urls) == 1 and urls[0].isLocalFile():
+                from pathlib import Path
+                path = Path(urls[0].toLocalFile())
+                if path.suffix.lower() in ('.zip', '.mrpack') and path.is_file():
+                    event.setDropAction(Qt.CopyAction)
+                    event.accept()
+                    if event.type() == QEvent.Drop:
+                        QTimer.singleShot(0, window, lambda archive=str(path): window._open_dropped_pack(archive))
+                    return True
+        return False
 
 
 class MinecraftLauncher(QMainWindow):
@@ -110,6 +131,12 @@ class MinecraftLauncher(QMainWindow):
         self.set_window_size()  # 根据背景图片尺寸设置窗口大小
         
         self.init_ui()
+        self.setAcceptDrops(True)
+        # Receive drops above embedded QML controls as well as the window frame.
+        self._modpack_drop_filter = _ModpackDropFilter(self)
+        for widget in [self, *self.findChildren(QWidget)]:
+            widget.setAcceptDrops(True)
+            widget.installEventFilter(self._modpack_drop_filter)
         self.apply_window_opacity()
         
         self.java_runtime_full = JavaRuntimeNotFuilDialog(self)
@@ -122,6 +149,14 @@ class MinecraftLauncher(QMainWindow):
 
     def apply_window_opacity(self):
         self.setWindowOpacity(launcher_opacity(self.settings_manager) / 100)
+
+    def _open_dropped_pack(self, archive):
+        if self._closing:
+            return
+        self.download_page.open_content('modpack', 'import')
+        controller = self.download_page.content_page.controller
+        controller.import_directory = ''
+        controller.inspectPack(archive)
 
     def init_ui(self):
         # 主布局

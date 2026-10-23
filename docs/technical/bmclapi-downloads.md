@@ -14,7 +14,7 @@
 | Assets 对象 | `resources.download.minecraft.net/<前两位>/<sha1>` | `https://bmclapi2.bangbang93.com/assets/<前两位>/<sha1>` | 已接入；按 SHA-1 和长度校验 |
 | Minecraft / Forge / Fabric 等 Maven 文件 | `libraries.minecraft.net` 及加载器 Maven 源 | `https://bmclapi2.bangbang93.com/maven/<原始路径>` | 已接入 Minecraft 库和所支持加载器安装下载 |
 
-安装器从清单取得版本 JSON，再依照该 JSON 下载客户端、适用平台的库、日志配置和 Assets。下载文件先写临时文件；上游提供 SHA-1 时进行哈希校验，上游提供文件长度时核对长度，否则使用响应的 `Content-Length`，校验后才替换目标。版本 JSON 和完整性收据在必需文件成功后发布。失败会重试并留下可读错误，取消不会把部分文件记为已完成。当前实现没有 HTTP Range 断点续传。
+安装器从清单取得版本 JSON，再依照该 JSON 下载客户端、适用平台的库、日志配置和 Assets。下载文件先写临时文件；上游提供 SHA-1 时进行哈希校验，上游提供文件长度时核对长度，否则使用响应的 `Content-Length`，校验后才替换目标。版本 JSON 和完整性收据在必需文件成功后发布。失败会重试并留下可读错误，取消不会把部分文件记为已完成。具有长度及哈希的文件在同一任务重试时支持 HTTP Range 续传；范围不符时重下，校验后才发布。
 
 ## 加载器查询与安装
 
@@ -32,7 +32,7 @@
 
 ## 来源显示与验证边界
 
-BMCLAPI 文档要求在下载界面或其他可见区域标明来源。启动器的通用设置页提供“官方 / BMCLAPI / 自动”下载源选择，并解释自动回退规则。下载任务记录的是安装状态和文件错误，不记录每个文件最终命中的主机；自动模式回退时，任务详情不会逐文件显示镜像来源。
+BMCLAPI 文档要求在下载界面或其他可见区域标明来源。启动器的通用设置页提供“官方 / BMCLAPI / 自动”下载源选择，并解释自动回退规则。下载任务记录文件名、主机和尝试次数，应用日志记录最终命中主机及实际大小。资源和整合包文件在非“官方”模式下优先使用 MCIM，映射和失败回退详见[整合包与资源下载](../guides/modpack-import-and-compatibility.md)。
 
 `multiplayer-tests/test_loaders.py` 对镜像路由和失败回退做离线模拟；`multiplayer-tests/test_downloads.py` 使用本地 HTTP 服务验证 SHA-1、长度、重试、损坏响应和安装发布。测试不能证明 BMCLAPI 当前在线、区域速度、配额或所有加载器安装器的实时兼容性。Forge/Fabric/Quilt/NeoForge 的真实联网版本查询与安装尚未在当前受限环境完成，应在允许外网的 Windows/macOS/Linux 网络中分别验收。
 

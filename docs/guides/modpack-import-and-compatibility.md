@@ -15,7 +15,7 @@
 | 来源 | 清单 | 配置与内置文件 |
 | --- | --- | --- |
 | CurseForge ZIP | 根目录 `manifest.json`，manifestVersion 1 | 清单指定的 overrides |
-| Modrinth MRPACK | 根目录 `modrinth.index.json`，formatVersion 1 | overrides，再叠加 client-overrides |
+| Modrinth ZIP / MRPACK | 根目录 `modrinth.index.json`，formatVersion 1；按清单识别，不依赖后缀 | overrides，再叠加 client-overrides |
 
 普通游戏目录压缩包、HMCL/MMC 专有包不作为上述格式处理。MRPACK 的客户端不支持文件跳过，可选文件一并安装，server-overrides 不用于客户端；下载逐项核对大小、SHA-1 和 SHA-512。仅接受受支持下载域名的 HTTPS 地址，主地址失败时尝试清单中的备用地址。相应规则见 [Modrinth 格式规范](https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack)。
 
@@ -37,7 +37,13 @@
 
 默认使用 Buggcraft 的资源查询服务，无需填写密钥。公共密钥保存在服务器，不包含在安装包或接口响应中。查询服务会接收搜索词、游戏版本、加载器及所选项目/文件编号，不接收游戏账号密码。
 
-文件优先使用元数据中的 CurseForge 官方 CDN 地址；没有直链时，根据精确文件 ID 与文件名构造官方公开 CDN 路径，并对文件名进行 URL 编码。下载失败会尝试 edge.forgecdn.net 与 mediafilez.forgecdn.net，Minecraft 镜像设置不会把模组地址替换成游戏本体镜像。文件大小与 SHA-1 仍须全部通过。
+文件由元数据中的精确地址确定；没有直链时，根据精确文件 ID 与文件名构造官方公开 CDN 路径，并对文件名进行 URL 编码。下载源设置同时适用于资源文件和整合包：非“官方”模式优先尝试 MCIM 国内文件镜像，再回退清单原地址和 Forge CDN 备用主机；Minecraft 本体仍走 BMCLAPI。MRPACK 中允许官方 `edge.forgecdn.net`、`mediafilez.forgecdn.net` 地址，并逐个路由清单里的主、备用地址。不会把模组 URL 直接拼到不支持它的 BMCLAPI 游戏接口。文件大小、SHA-1 及清单提供的 SHA-512 仍须全部通过。
+
+在启动器任意主要页面拖入一个本地 `.zip` / `.mrpack`，直接进入唯一的导入页面并解析清单、建议实例名称；确认安装后才开始下载并跳转任务进度。普通资源 ZIP 或损坏压缩包会在同一导入页显示错误，不会创建半成品实例。一次拖入多个文件不启动批量导入。
+
+资源下载与游戏安装共用校验下载器：流中断自动重试，并对带已知长度和哈希的文件尝试 HTTP Range 续传。服务端忽略 Range 时重下；无效范围和校验失败会清除临时文件，已安装文件仅在完整校验后替换。取消会删除未完成的临时文件。任务记录包含文件名、来源主机和尝试次数；应用日志还记录成功来源、大小和失败原因。镜像返回 403 / 567 时立即切换，并在同一下载器内暂停访问该主机 60 秒。
+
+MCIM 的映射依据其[接入文档](https://www.mcimirror.top/guide/start/getting-started)。镜像维护方要求登记启动器名称和真实 User-Agent；本启动器发送 `Buggcraft/1.0`，不伪装其他启动器。2026-10-23 本机实测镜像返回站点防护 HTTP 567，备用官方源下载成功；接入镜像不等于镜像在所有网络均可用。Forge CDN 的 `/files/` 地址先规范为等价 edge 路由再映射，未知站点不做猜测替换。
 
 允许服务器分发的文件若遇到 CDN 鉴权，可使用 Buggcraft 的受限备用下载接口。作者关闭服务器分发的项目只尝试玩家直接访问的官方公开 CDN，不经本站文件代理。服务端备用接口会重新核对项目与文件对应关系及分发设置，不接受任意网址；同时最多两个文件，单文件最多 512 MiB。接口与部署说明见[资源服务](../technical/content-gateway.md)。
 

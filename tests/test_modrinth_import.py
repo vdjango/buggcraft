@@ -64,9 +64,9 @@ class ModrinthImportTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         original_get = _DownloadSession.get
         def local_get(session, url, **kwargs):
-            self.assertTrue(url.startswith('https://cdn.modrinth.com/fixture/'))
-            return original_get(session, url.replace('https://cdn.modrinth.com/fixture',
-                         f'http://127.0.0.1:{server.server_port}'), **kwargs)
+            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture/', 'https://mod.mcimirror.top/files/')))
+            return original_get(session, url.replace('https://mod.mcimirror.top',
+                         f'http://127.0.0.1:{server.server_port}').replace('/fixture/', '/'), **kwargs)
         return patch.object(_DownloadSession, 'get', local_get), hits
 
     def test_real_download_hashes_layers_client_environment_and_client_jar(self):
@@ -103,6 +103,18 @@ class ModrinthImportTests(unittest.TestCase):
         self.assertEqual(hits.count('/broken'), 3)
         self.assertIn('/mods/example.jar', hits)
 
+    def test_zip_with_forge_cdn_files_imports_through_domestic_mirror(self):
+        self.archive = self.root / 'pack.zip'
+        self.manifest['files'][0]['downloads'] = ['https://mediafilez.forgecdn.net/files/100/20/example.jar',
+                                                   'https://cdn.modrinth.com/fixture/mods/example.jar']
+        self.pack()
+        self.assertEqual(inspect_pack(self.archive).source, 'Modrinth')
+        http, hits = self.server()
+        with http, patch('core.modpacks.install_loader', side_effect=self.loader):
+            ModpackImporter(self.game, source='BMCLAPI').install(self.archive, 'Forge-CDN')
+        self.assertEqual(hits, ['/files/100/20/example.jar'])
+        self.assertEqual((self.game / 'versions/Forge-CDN/mods/example.jar').read_bytes(), self.payload)
+
     def test_sha512_mismatch_never_publishes_instance_or_installs_loader(self):
         self.manifest['files'][0]['hashes']['sha512'] = '0' * 128
         self.pack()
@@ -117,7 +129,10 @@ class ModrinthImportTests(unittest.TestCase):
         original = copy.deepcopy(self.manifest)
         changes = [dict(path='../escape.jar'), dict(downloads=['http://cdn.modrinth.com/a']),
                    dict(downloads=['https://example.org/a']), dict(hashes={'sha1': '0' * 40}),
-                   dict(fileSize=-1), dict(env={'client': 'invalid'})]
+                   dict(fileSize=-1), dict(env={'client': 'invalid'}),
+                   dict(downloads=['https://edge.forgecdn.net.evil.org/a']),
+                   dict(downloads=['https://user@edge.forgecdn.net/a']),
+                   dict(downloads=['https://edge.forgecdn.net:444/a'])]
         for change in changes:
             with self.subTest(change=change):
                 self.manifest = copy.deepcopy(original)

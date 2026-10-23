@@ -46,7 +46,7 @@ class ContentDownloadTests(unittest.TestCase):
         version = {'files': [{'url': 'https://cdn.modrinth.com/pack.mrpack',
                               'filename': 'pack.mrpack', 'hashes': {'sha1': hashlib.sha1(payload).hexdigest()},
                               'size': len(payload)}]}
-        with TemporaryDirectory() as root, patch('core.content.requests.get', return_value=self._response(payload)):
+        with TemporaryDirectory() as root, patch('core.downloads._DownloadSession.get', return_value=self._response(payload)):
             download_content(version, root, 'modpack')
             self.assertEqual((Path(root) / 'modpacks/pack.mrpack').read_bytes(), payload)
 
@@ -54,8 +54,8 @@ class ContentDownloadTests(unittest.TestCase):
         payload = b'modrinth-content'
         version = {'files': [{'url': 'https://cdn.modrinth.com/x.jar', 'filename': 'x.jar',
                               'hashes': {'sha1': '0' * 40}, 'size': len(payload)}]}
-        with TemporaryDirectory() as root, patch('core.content.requests.get', return_value=self._response(payload)):
-            with self.assertRaises(ValueError):
+        with TemporaryDirectory() as root, patch('core.downloads._DownloadSession.get', return_value=self._response(payload)):
+            with self.assertRaisesRegex(RuntimeError, '校验失败'):
                 download_content(version, root, 'mod')
             self.assertFalse((Path(root) / 'mods/x.jar').exists())
 

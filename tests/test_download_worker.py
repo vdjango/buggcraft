@@ -83,7 +83,7 @@ class DownloadWorkerTests(unittest.TestCase):
                                         isolated=isolated)
                 finished = QSignalSpy(worker.signals.finished)
                 with patch('ui.pages.download.tasks.install_loader', side_effect=install), \
-                        patch('core.content.requests.get', return_value=response):
+                        patch('core.downloads._DownloadSession.get', return_value=response):
                     worker.run()
                 self.assertTrue(finished.at(0)[1])
                 target = metadata.parent if isolated else root
@@ -112,7 +112,7 @@ class DownloadWorkerTests(unittest.TestCase):
             response.__enter__.return_value = response
             response.iter_content.return_value = [b'bad']
             with patch('ui.pages.download.tasks.install_loader', return_value=actual), \
-                    patch('core.content.requests.get', return_value=response):
+                    patch('core.downloads._DownloadSession.get', return_value=response):
                 worker.run()
             self.assertFalse(finished.at(0)[1])
             self.assertEqual(resolved.count(), 0)
