@@ -111,12 +111,40 @@ async def list_room_page(profile, offset=0, limit=20, query=''):
     query = query.strip()
     from .native_routes import manager
     bridge = manager()
-    result = await bridge.request('room.list', {'node': await bridge.handle(profile),
-        'offset': offset, 'limit': limit, 'query': query})
-    if not isinstance(result, dict) or not isinstance(result.get('rooms'), list) or len(result['rooms']) > 50:
-        raise ValueError('Invalid native room list')
-    result['rooms'] = [validate_room(room) for room in result['rooms']]
-    return result
+    node = await bridge.handle(profile)
+    rooms, metadata, filtered = [], None, False
+    while True:
+        page = await bridge.request('room.list', {'node': node,
+            'offset': offset, 'limit': limit - len(rooms), 'query': query})
+        if not isinstance(page, dict) or not isinstance(page.get('rooms'), list) or len(page['rooms']) > 50:
+            raise ValueError('Invalid native room list')
+        entries = [validate_room(room) for room in page['rooms']]
+        following = page.get('next')
+        if following is not None and (type(following) is not int
+                or not offset < following <= 4096 or following != offset + len(entries)):
+            raise ValueError('Invalid native room cursor')
+        total = page.get('total')
+        if total is not None and (type(total) is not int or not offset + len(entries) <= total <= 100000):
+            raise ValueError('Invalid native room total')
+        if metadata is None:
+            metadata = dict(page)
+        next_offset = following
+        for index, room in enumerate(entries):
+            game = room['game']
+            haystack = ' '.join((room['title'], game.get('version', ''), game.get('loader', '')))
+            if not query or query.casefold() in haystack.casefold():
+                rooms.append(room)
+            else:
+                filtered = True
+            if len(rooms) == limit:
+                # Older nodes may ignore limit/query. Resume at the last consumed
+                # entry, not the end of their oversized page, to avoid omissions.
+                next_offset = offset + index + 1 if index + 1 < len(entries) else following
+                break
+        if len(rooms) == limit or next_offset is None:
+            metadata.update(rooms=rooms, next=next_offset, total=None if filtered else total)
+            return metadata
+        offset = next_offset
 
 
 async def list_rooms(profile):

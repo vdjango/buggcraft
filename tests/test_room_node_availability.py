@@ -213,20 +213,11 @@ class NodeAvailabilityControllerTests(unittest.TestCase):
 
 
 class RoomPageSdkTests(unittest.IsolatedAsyncioTestCase):
-    async def test_latency_excludes_connection_topology_and_list_loading(self):
-        profile = SimpleNamespace(server_host='node', server_port=1, server_public_key='key')
-        class Connection:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *args): return False
-        async def request(connection, operation, **fields):
-            if operation == 'ping':
-                return {'capabilities': ['room-list-page-v1']}
-            return {'rooms': [], 'next': None, 'total': 0}
-        with patch.object(room_sdk, 'connect_directory', AsyncMock(return_value=Connection())), \
-                patch.object(room_sdk, 'request', side_effect=request), \
-                patch.object(room_sdk, 'remember_topology', AsyncMock()), \
-                patch.object(room_sdk.time, 'perf_counter', side_effect=[0, 5, 5.025, 12]):
-            result = await room_sdk.list_room_page(profile)
+    async def test_native_timing_values_are_preserved_for_ui(self):
+        bridge = SimpleNamespace(handle=AsyncMock(return_value='node'), request=AsyncMock(return_value={
+            'rooms': [], 'next': None, 'total': 0, 'node_latency_ms': 25.0, 'connect_ms': 12000.0}))
+        with patch('hookup.native_routes.manager', return_value=bridge):
+            result = await room_sdk.list_room_page(Mock())
         self.assertEqual(result['node_latency_ms'], 25.0)
         self.assertEqual(result['connect_ms'], 12000.0)
 
@@ -240,22 +231,16 @@ class RoomPageSdkTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_node_returns_stable_twenty_room_pages(self):
         profile = SimpleNamespace(server_host='node', server_port=1, server_public_key='key')
         pages = {0: list(range(0, 20)), 20: list(range(20, 40)), 40: list(range(40, 45))}
-        class Connection:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *args): return False
-
-        async def request(connection, operation, **fields):
-            if operation == 'ping':
-                return {'capabilities': ['room-list-page-v1'], 'name': ''}
+        async def request(method, fields):
+            self.assertEqual(method, 'room.list')
             offset = fields['offset']
             values = pages[offset]
             end = offset + len(values)
             return {'rooms': [self.room(i) for i in values],
                     'next': end if end < 45 else None, 'total': 45}
 
-        with patch.object(room_sdk, 'connect_directory', AsyncMock(return_value=Connection())), \
-                patch.object(room_sdk, 'request', side_effect=request), \
-                patch.object(room_sdk, 'remember_topology', AsyncMock()):
+        bridge = SimpleNamespace(handle=AsyncMock(return_value='node'), request=AsyncMock(side_effect=request))
+        with patch('hookup.native_routes.manager', return_value=bridge):
             result = await room_sdk.list_room_page(profile)
             all_rooms = list(result['rooms'])
             self.assertEqual((len(all_rooms), result['next'], result['total']), (20, 20, 45))
@@ -268,23 +253,26 @@ class RoomPageSdkTests(unittest.IsolatedAsyncioTestCase):
     async def test_old_node_cursor_preserves_rooms_after_local_filtering(self):
         profile = SimpleNamespace(server_host='node', server_port=1, server_public_key='key')
         rows = [self.room(i, title=('match ' if i >= 22 else 'other ') + str(i)) for i in range(25)]
-        class Connection:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *args): return False
-
-        async def request(connection, operation, **fields):
-            if operation == 'ping':
-                return {'capabilities': [], 'name': ''}
+        async def request(method, fields):
             offset = fields['offset']
             return {'rooms': rows[offset:], 'next': None}
 
-        with patch.object(room_sdk, 'connect_directory', AsyncMock(return_value=Connection())), \
-                patch.object(room_sdk, 'request', side_effect=request), \
-                patch.object(room_sdk, 'remember_topology', AsyncMock()):
+        bridge = SimpleNamespace(handle=AsyncMock(return_value='node'), request=AsyncMock(side_effect=request))
+        with patch('hookup.native_routes.manager', return_value=bridge):
             result = await room_sdk.list_room_page(profile, query='match')
         self.assertEqual([room['title'] for room in result['rooms']],
                          ['match 22', 'match 23', 'match 24'])
         self.assertIsNone(result['next'])
+
+    async def test_repeated_cursor_and_invalid_total_are_rejected(self):
+        for page in ({'rooms': [self.room(0)], 'next': 0},
+                     {'rooms': [self.room(0)], 'next': True},
+                     {'rooms': [self.room(0)], 'next': 2},
+                     {'rooms': [self.room(0)], 'next': None, 'total': 0}):
+            bridge = SimpleNamespace(handle=AsyncMock(return_value='node'), request=AsyncMock(return_value=page))
+            with self.subTest(page=page), patch('hookup.native_routes.manager', return_value=bridge):
+                with self.assertRaises(ValueError):
+                    await room_sdk.list_room_page(Mock())
 
 
 class LocalNodeAvailabilityTests(unittest.IsolatedAsyncioTestCase):

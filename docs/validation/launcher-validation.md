@@ -2,7 +2,7 @@
 
 ## 2026-10-23 发布前复核与 Windows 成品
 
-本节更新先前“尚未编译发布包”的状态。正式联机链路已切换到 C++ 原生库；历史 Python 实现保存在 `compatibility/legacy_hookup/`，不进入发行包。原生组件源码固定为 `minecraft-tunnel-native@415adda8b781f44dc18d93f04a7270e4412b8d07`。
+本节更新先前“尚未编译发布包”的状态。正式联机链路已切换到 C++ 原生库；历史 Python 实现保存在 `compatibility/legacy_hookup/`，不进入发行包。原生组件源码固定为 `minecraft-tunnel-native@8853609ec127fb9de79d5196c2a989d240ae6266`。
 
 - 启动器日志、网络拓扑与游戏/模组诊断、Java 选择、游戏进程、整合包、下载与全部 QML 页面相关回归 **147 项通过**（31.792 秒）。新增浅层目录保护后，原生库定位/路由/切换回归 **14 项通过**（1.333 秒）；打包裁剪、macOS 规则及原生安装树回归 **11 项通过**（0.167 秒）。用例有重叠，不合计为独立用例数。
 - 补充安装器、窗口状态、字体、资源详情、导入入口与登录回归 **80 项通过**（35.339 秒）。原生仓库 CTest **2 项通过**；真实 C ABI/可执行程序互通、P2P 与中继混合、模组校验传输、好友授权及玩家日志测试 **18 项中 17 项通过、1 项跳过**（Windows 未授予创建符号链接权限，20.965 秒）。
@@ -15,6 +15,8 @@
 本轮修复了原生适配中再次出现的固定 `parents[3]` 浅层路径假设，以及 Windows 使用 `os.execv` 启动桥接时父进程提前退出的问题；Windows 兼容入口现在等待原生子进程，保留退出状态。两套 GitHub 构建任务改为编译同一固定版本原生组件，不再生成旧 Python 网络运行包；macOS Intel/Apple Silicon 包须由对应平台构建和运行检查后才能称为完成。
 
 证据目录：本地 `error/release-validation-20261023/`，含 `launcher-tests.log`、`native-library-tests.log`、`native-glue-tests.log`、`package-rules-tests.log`、`final-regression.log`、`windows-build.log`、`installer-validation.log`，以及 `packaged/windows.json`、`packaged/offscreen.json`、`installed-package-check.json`。证据和游戏资产不提交 Git。
+
+补充修复：旧节点忽略分页大小/搜索条件时，启动器按实际消费位置继续获取，防止列表丢房间；同时拒绝不前进的游标和非法总数，5 项分页专项回归通过。原生 Windows CI 暴露了非法 UTF-8 游戏字符串未拒绝的问题，现增加 UTF-8/UTF-16 往返校验，原生 CTest 重新通过。
 
 验收边界：本机 P2P/中继不代表全部公网 NAT；未在本轮部署生产节点。整合包导入与核心解析有回归，本轮实际新启动的是原版 26.3。仓库历史 Python 传输专项测试仍引用已归档的实现，直接全量 discover 不能视为原生迁移后的全量验收；本轮按上述在用模块及原生集成套件执行，保留失败/中断记录，不声称全部历史测试通过。
 
