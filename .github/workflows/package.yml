@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 558b59c3acfb4747afc0c47b516a1308063e8b2a
+          ref: 2c2d7548efd4fb3885baf539560ee8ff76d2476f
           path: native-source
       - uses: actions/setup-python@v5
         with:
