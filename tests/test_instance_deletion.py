@@ -89,3 +89,32 @@ class InstanceDeletionTests(LauncherQmlCase):
         self.click(dialog.host, 'dialog-action-1')
         self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
         self.assert_no_qml_errors()
+
+    def test_selected_instance_and_last_instance_refresh_header_safely(self):
+        controller = self.window.version_page.versions_page.controller
+        identities = [item['version'] for item in controller.view['versions']]
+        for identity in identities:
+            controller.selectVersion(identity)
+            controller, dialog = self.open_confirmation(identity)
+            self.click(dialog.host, 'dialog-action-1')
+            remaining = [item['version'] for item in controller.view['versions']]
+            self.assertNotIn(identity, remaining)
+            if remaining:
+                self.assertIn(self.manager.get_setting('minecraft.version.enable'), remaining)
+        self.assertFalse(controller.view['versions'])
+        self.assertFalse(self.manager.get_setting('minecraft.version.enable'))
+        self.assertTrue(self.window.isVisible())
+        self.assert_no_qml_errors()
+
+    def test_core_jar_reference_blocks_deletion_and_null_room_metadata_is_safe(self):
+        path = self.game_dir / 'versions/1.21.8/1.21.8.json'
+        path.write_text(json.dumps(dict(id='1.21.8', jar='1.20.1', buggcraftRoom=None)), encoding='utf-8')
+        controller, dialog = self.open_confirmation()
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertIn('依赖', controller.view['status'])
+        self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
+        path.write_text(json.dumps(dict(id='1.21.8', buggcraftRoom=None)), encoding='utf-8')
+        controller, dialog = self.open_confirmation()
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
+        self.assert_no_qml_errors()
