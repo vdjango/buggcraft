@@ -15,6 +15,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
+from urllib3.exceptions import HTTPError as TransportError
+from urllib3.response import HTTPResponse
 
 from utils.archives import extract_zip
 from utils.download_locks import download_lock
@@ -60,6 +62,23 @@ class _DownloadSession(requests.Session):
 
 class DownloadCancelled(Exception):
     pass
+
+
+class _SlowMirror(requests.ConnectionError):
+    """Keep verified-size partial data when switching away from a slow mirror."""
+
+
+def _download_chunks(response, mirror):
+    # read1 yields currently available bytes. iter_content waits to fill its
+    # buffer, hiding a server that keeps the socket alive with tiny trickles.
+    if mirror and isinstance(response.raw, HTTPResponse) and hasattr(response.raw, 'read1'):
+        try:
+            while chunk := response.raw.read1(16 * 1024, decode_content=True):
+                yield chunk
+        except TransportError as exc:
+            raise requests.ConnectionError(exc) from exc
+    else:
+        yield from response.iter_content(16 * 1024)
 
 
 def _resolved(path):
@@ -121,6 +140,13 @@ class MinecraftDownloader:
         # Both settings share this router, including every URL in an MRPACK.
         trusted = (parsed.scheme == 'https' and parsed.port in (None, 443)
                    and not parsed.username and not parsed.password)
+        # Some cached manifests already contain mirror URLs. Recover the
+        # publisher route too, otherwise fallback silently has no alternative.
+        if trusted and parsed.hostname == urlsplit(CONTENT_MIRROR).hostname:
+            upstream = ('cdn.modrinth.com' if parsed.path.startswith('/data/') else
+                        'edge.forgecdn.net' if parsed.path.startswith('/files/') else None)
+            if upstream:
+                return self.urls(parsed._replace(netloc=upstream).geturl())
         if trusted and parsed.hostname in ('cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'):
             originals = [original]
             if parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net'):
@@ -188,10 +214,12 @@ class MinecraftDownloader:
             candidates.sort(key=lambda value: urlsplit(value).hostname != urlsplit(CONTENT_MIRROR).hostname)
         for candidate in candidates:
             host = urlsplit(candidate).hostname
+            content_mirror = host == urlsplit(CONTENT_MIRROR).hostname
             with self._blocked_hosts_lock:
                 if self._blocked_hosts.get(host, 0) > time.monotonic():
                     continue
-            for attempt in range(3):
+            attempts = 1 if content_mirror else 3
+            for attempt in range(attempts):
                 if self.cancel.is_set():
                     temporary.unlink(missing_ok=True)
                 self.check_cancelled()
@@ -208,7 +236,10 @@ class MinecraftDownloader:
                                **getattr(self, 'request_headers', {})}
                     if offset:
                         headers['Range'] = f'bytes={offset}-'
-                    with session.get(candidate, stream=True, timeout=(8, 30), headers=headers) as response:
+                    # A mirror is an accelerator, so it gets a short first-byte
+                    # budget and one attempt before trying the publisher.
+                    timeout = (3, 4) if content_mirror else (8, 30)
+                    with session.get(candidate, stream=True, timeout=timeout, headers=headers) as response:
                         response.raise_for_status()
                         final_host = urlsplit(response.url).hostname if isinstance(response.url, str) else host
                         if response.status_code == 206:
@@ -221,8 +252,10 @@ class MinecraftDownloader:
                             offset = 0  # A server may ignore Range and send the whole file.
                         downloaded = offset
                         last_progress = 0.0
+                        transfer_started = time.monotonic()
+                        window_bytes = offset
                         with temporary.open('ab' if offset else 'wb') as output:
-                            for chunk in response.iter_content(16 * 1024):
+                            for chunk in _download_chunks(response, content_mirror):
                                 self.check_cancelled()
                                 if chunk:
                                     output.write(chunk)
@@ -233,6 +266,11 @@ class MinecraftDownloader:
                                     if file_progress and (downloaded == size or now - last_progress >= 0.1):
                                         file_progress(downloaded, size or 0)
                                         last_progress = now
+                                    elapsed = now - transfer_started
+                                    if content_mirror and elapsed >= 4 and downloaded != size:
+                                        if (downloaded - window_bytes) / elapsed < 64 * 1024:
+                                            raise _SlowMirror('镜像持续低速，切换原站并继续下载')
+                                        transfer_started, window_bytes = now, downloaded
                         expected = size if size is not None else response.headers.get("Content-Length")
                         if expected is not None and downloaded != int(expected):
                             raise ValueError(f"文件长度不完整：{target.name}")
@@ -259,6 +297,18 @@ class MinecraftDownloader:
                     if self.cancel.is_set():
                         temporary.unlink(missing_ok=True)
                     self.check_cancelled()
+                    if content_mirror:
+                        # Transport, stale-cache, HTTP and hash failures all
+                        # fall through to the original URL, without repeatedly
+                        # stalling the other files in this download task.
+                        missing = (isinstance(exc, requests.HTTPError) and exc.response is not None
+                                   and exc.response.status_code in (404, 410))
+                        if not missing:
+                            with self._blocked_hosts_lock:
+                                self._blocked_hosts[host] = time.monotonic() + 60
+                        self.status(f'镜像 {host} 暂不可用或速度过低，正在切换原站继续下载 {target.name}')
+                        logger.info('download_source_switch file=%s from=%s reason=%s', relative, host, exc)
+                        break
                     if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code in (403, 567):
                         # A rejected mirror should not delay every file in a pack.
                         with self._blocked_hosts_lock:
@@ -271,7 +321,7 @@ class MinecraftDownloader:
                         # Missing cache entries and permanent client errors will
                         # not improve by retrying the same URL immediately.
                         break
-                    if attempt < 2 and self.cancel.wait(0.5 * (attempt + 1)):
+                    if attempt < attempts - 1 and self.cancel.wait(0.5 * (attempt + 1)):
                         temporary.unlink(missing_ok=True)
                         self.check_cancelled()
         temporary.unlink(missing_ok=True)

@@ -128,7 +128,7 @@ class SettingsController(QObject):
                             'Minecraft 本体、assets、libraries 和加载器。BMCLAPI 优先国内镜像，失败回退官方。'),
                 self._field('settings.general.content_mirror', '模组与整合包下载源',
                             s.get_setting('settings.general.content_mirror', 'MCIM'), ['MCIM', '官方'],
-                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。默认 MCIM，失败回退原站；不影响游戏本体下载源。'),
+                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。默认 MCIM，超时、持续低速或失败时自动切换原站；不影响游戏本体下载源。'),
                 self._field('launcher.allow_multiple', '允许多开游戏',
                             bool(s.get_setting('launcher.allow_multiple', False)), kind='toggle',
                             description='首页可按版本和 PID 选择停止目标。'),
