@@ -14,6 +14,47 @@ CATALOGUE_SEARCH = ContentCatalogue.search
 
 
 class ContentBrowserTests(LauncherQmlCase):
+    def test_detail_prefers_compatible_file_but_keeps_all_files_and_project_advice(self):
+        controller = self.window.download_page.content_page.controller
+        controller.kind = 'resourcepack'
+        controller.selected_project = dict(project_id='fresh-animations', source='Modrinth', game_versions=['1.21.8'])
+        files = [dict(id='latest-' + str(i), name='26.1+', game_versions=['26.1']) for i in range(35)]
+        files.append(dict(id='matching', name='Current game', game_versions=['1.21.8', '1.20.1']))
+        controller._query_finished(controller.request_id, 'versions', files, '')
+        self.assertEqual(controller.viewState['selected_file']['id'], 'matching')
+        self.assertEqual(controller.viewState['selected_file']['compatibility_state'], 'compatible')
+        self.assertIn('1.21.8', controller.viewState['project_compatibility'])
+        controller.selectVersion(1)
+        self.assertIn('当前文件', controller.viewState['selected_file']['compatibility'])
+        self.assertIn('此项目有支持', controller.viewState['project_compatibility'])
+        controller.loadMoreVersions()
+        self.assertEqual(len(controller.versions), len(files))
+
+    def test_detail_shows_loading_while_both_network_requests_are_pending(self):
+        downloads = self.window.download_page
+        controller = downloads.content_page.controller
+        downloads.open_content('resourcepack', 'browse')
+        self.wait_until(lambda: not controller.busy)
+        release = threading.Event()
+        def pending(*args, **kwargs):
+            release.wait(3)
+            return []
+        try:
+            with patch.object(controller.catalogue, 'versions', side_effect=pending), \
+                    patch.object(controller.catalogue, 'project', side_effect=pending):
+                self.click(downloads.games_page, 'content-project-0')
+                self.assertTrue(controller.busy)
+                self.assertTrue(controller.details_busy)
+                self.pump(100)
+                self.assertTrue(self.item(downloads.games_page, 'content-project-loading').isVisible())
+                self.assertIn('正在加载', self.item(downloads.games_page, 'content-compatibility').property('text'))
+                self.assertFalse(self.item(downloads.games_page, 'download-content-version').isEnabled())
+                release.set()
+                self.wait_until(lambda: not controller.busy and not controller.details_busy)
+        finally:
+            release.set()
+        self.assert_no_qml_errors()
+
     def test_download_button_writes_verified_files_to_selected_instance_for_all_kinds(self):
         payload = b'local content integration fixture'
         class Handler(BaseHTTPRequestHandler):
@@ -323,7 +364,7 @@ class ContentBrowserTests(LauncherQmlCase):
         self.assertEqual(len(controller.versions), 30)
         self.assertTrue(controller.viewState['has_more_versions'])
 
-    def test_both_provider_downloads_use_single_import_entry(self):
+    def test_both_provider_downloads_automatically_install_and_select_instance(self):
         payload = b''
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -340,7 +381,12 @@ class ContentBrowserTests(LauncherQmlCase):
         get = requests.get
         def local_get(url, **kwargs):
             self.assertTrue(url.startswith('https://mod.mcimirror.top/fixture-'))
+            self.assertTrue(kwargs['headers']['User-Agent'].startswith('Buggcraft/1.0'))
             return get(f'http://127.0.0.1:{server.server_port}/pack', **kwargs)
+        def install_game(downloader, identity):
+            target = downloader.root / 'versions' / identity / (identity + '.json')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(dict(id=identity)), encoding='utf-8')
         downloads = self.window.download_page
         controller = downloads.content_page.controller
         manifests = [
@@ -348,11 +394,13 @@ class ContentBrowserTests(LauncherQmlCase):
                  name='CurseForge fixture', minecraft={'version': '1.21.8', 'modLoaders': []}, files=[])),
             ('Modrinth', 'mrpack', 'modrinth.index.json', dict(formatVersion=1, game='minecraft',
                  name='Modrinth fixture', versionId='1', dependencies={'minecraft': '1.21.8'}, files=[]))]
-        with patch('core.downloads._DownloadSession.get', side_effect=local_get):
+        with patch('core.downloads._DownloadSession.get', side_effect=local_get), \
+                patch('core.modpacks.MinecraftDownloader.install', autospec=True, side_effect=install_game):
             for provider, extension, manifest_name, manifest in manifests:
                 stream = io.BytesIO()
                 with zipfile.ZipFile(stream, 'w') as archive:
                     archive.writestr(manifest_name, json.dumps(manifest))
+                    archive.writestr('overrides/config/example.txt', provider)
                 payload = stream.getvalue()
                 downloads.open_content('modpack', 'browse')
                 self.wait_until(lambda: not controller.busy)
@@ -367,23 +415,17 @@ class ContentBrowserTests(LauncherQmlCase):
                 self.wait_until(lambda: not downloads.tasks_page._workers)
                 task = downloads.tasks_page._tasks[0]
                 self.assertEqual(task['state'], '已完成')
+                self.assertEqual(task['status'], '整合包导入完成')
+                instance = self.game_dir / 'versions' / task['version']
+                self.assertEqual((instance / 'config/example.txt').read_text(), provider)
+                metadata = json.loads((instance / (task['version'] + '.json')).read_text(encoding='utf-8'))
+                self.assertEqual(metadata['buggcraftModpack']['source'], provider)
+                self.assertEqual(self.manager.get_setting('minecraft.version.enable'), task['version'])
+                self.assertEqual(task['modpack'], task['downloaded_files'][0])
+                self.assertTrue(task['archive_sha256'])
                 self.pump(120)
                 action = self.item(downloads.tasks_page.host, 'task-action-' + task['id'])
-                self.assertEqual(action.property('text'), '打开目录')
-                with patch('PySide6.QtGui.QDesktopServices.openUrl') as open_directory:
-                    self.click(downloads.tasks_page.host, 'task-action-' + task['id'])
-                open_directory.assert_called_once()
-                downloads.on_navigation(0)
-                controller.backToResults()
-                self.pump()
-                with patch('ui.pages.download.content_browser.QFileDialog.getOpenFileName',
-                           return_value=(task['downloaded_files'][0], '')):
-                    self.click(downloads.games_page, 'download-import-pack')
-                self.assertEqual(controller.view, 'import')
-                self.assertIn(provider, controller.pack_summary)
-                self.assertEqual(Path(controller.import_directory), self.game_dir)
-                with patch.object(downloads.tasks_page, 'start_install', return_value=True) as install:
-                    controller.importPack()
-                self.assertEqual(install.call_args.kwargs['modpack'], task['downloaded_files'][0])
+                self.assertEqual(action.property('text'), '已导入')
+                self.assertFalse(action.isEnabled())
                 self.assertIs(downloads.stack.currentWidget(), downloads.tasks_page)
         self.assert_no_qml_errors()

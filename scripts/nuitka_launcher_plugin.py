@@ -1,6 +1,7 @@
 """Finish the trimmed runtime before Nuitka 4.3.1 embeds its onefile payload."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 from nuitka.plugins.PluginBase import NuitkaPluginBase
@@ -27,7 +28,8 @@ class LauncherPayload(NuitkaPluginBase):
         spec.loader.exec_module(build)
         runtime = Path(dist_dir).resolve()
         build.stage_native_bridge(runtime, Path(self.native))
-        removed = build.trim_qt_libraries(runtime, runtime.parent / 'qt-unused')
+        removed = (build.trim_qt_libraries(runtime, runtime.parent / 'qt-unused')
+                   if os.name == 'nt' else [])
         build.validate_runtime_inventory(runtime)
         (runtime.parent / 'qt-trim-report.json').write_text(json.dumps(removed, indent=2), encoding='utf-8')
         self.info('Prepared complete native multiplayer runtime and removed %d unused Qt DLLs.' % len(removed))

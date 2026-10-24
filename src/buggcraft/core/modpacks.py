@@ -231,13 +231,15 @@ class CurseForgeClient(CurseForgeAPI):
 
 
 class ModpackImporter:
-    def __init__(self, directory, source='自动', java=None, cancel=None, status=None, progress=None, api_key=None):
+    def __init__(self, directory, source='自动', java=None, cancel=None, status=None, progress=None, api_key=None,
+                 content_source=None):
         self.root = Path(directory).resolve()
         self.source, self.java = source, java
+        self.content_source = content_source
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda value: None)
         self.progress = progress or (lambda done, total: None)
-        self.client = CurseForgeClient(api_key, self.cancel)
+        self.client = CurseForgeClient(api_key, self.cancel, mirror=content_source or '官方')
 
     def check(self):
         if self.cancel.is_set():
@@ -275,6 +277,7 @@ class ModpackImporter:
         cache.mkdir(parents=True, exist_ok=True)
         downloader = MinecraftDownloader(cache / 'files', source=self.source, cancel=self.cancel,
                                          status=self.status, progress=self.progress)
+        downloader.content_source = self.content_source
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         if info.source == 'Modrinth':

@@ -1,10 +1,13 @@
 """Room switching and failed-send drafts in the real presentation controller."""
 from concurrent.futures import Future
 import asyncio
+import base64
+import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -16,6 +19,7 @@ from ui.multiplayer_controller import MultiplayerController
 import asyncssh
 from hookup.relay import RelayProfile
 from hookup.nodes import remember, candidates, save_json, profile_data
+from hookup.social import ExpiredNodeCredential, credential_expiry
 
 
 class ChatControllerTests(unittest.TestCase):
@@ -134,6 +138,67 @@ class ChatControllerTests(unittest.TestCase):
         self.controller.node_path = str(path.resolve())
         self.controller.reload_store()
         self.controller.apply_social_state(self._social_state())
+
+    def test_expired_personal_code_is_visible_and_can_be_replaced(self):
+        key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode()
+        path = Path(self.temporary.name) / "expiring-node.json"
+
+        def personal_code(expiry):
+            claims = {"e": expiry, "g": {"d": True}}
+            payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+            return "acct1." + payload + ".signature~secret"
+
+        expired = RelayProfile("127.0.0.1", 3333, personal_code(int(time.time()) - 10), key)
+        self.assertLess(credential_expiry(expired), time.time())
+        save_json(path, profile_data(expired))
+        self.controller.store.add_node(str(path))
+        with patch.object(self.controller, "job", side_effect=lambda key, coroutine: coroutine.close()):
+            self.controller.reload_store(select=str(path.resolve()))
+        self.assertTrue(self.controller.view["nodeAccessExpired"])
+        self.assertTrue(self.controller.view["nodes"][0]["codeExpired"])
+        with self.assertRaises(ExpiredNodeCredential):
+            self.controller.require_available_node()
+        self.controller.act("replaceNodeCode", {})
+        self.assertEqual(self.controller.view["page"], "nodes")
+        self.assertTrue(path.is_file())
+
+        refreshed = RelayProfile("127.0.0.1", 3333, personal_code(int(time.time()) + 3600), key)
+        save_json(path, profile_data(refreshed))
+        with patch.object(self.controller, "job", side_effect=lambda key, coroutine: coroutine.close()):
+            self.controller.reload_store(refresh_identity=True)
+        self.assertFalse(self.controller.view["nodeAccessExpired"])
+        self.assertFalse(self.controller.view["nodes"][0]["codeExpired"])
+
+    def test_inviting_without_room_waits_until_host_is_online(self):
+        controller = self.controller
+        account = "c" * 32 + "." + "d" * 32
+        controller.apply_social_state({
+            "account": "a" * 32 + "." + "b" * 32, "username": "owner",
+            "friends": [{"account": account, "username": "Alice", "online": True}],
+            "requests": [], "invitations": [],
+        })
+        controller.patch(nodeAvailable=True)
+        controller.node_path = "dummy-node.json"
+        with patch.object(controller, "profile", return_value=Mock()):
+            controller.invite_friend(account)
+        self.assertEqual(controller.view["page"], "create")
+        self.assertEqual(controller.pending_friend_invite, (controller.social_generation, account))
+
+        name = "new-room"
+        controller.pending_friend_invite = (*controller.pending_friend_invite, name)
+        controller.records[name] = dict(id=name, title="World", role="host", state="connecting",
+                                        availability="ready", public=False, requireInvite=True,
+                                        chatMessages=[], chatState="", chatDraft="", chatSending=False,
+                                        chatError="", bridgeStatus="")
+        controller.service.endpoints[name] = Mock(room_info={}, connection=True,
+                                                   invite=Mock(room_id="invited-room"))
+        with patch.object(controller, "invite_friend") as invite:
+            controller.update_status(name, "connecting", "Preparing")
+            invite.assert_not_called()
+            controller.update_status(name, "online", "Ready")
+            invite.assert_called_once_with(account)
+        self.assertIsNone(controller.pending_friend_invite)
+        self.assertEqual(controller.view["pendingFriendInvite"], "")
 
     def _social_state(self, **changes):
         return dict(account='a' * 32 + '.' + 'b' * 32, username='local_user',

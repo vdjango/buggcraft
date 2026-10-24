@@ -18,6 +18,7 @@ import requests
 
 from utils.archives import extract_zip
 from utils.download_locks import download_lock
+from utils.http_identity import USER_AGENT
 
 
 MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 class _DownloadSession(requests.Session):
     def __init__(self, curseforge_key='', curseforge_fallbacks=None):
         super().__init__()
+        self.headers['User-Agent'] = USER_AGENT
         self.curseforge_key = curseforge_key
         self.curseforge_fallbacks = curseforge_fallbacks or {}
 
@@ -98,6 +100,7 @@ class MinecraftDownloader:
     def __init__(self, directory, source="自动", cancel=None, status=None, progress=None):
         self.root = _resolved(directory)
         self.source = source
+        self.content_source = None
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda message: None)
         self.progress = progress or (lambda current, maximum: None)
@@ -123,11 +126,11 @@ class MinecraftDownloader:
             if parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net'):
                 alternate = 'mediafilez.forgecdn.net' if parsed.hostname == 'edge.forgecdn.net' else 'edge.forgecdn.net'
                 originals.append(parsed._replace(netloc=alternate).geturl())
-            if self.source == '官方':
+            content_source = self.content_source or self.source
+            if content_source == '官方':
                 return originals
-            # mediafilez is normalized to the equivalent edge /files path first;
-            # MCIM documents its edge route, not arbitrary mediafilez paths.
-            if parsed.hostname == 'mediafilez.forgecdn.net' and not parsed.path.startswith('/files/'):
+            # The MCIM guide explicitly excludes mediafilez from rewriting.
+            if parsed.hostname == 'mediafilez.forgecdn.net':
                 return originals
             return [parsed._replace(netloc=urlsplit(CONTENT_MIRROR).netloc).geturl(), *originals]
         replacements = {
@@ -180,7 +183,7 @@ class MinecraftDownloader:
         temporary = target.with_name(target.name + ".buggcraft-part")
         candidates = list(dict.fromkeys(candidate for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
                                         for candidate in self.urls(address)))
-        if self.source != '官方':
+        if (self.content_source or self.source) != '官方':
             # Try all supplied domestic mirrors before falling back overseas.
             candidates.sort(key=lambda value: urlsplit(value).hostname != urlsplit(CONTENT_MIRROR).hostname)
         for candidate in candidates:
@@ -201,7 +204,7 @@ class MinecraftDownloader:
                                                    getattr(self, 'curseforge_fallbacks', None))
                         self._sessions.session = session
                     offset = temporary.stat().st_size if temporary.exists() and (sha1 or sha512) and size else 0
-                    headers = {"User-Agent": "Buggcraft/1.0", 'Accept-Encoding': 'identity',
+                    headers = {"User-Agent": USER_AGENT, 'Accept-Encoding': 'identity',
                                **getattr(self, 'request_headers', {})}
                     if offset:
                         headers['Range'] = f'bytes={offset}-'
@@ -261,6 +264,12 @@ class MinecraftDownloader:
                         with self._blocked_hosts_lock:
                             self._blocked_hosts[host] = time.monotonic() + 60
                         self.status(f'下载源 {host} 拒绝访问（HTTP {exc.response.status_code}），正在切换备用来源')
+                        break
+                    if (isinstance(exc, requests.HTTPError) and exc.response is not None
+                            and 400 <= exc.response.status_code < 500
+                            and exc.response.status_code not in (408, 429)):
+                        # Missing cache entries and permanent client errors will
+                        # not improve by retrying the same URL immediately.
                         break
                     if attempt < 2 and self.cancel.wait(0.5 * (attempt + 1)):
                         temporary.unlink(missing_ok=True)

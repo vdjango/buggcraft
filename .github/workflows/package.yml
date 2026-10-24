@@ -32,6 +32,9 @@ jobs:
           - os: windows-latest
             platform: windows-x64
             arch: x64
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+            arch: x64
           - os: macos-15-intel
             platform: macos-x86_64
             arch: x64
@@ -79,6 +82,11 @@ jobs:
         run: |
           brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
           echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - name: Prepare Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libssl-dev patchelf libgl1 libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
       - name: Build and test native multiplayer runtime
         run: |
           python scripts/build_bridge.py --native-source native-source --output dist/native-runtime
@@ -131,23 +139,17 @@ jobs:
           done
           iconutil -c icns "$iconset" -o resources/icons/app.icns
       - name: Build native package
-        env:
-          BUILD_REF_TYPE: ${{ github.ref_type }}
-          BUILD_REF_NAME: ${{ github.ref_name }}
-          BUILD_REPOSITORY: ${{ github.repository }}
         run: |
           python -u - <<'PY'
-          import collections, os, pathlib, subprocess, sys, urllib.parse
+          import collections, os, pathlib, subprocess, sys
           output = pathlib.Path('dist')
           output.mkdir(exist_ok=True)
           tail = collections.deque(maxlen=35)
           with (output / 'build.log').open('w', encoding='utf-8') as log:
               command = [sys.executable, 'build.py', '--jobs', '3',
                          '--native-bridge-dir', 'dist/native-runtime']
-              if os.name == 'nt' and os.environ['BUILD_REF_TYPE'] == 'tag':
-                  tag = urllib.parse.quote(os.environ['BUILD_REF_NAME'], safe='')
-                  repository = os.environ['BUILD_REPOSITORY']
-                  command += ['--runtime-url', f'https://github.com/{repository}/releases/download/{tag}/Buggcraft-runtime-windows-x64.zip']
+              if os.name == 'nt' or sys.platform.startswith('linux'):
+                  command.append('--onefile')
               process = subprocess.Popen(command,
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                          text=True, encoding='utf-8', errors='replace')
@@ -168,11 +170,11 @@ jobs:
           QT_QUICK_BACKEND: software
         run: |
           python - <<'PY'
-          import os, pathlib, plistlib, subprocess
+          import os, pathlib, plistlib, subprocess, sys
           root = pathlib.Path.cwd()
           output = root / 'dist'
-          if os.name == 'nt':
-              executable = output / 'main.dist/Buggcraft.exe'
+          if os.name == 'nt' or sys.platform.startswith('linux'):
+              executable = output / ('Buggcraft.exe' if os.name == 'nt' else 'Buggcraft')
           else:
               bundle, = output.glob('*.app')
               info = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
@@ -218,7 +220,7 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
               summary.write(f"### {os.environ['BUILD_PLATFORM']}\n\n")
               summary.write(f"Download the **Buggcraft-** artifact from [this run]({os.environ['RUN_URL']}).\n\n")
-              summary.write('Windows branch builds: extract the artifact and keep the installer beside the runtime ZIP for offline installation.\n')
+              summary.write('Windows and Linux downloads contain one self-contained executable. macOS downloads contain one ZIP with the native application bundle.\n')
           PY
 
   release:
@@ -247,11 +249,11 @@ jobs:
           cat > release-notes.md <<'NOTES'
           ## 下载
 
-          - Windows x64：`Buggcraft-Setup.exe`；首次运行会下载同一版本的完整运行包。
-          - 离线安装：下载 `Buggcraft-runtime-windows-x64.zip`，与安装程序放在同一目录，无需解压 ZIP。
+          - Windows x64：下载并运行 `Buggcraft.exe`。
+          - Linux x86_64：下载 `Buggcraft` 并赋予可执行权限后运行；构建目标为 Ubuntu 24.04。
           - macOS：按芯片选择 `arm64`（Apple Silicon）或 `x86_64`（Intel），解压后运行应用。
           - `SHA256SUMS-*.txt` 用于核对文件完整性；构建日志留在 Actions，不放入发布下载。
 
-          Windows 构建目前没有受信任的代码签名，macOS 构建使用 ad-hoc 签名且未经 Apple 公证。系统可能阻止运行；不要关闭系统防护。发布者应先完成对应系统的安装验收与签名审查，再公开此草稿。
+          Windows 构建目前没有受信任的代码签名，macOS 构建使用 ad-hoc 签名且未经 Apple 公证。发布者应先完成对应系统的安装验收与签名审查，再公开此草稿。
           NOTES
           gh release create "$RELEASE_TAG" --verify-tag --draft --title "Buggcraft $RELEASE_TAG" --notes-file release-notes.md release-files/*

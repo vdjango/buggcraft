@@ -9,7 +9,7 @@ ColumnLayout {
     spacing: 8
     RowLayout {
         Layout.fillWidth: true; spacing: 8
-        CopyText { objectName: "lobby-identity"; Layout.fillWidth: true; text: vm.socialReady ? "已登录 · " + vm.socialName : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入"); font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce" }
+        CopyText { objectName: "lobby-identity"; Layout.fillWidth: true; text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialReady ? "已登录 · " + vm.socialName : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入"); font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce" }
         CopyText { text: "连接方式"; font.pixelSize: 11 }
         ChoiceBox {
             objectName: "hall-transport"
@@ -24,6 +24,17 @@ ColumnLayout {
             objectName: "export-diagnostics"; text: "导出日志"; quiet: true
             Layout.preferredWidth: 80; Layout.preferredHeight: 28
             onClicked: lobby.act("exportDiagnostics", {})
+        }
+    }
+    Surface {
+        objectName: "lobby-loading-status"
+        Layout.fillWidth: true; Layout.preferredHeight: 46
+        visible: !!vm.socialLoading || !!vm.loading
+        color: "#272238"; border.color: "#5d4c79"
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 9; spacing: 8
+            BusyIndicator { implicitWidth: 18; implicitHeight: 18; running: parent.parent.visible }
+            CopyText { Layout.fillWidth: true; text: vm.socialLoading ? "正在登录好友服务…" : "正在连接联机节点并加载房间…"; color: "#ded3f3"; font.pixelSize: 12 }
         }
     }
     RowLayout {

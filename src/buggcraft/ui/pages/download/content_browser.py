@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QFileDialog, QWidget, QVBoxLayout
 
 from config.settings import get_settings_manager
 from core.content import ContentCatalogue, instance_environment
+from core.content_mirrors import configured_source
 from core.modpacks import inspect_pack, instance_name, suggested_name
 from ui.pages.qml_host import QmlPage
 
@@ -78,7 +79,7 @@ class ContentBrowserController(QObject):
         super().__init__(download_pages)
         self.download_pages = download_pages
         self.settings = get_settings_manager()
-        self.catalogue = ContentCatalogue()
+        self.catalogue = ContentCatalogue(mirror=configured_source(self.settings))
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(2)
         self.request_id = 0
@@ -112,7 +113,7 @@ class ContentBrowserController(QObject):
         directory = self.settings.get_setting('minecraft.directory.enable') or ''
         if self.kind == 'modpack':
             from utils.path_helper import get_default_minecraft_dir
-            return str((Path(directory) if directory else Path(get_default_minecraft_dir())) / 'downloads' / 'modpacks')
+            return str((Path(directory) if directory else Path(get_default_minecraft_dir())) / 'versions')
         return self.settings.get_minecraft_isolation_directory() or directory
 
     def _context_key(self):
@@ -129,6 +130,7 @@ class ContentBrowserController(QObject):
                 'instance': self.settings.get_setting('minecraft.version.enable') or '尚未选择',
                 'target': self._target(), 'game_version': self._context()[2],
                 'loader': self._context()[3],
+                'project_compatibility': self._project_compatibility(),
                 'has_more_versions': len(self.versions) < len(self._filtered_versions()) or self._version_has_more,
                 'selected_file': self.versions[self.selected_version] if 0 <= self.selected_version < len(self.versions) else {},
                 'can_install': bool(self._context()[0] and self._context()[1])}
@@ -227,6 +229,8 @@ class ContentBrowserController(QObject):
             self.search(self.query)
 
     def _start_search(self, query, append):
+        for client in self.catalogue.clients.values():
+            client.mirror = configured_source(self.settings)
         self.query = query
         self._instance_context = self._context_key()
         self.request_id += 1
@@ -315,7 +319,7 @@ class ContentBrowserController(QObject):
         elif not game:
             advice, state = '尚未选择安装实例，可先浏览全部版本', 'unknown'
         elif games and game not in games:
-            advice, state = '未声明支持当前 Minecraft ' + game + '，请自行确认', 'warning'
+            advice, state = '当前文件未声明支持 Minecraft ' + game + '；请在版本文件中选择适配版本', 'warning'
         elif self.kind == 'mod' and loaders and loader not in loaders:
             advice, state = '加载器不匹配：文件支持 ' + ' / '.join(loaders) + '，当前为 ' + (loader or '原版'), 'warning'
         elif not games:
@@ -331,6 +335,15 @@ class ContentBrowserController(QObject):
                     filename=primary.get('filename', ''), file_size_label=f'{size / 1024 ** 2:.1f} MiB' if size else '',
                     compatibility=advice, compatibility_state=state,
                     channel_label={'release': '正式版', 'beta': '测试版', 'alpha': '预览版'}.get(item.get('version_type'), '版本文件'))
+
+    def _project_compatibility(self):
+        if not self.selected_project or self.kind == 'modpack':
+            return ''
+        game = self._context()[2]
+        games = self.selected_project.get('game_versions') or self.selected_project.get('versions') or []
+        if game and game in games:
+            return '此项目有支持 Minecraft ' + game + ' 的版本；安装兼容性以所选文件为准'
+        return ''
 
     @Slot()
     def loadMoreVersions(self):
@@ -407,7 +420,11 @@ class ContentBrowserController(QObject):
             raw = data.get('versions', []) if isinstance(data, dict) else data or []
             records = [item for item in raw if isinstance(item, dict)]
             if mode == 'versions':
-                self._all_versions = records
+                # Recommend a compatible file without excluding other versions.
+                # Use all returned records so an older match is not hidden past
+                # the first page. Keep the author's order within each group.
+                self._all_versions = sorted(records, key=lambda item: (
+                    self.kind != 'modpack' and self._version_row(item)['compatibility_state'] == 'compatible'), reverse=True)
             else:
                 known = {item.get('id') for item in self._all_versions}
                 self._all_versions.extend(item for item in records if item.get('id') not in known)

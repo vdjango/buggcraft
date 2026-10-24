@@ -38,7 +38,7 @@ ColumnLayout {
                         contentItem: ColumnLayout {
                             spacing: 5
                             CopyText { Layout.fillWidth: true; text: modelData.title; color: "#eee8fa"; font.pixelSize: 12; elide: Text.ElideMiddle; wrapMode: Text.NoWrap }
-                            CopyText { text: (vm.nodeIndex === index ? "● 当前入口" : "切换至此节点 →") + (modelData.personalCode ? " · 个人启动器接入码" : " · 匿名接入"); color: vm.nodeIndex === index ? "#9dd4b8" : "#b4a6ca"; font.pixelSize: 10 }
+                            CopyText { text: modelData.codeExpired ? "接入码已过期 · 请更换" : (vm.nodeIndex === index ? "● 当前入口" : "切换至此节点 →") + (modelData.personalCode ? " · 个人启动器接入码" : " · 匿名接入"); color: modelData.codeExpired ? "#f0c49c" : vm.nodeIndex === index ? "#9dd4b8" : "#b4a6ca"; font.pixelSize: 10 }
                         }
                         background: Rectangle {
                             color: vm.nodeIndex === index ? "#382c4d" : parent.hovered ? "#2f283b" : "#231f2d"
@@ -67,8 +67,8 @@ ColumnLayout {
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 20; spacing: 12
                 CopyText { text: "CONNECT TOGETHER"; font.pixelSize: 10; font.letterSpacing: 2; color: "#b39bdb" }
-                CopyText { text: "添加一个联机入口"; font.pixelSize: 21; font.bold: true; color: "#f0e8ff" }
-                CopyText { Layout.fillWidth: true; text: "匿名联机：复制节点首页的匿名启动器接入码。\n使用账号：在节点网页登录并领取个人启动器接入码，同一联邦的其他节点会自动取回在线的加密资料；额外副本用于源节点离线时恢复登录。启动器只接收接入码，不接收账号密码。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
+                CopyText { text: vm.nodeAccessExpired ? "更换过期的接入码" : "添加一个联机入口"; font.pixelSize: 21; font.bold: true; color: "#f0e8ff" }
+                CopyText { Layout.fillWidth: true; text: vm.nodeAccessExpired ? "请在原节点网页登录你的账号，重新领取个人启动器接入码。粘贴新码并通过验证后，确认更新已有节点即可恢复使用，无需删除原节点。" : "匿名联机：复制节点首页的匿名启动器接入码。\n使用账号：在节点网页登录并领取个人启动器接入码，同一联邦的其他节点会自动取回在线的加密资料；额外副本用于源节点离线时恢复登录。启动器只接收接入码，不接收账号密码。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
                 Item { Layout.fillHeight: true; Layout.minimumHeight: 0; Layout.maximumHeight: 14 }
                 CopyText { text: "节点接入码或个人启动器接入码"; font.pixelSize: 11; color: "#e2d6f2" }
                 InputField {

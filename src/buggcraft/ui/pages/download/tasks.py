@@ -21,6 +21,7 @@ from ui.pages.qml_host import QmlPage
 from utils.path_helper import get_default_minecraft_dir
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
+from core.modpacks import suggested_name
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ class DownloadWorkerSignals(QObject):
     progress = Signal(str, object, object)
     resolved = Signal(str, str)
     downloaded = Signal(str, object)
+    pack_ready = Signal(str, str)
     archive_identified = Signal(str, str)
     finished = Signal(str, bool, str)
 
@@ -140,12 +142,13 @@ class DownloadWorkerSignals(QObject):
 class DownloadWorker(QRunnable):
     def __init__(self, task_id: str, version: str, game_dir: str, source: str,
                  loader=None, base_version=None, loader_version=None, java=None, modpack=None, api_key=None, content=None,
-                 addons=None, isolated=True, archive_sha256=None):
+                 addons=None, isolated=True, archive_sha256=None, content_source=None):
         super().__init__()
         self.task_id = task_id
         self.version = version
         self.game_dir = game_dir
         self.source = source
+        self.content_source = content_source
         self.loader = loader
         self.base_version = base_version
         self.loader_version = loader_version
@@ -175,16 +178,26 @@ class DownloadWorker(QRunnable):
                     supported = addon['version'].get('game_versions', [])
                     if supported and self.base_version not in supported:
                         raise ValueError(addon['name'] + ' 不支持所选游戏版本')
+            if self.content and self.content.get('kind') == 'modpack' and (not self.modpack or not os.path.isfile(self.modpack)):
+                from core.content import download_content
+                files = download_content(self.content['version'], self.content['target'], 'modpack',
+                                         self.cancel_event, status, progress, source=self.source, content_source=self.content_source)
+                if len(files) != 1:
+                    raise ValueError('整合包版本必须包含唯一的主文件')
+                self.signals.downloaded.emit(self.task_id, files)
+                self.modpack = files[0]
+                self.signals.pack_ready.emit(self.task_id, self.modpack)
+                status('整合包下载并校验完成，正在安装…')
             if self.modpack:
                 from core.modpacks import ModpackImporter
                 ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
-                                status, progress, self.api_key).install(
+                                status, progress, self.api_key, content_source=self.content_source).install(
                                     self.modpack, self.version, expected_archive_sha256=self.archive_sha256,
                                     archive_identified=lambda digest: self.signals.archive_identified.emit(self.task_id, digest))
             elif self.content:
                 from core.content import download_content
                 files = download_content(self.content['version'], self.content['target'], self.content['kind'],
-                                         self.cancel_event, status, progress, source=self.source)
+                                         self.cancel_event, status, progress, source=self.source, content_source=self.content_source)
                 self.signals.downloaded.emit(self.task_id, files)
             elif self.loader:
                 version_id = install_loader(self.loader, self.base_version, self.loader_version,
@@ -202,7 +215,7 @@ class DownloadWorker(QRunnable):
                     status=status, progress=progress,
                 )
                 downloader.install(self.version)
-            if not self.content:
+            if not self.content or self.modpack:
                 version_json = os.path.join(self.game_dir, "versions", self.version, f"{self.version}.json")
                 if not os.path.isfile(version_json):
                     raise RuntimeError("下载结束，但版本文件没有生成")
@@ -211,7 +224,8 @@ class DownloadWorker(QRunnable):
                 target = os.path.join(self.game_dir, 'versions', self.version) if self.isolated else self.game_dir
                 for addon in self.addons:
                     status('正在安装 ' + addon['name'])
-                    download_content(addon['version'], target, 'mod', self.cancel_event, status, progress, source=self.source)
+                    download_content(addon['version'], target, 'mod', self.cancel_event, status, progress,
+                                     source=self.source, content_source=self.content_source)
             if self.loader:
                 self.signals.resolved.emit(self.task_id, self.version)
             message = '整合包导入完成' if self.modpack else '内容下载完成' if self.content else f"{self.loader + ' ' if self.loader else ''}安装完成"
@@ -328,12 +342,16 @@ class TasksPage(QWidget):
                 self.settings_manager.set_setting("minecraft.directory.installed", directories + [game_dir])
             self.settings_manager.save_settings()
         if any(
-            task.get("version") == version and task.get("game_dir") == game_dir
+            (task.get("version") == version or (content and content == task.get('content')))
+            and task.get("game_dir") == game_dir
             and task.get("state") in self.ACTIVE
             for task in self._tasks
         ):
             self.parent.on_progress_clicked()
             return False
+
+        if content and content.get('kind') == 'modpack':
+            version = self._available_pack_name(content, game_dir)
 
         task_id = uuid.uuid4().hex
         task = {
@@ -373,26 +391,45 @@ class TasksPage(QWidget):
         java = self.settings_manager.get_version_setting("java.path", None)
         task_id = task['id']
         task['source'] = source
+        from core.content_mirrors import configured_source
+        task['content_source'] = configured_source(self.settings_manager)
         worker = DownloadWorker(task_id, task['version'], task['game_dir'], source,
                                 task.get('loader') or None, task.get('base_version') or None,
                                 task.get('loader_version') or None, java,
                                 task.get('modpack') or None, api_key, task.get('content') or None,
                                 addons=task.get('addons') or [],
                                 isolated=bool(self.settings_manager.get_version_setting('minecraft.isolation', True)),
-                                archive_sha256=task.get('archive_sha256'))
+                                archive_sha256=task.get('archive_sha256'),
+                                content_source=task['content_source'])
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
         worker.signals.resolved.connect(self.resolve_version)
         worker.signals.downloaded.connect(self.resolve_files)
+        worker.signals.pack_ready.connect(self.resolve_pack)
         worker.signals.archive_identified.connect(self.resolve_archive)
         worker.signals.finished.connect(self.finish_task)
         self._workers[task_id] = worker
         self.pool.start(worker)
         self._schedule_save()
 
+    def _available_pack_name(self, content, game_dir):
+        files = content.get('version', {}).get('files') or []
+        primary = next((item for item in files if item.get('primary')), files[0] if files else {})
+        base = suggested_name(primary.get('filename') or 'Downloaded-Modpack.zip')
+        identity, index = base, 2
+        occupied = {item['version'].casefold() for item in self._tasks
+                    if item['game_dir'] == game_dir and item['state'] in self.ACTIVE}
+        while os.path.exists(os.path.join(game_dir, 'versions', identity)) or identity.casefold() in occupied:
+            identity = f'{base}-{index}'
+            index += 1
+        return identity
+
     def _resume_modpack(self, task):
-        if self._closing or task['state'] == '已完成':
+        if self._closing or (task['state'] == '已完成' and task.get('modpack')):
             return
+        # Old releases marked downloaded archives complete without installing.
+        if task['state'] == '已完成':
+            task['version'] = self._available_pack_name(task['content'], task['game_dir'])
         if any(item.get('version') == task['version'] and item.get('game_dir') == task['game_dir']
                and item.get('state') in self.ACTIVE for item in self._tasks):
             self.parent.on_progress_clicked()
@@ -423,6 +460,13 @@ class TasksPage(QWidget):
         task = self._find_task(task_id)
         if task:
             task['downloaded_files'] = files
+            self._schedule_save()
+
+    @Slot(str, str)
+    def resolve_pack(self, task_id, archive):
+        task = self._find_task(task_id)
+        if task:
+            task['modpack'] = archive
             self._schedule_save()
 
     @Slot(str, str)
@@ -483,7 +527,7 @@ class TasksPage(QWidget):
             if succeeded:
                 task["progress"] = task["maximum"] or task["progress"]
             self._persist_and_refresh()
-            if succeeded and not self._closing and not task.get('content'):
+            if succeeded and not self._closing and (not task.get('content') or task.get('modpack')):
                 self._select_installed_version(task)
         self._workers.pop(task_id, None)
 
@@ -509,6 +553,7 @@ class TasksPage(QWidget):
             started_page.launcher.minecraft_directory = task["game_dir"]
             started_page.instance_changed.emit()
         self.installed.emit(task["version"], task["game_dir"])
+        self.parent.content_page.controller.refreshContext()
 
     def _find_task(self, task_id):
         return next((task for task in self._tasks if task.get("id") == task_id), None)
@@ -548,11 +593,7 @@ class TasksPage(QWidget):
             task["status"] = "正在停止下载，已完成文件会保留…"
             self._workers[task_id].cancel_event.set()
             self._persist_and_refresh()
-        elif task.get('state') == '已完成' and task.get('content', {}).get('kind') == 'modpack' and task.get('downloaded_files'):
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(os.path.abspath(task['downloaded_files'][0]))))
-        elif task.get('modpack'):
+        elif task.get('modpack') or task.get('content', {}).get('kind') == 'modpack':
             self._resume_modpack(task)
         elif task.get('content'):
             self.start_install(task['version'], task['game_dir'], content=task['content'])

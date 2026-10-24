@@ -1,5 +1,6 @@
 """CurseForge metadata through the public gateway, or a user's own API key."""
 import os
+import logging
 import re
 import threading
 from urllib.parse import quote, urlsplit
@@ -7,6 +8,9 @@ from urllib.parse import quote, urlsplit
 import requests
 
 from core.downloads import DownloadCancelled
+from utils.http_identity import USER_AGENT
+
+logger = logging.getLogger(__name__)
 
 
 OFFICIAL_API = 'https://api.curseforge.com/v1'
@@ -17,22 +21,34 @@ ROUTE = re.compile(r'/mods(?:/search|/files|/[1-9][0-9]*(?:/description|/files(?
 
 
 class CurseForgeAPI:
-    def __init__(self, api_key=None, cancel=None):
+    def __init__(self, api_key=None, cancel=None, mirror='官方'):
         self.api_key = api_key or os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
         self.cancel = cancel if cancel is not None else threading.Event()
+        self.mirror = mirror
 
     def request(self, method, route, params=None, body=None):
+        # MCIM has no description endpoint. Keep the authenticated platform
+        # gateway for that route and as fallback; never forward a user key.
+        if self.mirror == 'MCIM' and not self.api_key and not route.endswith('/description'):
+            try:
+                return self._request(method, route, params, body, mirror=True)
+            except (ValueError, requests.RequestException):
+                logger.warning('MCIM CurseForge metadata unavailable; falling back to content gateway')
+        return self._request(method, route, params, body)
+
+    def _request(self, method, route, params=None, body=None, mirror=False):
         if not ROUTE.fullmatch(route):
             raise ValueError('不支持的 CurseForge 接口')
         if self.cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
-        endpoint = OFFICIAL_API if self.api_key else PUBLIC_API
-        headers = {'User-Agent': 'Buggcraft/1.0', 'Accept': 'application/json'}
+        endpoint = 'https://mod.mcimirror.top/curseforge/v1' if mirror else OFFICIAL_API if self.api_key else PUBLIC_API
+        headers = {'User-Agent': USER_AGENT, 'Accept': 'application/json'}
         if self.api_key:
             headers['x-api-key'] = self.api_key
         call = requests.get if method == 'GET' else requests.post
         options = {'params': params} if method == 'GET' else {'json': body}
-        for attempt in range(3):
+        attempts = 1 if mirror else 3
+        for attempt in range(attempts):
             try:
                 # Metadata redirects are not needed; never forward a private key.
                 with call(endpoint + route, headers=headers, timeout=(8, 30),
@@ -46,9 +62,21 @@ class CurseForgeAPI:
                     if response.status_code != 200:
                         raise ValueError('CurseForge 资源服务暂不可用，请稍后重试或切换 Modrinth。')
                     payload = response.json()
+                    if mirror:
+                        from core.content_mirrors import cached_dates
+                        from datetime import datetime, timezone
+                        dates = list(cached_dates(payload))
+                        logger.info('content_metadata provider=CurseForge mirror=True cache_dates=%s',
+                                    [date.isoformat() for date in dates[:5]])
+                        if not dates or (datetime.now(timezone.utc) - min(dates)).total_seconds() > 86400:
+                            # Return fresh platform metadata when available.
+                            try:
+                                return self._request(method, route, params, body)
+                            except (ValueError, requests.RequestException):
+                                logger.warning('CurseForge upstream unavailable; using cached MCIM metadata')
                 break
             except requests.RequestException:
-                if attempt == 2:
+                if attempt == attempts - 1:
                     raise ValueError('无法连接 CurseForge 资源服务，请检查网络或切换 Modrinth。') from None
                 if self.cancel.wait(0.5 * (attempt + 1)):
                     raise DownloadCancelled('内容查询已取消') from None

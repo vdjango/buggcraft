@@ -13,8 +13,6 @@ import requests
 
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.curseforge import CurseForgeContentClient, fallback_url
-
-API = 'https://api.modrinth.com/v2'
 KINDS = {'mod': 'mods', 'resourcepack': 'resourcepacks', 'shader': 'shaderpacks', 'modpack': 'modpacks'}
 
 
@@ -23,16 +21,15 @@ def _json_param(value):
 
 
 class ModrinthClient:
-    def __init__(self, cancel=None):
+    def __init__(self, cancel=None, mirror='官方'):
         self.cancel = cancel if cancel is not None else threading.Event()
+        self.mirror = mirror
 
     def _get(self, path, params=None):
         if self.cancel.is_set():
             raise DownloadCancelled('内容下载已取消')
-        with requests.get(API + path, params=params, timeout=(8, 30),
-                          headers={'User-Agent': 'Buggcraft/1.0'}) as response:
-            response.raise_for_status()
-            data = response.json()
+        from core.content_mirrors import get_modrinth
+        data = get_modrinth(path, params, self.cancel, self.mirror)
         if self.cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
         if not isinstance(data, (dict, list)):
@@ -72,10 +69,10 @@ class ModrinthClient:
 class ContentCatalogue:
     SOURCES = ('自动', 'Modrinth', 'CurseForge')
 
-    def __init__(self, cancel=None):
+    def __init__(self, cancel=None, mirror='官方'):
         self.cancel = cancel if cancel is not None else threading.Event()
-        self.clients = {'Modrinth': ModrinthClient(self.cancel),
-                        'CurseForge': CurseForgeContentClient(cancel=self.cancel)}
+        self.clients = {'Modrinth': ModrinthClient(self.cancel, mirror),
+                        'CurseForge': CurseForgeContentClient(cancel=self.cancel, mirror=mirror)}
         self.warnings = []
 
     def search(self, query, kind, game_version='', loader='', source='自动', progress=None,
@@ -160,7 +157,7 @@ def instance_environment(directory, identity):
     raise ValueError('实例缺少有效版本元数据')
 
 
-def download_content(version, target_root, kind, cancel=None, status=None, progress=None, source='自动'):
+def download_content(version, target_root, kind, cancel=None, status=None, progress=None, source='自动', content_source=None):
     """Download one selected version, preserving its source and expected hashes."""
     if kind not in KINDS:
         raise ValueError('不支持的内容下载类型')
@@ -198,6 +195,7 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
     if not jobs:
         raise ValueError('项目版本没有有效下载文件')
     downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status)
+    downloader.content_source = content_source
     downloader.curseforge_key = os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
     downloader.curseforge_fallbacks = {}
     progress(0, 1000)

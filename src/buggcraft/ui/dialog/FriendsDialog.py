@@ -49,6 +49,16 @@ class FriendsController(QObject):
                 self.backend.act(action, data)
                 if self.backend.view['error']:
                     raise ValueError(self.backend.view['error'])
+                if action == 'inviteFriend' and self.backend.view.get('pendingFriendInvite'):
+                    self.local.update(notice=self.backend.view['notice'], error='')
+                    self.backend.window.showNormal()
+                    self.backend.window.raise_()
+                    self.backend.window.activateWindow()
+            elif action == 'replaceNodeCode':
+                self.backend.act(action, data)
+                self.backend.window.showNormal()
+                self.backend.window.raise_()
+                self.backend.window.activateWindow()
             elif action == 'joinFriend':
                 self.backend.act(action, data)
                 if self.backend.view['error']:

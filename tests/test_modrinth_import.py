@@ -100,12 +100,12 @@ class ModrinthImportTests(unittest.TestCase):
         http, hits = self.server()
         with http, patch('core.modpacks.install_loader', side_effect=self.loader):
             ModpackImporter(self.game).install(self.archive, 'Mirrors')
-        self.assertEqual(hits.count('/broken'), 3)
+        self.assertEqual(hits.count('/broken'), 1)
         self.assertIn('/mods/example.jar', hits)
 
     def test_zip_with_forge_cdn_files_imports_through_domestic_mirror(self):
         self.archive = self.root / 'pack.zip'
-        self.manifest['files'][0]['downloads'] = ['https://mediafilez.forgecdn.net/files/100/20/example.jar',
+        self.manifest['files'][0]['downloads'] = ['https://edge.forgecdn.net/files/100/20/example.jar',
                                                    'https://cdn.modrinth.com/fixture/mods/example.jar']
         self.pack()
         self.assertEqual(inspect_pack(self.archive).source, 'Modrinth')

@@ -46,7 +46,23 @@ Rectangle {
     ColumnLayout {
         id: content
         x: 14; y: 56
-        width: parent.width - 28; height: parent.height - y - 14; spacing: 12
+        width: parent.width - 28; height: parent.height - y - 14; spacing: 8
+        Surface {
+            objectName: "node-code-expired-banner"
+            Layout.fillWidth: true; Layout.preferredHeight: renewalRow.implicitHeight + 20
+            visible: !!vm.nodeAccessExpired
+            color: "#352736"; border.color: "#b38a71"
+            RowLayout {
+                id: renewalRow
+                anchors.fill: parent; anchors.margins: 10; spacing: 10
+                ColumnLayout {
+                    Layout.fillWidth: true; spacing: 3
+                    CopyText { text: "个人接入码已过期"; color: "#ffdcc0"; font.bold: true; font.pixelSize: 13 }
+                    CopyText { Layout.fillWidth: true; text: "在原节点网页登录并领取新码，替换后即可恢复好友和房间功能。"; font.pixelSize: 11; color: "#e4cad8" }
+                }
+                ActionButton { objectName: "replace-expired-node-code"; text: "更换接入码"; primary: true; implicitHeight: 30; onClicked: lobby.act("replaceNodeCode", {}) }
+            }
+        }
         Loader {
             id: pageLoader
             objectName: "page-loader"; Layout.fillWidth: true; Layout.fillHeight: true

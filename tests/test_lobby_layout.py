@@ -884,7 +884,9 @@ class FriendWindowTests(unittest.TestCase):
             text = next(child for child in button.childItems()
                         if isinstance(child, QQuickItem) and child.property('text') == label)
             self.assertFalse(text.property('truncated'), name + ' label is truncated')
-        self.assertFalse(find_item(self.dialog.quick, 'invite-friend-0').isEnabled())
+        # An online friend can be invited before a room exists; the backend
+        # guides creation and sends the pending invite afterwards.
+        self.assertTrue(find_item(self.dialog.quick, 'invite-friend-0').isEnabled())
         self.owner.backend._view['connections'] = [{'role':'host','state':'online'}]
         self.owner.backend.changed.emit()
         QTest.qWait(30)
@@ -922,6 +924,27 @@ class FriendWindowTests(unittest.TestCase):
         QTest.qWait(40)
         self.assertEqual(label.property('text'), 'local_user')
         self.assertTrue(find_item(self.dialog.quick, 'add-friend').isVisible())
+
+    def test_incoming_invitation_has_visible_entry_join_action_and_expires(self):
+        backend = self.owner.backend
+        invitation = {'id':'1' * 32, 'account':'c' * 32 + '.' + 'd' * 32,
+                      'username':'Guest', 'room':'2' * 32}
+        backend._view['friendInvitations'] = [invitation]
+        backend.changed.emit()
+        QTest.qWait(40)
+        self.assertTrue(find_item(self.dialog.quick, 'friend-invite-banner').isVisible())
+        self.click('show-friend-invites')
+        self.assertTrue(find_item(self.dialog.quick, 'join-friend-invite').isVisible())
+        self.click('join-friend-invite')
+        self.assertEqual(backend.actions[-1], ('joinFriend', {
+            'account': invitation['account'], 'id': invitation['id']}))
+        backend.actions.clear()
+        backend._view['friendInvitations'] = []
+        backend.changed.emit()
+        QTest.qWait(40)
+        self.assertFalse(find_item(self.dialog.quick, 'friend-invite-banner').isVisible())
+        with self.assertRaisesRegex(AssertionError, 'QML item not found'):
+            find_item(self.dialog.quick, 'join-friend-invite')
 
     def test_friend_form_returns_from_title_bar_without_saving(self):
         self.assertFalse(find_item(self.dialog.quick, 'back-friends').isVisible())

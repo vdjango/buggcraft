@@ -17,6 +17,7 @@ from hookup.native_routes import manager as native_bridge
 from hookup.rooms import instance_metadata, list_room_page, resolve_room, compatibility, lookup_account
 from hookup.storage import LobbyStore
 from hookup.nodes import decode_code, probe, save_json, profile_data, remember, node_identity
+from hookup.social import check_expiry, credential_expiry, ExpiredNodeCredential, EXPIRED_CODE_MESSAGE
 from utils.instances import installed_instance_ids, running_games
 
 
@@ -29,6 +30,7 @@ class MultiplayerController(QObject):
     preparation_progress = Signal(str, str, object, object)
     copied = Signal(str)
     friend_finished = Signal(bool, str)
+    friend_invited = Signal(object)
     route_changed = Signal(str, str)
 
     def __init__(self, window, storage_path=None):
@@ -51,6 +53,9 @@ class MultiplayerController(QObject):
         self.social_identity = None
         self.social_generation = uuid.uuid4().hex
         self.pending_node_update = None
+        self.pending_friend_invite = None
+        self.seen_friend_invitations = set()
+        self.ignored_friend_invitations = set()
         self.instance_job = None
         self.instance_source = None
         self.preparations = {}
@@ -64,7 +69,9 @@ class MultiplayerController(QObject):
         self.room_search_timer.timeout.connect(self.refresh)
         self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
                            rooms=[], contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False, socialError='',
-                           connections=[], worlds=[], selected='', busy=False, friendBusy=False, loading=False,
+                           connections=[], worlds=[], selected='', busy=False, friendBusy=False, socialLoading=False, loading=False,
+                           pendingFriendInvite='', outgoingInvitations={},
+                           nodeAccessExpired=False, nodeAccessMessage='',
                            error='', notice='', nodeDraft='', roomError='', needsVersion=False,
                            joinRoomId='', joinRoomTitle='', invitePrompt=False,
                            transportPolicy='auto',
@@ -113,17 +120,22 @@ class MultiplayerController(QObject):
         nodes = []
         for path in self.store.data['nodes'] if self.store else []:
             personal_code = False
+            expired = False
             try:
                 profile = RelayProfile.load(path)
                 title = self.store.data['node_names'].get(path, '社区节点')
                 personal_code = profile.token.startswith('acct1.')
+                expiry = credential_expiry(profile)
+                expired = expiry is not None and expiry <= time.time()
             except Exception:
                 title = '配置不可用 · ' + Path(path).name
-            nodes.append({'title': title, 'path': path, 'personalCode': personal_code})
+            nodes.append({'title': title, 'path': path, 'personalCode': personal_code, 'codeExpired': expired})
         paths = [node['path'] for node in nodes]
         target = select or self.node_path
         index = paths.index(target) if target in paths else (0 if paths else -1)
         self.patch(nodes=nodes, nodeIndex=index)
+        self.patch(nodeAccessExpired=bool(index >= 0 and nodes[index]['codeExpired']),
+                   nodeAccessMessage=EXPIRED_CODE_MESSAGE if index >= 0 and nodes[index]['codeExpired'] else '')
         new_path = paths[index] if index >= 0 else ''
         if new_path != self.node_path or refresh_identity:
             self.node_path = new_path
@@ -136,9 +148,13 @@ class MultiplayerController(QObject):
         if identity != self.social_identity or refresh_identity:
             self.social_identity = identity
             self.social_generation = uuid.uuid4().hex
+            self.pending_friend_invite = None
+            self.seen_friend_invitations.clear()
+            self.ignored_friend_invitations.clear()
             self.friend_request = None
             self.social_path = new_path
-            self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False, socialError='', friendBusy=False)
+            self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False,
+                       socialError='', friendBusy=False, socialLoading=False, pendingFriendInvite='', outgoingInvitations={})
             self.refresh_friends()
 
     def job(self, key, coroutine):
@@ -293,18 +309,30 @@ class MultiplayerController(QObject):
                 self.lookup_friend(data)
             elif action == 'joinFriend':
                 self.require_available_node()
+                if any(record.get('state') not in ('stopped', 'error') for record in self.records.values()):
+                    raise ValueError('请先退出当前房间，再接受新的联机邀请。')
+                if not any(item['id'] == data['id'] and item['account'] == data['account']
+                           for item in self._state['friendInvitations']):
+                    raise ValueError('邀请已过期或已处理，请好友重新邀请。')
                 self.social_operation('join', data['account'], ref=data['id'])
+            elif action == 'ignoreFriendInvite':
+                self.ignored_friend_invitations.add(data['id'])
+                self.patch(friendInvitations=[item for item in self._state['friendInvitations']
+                                              if item['id'] != data['id']])
+            elif action == 'cancelFriendInvite':
+                self.pending_friend_invite = None
+                self.patch(pendingFriendInvite='', notice='已取消待发送的邀请。')
             elif action == 'acceptFriend':
                 self.social_operation('accept', data['account'], ref=data['id'])
             elif action in ('declineFriend', 'removeFriend'):
                 self.social_operation('remove', data['account'])
             elif action == 'inviteFriend':
-                endpoint = self.service.endpoints.get(self._state['selected'])
-                if not endpoint or endpoint.role != 'host' or not endpoint.connection:
-                    raise ValueError('请先创建并开放一个房间。')
-                self.social_operation('invite', data['account'], room=endpoint.invite.room_id)
+                self.invite_friend(data['account'])
             elif action == 'refreshFriends':
                 self.refresh_friends()
+            elif action == 'replaceNodeCode':
+                self.navigate('nodes')
+                self.patch(nodeDraft='', notice='在原节点网页登录账号，领取新的个人启动器接入码后粘贴。确认更新即可保留原节点。')
             elif action == 'editFriend':
                 index = int(data['index'])
                 contact = self.store.data['contacts'][index]
@@ -393,9 +421,23 @@ class MultiplayerController(QObject):
         if not self.node_path:
             raise ValueError('请先通过大厅的节点菜单添加可信节点。')
         profile = RelayProfile.load(self.node_path)
+        try:
+            check_expiry(profile)
+        except ExpiredNodeCredential:
+            self.mark_node_expired()
+            raise
         path = self.node_path
         object.__setattr__(profile, '_route_notice', lambda name: self.route_changed.emit(path, name))
         return profile
+
+    def mark_node_expired(self):
+        nodes = [dict(node, codeExpired=True) if node['path'] == self.node_path else node
+                 for node in self._state['nodes']]
+        self.patch(nodes=nodes, nodeAccessExpired=True, nodeAccessMessage=EXPIRED_CODE_MESSAGE,
+                   nodeAvailable=False, socialReady=False, socialLoading=False,
+                   contacts=[], friendRequests=[], friendInvitations=[],
+                   socialAccount='', socialName='', socialError=EXPIRED_CODE_MESSAGE,
+                   roomError='个人接入码已过期，请更换后重试。', loading=False, loadingMore=False)
 
     @Slot(str, str)
     def show_route_tip(self, path, name):
@@ -406,10 +448,14 @@ class MultiplayerController(QObject):
         """Require a node that has completed a successful directory check."""
         if not self.node_path:
             raise ValueError('请先添加一个可用的联机节点。')
+        if self._state['nodeAccessExpired']:
+            raise ExpiredNodeCredential(EXPIRED_CODE_MESSAGE)
         if not self._state.get('nodeAvailable', False):
             raise ValueError('当前联机节点不可用，请先刷新并等待连接检查完成。')
         try:
             return self.profile()
+        except ExpiredNodeCredential:
+            raise
         except (OSError, ValueError):
             self.patch(nodeAvailable=False)
             raise ValueError('节点配置不可用，请重新导入。') from None
@@ -418,6 +464,7 @@ class MultiplayerController(QObject):
         self.verify_node(RelayProfile.load(path))
 
     def verify_node(self, profile):
+        check_expiry(profile)
         if not self.store:
             raise ValueError('请先修复本地配置。')
         if self._state['busy']:
@@ -475,6 +522,8 @@ class MultiplayerController(QObject):
             return
         try:
             profile = self.profile()
+        except ExpiredNodeCredential:
+            return
         except Exception:
             self.patch(roomError='节点配置不可用，请重新导入。', loading=False)
             return
@@ -489,6 +538,8 @@ class MultiplayerController(QObject):
             return
         try:
             profile = self.profile()
+        except ExpiredNodeCredential:
+            return
         except Exception:
             self.patch(roomError='节点配置不可用，请重新导入。', nodeAvailable=False)
             return
@@ -506,6 +557,8 @@ class MultiplayerController(QObject):
             return
         try:
             profile = self.profile()
+        except ExpiredNodeCredential:
+            return
         except Exception:
             self.patch(nodeAvailable=False, nodeLatencyMs=None, roomError='节点配置不可用，请重新导入。')
             return
@@ -626,8 +679,11 @@ class MultiplayerController(QObject):
                               game_directory=directory, game_chat_enabled=game_chat_enabled,
                               game_chat_name=game_chat_name,
                               transport_policy=data.get('transport', 'auto'))
-        self.start(endpoint, title)
+        name = self.start(endpoint, title)
         self.creation = None
+        if self.pending_friend_invite and self.pending_friend_invite[0] == self.social_generation:
+            self.pending_friend_invite = (*self.pending_friend_invite[:2], name)
+            self.patch(notice='正在创建房间，连接成功后自动发送好友邀请…')
 
     def join(self, invitation, *, room_id=None):
         self.require_available_node()
@@ -687,6 +743,7 @@ class MultiplayerController(QObject):
         self.publish_connections()
         self.patch(page='connected', selected=name, busy=False, error='', needsVersion=False, notice='')
         self.publish_connections()
+        return name
 
     def publish_connections(self):
         records = [dict(record) for record in reversed(self.records.values())]
@@ -760,6 +817,9 @@ class MultiplayerController(QObject):
         if not record:
             return
         if state in ('closed', 'stopped', 'error'):
+            if self.pending_friend_invite and self.pending_friend_invite[2:] == (name,):
+                self.pending_friend_invite = None
+                self.patch(pendingFriendInvite='', socialError='房间未能保持连接，未发送好友邀请。请创建房间后重新邀请。')
             self.forget_room(name, detail if state != 'stopped' else '已退出房间。')
             return
         if state == 'warning':
@@ -777,6 +837,18 @@ class MultiplayerController(QObject):
             record['requireInvite'] = endpoint.room_info.get('require_invite', not record['public'])
             self.check_room_compatibility(record)
         self.publish_connections()
+
+        if (state == 'online' and record.get('availability', 'ready') == 'ready'
+                and self.pending_friend_invite
+                and self.pending_friend_invite[0] == self.social_generation
+                and self.pending_friend_invite[2:] == (name,)):
+            account = self.pending_friend_invite[1]
+            self.pending_friend_invite = None
+            self.patch(pendingFriendInvite='')
+            try:
+                self.invite_friend(account)
+            except (ValueError, OSError) as exc:
+                self.patch(socialError='房间已创建，但邀请未发送：' + str(exc))
 
     def check_room_compatibility(self, record):
         remote = record.get('game') or {}
@@ -877,11 +949,17 @@ class MultiplayerController(QObject):
             profile = self.profile()
             from hookup.social import credential, status
             credential(profile)
+        except ExpiredNodeCredential:
+            self.mark_node_expired()
+            return
         except Exception as error:
             self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialReady=False,
-                       socialAccount='', socialName='', socialError=str(error) if profile and profile.token.startswith('acct1.') else '')
+                       socialAccount='', socialName='', socialLoading=False,
+                       socialError=str(error) if profile and profile.token.startswith('acct1.') else '')
             return
         path = self.node_path
+        if not self._state['socialReady']:
+            self.patch(socialLoading=True)
         async def check():
             return dict(path=path, state=await status(profile))
         self.job('socialstatus:' + self.social_generation + ':' + path, check())
@@ -893,8 +971,33 @@ class MultiplayerController(QObject):
         path, profile = self.node_path, self.profile()
         self.patch(friendBusy=True, socialError='')
         async def perform():
-            return dict(path=path, operation=operation, state=await operate(profile, operation, account, **fields))
+            return dict(path=path, operation=operation, target=account,
+                        state=await operate(profile, operation, account, **fields))
         self.job('socialop:' + self.social_generation + ':' + uuid.uuid4().hex, perform())
+
+    def invite_friend(self, account):
+        if not self._state['socialReady']:
+            raise ValueError('请先登录节点账号。')
+        friend = next((item for item in self._state['contacts'] if item['account'] == account), None)
+        if not friend or not friend['online']:
+            raise ValueError('好友当前不在线，请在对方上线后邀请。')
+        candidates = [name for name, record in self.records.items()
+                      if record.get('role') == 'host' and record['state'] == 'online'
+                      and record.get('availability', 'ready') == 'ready']
+        selected = self._state['selected']
+        name = selected if selected in candidates else next(iter(candidates), '')
+        endpoint = self.service.endpoints.get(name)
+        if endpoint is None or not endpoint.connection:
+            self.require_available_node()
+            self.navigate('create')
+            self.pending_friend_invite = (self.social_generation, account)
+            self.patch(pendingFriendInvite=friend['name'],
+                       notice='先创建并开放房间，成功后会自动邀请 ' + friend['name'] + '。')
+            return
+        outgoing = dict(self._state['outgoingInvitations'])
+        outgoing[account] = dict(status='发送中…', room=endpoint.invite.room_id, at=time.time())
+        self.patch(outgoingInvitations=outgoing)
+        self.social_operation('invite', account, room=endpoint.invite.room_id)
 
     def apply_social_state(self, state):
         import re
@@ -914,8 +1017,22 @@ class MultiplayerController(QObject):
                     raise ValueError('好友服务返回的数据无效。')
         contacts = [dict(name=c['username'], account=c['account'], online=c.get('online') is True,
                          index=i) for i,c in enumerate(state['friends'])]
-        self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=state['invitations'],
-                   socialReady=True, socialAccount=state['account'], socialName=state['username'], socialError='')
+        invitations = [item for item in state['invitations'] if isinstance(item.get('id'), str)
+                       and item['id'] not in self.ignored_friend_invitations]
+        previous = self.seen_friend_invitations
+        unseen = [item for item in invitations if item['id'] not in previous]
+        self.seen_friend_invitations.update(item['id'] for item in invitations)
+        live_ids = {item['id'] for item in state['invitations'] if isinstance(item.get('id'), str)}
+        self.seen_friend_invitations.intersection_update(live_ids)
+        self.ignored_friend_invitations.intersection_update(live_ids)
+        outgoing = {account: dict(item, status='邀请已过期，请重新邀请')
+                    if time.time() - item['at'] >= 300 else item
+                    for account, item in self._state['outgoingInvitations'].items()}
+        self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=invitations,
+                   socialReady=True, socialLoading=False, socialAccount=state['account'],
+                   socialName=state['username'], socialError='', outgoingInvitations=outgoing)
+        for invitation in unseen:
+            self.friend_invited.emit(dict(invitation))
 
     def lookup_friend(self, data):
         if not self._state['socialReady']:
@@ -1035,7 +1152,9 @@ class MultiplayerController(QObject):
             if key.split(':', 2)[1] != self.social_generation:
                 return
             if error:
-                self.patch(socialError=str(error), friendBusy=False)
+                outgoing = {account: dict(item, status='发送失败，重试') if item.get('status') == '发送中…' else item
+                            for account, item in self._state['outgoingInvitations'].items()}
+                self.patch(socialError=str(error), friendBusy=False, socialLoading=False, outgoingInvitations=outgoing)
                 if key.startswith('socialstatus:'):
                     self.patch(socialReady=False, socialAccount='', socialName='', contacts=[], friendRequests=[], friendInvitations=[])
                 self.friend_finished.emit(False, str(error)) if key.startswith('socialop:') else None
@@ -1045,6 +1164,10 @@ class MultiplayerController(QObject):
             try:
                 if value.get('operation') == 'join':
                     self.join(value['state']['invite'])
+                    self.ignored_friend_invitations.update(item['id'] for item in self._state['friendInvitations']
+                                                           if item['account'] == value.get('target'))
+                    self.patch(friendInvitations=[item for item in self._state['friendInvitations']
+                                                  if item['id'] not in self.ignored_friend_invitations])
                     self.window.showNormal()
                     self.window.raise_()
                     self.window.activateWindow()
@@ -1052,7 +1175,15 @@ class MultiplayerController(QObject):
                     self.apply_social_state(value['state'])
                 self.patch(friendBusy=False)
                 if key.startswith('socialop:'):
-                    self.friend_finished.emit(True, '已发送联机邀请。' if value.get('operation') == 'invite' else '已更新。')
+                    if value.get('operation') == 'invite':
+                        outgoing = dict(self._state['outgoingInvitations'])
+                        account = value.get('target')
+                        if account:
+                            outgoing[account] = dict(outgoing[account], status='已发送')
+                        self.patch(outgoingInvitations=outgoing, notice='邀请已发送，对方会在好友窗口收到提醒。')
+                        self.friend_finished.emit(True, '已发送联机邀请。')
+                    else:
+                        self.friend_finished.emit(True, '已更新。')
             except Exception as exc:
                 self.patch(friendBusy=False, socialError=str(exc))
                 self.friend_finished.emit(False, str(exc))

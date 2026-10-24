@@ -88,6 +88,54 @@ class LocalVersionSafetyTests(unittest.TestCase):
 
 
 class ReportedUiTests(LauncherQmlCase):
+    def test_online_pack_retry_reuses_archive_and_original_task_after_install_failure(self):
+        page = self.window.download_page.tasks_page
+        archive = self.directory / 'OnlinePack.zip'
+        with zipfile.ZipFile(archive, 'w') as bundle:
+            bundle.writestr('manifest.json', json.dumps(dict(manifestType='minecraftModpack', manifestVersion=1,
+                name='Online pack', version='1', files=[], overrides='overrides',
+                minecraft=dict(version='1.20.1', modLoaders=[dict(id='forge-47.4.0')]))))
+            bundle.writestr('overrides/config/fixture.txt', 'online pack configuration')
+        content = dict(kind='modpack', target=str(self.game_dir / 'downloads'),
+                       version=dict(files=[dict(filename=archive.name)]))
+        def install(*args, **kwargs):
+            metadata = self.game_dir / 'versions/1.20.1/1.20.1.json'
+            metadata.write_text(json.dumps(dict(id='1.20.1')), encoding='utf-8')
+            return '1.20.1'
+        with patch('core.content.download_content', return_value=[str(archive)]) as download:
+            with patch('core.modpacks.install_loader', side_effect=RuntimeError('temporary install failure')):
+                page.start_install('online-download', str(self.game_dir), content=content)
+                self.wait_until(lambda: not page._workers)
+            task = page._tasks[0]
+            self.assertEqual(task['state'], '失败')
+            self.assertEqual(task['modpack'], str(archive))
+            self.assertTrue(task['archive_sha256'])
+            original_id, identity = task['id'], task['version']
+            with patch('core.modpacks.install_loader', side_effect=install):
+                page.task_action(original_id)
+                self.wait_until(lambda: not page._workers)
+            self.assertEqual(download.call_count, 1)
+        self.assertEqual(task['state'], '已完成')
+        self.assertEqual(task['id'], original_id)
+        self.assertEqual(task['version'], identity)
+        self.assertEqual(len(page._tasks), 1)
+        self.assertEqual((self.game_dir / 'versions' / identity / 'config/fixture.txt').read_text(), 'online pack configuration')
+
+    def test_legacy_download_only_task_can_continue_installing_without_duplicate_history(self):
+        page = self.window.download_page.tasks_page
+        content = dict(kind='modpack', target=str(self.game_dir / 'downloads'),
+                       version=dict(files=[dict(filename='Existing.zip')]))
+        (self.game_dir / 'versions/Existing').mkdir()
+        task = dict(id='legacy-download', version='old-download-label', game_dir=str(self.game_dir),
+                    state='已完成', content=content, status='内容下载完成', logs=[], created_at='', progress=1, maximum=1)
+        page._tasks = [task]
+        with patch.object(page, '_start_worker') as start:
+            page.task_action(task['id'])
+        start.assert_called_once_with(task)
+        self.assertEqual(task['state'], '等待中')
+        self.assertEqual(task['version'], 'Existing-2')
+        self.assertEqual(len(page._tasks), 1)
+
     def test_modpack_retry_resumes_same_task_without_opening_import_page(self):
         page = self.window.download_page.tasks_page
         archive = self.directory / 'resume.zip'

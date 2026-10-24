@@ -38,7 +38,7 @@ def stage_native_bridge(runtime, package):
     destination.mkdir(parents=True)
     for folder in ('bin', 'lib', 'share'):
         if (package / folder).is_dir():
-            shutil.copytree(package / folder, destination / folder,
+            shutil.copytree(package / folder, destination / folder, symlinks=os.name != 'nt',
                 ignore=shutil.ignore_patterns('buggcraft-core', 'buggcraft-core.exe', '__pycache__', '*.pyc', '*.pyo'))
     files = {path.relative_to(destination).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
              for path in destination.rglob('*') if path.is_file()}
@@ -211,6 +211,16 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
                     '--output-filename=Buggcraft',
                     f'--macos-app-icon={resources / "icons/app.icns"}',
                     '--macos-app-category-type=public.app-category.games']
+    elif platform.system() == 'Linux':
+        command += ['--output-filename=Buggcraft']
+        if onefile:
+            if native is None:
+                raise ValueError('Single-file releases require --native-bridge-dir')
+            command += [f'--user-plugin={root / "scripts/nuitka_launcher_plugin.py"}',
+                        f'--launcher-native={Path(native).resolve()}']
+    if platform.system() == 'Linux' and onefile:
+        command += ['--onefile-cache-mode=cached',
+                    '--onefile-tempdir-spec={CACHE_DIR}/Buggcraft/' + onefile_cache_tag(native)]
     exclusions, _ = qml_exclusions()
     command.extend(exclusions)
     command.append(str(root / 'src/buggcraft/main.py'))
@@ -380,11 +390,15 @@ def main():
     args = parser.parse_args()
     if args.onefile and not args.native_bridge_dir:
         parser.error('--onefile requires --native-bridge-dir with the complete native runtime')
-    if platform.system() not in ('Windows', 'Darwin'):
-        parser.error('Release packaging currently supports Windows and macOS hosts')
-    if platform.system() == 'Darwin' and (args.runtime_url or args.certificate_pin or
+    if platform.system() == 'Linux' and not args.onefile:
+        parser.error('Linux releases require --onefile')
+    if platform.system() == 'Linux' and platform.machine().lower() not in ('x86_64', 'amd64'):
+        parser.error('Linux releases currently target x86_64')
+    if platform.system() not in ('Windows', 'Darwin', 'Linux'):
+        parser.error('Release packaging currently supports Windows, macOS and Linux hosts')
+    if platform.system() != 'Windows' and (args.runtime_url or args.certificate_pin or
             args.sign_certificate or args.sign_thumbprint or args.require_signature):
-        parser.error('Windows bootstrap and Authenticode options do not apply to macOS')
+        parser.error('Windows bootstrap and Authenticode options do not apply to this platform')
     if any(not u.startswith('https://') for u in args.runtime_url):
         parser.error('Runtime download URLs must use HTTPS')
     pins = {}
@@ -420,14 +434,16 @@ def main():
         print(json.dumps(package_macos(output)))
         return 0
     if args.onefile:
-        signing = sign_artifacts(output, args.sign_certificate, timestamp_url=args.timestamp_url or None,
-                                 require=args.require_signature, names=['Buggcraft.exe'],
-                                 thumbprint=args.sign_thumbprint, machine_store=args.sign_machine_store)
+        executable = output / ('Buggcraft.exe' if os.name == 'nt' else 'Buggcraft')
+        signing = (sign_artifacts(output, args.sign_certificate, timestamp_url=args.timestamp_url or None,
+                                  require=args.require_signature, names=[executable.name],
+                                  thumbprint=args.sign_thumbprint, machine_store=args.sign_machine_store)
+                   if os.name == 'nt' else {'signed': False, 'reason': 'platform signing is not configured'})
         (output / 'signing-status.json').write_text(json.dumps(signing, indent=2), encoding='utf-8')
-        executable = output / 'Buggcraft.exe'
         with executable.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        manifest = dict(schema=1, platform='windows-x64', format='onefile', entrypoint=executable.name,
+        release_platform = 'windows-x64' if os.name == 'nt' else 'linux-x86_64'
+        manifest = dict(schema=1, platform=release_platform, format='onefile', entrypoint=executable.name,
                         size=executable.stat().st_size, sha256=digest,
                         cache_tag=onefile_cache_tag(args.native_bridge_dir),
                         signed=signing['signed'])

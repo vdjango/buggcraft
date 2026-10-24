@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QDialog, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
 from ui.multiplayer_controller import MultiplayerController
 
@@ -28,7 +28,11 @@ class MultiplayerDialog(QDialog):
                          Path(__file__).resolve().parents[4] / 'resources')
         self.resources = resources
         self.friends_window = None
+        self.invitation_dialog = None
+        self._invitation = None
         self.backend = MultiplayerController(self, storage_path)
+        self.backend.friend_invited.connect(self.show_friend_invitation)
+        self.backend.changed.connect(self.refresh_invitation)
         if hasattr(parent, 'friends_btn'):
             self.backend.changed.connect(lambda: parent.friends_btn.setVisible(self.backend.view['socialReady']))
             parent.friends_btn.setVisible(self.backend.view['socialReady'])
@@ -67,10 +71,58 @@ class MultiplayerDialog(QDialog):
         self.friends_window.raise_()
         self.friends_window.activateWindow()
 
+    def show_friend_invitation(self, invitation):
+        """Keep invitations visible even when the friends window is closed."""
+        if self._shutdown:
+            return
+        QApplication.alert(self.launcher_page.window() if self.launcher_page else self, 0)
+        if self.invitation_dialog is not None:
+            return
+        from ui.dialog.qml_dialog import QmlDialog
+        self._invitation = dict(invitation)
+        dialog = QmlDialog(self, resources=self.resources, title='收到联机邀请',
+                           message=invitation['username'] + ' 邀请你加入房间',
+                           detail='邀请在发送后 5 分钟内有效。加入前请准备兼容的游戏实例。',
+                           actions=['稍后', '查看邀请', '加入房间'], width=500, height=290)
+        dialog.setWindowModality(Qt.NonModal)
+        dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.invitation_dialog = dialog
+        dialog.controller.actionRequested.connect(self.invitation_action)
+        dialog.finished.connect(self.close_invitation)
+        dialog.show()
+
+    def invitation_action(self, action):
+        invitation = self._invitation
+        if self.invitation_dialog:
+            self.invitation_dialog.reject()
+        if not invitation:
+            return
+        if action == '加入房间':
+            self.backend.act('joinFriend', dict(account=invitation['account'], id=invitation['id']))
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        elif action == '查看邀请':
+            self.show_friends()
+
+    def refresh_invitation(self):
+        if self.invitation_dialog and (not self.backend.view['socialReady'] or
+                not any(item['id'] == self._invitation['id'] for item in self.backend.view['friendInvitations'])):
+            self.invitation_dialog.reject()
+
+    def close_invitation(self, *_):
+        dialog, self.invitation_dialog = self.invitation_dialog, None
+        self._invitation = None
+        if dialog:
+            dialog.shutdown()
+            dialog.deleteLater()
+
     def shutdown(self):
         if self._shutdown:
             return
         self._shutdown = True
+        if self.invitation_dialog:
+            self.invitation_dialog.reject()
         self.timer.stop()
         self.runtime_timer.stop()
         if self.friends_window:

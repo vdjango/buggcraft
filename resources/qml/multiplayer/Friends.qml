@@ -10,11 +10,23 @@ ColumnLayout {
     spacing: 10
     RowLayout {
         Layout.fillWidth: true
-        CopyText { objectName: "friend-access-mode"; Layout.fillWidth: true; text: vm.socialReady ? vm.socialName : "匿名接入"; font.pixelSize: 13; color: "#e5dfef" }
+        CopyText { objectName: "friend-access-mode"; Layout.fillWidth: true; text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialLoading ? "正在登录…" : vm.socialReady ? vm.socialName : "匿名接入"; font.pixelSize: 13; color: "#e5dfef" }
         HeaderAction { text: "↻"; label: "刷新好友"; visible: !!vm.socialReady; onClicked: lobby.act("refreshFriends", {}) }
         ActionButton { objectName: "add-friend"; text: "添加好友"; visible: !!vm.socialReady; primary: true; implicitHeight: 30; onClicked: lobby.act("navigate", {page:"friendForm"}) }
     }
     CopyText { Layout.fillWidth: true; visible: !vm.socialReady; text: vm.socialError || "匿名接入没有好友功能。请在节点网页登录，领取个人启动器接入码并添加到启动器。"; font.pixelSize: 12 }
+    ActionButton { objectName: "friends-replace-node-code"; visible: !!vm.nodeAccessExpired; text: "更换接入码"; primary: true; onClicked: lobby.act("replaceNodeCode", {}) }
+    Surface {
+        objectName: "friend-invite-banner"
+        Layout.fillWidth: true; Layout.preferredHeight: 46
+        visible: !!vm.socialReady && (vm.friendInvitations || []).length > 0
+        color: "#3a2c52"; border.color: "#a28aef"
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 9; spacing: 8
+            CopyText { Layout.fillWidth: true; text: "你有 " + vm.friendInvitations.length + " 个联机邀请"; color: "#f3eaff"; font.pixelSize: 12; font.bold: true }
+            ActionButton { objectName: "show-friend-invites"; text: "查看"; primary: true; implicitHeight: 28; onClicked: root.tab = 2 }
+        }
+    }
     RowLayout {
         visible: !!vm.socialReady; Layout.fillWidth: true; spacing: 4
         Repeater {
@@ -40,7 +52,7 @@ ColumnLayout {
                     CopyText { Layout.fillWidth: true; text: root.tab === 0 ? (modelData.online ? "在线" : "离线") : root.tab === 1 ? (modelData.incoming ? "请求添加你为好友" : "等待对方同意") : "邀请你一起玩 · 5 分钟内有效"; font.pixelSize: 11; elide: Text.ElideRight; wrapMode: Text.NoWrap }
                 }
                 ActionButton { visible: root.tab === 0; text: removing ? "确认移除" : "移除"; quiet: true; danger: true; implicitHeight: 28; implicitWidth: 64; enabled: !vm.friendBusy; onClicked: { if (removing) lobby.act("removeFriend", {account:modelData.account}); else removing = true } }
-                ActionButton { objectName: "invite-friend-" + (modelData.index || 0); visible: root.tab === 0; text: "邀请"; implicitHeight: 28; implicitWidth: 58; enabled: !!modelData.online && !vm.friendBusy && vm.connections.some(function(c) { return c.role === "host" && c.state === "online" }); ToolTip.visible: hovered; ToolTip.text: "邀请加入当前创建的房间"; onClicked: lobby.act("inviteFriend", {account:modelData.account}) }
+                ActionButton { objectName: "invite-friend-" + (modelData.index || 0); visible: root.tab === 0; text: vm.outgoingInvitations && vm.outgoingInvitations[modelData.account] ? vm.outgoingInvitations[modelData.account].status : "邀请"; implicitHeight: 28; implicitWidth: 78; enabled: !!modelData.online && !vm.friendBusy; ToolTip.visible: hovered; ToolTip.text: "没有房间时会先引导创建，再发送邀请"; onClicked: lobby.act("inviteFriend", {account:modelData.account}) }
                 ActionButton { visible: root.tab === 1; text: modelData.incoming ? "拒绝" : "撤回"; quiet: true; implicitHeight: 28; implicitWidth: 58; enabled: !vm.friendBusy; onClicked: lobby.act("declineFriend", {account:modelData.account}) }
                 ActionButton { objectName: "accept-friend"; visible: root.tab === 1 && !!modelData.incoming; text: "同意"; primary: true; implicitHeight: 28; implicitWidth: 58; enabled: !vm.friendBusy; onClicked: lobby.act("acceptFriend", {account:modelData.account,id:modelData.id}) }
                 ActionButton { objectName: "join-friend-invite"; visible: root.tab === 2; text: "加入"; primary: true; implicitHeight: 28; implicitWidth: 58; enabled: !vm.friendBusy; onClicked: lobby.act("joinFriend", {account:modelData.account,id:modelData.id}) }

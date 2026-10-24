@@ -1,44 +1,77 @@
+<div align="center">
+
 # Buggcraft
 
-### Minecraft 启动器，也是一种更轻松的联机方式
+### Minecraft Java 版启动器与联机大厅
 
-管理游戏版本、安装所需文件，在同一个大厅里找到朋友。添加你信任的节点，创建房间并发出邀请；启动器会处理连接路径，网络允许时优先使用 P2P，无法直连时自动使用中继。
+管理游戏实例、安装整合包和内容资源，并与好友加入同一个 Minecraft 世界。
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-6554c0.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20primary-343746.svg)](#联机支持范围)
-[![Latest release](https://img.shields.io/github/v/release/vdjango/buggcraft?label=release)](https://github.com/vdjango/buggcraft/releases)
-[![Issues](https://img.shields.io/github/issues/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/issues)
-[![Stars](https://img.shields.io/github/stars/vdjango/buggcraft?style=social)](https://github.com/vdjango/buggcraft)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-6554c0.svg)](LICENSE)
+[![Windows](https://img.shields.io/badge/platform-Windows%20x64-0078D4.svg)](https://github.com/vdjango/buggcraft/releases)
+[![macOS](https://img.shields.io/badge/platform-macOS%20Intel%20%7C%20Apple%20Silicon-555555.svg)](https://github.com/vdjango/buggcraft/releases)
+[![GitHub release](https://img.shields.io/github/v/release/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/releases/latest)
+[![GitHub issues](https://img.shields.io/github/issues/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/issues)
 
-**[版本下载](https://github.com/vdjango/buggcraft/releases)** · **[开发构建](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)** · **[反馈问题](https://github.com/vdjango/buggcraft/issues)** · **[部署节点](https://github.com/vdjango/minecraft-tunnel)**
+[下载](#下载与安装) · [功能](#功能) · [联机](#通过节点联机) · [开发](#开发与构建) · [项目关系](#项目关系)
+
+</div>
 
 ---
 
-## 你可以用它做什么
+Buggcraft 是一个开源的 Minecraft Java 版启动器。它提供游戏版本与实例管理、加载器安装、整合包导入、模组及资源下载，也集成了好友、房间和节点管理功能。联机能力由配套的 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native) 原生项目提供。
 
-| 游戏管理 | 连接方式 | 一起玩 |
-|---|---|---|
-| 管理已安装的 Minecraft 版本和游戏实例。 | 使用接入码添加节点，选择房间目录入口。 | 创建公开或邀请码房间，加入朋友的房间。 |
-| 下载游戏文件和已支持的加载器。 | 能直连时优先 P2P，必要时使用加密中继。 | 保存本机好友列表，在可信联邦中查找账号。 |
-| 加入前查看版本、加载器和模组信息。 | 需要时复制游戏地址，直接在游戏中连接。 | 使用房间聊天；游戏聊天同步状态会明确显示。 |
+## 功能
 
-启动器不会替朋友同步完整游戏安装。玩家仍需准备兼容的 Minecraft 版本、加载器和模组。当前流程和边界见[联机说明](docs/guides/relay-usage.md)。
+- **管理游戏实例**：安装和启动 Minecraft，管理多个游戏目录与版本，并可同时运行多个实例。
+- **安装加载器**：支持 Forge、NeoForge、Fabric、Quilt 及相关 API；安装界面会处理互斥选项。
+- **导入整合包**：支持常见 `.zip`、`.mrpack` 包格式。可以从下载页面选择整合包，也可以将文件拖到启动器页面；启动器会显示导入进度，并在依赖准备完成后创建游戏实例。
+- **查找和安装内容**：浏览模组、资源包、光影和整合包，查看项目介绍、文件版本及 Minecraft 版本兼容信息。整合包与内容资源使用独立下载源设置。
+- **记录安装任务**：下载、校验与安装在任务记录中显示进度、结果和错误详情；失败任务可以继续或重试。
+- **管理好友与房间**：添加节点和好友、浏览房间、发送邀请或接受邀请。没有现成房间时，启动器会引导房主创建后再发送邀请。
+- **P2P 与中继**：优先尝试玩家间直连；受 NAT 或防火墙限制时可以通过节点中继连接，并可在大厅选择中继模式。
+- **导出诊断信息**：收集启动器、游戏、模组和联机网络拓扑相关日志，帮助定位游戏启动或 P2P 连接问题。
 
-文档导航：[使用指南、技术说明与验证记录](docs/README.md)。
+## 下载与安装
 
-启动器全部在用页面已统一为 QML 布局，保留原有首页和侧栏设计。包含游戏/加载器下载、资源浏览、整合包导入、统一任务进度、实例与设置；界面结构和验证方法见 [QML 界面说明](docs/technical/qml-interface.md)。
+从 [GitHub Releases](https://github.com/vdjango/buggcraft/releases/latest) 下载正式发行包。Windows 提供 x64 启动器；macOS 提供 Intel（`x86_64`）与 Apple Silicon（`arm64`）版本。macOS 包是应用 `.app` 的归档，解压后运行应用。
 
-## 快速开始
+Windows 启动器可作为单个 `Buggcraft.exe` 分发。首次启动时，它会将应用运行时释放到用户缓存，之后复用该缓存；游戏目录默认位于启动器旁边的 `.minecraft`。正式发行包和对应的校验文件请从 Releases 下载，不要把 Windows 启动器误认为完整运行时之外的游戏文件。
 
-Windows 也可构建完整单文件 `Buggcraft.exe`，内置界面与原生联机依赖，无需旁边的 ZIP；首次解压内置依赖后复用本机缓存。构建方法、体积和启动计时见 [Windows 打包说明](docs/technical/windows-packaging.md)。
+源码构建和 GitHub Actions 产物请参阅[打包说明](docs/technical/windows-packaging.md)、[macOS 打包说明](docs/technical/macos-packaging.md)和[构建下载说明](docs/technical/github-builds.md)。平台构建由 [Package launcher 工作流](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)执行。
 
-最新开发包在 [GitHub Actions → Package launcher](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)：打开最近一次绿色通过的构建，在页面底部 **Artifacts** 下载对应系统的 `Buggcraft-…`。Windows 请解压后保留安装程序和运行包 ZIP 在同一目录。Actions 下载需要登录 GitHub；面向用户的版本包放在 Releases。详见[构建与下载说明](docs/technical/github-builds.md)。
+## 基本使用
 
-日常使用请从 [Releases](https://github.com/vdjango/buggcraft/releases) 下载构建包。Windows 版本使用小型启动程序，第一次运行时会将校验过的运行时下载到启动程序旁边；完整的 Qt 和 WebRTC 运行时会明显大于启动程序本身。构建或分发前请阅读 [Windows 打包说明](docs/technical/windows-packaging.md)。
+### 安装游戏与整合包
 
-游戏默认下载到启动器所在目录的 `.minecraft`。Windows 从 `Buggcraft-Setup.exe` 启动时，位于该入口旁边；直接运行解压后的 `Buggcraft.exe` 时，位于该 EXE 旁边。macOS 位于 `.app` 旁边。已有手动选择的游戏目录继续生效，可以在实例页切换。
+在“下载”页面选择 Minecraft 版本及加载器，按需安装到所选游戏目录。整合包可从目录中查找，也可以直接拖放本地文件；查看进度请前往任务记录。安装整合包时，启动器会下载清单中的必要文件，并创建可启动的游戏实例。
 
-从源码运行需要 Python 3.11 或更新版本，以及同平台的原生联机运行库。Python 依赖用于 Qt 界面、游戏下载和进程管理；SSH、ICE/P2P、数据通道及联机传输由独立的 C++ 原生库提供。
+模组、资源包和光影可以按项目或文件浏览。启动器会显示发布者提供的游戏版本信息，兼容性提示用于辅助判断；最终应以所选文件说明和整合包要求为准。下载后可在对应实例的模组、资源包或光影目录中管理内容。
+
+### 通过节点联机
+
+联机节点是玩家发现房间、交换邀请并建立连接的服务。节点不会托管 Minecraft 世界或存档；房主仍在自己的电脑上运行游戏。
+
+1. 在节点网页领取启动器接入码，并在启动器的节点管理中添加节点。启动器接入码是访问凭据，只应添加可信节点提供的代码。
+2. 房主启动目标游戏，在 Minecraft 中将世界开放到局域网，然后在启动器联机大厅创建房间。
+3. 房主通过好友邀请或房间邀请码邀请朋友。好友接受邀请后，选择相同或兼容的游戏实例并连接启动器提供的地址。
+4. 遇到连接问题时，可在大厅选择“仅通过节点中转”；P2P 直连是否可用取决于双方的路由器、NAT 和防火墙环境。
+
+完整操作见[联机与节点使用指南](docs/guides/relay-usage.md)。发生闪退、下载失败或联机异常时，可从大厅导出诊断包。分享前请检查并移除账号接入码、房间密钥等私密信息；诊断包可能包含系统信息、本机路径和网络探测结果。
+
+## 项目关系
+
+| 项目 | 职责 |
+| --- | --- |
+| [Buggcraft](https://github.com/vdjango/buggcraft) | 桌面启动器、游戏与整合包管理、好友大厅及节点客户端 |
+| [minecraft-tunnel-native](https://github.com/vdjango/minecraft-tunnel-native) | C++ 原生网络核心、P2P/中继传输、节点服务与桥接接口 |
+
+启动器通过原生桥接接口连接联机核心。Minecraft 游戏数据的传输由 `minecraft-tunnel-native` 提供的原生运行库处理；节点管理、游戏安装和桌面界面属于 Buggcraft。玩家下载并运行启动器时，不需要另外安装 Python、CMake 或 C++ 编译器。
+
+## 开发与构建
+
+桌面应用使用 Python、Qt for Python（PySide6）和 QML；Minecraft 文件安装与版本管理使用 `minecraft-launcher-lib`。联机传输依赖与启动器版本绑定的 `minecraft-tunnel-native` 原生运行库。Windows 与 macOS 使用独立打包配置，构建入口位于 [`build.py`](build.py) 与 [`build_macos.sh`](build_macos.sh)。
+
+从源码启动界面的基本步骤如下。完整运行和桥接库准备要求请先阅读[第三方桥接接入说明](docs/technical/bridge-integration.md)。
 
 ```powershell
 git clone https://github.com/vdjango/buggcraft.git
@@ -49,65 +82,20 @@ $env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe src\buggcraft\main.py
 ```
 
-上面是 Windows 命令。Linux 和 macOS 还需要准备对应的 Qt 环境，目前没有完成相同范围的真机验收。联机仅携带数据通道实现，不需要 PyAV、FFmpeg 或音视频编解码器。已验证的行为见[启动器验收记录](docs/validation/launcher-validation.md)。
-
-联机运行库来源为 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native)。源码开发可将它放在启动器仓库旁并按其说明构建、安装到 `runtime`；发布包会把完整安装树放在启动器的 `native` 目录，包括平台库、FFI 调用文件及第三方许可。不要只复制一个 DLL。普通玩家使用完整启动器包，无需安装 Python、CMake 或编译器。
-
-## 联机流程
-
-1. 在大厅使用节点运营者提供的接入码添加节点。
-2. 选择游戏实例，创建房间，或选择已有房间加入。
-3. 启动器检查本地游戏信息并准备连接。实际世界、玩家列表、权限和存档仍由 Minecraft 管理。
-
-同一个房间可以混合使用 P2P 和加密中继。直连取决于双方网络和防火墙；部分 NAT 或 UDP 环境必须使用中继，没有节点能保证所有玩家都能直连。节点联邦共享发现和路由信息，不会合并带宽；房间归属节点故障时，正在进行的游戏会话也不会无缝迁移。
-
-遇到联机问题，可退出房间后选择「仅通过节点中转」重新加入。大厅的「导出日志」会打包本次及历史联机记录、网卡与路由快照，便于两端对照；详见[联机测试与日志](docs/guides/network-tester-guide.md)。
-
-账号密码只在节点网页中使用，用于领取临时个人接入码；启动器不会保存节点账号密码。好友列表保存在本机。请只添加你信任的节点和联邦邀请。
-
-## 联机支持范围
-
-启动器的 Windows 流程已有较完整的本地与节点验收记录。Linux 和 macOS 客户端仍需更多真机验证；真实公网 P2P、不同运营商 NAT、超大规模玩家和完整模组组合也不应仅凭本地测试推断。节点失效时，现有游戏会话需要重新连接。
-
-## 项目关系
-
-| 仓库 | 作用 |
-|---|---|
-| [`buggcraft`](https://github.com/vdjango/buggcraft) | 桌面启动器、大厅和连接组件 |
-| [`minecraft-tunnel`](https://github.com/vdjango/minecraft-tunnel) | 自建中继节点、网页管理和联邦服务 |
-
-节点首页提供启动器接入文档、各语言示例和完整协议参考；启动器侧流程见[联机说明](docs/guides/relay-usage.md)。
-
-## 开发与验证
-
-应用代码位于 `src/buggcraft`，启动器测试位于 `tests/`。安装依赖后，可在仓库根目录运行单个测试模块：
+执行测试：
 
 ```powershell
-.venv\Scripts\python.exe -m unittest tests.test_visibility -v
+.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-完整测试和网络验收记录见[启动器验收记录](docs/validation/launcher-validation.md)、[联机验证记录](docs/validation/multiplayer-validation.md)和[联机路线图](docs/planning/multiplayer-roadmap.md)。单元测试、本地游戏服务端和不同公网中的真实客户端属于不同验证层级，文档会标明实际执行的范围。
+构建依赖和发行流程见[Windows 打包](docs/technical/windows-packaging.md)、[macOS 打包](docs/technical/macos-packaging.md)及 [GitHub Actions 工作流](.github/workflows/package.yml)。联机核心的单独构建方式见 [`minecraft-tunnel-native` 构建文档](https://github.com/vdjango/minecraft-tunnel-native/blob/main/docs/build.md)。
 
-联机使用原生库提供的 ICE、DTLS、SCTP 和证书指纹检查。之前的 Python 数据通道实现及来源记录保留在 [兼容性参考](compatibility/legacy_hookup/_rtc/README.md)，不进入发布包；`requirements-interop.txt` 中的音视频依赖仅供旧实现的开发兼容测试，不用于发布构建。原生库协议、传输和日志专项在原生仓库执行，启动器仓库验证调用边界、生命周期、日志导出和界面行为。
+## 问题反馈与贡献
 
-使用 `build.bat` 构建 Windows 运行包，macOS 使用 `bash build_macos.sh`。GitHub Actions 的「Package launcher」会分别生成 Windows x64、macOS Intel 和 Apple Silicon 产物，并执行运行包检查。[Windows 打包说明](docs/technical/windows-packaging.md)和 [macOS 打包说明](docs/technical/macos-packaging.md)记录了 Qt 裁剪、运行检查与签名边界。
+使用 [GitHub Issues](https://github.com/vdjango/buggcraft/issues) 报告问题时，请说明操作步骤、游戏与加载器版本、系统版本，以及错误发生的大致时间。游戏闪退请附上诊断包中对应实例的游戏日志；联机问题请同时说明当时选择的 P2P 或中继模式。
 
-## 第三方启动器桥接
+提交诊断信息前，请检查个人用户名、目录路径及网络信息，并移除密码、访问令牌、节点接入码、房间邀请码和私钥。代码变更请附上与行为相关的测试；原生联机核心的改动应提交到 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native)。
 
-独立的 [Buggcraft bridge](https://github.com/vdjango/buggcraft/actions/workflows/bridge.yml) 通过本地 JSON-RPC 2.0 管道接入联机节点，负责 P2P 与中转，无需接入方安装 Python 或集成 Python SDK。Windows、Linux 和 macOS 分别构建；下载后保留完整发行目录。接口、限制及打包验收见[桥接接入说明](docs/technical/bridge-integration.md)。
+## 许可证
 
-## 参与贡献
-
-小而明确的改动更容易审查。行为变化请附测试，并同步更新使用说明或验收记录。不要提交本地游戏文件、包含接入码的日志、凭据或私有节点配置。参与前请阅读[行为准则](CODE_OF_CONDUCT.md)。
-
-## 资源赞助
-
-**本项目不接受资金赞助，接受服务器、云主机、带宽、流量额度、对象存储及 CDN 等云上资源赞助。** 资源用于公共节点、文件分发和兼容性验证。可先在 [Issues](https://github.com/vdjango/buggcraft/issues) 沟通资源类型与使用条件，请勿公开密码或密钥。详见[社区贡献与资源赞助](COMMUNITY_LICENSE.md)。
-
-## 许可
-
-源代码使用 [GNU AGPL v3](LICENSE) 发布。[社区贡献与资源赞助](COMMUNITY_LICENSE.md)说明参与方式，不增加许可限制。
-
----
-
-<p align="center"><sub>为那些服务器很远、朋友仍想在同一个世界里的时刻而开源。</sub></p>
+Buggcraft 使用 [GNU Affero General Public License v3.0 或更高版本](LICENSE) 发布。使用的第三方组件及其许可条件以仓库中的依赖清单和发行包许可文件为准。

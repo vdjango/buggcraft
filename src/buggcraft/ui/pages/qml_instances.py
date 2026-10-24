@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QDialog
 
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
+from ui.dialog.qml_dialog import QmlDialog
 from ui.pages.qml_host import QmlPage
 from utils.instances import installed_instance_ids
 
@@ -28,6 +29,7 @@ class InstancesController(QObject):
         self._versions = []
         self._status = ''
         self._pending = {}
+        self._delete_dialog = None
 
     @Property('QVariantMap', notify=changed)
     def view(self):
@@ -103,11 +105,25 @@ class InstancesController(QObject):
                 self._status = '无法打开版本文件夹。'
                 self.changed.emit()
         elif action in ('deleteVersion', 'deleteDirectory'):
+            if self._delete_dialog is not None:
+                self._delete_dialog.raise_()
+                self._delete_dialog.activateWindow()
+                return
+            is_directory = action == 'deleteDirectory'
             self._pending = dict(identity=identity, action=action,
                                  directory=self.settings.get_setting('minecraft.directory.enable') or '',
                                  title='删除整个游戏目录？' if action == 'deleteDirectory' else '删除游戏实例？',
-                                 message=identity + '\n此操作将永久删除对应目录内的存档、模组与资源，无法撤销。')
+                                 message=identity + '\n' + ('此操作会永久删除该游戏目录中的所有实例与文件，无法撤销。'
+                                                           if is_directory else '此操作会永久删除该实例目录中的存档、模组与资源，无法撤销。'))
             self.changed.emit()
+            dialog = QmlDialog(self.page, title=self._pending['title'],
+                               message=identity, detail=self._pending['message'].split('\n', 1)[1],
+                               actions=['取消', '删除'], width=550, height=270)
+            self._delete_dialog = dialog
+            dialog.controller.actionRequested.connect(
+                lambda label: dialog.accept() if label == '删除' else dialog.reject())
+            dialog.finished.connect(self._finish_delete_dialog)
+            dialog.open()
         elif action == 'download':
             self.page.parent.parent.download_page.on_download_clicked()
             self.page.parent.parent.switch_pages('下载')
@@ -117,6 +133,14 @@ class InstancesController(QObject):
         if hasattr(launcher, 'sessions'):
             return [record['instance'] for record in launcher.sessions]
         return [launcher.running_instance] if launcher.running_instance else []
+
+    @Slot(int)
+    def _finish_delete_dialog(self, result):
+        dialog, self._delete_dialog = self._delete_dialog, None
+        if dialog is not None:
+            dialog.shutdown()
+            dialog.deleteLater()
+        self.confirmDelete(result == QDialog.Accepted)
 
     @Slot(bool)
     def confirmDelete(self, confirmed):

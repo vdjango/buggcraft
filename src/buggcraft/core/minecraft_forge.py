@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 from enum import Enum
 from core.optifine import OptiFineInstaller
+from utils.http_identity import USER_AGENT
 
 
 class MirrorSource(Enum):
@@ -108,7 +109,7 @@ class CrossPlatformMinecraftInstaller:
         # 会话对象用于保持连接
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': f'MinecraftLauncher/1.0 ({self.current_os.value})',
+            'User-Agent': USER_AGENT,
             'Accept': '*/*'
         })
     

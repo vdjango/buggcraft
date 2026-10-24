@@ -5,6 +5,7 @@ import functools
 import re, ipaddress
 import types
 from collections import namedtuple
+from utils.http_identity import USER_AGENT
 
 # from urllib.parse import urlencode, urlparse
 import logging
@@ -556,7 +557,7 @@ class minecraft_httpx:
         host, port, path, is_https = parsed_url
         
         # 准备请求头和请求体
-        request_headers = {'User-Agent': 'MinecraftLauncher/1.0'}
+        request_headers = {'User-Agent': USER_AGENT}
         body = None
 
         # **智能 Content-Type 判断逻辑**
@@ -670,7 +671,7 @@ class minecraft_httpx:
         
         # 设置请求头
         request_headers = {
-            'User-Agent': 'MinecraftLauncher/1.0'
+            'User-Agent': USER_AGENT
         }
         if headers:
             request_headers.update(headers)

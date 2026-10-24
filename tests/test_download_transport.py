@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
 from core.downloads import MinecraftDownloader, DownloadCancelled, _DownloadSession
+from utils.http_identity import USER_AGENT
 import requests
 
 
@@ -35,6 +36,7 @@ class DownloadTransportTests(unittest.TestCase):
         self.payload = bytes(range(256)) * 1024
         self.requests = []
         self.ranges = []
+        self.user_agents = []
         self.mode = ''
         fixture = self
 
@@ -42,6 +44,12 @@ class DownloadTransportTests(unittest.TestCase):
             def do_GET(self):
                 fixture.requests.append(self.path)
                 fixture.ranges.append(self.headers.get('Range'))
+                fixture.user_agents.append(self.headers.get('User-Agent'))
+                if self.path == '/redirect':
+                    self.send_response(302)
+                    self.send_header('Location', '/artifact')
+                    self.end_headers()
+                    return
                 offset = 0
                 if fixture.mode and len(fixture.requests) > 1 and fixture.mode != 'ignore-range':
                     offset = int(self.headers['Range'].split('=')[1].rstrip('-')) if self.headers.get('Range') else 0
@@ -93,6 +101,18 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), self.payload)
         self.assertEqual(len(self.requests), 2)
 
+    def test_public_launcher_identity_survives_redirects_and_range_retries(self):
+        url = self.url.replace('/artifact', '/redirect')
+        target = self.downloader.fetch(url, 'redirect.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(target.read_bytes(), self.payload)
+        self.assertEqual(self.requests, ['/redirect', '/artifact'])
+        self.assertEqual(self.user_agents, [USER_AGENT, USER_AGENT])
+        self.requests.clear()
+        self.mode = 'resume'
+        self.downloader.fetch(self.url, 'retry.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(self.ranges[-2:], [None, 'bytes=65536-'])
+        self.assertTrue(all(value == USER_AGENT for value in self.user_agents))
+
     def test_rejected_hash_never_replaces_existing_file_and_removes_partial(self):
         path = Path(self.temp.name) / 'existing.jar'
         path.write_bytes(b'previous installed file')
@@ -141,8 +161,7 @@ class DownloadTransportTests(unittest.TestCase):
 
     def test_content_routing_honors_setting_and_preserves_encoded_path(self):
         urls = ['https://cdn.modrinth.com/data/id/version/a%2Bb.jar?x=1',
-                'https://edge.forgecdn.net/files/123/4/a%20b.jar',
-                'https://mediafilez.forgecdn.net/files/123/4/a%20b.jar']
+                'https://edge.forgecdn.net/files/123/4/a%20b.jar']
         for setting in ('自动', 'BMCLAPI', '自动（官方优先，失败切换镜像）'):
             self.downloader.source = setting
             for url in urls:
@@ -154,6 +173,14 @@ class DownloadTransportTests(unittest.TestCase):
         for url in urls:
             self.assertEqual(self.downloader.urls(url)[0], url)
         self.downloader.source = 'BMCLAPI'
+        # MCIM explicitly excludes mediafilez; retain its authenticated route.
+        media = 'https://mediafilez.forgecdn.net/files/123/4/a%20b.jar'
+        self.assertEqual(self.downloader.urls(media), [media, media.replace('mediafilez.', 'edge.')])
+        self.downloader.content_source = '官方'
+        self.assertEqual(self.downloader.urls(urls[0])[0], urls[0])
+        self.downloader.source = '官方'
+        self.downloader.content_source = 'MCIM'
+        self.assertTrue(self.downloader.urls(urls[0])[0].startswith('https://mod.mcimirror.top/'))
         for url in ('https://cdn.modrinth.com.evil.org/x', 'https://user@cdn.modrinth.com/x',
                     'https://cdn.modrinth.com:444/x', 'https://github.com/a/b/releases/download/x.jar'):
             self.assertEqual(self.downloader.urls(url), [url])

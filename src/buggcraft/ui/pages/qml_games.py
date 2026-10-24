@@ -225,7 +225,9 @@ class GameCatalogueController(QObject):
                 return [dict(name=value, id=value) for value in available_versions(name, game, source)]
             from core.content import ContentCatalogue
             project = dict(source='Modrinth', project_id='fabric-api' if name == 'Fabric API' else 'qsl')
-            return ContentCatalogue().versions(project, game, 'fabric' if name == 'Fabric API' else loader, 'mod')
+            from core.content_mirrors import configured_source
+            return ContentCatalogue(mirror=configured_source(self.settings)).versions(
+                project, game, 'fabric' if name == 'Fabric API' else loader, 'mod')
         self.changed.emit()
         self.pool.start(CatalogueWork(self.loader_sequence, 'component:' + name, self._finished, fetch))
 

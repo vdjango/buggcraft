@@ -11,10 +11,28 @@ ARCHIVES = {
     'macos-x86_64': 'Buggcraft-macos-x86_64.zip',
     'macos-arm64': 'Buggcraft-macos-arm64.zip',
 }
+ONEFILES = {'windows-x64': 'Buggcraft.exe', 'linux-x86_64': 'Buggcraft'}
 
 
 def stage(output, platform, repository_root):
     manifest = json.loads((output / 'release.json').read_text(encoding='utf-8'))
+    if platform in ONEFILES:
+        executable = output / ONEFILES[platform]
+        if not executable.is_file():
+            raise FileNotFoundError(executable)
+        if (manifest.get('platform') != platform or manifest.get('format') != 'onefile'
+                or manifest.get('entrypoint') != executable.name):
+            raise ValueError('Release platform or executable does not match the build')
+        with executable.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if executable.stat().st_size != manifest.get('size') or digest != manifest.get('sha256'):
+            raise ValueError('Release executable size or SHA-256 does not match its manifest')
+        destination = output / 'release'
+        destination.mkdir(exist_ok=False)
+        shutil.copy2(executable, destination / executable.name)
+        (destination / ('SHA256SUMS-' + platform + '.txt')).write_text(
+            digest + '  ' + executable.name + '\n', encoding='ascii')
+        return destination
     if manifest.get('platform') != platform or manifest.get('archive') != ARCHIVES[platform]:
         raise ValueError('Release platform or archive name does not match the build')
     archive = output / ARCHIVES[platform]
@@ -24,14 +42,6 @@ def stage(output, platform, repository_root):
         raise ValueError('Release archive size or SHA-256 does not match its manifest')
     files = {archive: archive.name,
              output / 'release.json': 'release-' + platform + '.json'}
-    guide = repository_root / 'docs/guides/network-tester-guide.md'
-    if guide.is_file():
-        files[guide] = 'TESTING.md'
-    if platform == 'windows-x64':
-        files[output / 'Buggcraft-Setup.exe'] = 'Buggcraft-Setup.exe'
-        files[output / 'signing-status.json'] = 'signing-status-windows-x64.json'
-        diagnostics = repository_root / 'packaging/windows/collect-launcher-diagnostics.ps1'
-        files[diagnostics] = diagnostics.name
     for path in files:
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -52,6 +62,6 @@ def stage(output, platform, repository_root):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=Path('dist'))
-    parser.add_argument('--platform', required=True, choices=ARCHIVES)
+    parser.add_argument('--platform', required=True, choices=tuple(ARCHIVES) + tuple(ONEFILES))
     args = parser.parse_args()
     print(stage(args.output, args.platform, Path(__file__).resolve().parents[1]))

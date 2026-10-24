@@ -58,7 +58,7 @@ python -m unittest discover -s tests -p test_loader_selection.py -v
 python build.py --dry-run
 ```
 
-界面测试使用独立临时配置与受控内容源，实际点击 QML 控件，覆盖所有页面有内容时的加载、分类切换、导入到进度页、互斥、长名称、下拉键盘选择、侧栏收起和关闭清理。不会读取玩家配置、修改其游戏目录或调用正式节点。网络/真实游戏集成的验证范围单独记录在 [启动器操作验收](../validation/launcher-validation.md)。
+界面测试使用独立临时配置与受控内容源，实际点击 QML 控件，覆盖所有页面有内容时的加载、分类切换、导入到进度页、互斥、长名称、下拉键盘选择、侧栏收起和关闭清理。不会读取用户配置、修改其游戏目录或调用正式节点。
 
 `build.py` 默认输出独立目录，可加 `--onefile`。按 [Nuitka 官方配置](https://nuitka.net/user-documentation/user-manual.html) 包含 QML 插件、Qt Quick 模块及资源目录，移除旧脚本中排除全部 Qt DLL/插件的参数。本轮只检查构建参数，尚未编译或验证签名安装包。
 
@@ -106,7 +106,7 @@ python build.py --dry-run
 
 Windows 编译入口继续使用 `--windows-console-mode=disable`。源码可双击根目录 `launch-hidden.vbs`，优先使用本地虚拟环境的 `pythonw.exe`；Java 检测、加载器和游戏子进程捕获输出并使用 `CREATE_NO_WINDOW`，不会为日志另开 CMD。
 
-启动/停止状态竞争、Java 搜索退出和关闭清理已修复；原版下载、真实进度、持久化记录、失败重试和 Java 管理已有操作回归，具体边界及未完成项见 [启动器操作验收](../validation/launcher-validation.md)。
+启动/停止状态竞争、Java 搜索退出和关闭清理由自动化回归覆盖；原版下载、真实进度、持久化记录、失败重试和 Java 管理使用同一套临时目录测试。
 
 ## 本机世界查找与重选
 

@@ -9,7 +9,6 @@ Item {
         target: instancesPage
         function onChanged() {
             root.state = instancesPage.view
-            if (root.state.confirmation.title) confirmDialog.open()
         }
     }
     RowLayout {
@@ -102,17 +101,5 @@ Item {
                 }
             }
         }
-    }
-    ModalDialog {
-        id: confirmDialog
-        anchors.centerIn: parent
-        width: Math.min(root.width - 40, 440)
-        modal: true
-        title: root.state.confirmation.title || "删除确认"
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: instancesPage.confirmDelete(true)
-        onRejected: instancesPage.confirmDelete(false)
-        background: Rectangle { radius: 6; color: "#211f2b"; border.color: "#8b85da" }
-        contentItem: Label { text: root.state.confirmation.message || ""; wrapMode: Text.WrapAnywhere; color: "#f2edf8" }
     }
 }

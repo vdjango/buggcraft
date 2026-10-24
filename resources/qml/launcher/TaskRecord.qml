@@ -9,7 +9,7 @@ ListRow {
     property string actionText: modelData.state === "正在取消" ? "正在取消" : active ? "取消"
         : modelData.modpack && modelData.state === "已完成" ? "已导入"
         : modelData.modpack ? "继续安装"
-        : modelData.content && modelData.content.kind === "modpack" && modelData.state === "已完成" && (modelData.downloaded_files || []).length ? "打开目录"
+        : modelData.content && modelData.content.kind === "modpack" && modelData.state === "已完成" ? "继续安装"
         : modelData.state === "已完成" ? "重新安装" : "重试"
     signal viewLog(string taskId)
     width: ListView.view.width

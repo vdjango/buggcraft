@@ -19,6 +19,7 @@ import requests
 
 from core.downloads import MinecraftDownloader
 from utils.download_locks import download_lock
+from utils.http_identity import USER_AGENT
 
 
 BMCLAPI = "https://bmclapi2.bangbang93.com"
@@ -79,7 +80,7 @@ def _source_urls(source, official, mirror):
 
 
 def _response(url):
-    response = requests.get(url, timeout=(8, 20), headers={"User-Agent": "Buggcraft/1.0"})
+    response = requests.get(url, timeout=(8, 20), headers={"User-Agent": USER_AGENT})
     response.raise_for_status()
     return response
 
@@ -377,7 +378,7 @@ def _neo_forge(version, directory, java, callback, cancel, source):
             callback["setStatus"]("正在下载 NeoForge 安装器…")
             try:
                 response = requests.get(installer_url, stream=True, timeout=(8, 30),
-                                        headers={"User-Agent": "Buggcraft/1.0"})
+                                        headers={"User-Agent": USER_AGENT})
                 response.raise_for_status()
                 total = int(response.headers.get("Content-Length", "0") or 0)
                 callback["setMax"](total)

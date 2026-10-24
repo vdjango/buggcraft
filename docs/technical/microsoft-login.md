@@ -30,4 +30,4 @@
 python -X utf8 -m unittest discover -s buggcraft/tests -p test_microsoft_auth.py -v
 ```
 
-账号本人的 PIN/验证码只能在微软或 Windows 官方验证界面完成；启动器不会索取、保存或代填。完整工作区回归结果见 [启动器验证](../validation/launcher-validation.md)。
+账号本人的 PIN/验证码只能在微软或 Windows 官方验证界面完成；启动器不会索取、保存或代填。

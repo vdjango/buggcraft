@@ -81,7 +81,7 @@ Rectangle {
         ScrollView {
             id: descriptionScroll
             objectName: "content-description"
-            visible: root.tab === 0; Layout.fillWidth: true; Layout.fillHeight: true
+            visible: root.tab === 0 && !root.state.details_busy; Layout.fillWidth: true; Layout.fillHeight: true
             contentWidth: availableWidth; clip: true
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ColumnLayout {
@@ -110,6 +110,11 @@ Rectangle {
                             Layout.fillWidth: true; text: root.supportedGames || "请在版本文件中查看作者声明"
                             color: "#bdb1d4"; font.pixelSize: 12; wrapMode: Text.Wrap; elide: Text.ElideRight
                             maximumLineCount: root.expandedGames ? 1000 : 2; lineHeight: 1.2
+                        }
+                        Label {
+                            objectName: "content-project-compatibility"
+                            Layout.fillWidth: true; visible: !!root.state.project_compatibility
+                            text: root.state.project_compatibility; color: "#add3b6"; wrapMode: Text.Wrap; font.pixelSize: 11
                         }
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#3b3348" }
                         RowLayout {
@@ -147,6 +152,16 @@ Rectangle {
                 Item { Layout.preferredHeight: 4 }
             }
         }
+        Item {
+            Layout.fillWidth: true; Layout.fillHeight: true
+            visible: root.tab === 0 && root.state.details_busy
+            ColumnLayout {
+                objectName: "content-project-loading"
+                anchors.centerIn: parent
+                BusyIndicator { Layout.alignment: Qt.AlignHCenter; running: root.state.details_busy && root.tab === 0 }
+                Label { text: "正在加载项目详情…"; color: "#c7bfd5"; font.pixelSize: 13 }
+            }
+        }
         PagedListView {
             id: versions
             objectName: "content-version-list"
@@ -180,7 +195,7 @@ Rectangle {
                 Label {
                     objectName: "content-compatibility"
                     Layout.fillWidth: true; wrapMode: Text.Wrap; font.pixelSize: 12
-                    text: root.state.selected_file.compatibility || "兼容信息供参考，可在版本文件中自行选择。"
+                    text: root.state.busy && root.state.selected_version < 0 ? "正在加载版本文件与兼容信息…" : root.state.selected_file.compatibility || "兼容信息供参考，可在版本文件中自行选择。"
                     color: root.adviceColor
                 }
                 RowLayout {
@@ -188,12 +203,12 @@ Rectangle {
                     ColumnLayout {
                         Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 4
                         Label { Layout.fillWidth: true; text: (root.state.selected_file.filename || root.state.selected_file.display_name || "请在版本文件中选择文件") + (root.state.selected_file.file_size_label ? " · " + root.state.selected_file.file_size_label : ""); color: "#e5ddee"; elide: Text.ElideMiddle; font.pixelSize: 12 }
-                        Label { Layout.fillWidth: true; text: root.state.kind === "modpack" ? "下载完成后，在记录中导入为独立实例" : "安装到「" + root.state.instance + "」 · " + root.state.target; color: "#9e90b0"; elide: Text.ElideMiddle; font.pixelSize: 11
+                        Label { Layout.fillWidth: true; text: root.state.kind === "modpack" ? "下载后自动安装为独立实例 · " + root.state.target : "安装到「" + root.state.instance + "」 · " + root.state.target; color: "#9e90b0"; elide: Text.ElideMiddle; font.pixelSize: 11
                             HoverHandler { id: destinationHover }
                             ToolTip.visible: destinationHover.hovered; ToolTip.text: text
                         }
                     }
-                    ActionButton { objectName: "download-content-version"; text: root.state.kind === "modpack" ? "下载整合包" : "安装所选版本"; implicitWidth: 118; primary: true; enabled: !root.state.busy && root.state.selected_version >= 0 && (root.state.kind === "modpack" || root.state.can_install); onClicked: contentController.downloadSelected() }
+                    ActionButton { objectName: "download-content-version"; text: root.state.kind === "modpack" ? "下载并安装" : "安装所选版本"; implicitWidth: 118; primary: true; enabled: !root.state.busy && root.state.selected_version >= 0 && (root.state.kind === "modpack" || root.state.can_install); onClicked: contentController.downloadSelected() }
                 }
                 Label { Layout.fillWidth: true; visible: !!root.state.status && !root.state.busy; text: root.state.status; color: "#dfb9bc"; wrapMode: Text.Wrap; font.pixelSize: 11 }
                 ActionButton { visible: versions.loadFailed && root.tab === 1; text: "重试加载"; implicitHeight: 28; onClicked: contentController.loadMoreVersions() }

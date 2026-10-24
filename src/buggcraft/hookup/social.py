@@ -4,6 +4,30 @@ import json
 import time
 
 
+EXPIRED_CODE_MESSAGE = '个人接入码已过期。请在原节点网页登录账号，重新领取个人启动器接入码，再在这里更换；无需删除节点。'
+
+
+class ExpiredNodeCredential(ValueError):
+    pass
+
+
+def credential_expiry(profile):
+    """Read expiry for presentation only; the node still authenticates the code."""
+    if not profile.token.startswith('acct1.'):
+        return None
+    try:
+        claims = json.loads(decode(profile.token.split('~', 1)[0][6:].split('.')[0]))
+        expiry = claims.get('e')
+        return expiry if type(expiry) is int and expiry > 0 else None
+    except (ValueError, TypeError, AttributeError, IndexError):
+        return None
+
+
+def check_expiry(profile):
+    expiry = credential_expiry(profile)
+    if expiry is not None and expiry <= time.time():
+        raise ExpiredNodeCredential(EXPIRED_CODE_MESSAGE)
+
 
 
 def decode(value):
@@ -15,6 +39,7 @@ def canonical(value):
 
 
 def credential(profile):
+    check_expiry(profile)
     try:
         token, secret = profile.token.split('~')
         claims = json.loads(decode(token[6:].split('.')[0]))

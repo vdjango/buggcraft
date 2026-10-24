@@ -28,11 +28,17 @@ Item {
         Label {
             objectName: "content-target"
             Layout.fillWidth: true; Layout.leftMargin: 15; Layout.rightMargin: 15; Layout.bottomMargin: 5
-            text: root.state.kind === "modpack" ? "整合包下载目录：" + root.state.target : "安装到「" + root.state.instance + "」：" + root.state.target
+            text: root.state.kind === "modpack" ? "整合包安装目录：" + root.state.target : "安装到「" + root.state.instance + "」：" + root.state.target
             color: "#aaa4b6"; font.pixelSize: 12; elide: Text.ElideMiddle
             HoverHandler { id: targetHover }
             ToolTip.visible: targetHover.hovered; ToolTip.text: text
         }
     }
-    Loader { anchors.fill: parent; active: root.state.view === "detail"; source: "ContentDetails.qml" }
+    Loader { id: details; anchors.fill: parent; active: root.state.view === "detail"; source: "ContentDetails.qml" }
+    ColumnLayout {
+        objectName: "content-detail-loading"
+        anchors.centerIn: parent; visible: details.active && details.status === Loader.Loading
+        BusyIndicator { Layout.alignment: Qt.AlignHCenter; running: parent.visible }
+        Label { text: "正在加载详情…"; color: "#c7bfd5"; font.pixelSize: 13 }
+    }
 }

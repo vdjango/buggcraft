@@ -21,6 +21,16 @@ class ReleaseStagingTests(unittest.TestCase):
         self.output = Path(temporary.name)
 
     def package(self, platform):
+        if platform in release.ONEFILES:
+            name = release.ONEFILES[platform]
+            executable = self.output / name
+            executable.write_bytes(b'single-file executable')
+            manifest = dict(platform=platform, format='onefile', entrypoint=name,
+                            size=executable.stat().st_size,
+                            sha256=hashlib.sha256(executable.read_bytes()).hexdigest())
+            (self.output / 'release.json').write_text(json.dumps(manifest), encoding='utf-8')
+            (self.output / 'build.log').write_text('compiler diagnostics', encoding='utf-8')
+            return executable
         archive = self.output / release.ARCHIVES[platform]
         with zipfile.ZipFile(archive, 'w') as bundle:
             bundle.writestr('app/runtime.txt', 'packaged runtime')
@@ -30,18 +40,20 @@ class ReleaseStagingTests(unittest.TestCase):
         (self.output / 'build.log').write_text('compiler diagnostics', encoding='utf-8')
         return archive
 
-    def test_windows_collects_offline_pair_diagnostics_and_verifiable_checksums(self):
-        self.package('windows-x64')
-        (self.output / 'Buggcraft-Setup.exe').write_bytes(b'compiled installer')
-        (self.output / 'signing-status.json').write_text('{"signed": false}', encoding='utf-8')
+    def test_windows_single_file_and_verifiable_checksums(self):
+        executable = self.package('windows-x64')
         destination = release.stage(self.output, 'windows-x64', ROOT)
         self.assertEqual({p.name for p in destination.iterdir()}, {
-            'Buggcraft-runtime-windows-x64.zip', 'Buggcraft-Setup.exe',
-            'release-windows-x64.json', 'signing-status-windows-x64.json',
-            'collect-launcher-diagnostics.ps1', 'TESTING.md', 'SHA256SUMS-windows-x64.txt'})
+            'Buggcraft.exe', 'SHA256SUMS-windows-x64.txt'})
         for line in (destination / 'SHA256SUMS-windows-x64.txt').read_text().splitlines():
             expected, name = line.split('  ', 1)
             self.assertEqual(hashlib.sha256((destination / name).read_bytes()).hexdigest(), expected)
+
+    def test_linux_single_file_is_a_single_download(self):
+        self.package('linux-x86_64')
+        destination = release.stage(self.output, 'linux-x86_64', ROOT)
+        self.assertEqual({p.name for p in destination.iterdir()}, {
+            'Buggcraft', 'SHA256SUMS-linux-x86_64.txt'})
 
     def test_each_mac_architecture_has_distinct_download_names(self):
         for platform in ('macos-x86_64', 'macos-arm64'):
@@ -50,7 +62,7 @@ class ReleaseStagingTests(unittest.TestCase):
                 archive = self.package(platform)
                 destination = release.stage(self.output, platform, ROOT)
                 self.assertEqual({p.name for p in destination.iterdir()}, {
-                    archive.name, 'release-' + platform + '.json', 'TESTING.md',
+                    archive.name, 'release-' + platform + '.json',
                     'SHA256SUMS-' + platform + '.txt'})
 
     def test_corrupt_archive_is_rejected_before_creating_download_directory(self):
@@ -70,8 +82,9 @@ class ReleaseStagingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'platform or archive'):
             release.stage(self.output, 'macos-arm64', ROOT)
 
-    def test_missing_installer_and_stale_destination_are_rejected(self):
+    def test_missing_executable_and_stale_destination_are_rejected(self):
         self.package('windows-x64')
+        (self.output / 'Buggcraft.exe').unlink()
         with self.assertRaises(FileNotFoundError):
             release.stage(self.output, 'windows-x64', ROOT)
         self.assertFalse((self.output / 'release').exists())

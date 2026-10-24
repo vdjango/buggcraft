@@ -41,6 +41,19 @@ class OnefilePackagingTests(unittest.TestCase):
             library.write_bytes(b'updated native release')
             self.assertNotEqual(build.onefile_cache_tag(native), first)
 
+    def test_linux_payload_includes_native_runtime_without_windows_options(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(build.platform, 'system', return_value='Linux'), \
+                patch.object(build, 'qml_exclusions', return_value=([], [])):
+            command = build.make_command(onefile=True, native=Path(folder))
+            self.assertIn('--onefile', command)
+            self.assertIn('--output-filename=Buggcraft', command)
+            self.assertIn('--launcher-native=' + str(Path(folder).resolve()), command)
+            self.assertIn('--onefile-cache-mode=cached', command)
+            self.assertFalse(any(value.startswith('--windows-') for value in command))
+            with self.assertRaisesRegex(ValueError, 'native'):
+                build.make_command(onefile=True)
+
 
 if __name__ == '__main__':
     unittest.main()

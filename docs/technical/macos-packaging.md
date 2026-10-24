@@ -14,7 +14,7 @@ bash build_macos.sh
 
 ## Qt 官方工具与体积
 
-界面使用系统默认字体，源码已移除不再使用的字体；与 Windows 共用的构建规则继续排除旧工作区残留的字体，保留在用图片和 QML 资源。macOS 图标由保留的 1024 像素原图生成，不需要重复维护各尺寸 PNG。系统字体切换后的 Windows 实测与验证边界见 [体积审计](launcher-size-audit.md)，macOS 体积需在对应架构构建后单独测量。
+界面使用系统默认字体，源码已移除不再使用的字体；与 Windows 共用的构建规则继续排除旧工作区残留的字体，保留在用图片和 QML 资源。macOS 图标由保留的 1024 像素原图生成，不需要重复维护各尺寸 PNG。macOS 以原生 `.app` 作为单一 ZIP 下载，体积由对应架构的 CI 构建清单记录。
 
 共用依赖已切换为数据通道子集，不再安装或打包完整 aiortc、PyAV、FFmpeg、音视频编解码器和 pylibsrtp；PDF 图像插件也被排除。来源与更新方法见[子集说明](../../compatibility/legacy_hookup/_rtc/README.md)。Windows 的软件 OpenGL 裁剪及默认光栅渲染仅作用于 Windows，macOS 继续使用原生渲染后端。本轮 Windows 的减重数字不能直接套用到两种 macOS 架构。
 
