@@ -10,13 +10,13 @@ Rectangle {
     radius: 6
     Connections { target: dialogModel; function onChanged() { root.state = dialogModel.view } }
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 24; spacing: 16
+        anchors.fill: parent; anchors.margins: 24; spacing: 14
         Label {
             Layout.fillWidth: true; text: root.state.title
-            font.pixelSize: 20; font.bold: true; color: "#eeeef4"
+            font.pixelSize: 19; font.bold: true; color: "#eeeef4"
             MouseArea { anchors.fill: parent; onPressed: dialogModel.dragWindow() }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#8b85da" }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#454052" }
         ScrollView {
             id: messageScroll
             Layout.fillWidth: true; Layout.fillHeight: true; visible: !root.state.log
@@ -54,7 +54,10 @@ Rectangle {
                     required property string modelData
                     required property int index
                     objectName: "dialog-action-" + index
-                    text: modelData; primary: index === 0
+                    implicitWidth: 84
+                    text: modelData
+                    primary: modelData === root.state.primaryAction
+                    danger: modelData === root.state.dangerAction
                     onClicked: dialogModel.action(modelData)
                 }
             }

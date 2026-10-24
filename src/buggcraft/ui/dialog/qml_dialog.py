@@ -1,6 +1,6 @@
 """Shared native dialog host with Qt Quick content."""
 from pathlib import Path
-from PySide6.QtCore import QObject, Property, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout
 from ui.pages.qml_host import QmlPage
 
@@ -9,10 +9,13 @@ class DialogController(QObject):
     changed = Signal()
     actionRequested = Signal(str)
 
-    def __init__(self, parent, title, message='', detail='', actions=None):
+    def __init__(self, parent, title, message='', detail='', actions=None,
+                 primary_action=None, danger_action=''):
         super().__init__(parent)
         self.title, self.message, self.detail = title, message, detail
         self.actions = actions or []
+        self.primary_action = (self.actions[0] if self.actions else '') if primary_action is None else primary_action
+        self.danger_action = danger_action
         self.code = self.uri = self.log = ''
         self.copied = False
         self.working = False
@@ -25,7 +28,8 @@ class DialogController(QObject):
     def view(self):
         return dict(title=self.title, message=self.message, detail=self.detail,
                     actions=self.actions, code=self.code, uri=self.uri,
-                    copied=self.copied, log=self.log, working=self.working, progress=self.progress)
+                    copied=self.copied, log=self.log, working=self.working, progress=self.progress,
+                    primaryAction=self.primary_action, dangerAction=self.danger_action)
 
     @Slot(str)
     def action(self, name):
@@ -52,14 +56,15 @@ class DialogController(QObject):
 
 class QmlDialog(QDialog):
     def __init__(self, parent=None, *, resources=None, title='', message='', detail='',
-                 actions=None, width=550, height=320):
+                 actions=None, width=550, height=320, primary_action=None, danger_action=''):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setWindowTitle(title)
         self.resize(width, height)
         self.setMinimumSize(width, height)
         resources = resources or getattr(parent, 'resource_path', None) or Path(__file__).resolve().parents[4] / 'resources'
-        self.controller = DialogController(self, title, message, detail, actions)
+        self.controller = DialogController(self, title, message, detail, actions, primary_action, danger_action)
+        self._shutdown_scheduled = False
         self.host = QmlPage(self, resources, 'DialogContent.qml', 'dialogModel', self.controller)
         self.quick = self.host.quick
         layout = QVBoxLayout(self)
@@ -81,7 +86,11 @@ class QmlDialog(QDialog):
 
     def shutdown(self):
         self.controller._copy_timer.stop()
-        self.quick.setSource(QUrl())
+        # A QML button may still be on the stack when finished/actionRequested
+        # fires. Never destroy its engine content until that callback returns.
+        if not self._shutdown_scheduled:
+            self._shutdown_scheduled = True
+            QTimer.singleShot(0, self.host.unload)
 
 
 class DebugOutputDialog(QmlDialog):

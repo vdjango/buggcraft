@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import QObject, Property, Qt, Signal, Slot
 from PySide6.QtWidgets import QFileDialog, QDialog
 
 from config.settings import get_settings_manager
@@ -118,11 +118,12 @@ class InstancesController(QObject):
             self.changed.emit()
             dialog = QmlDialog(self.page, title=self._pending['title'],
                                message=identity, detail=self._pending['message'].split('\n', 1)[1],
-                               actions=['取消', '删除'], width=550, height=270)
+                               actions=['取消', '删除'], width=510, height=225,
+                               primary_action='', danger_action='删除')
             self._delete_dialog = dialog
             dialog.controller.actionRequested.connect(
                 lambda label: dialog.accept() if label == '删除' else dialog.reject())
-            dialog.finished.connect(self._finish_delete_dialog)
+            dialog.finished.connect(self._finish_delete_dialog, Qt.QueuedConnection)
             dialog.open()
         elif action == 'download':
             self.page.parent.parent.download_page.on_download_clicked()
@@ -174,7 +175,11 @@ class InstancesController(QObject):
                     raise ValueError('请先退出此实例中运行的游戏。')
                 for version in installed_instance_ids(directory):
                     metadata = json.loads((Path(directory) / 'versions' / version / (version + '.json')).read_text(encoding='utf-8'))
-                    if metadata.get('inheritsFrom') == identity or metadata.get('buggcraftRoom', {}).get('parent') == identity:
+                    if not isinstance(metadata, dict):
+                        raise ValueError(f'{version} 的版本信息格式无效，无法安全检查依赖。')
+                    room = metadata.get('buggcraftRoom')
+                    if (metadata.get('inheritsFrom') == identity or metadata.get('jar') == identity
+                            or isinstance(room, dict) and room.get('parent') == identity):
                         raise ValueError(f'{version} 仍依赖此实例，请先处理依赖。')
                 if not delete_minecraft_version(directory, identity):
                     raise OSError('实例删除失败，请检查文件占用与权限。')

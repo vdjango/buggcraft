@@ -1,0 +1,91 @@
+"""Real QML button clicks against temporary game instances only."""
+import json
+from unittest.mock import patch
+
+from PySide6.QtTest import QTest
+from _qml_test_support import LauncherQmlCase, Qt
+
+
+class InstanceDeletionTests(LauncherQmlCase):
+    def open_confirmation(self, identity='1.20.1', action='deleteVersion'):
+        self.window.switch_pages('实例')
+        controller = self.window.version_page.versions_page.controller
+        controller.action(identity, action)
+        self.pump()
+        dialog = controller._delete_dialog
+        self.assertIsNotNone(dialog)
+        return controller, dialog
+
+    def test_cancel_button_keeps_instance_and_launcher_alive(self):
+        controller, dialog = self.open_confirmation()
+        self.click(dialog.host, 'dialog-action-0')
+        self.assertIsNone(controller._delete_dialog)
+        self.assertTrue((self.game_dir / 'versions/1.20.1').is_dir())
+        self.assertTrue(self.window.isVisible())
+        self.assertEqual(controller.view['confirmation'], {})
+        self.assert_no_qml_errors()
+
+    def test_delete_button_removes_only_target_and_keeps_launcher_alive(self):
+        controller, dialog = self.open_confirmation()
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertIsNone(controller._delete_dialog)
+        self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
+        self.assertTrue((self.game_dir / 'versions/1.21.8').is_dir())
+        self.assertTrue(self.window.isVisible())
+        self.assert_no_qml_errors()
+
+    def test_repeated_cancel_escape_and_reopen_do_not_destroy_active_qml(self):
+        for index in range(12):
+            controller, dialog = self.open_confirmation()
+            self.assertFalse(self.item(dialog.host, 'dialog-action-0').property('primary'))
+            self.assertFalse(self.item(dialog.host, 'dialog-action-0').property('danger'))
+            self.assertTrue(self.item(dialog.host, 'dialog-action-1').property('danger'))
+            if index % 2:
+                QTest.keyClick(dialog.quick, Qt.Key_Escape)
+                self.pump()
+            else:
+                self.click(dialog.host, 'dialog-action-0')
+            self.assertIsNone(controller._delete_dialog)
+            self.assertTrue((self.game_dir / 'versions/1.20.1').is_dir())
+        self.assert_no_qml_errors()
+
+    def test_running_or_inherited_instance_is_not_deleted(self):
+        controller, dialog = self.open_confirmation()
+        with patch.object(controller, '_running', return_value=[(str(self.game_dir), '1.20.1')]):
+            self.click(dialog.host, 'dialog-action-1')
+        self.assertIn('退出', controller.view['status'])
+        path = self.game_dir / 'versions/1.21.8/1.21.8.json'
+        path.write_text(json.dumps(dict(id='1.21.8', inheritsFrom='1.20.1')), encoding='utf-8')
+        controller, dialog = self.open_confirmation()
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertIn('依赖', controller.view['status'])
+        self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
+
+    def test_directory_switch_during_confirmation_prevents_deletion(self):
+        controller, dialog = self.open_confirmation()
+        self.manager.set_setting('minecraft.directory.enable', str(self.directory / 'other'))
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertIn('目录已切换', controller.view['status'])
+        self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
+
+    def test_directory_cancel_and_delete_only_touch_temporary_games(self):
+        controller, dialog = self.open_confirmation(str(self.game_dir), 'deleteDirectory')
+        self.click(dialog.host, 'dialog-action-0')
+        self.assertTrue(self.game_dir.exists())
+        controller, dialog = self.open_confirmation(str(self.game_dir), 'deleteDirectory')
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertFalse(self.game_dir.exists())
+        self.assertTrue(self.window.isVisible())
+        self.assert_no_qml_errors()
+
+    def test_delete_failure_reports_error_and_allows_retry(self):
+        controller, dialog = self.open_confirmation()
+        with patch('ui.pages.qml_instances.delete_minecraft_version', return_value=False):
+            self.click(dialog.host, 'dialog-action-1')
+        self.assertIn('删除失败', controller.view['status'])
+        self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
+        controller, dialog = self.open_confirmation()
+        self.snapshot('instance-delete-confirmation', dialog)
+        self.click(dialog.host, 'dialog-action-1')
+        self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
+        self.assert_no_qml_errors()

@@ -101,7 +101,7 @@ def main(report):
         result['checks'].append('native-multiplayer-api')
 
         from PySide6.QtWidgets import QApplication
-        from PySide6.QtCore import QTimer, QObject, Qt
+        from PySide6.QtCore import QMetaObject, QTimer, QObject, Qt
         from PySide6.QtQuickWidgets import QQuickWidget
         import config.settings as settings
         resources = Path(__import__('sys').executable).resolve().parent / 'resources'
@@ -178,6 +178,39 @@ def main(report):
                     for host in window.findChildren(QmlPage):
                         host.ensure_loaded()
                     result['checks'].append('qml-all-launcher-pages')
+                    # Exercise the actual shipped QML button signal and its
+                    # close callback; controller-only checks missed a native
+                    # crash caused by unloading the executing QML component.
+                    deletion_root = Path(temp) / 'delete-check'
+                    identity = '1.20.1'
+                    metadata = deletion_root / 'versions' / identity / (identity + '.json')
+                    metadata.parent.mkdir(parents=True)
+                    metadata.write_text(json.dumps(dict(id=identity)), encoding='utf-8')
+                    settings._settings_manager_instance.set_setting('minecraft.directory.enable', str(deletion_root))
+                    instances = window.version_page.versions_page.controller
+                    instances.reload()
+                    def find_item(item, name):
+                        if item.objectName() == name:
+                            return item
+                        for child in item.childItems():
+                            found = find_item(child, name)
+                            if found is not None:
+                                return found
+                    for index in (0, 0, 1):
+                        instances.action(identity, 'deleteVersion')
+                        dialog = instances._delete_dialog
+                        dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+                        dialog.move(-20000, -20000)
+                        app.processEvents()
+                        if index == 0:
+                            dialog.grab().save(str(Path(report).with_name(Path(report).stem + '-delete.png')))
+                        button = find_item(dialog.quick.rootObject(), 'dialog-action-' + str(index))
+                        if button is None or not QMetaObject.invokeMethod(button, 'clicked', Qt.DirectConnection):
+                            raise RuntimeError('Missing instance deletion QML action')
+                        app.processEvents()
+                        if instances._delete_dialog is not None or metadata.exists() != (index == 0):
+                            raise RuntimeError('Instance deletion cancel/confirm did not complete safely')
+                    result['checks'].append('instance-delete-qml-cancel-confirm')
                     if lobby.quick.rootObject().findChild(QObject, 'export-diagnostics') is None:
                         raise RuntimeError('Missing multiplayer diagnostic export action')
                     from utils.diagnostics import export_diagnostics
