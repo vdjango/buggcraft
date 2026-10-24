@@ -143,6 +143,10 @@ class StartGamePage(QmlPage):
         self.auth_refresh_timer.timeout.connect(self.is_expired_token)
         self.auth_refresh_timer.start()
         self.refresh_game_sessions()
+        # Keep the social session alive for saved personal node profiles. This
+        # lets an incoming friend invitation surface even before the hall is
+        # opened, while anonymous-only setups incur no background work.
+        QTimer.singleShot(0, self._start_background_social)
 
     @property
     def auth(self):
@@ -224,10 +228,7 @@ class StartGamePage(QmlPage):
         self.controller.changed.emit()
 
     def show_multiplayer_dialog(self):
-        from ui.dialog.MultiplayerDialog import MultiplayerDialog
-        if not hasattr(self, '_multiplayer_dialog'):
-            self._multiplayer_dialog = MultiplayerDialog(self)
-            self._multiplayer_dialog.backend.changed.connect(self._social_changed)
+        self._ensure_multiplayer_dialog()
         self._multiplayer_dialog.detect_instance()
         self._multiplayer_dialog.showNormal()
         self._multiplayer_dialog.raise_()
@@ -239,14 +240,36 @@ class StartGamePage(QmlPage):
         self.controller.changed.emit()
 
     def show_friends_dialog(self):
-        from ui.dialog.MultiplayerDialog import MultiplayerDialog
-        if not hasattr(self, '_multiplayer_dialog'):
-            self._multiplayer_dialog = MultiplayerDialog(self)
-            self._multiplayer_dialog.backend.changed.connect(self._social_changed)
+        self._ensure_multiplayer_dialog()
         if not self._multiplayer_dialog.backend.view['socialReady']:
             self.show_multiplayer_dialog()
             return
         self._multiplayer_dialog.show_friends()
+
+    def _ensure_multiplayer_dialog(self):
+        from ui.dialog.MultiplayerDialog import MultiplayerDialog
+        if not hasattr(self, '_multiplayer_dialog'):
+            self._multiplayer_dialog = MultiplayerDialog(self)
+            self._multiplayer_dialog.backend.changed.connect(self._social_changed)
+        return self._multiplayer_dialog
+
+    def _start_background_social(self):
+        if hasattr(self, '_multiplayer_dialog'):
+            return
+        try:
+            from hookup.storage import LobbyStore
+            from hookup.profiles import RelayProfile
+            store = LobbyStore(Path(self.cache_path) / 'multiplayer' / 'lobby.json')
+            for path in store.data.get('nodes', []):
+                try:
+                    if RelayProfile.load(path).token.startswith('acct1.'):
+                        dialog = self._ensure_multiplayer_dialog()
+                        dialog.backend.reload_store(select=path)
+                        break
+                except (OSError, ValueError):
+                    continue
+        except Exception:
+            logger.debug('background social session unavailable', exc_info=True)
 
     def handle_auth_success(self, username, data):
         mode = data.get('type', 'offline')

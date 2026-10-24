@@ -200,9 +200,61 @@ class ChatControllerTests(unittest.TestCase):
         self.assertIsNone(controller.pending_friend_invite)
         self.assertEqual(controller.view["pendingFriendInvite"], "")
 
+    def test_friend_invitation_notifies_once_and_disappears_when_consumed(self):
+        controller = self.controller
+        notifications = []
+        controller.friend_invited.connect(notifications.append)
+        invitation = dict(id='1' * 32, account='c' * 32 + '.' + 'd' * 32,
+                          username='Alice', room='room-1', expires_at=int(time.time()) + 300)
+        controller.apply_social_state(self._social_state(invitations=[invitation]))
+        self.assertEqual(notifications, [invitation])
+        controller.apply_social_state(self._social_state(invitations=[invitation]))
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(controller.view['friendInvitations'], [invitation])
+        controller.apply_social_state(self._social_state(invitations=[]))
+        self.assertEqual(controller.view['friendInvitations'], [])
+
+    def test_friend_room_invite_reports_success_and_failure_for_retry(self):
+        controller = self.controller
+        account = 'c' * 32 + '.' + 'd' * 32
+        invitation = dict(id='1' * 32, account='a' * 32 + '.' + 'b' * 32,
+                          username='owner', room='room-1')
+        controller.apply_social_state(self._social_state(
+            friends=[dict(account=account, username='Alice', online=True)]))
+        controller.node_path = 'dummy-node.json'
+        endpoint = Mock(connection=True, invite=Mock(room_id='room-1'), room_info={})
+        controller.service.endpoints['first'] = endpoint
+        controller.records['first'].update(role='host', availability='ready', state='online')
+        outcomes, jobs = [], []
+        controller.friend_finished.connect(lambda success, message: outcomes.append((success, message)))
+        with patch.object(controller, 'profile', return_value=Mock()), \
+                patch.object(controller, 'job', side_effect=lambda key, coroutine: jobs.append((key, coroutine))), \
+                patch('hookup.social.operate', return_value=self._social_state(
+                    friends=[dict(account=account, username='Alice', online=True)])):
+            controller.invite_friend(account)
+            self.assertEqual(controller.view['outgoingInvitations'][account]['status'], '发送中…')
+            key, task = jobs.pop()
+            controller.finish(key, asyncio.run(task), None)
+            self.assertEqual(controller.view['outgoingInvitations'][account]['status'], '已发送')
+            self.assertTrue(outcomes[-1][0])
+
+        jobs = []
+        with patch.object(controller, 'profile', return_value=Mock()), \
+                patch.object(controller, 'job', side_effect=lambda key, coroutine: jobs.append((key, coroutine))), \
+                patch('hookup.social.operate', side_effect=ConnectionError('节点暂不可用')):
+            controller.invite_friend(account)
+            key, task = jobs.pop()
+            with self.assertRaises(ConnectionError) as caught:
+                asyncio.run(task)
+            controller.finish(key, None, caught.exception)
+        self.assertEqual(controller.view['outgoingInvitations'][account]['status'], '发送失败，重试')
+        self.assertFalse(outcomes[-1][0])
+
     def _social_state(self, **changes):
-        return dict(account='a' * 32 + '.' + 'b' * 32, username='local_user',
-                    friends=[], requests=[], invitations=[], **changes)
+        state = dict(account='a' * 32 + '.' + 'b' * 32, username='local_user',
+                     friends=[], requests=[], invitations=[])
+        state.update(changes)
+        return state
 
     def test_friend_lookup_sends_request_and_waits_for_consent(self):
         self._friend_node()

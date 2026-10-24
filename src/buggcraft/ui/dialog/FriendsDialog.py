@@ -6,11 +6,12 @@ from PySide6.QtWidgets import QDialog, QVBoxLayout
 
 class FriendsController(QObject):
     changed = Signal()
+    showInvitations = Signal()
 
     def __init__(self, window, backend):
         super().__init__(window)
         self.window, self.backend = window, backend
-        self.local = dict(page='friends', editIndex=-1, friendName='', friendAccount='', error='', notice='')
+        self.local = dict(page='friends', friendTab=0, editIndex=-1, friendName='', friendAccount='', error='', notice='')
         backend.changed.connect(self.changed)
         backend.friend_finished.connect(self.finish_lookup)
 
@@ -45,7 +46,8 @@ class FriendsController(QObject):
             elif action == 'removeFriend':
                 self.backend.social_operation('remove', data['account'])
                 self.local.update(page='friends', error='', notice='')
-            elif action in ('acceptFriend', 'declineFriend', 'inviteFriend', 'refreshFriends'):
+            elif action in ('acceptFriend', 'declineFriend', 'inviteFriend', 'refreshFriends',
+                            'ignoreFriendInvite', 'cancelFriendInvite'):
                 self.backend.act(action, data)
                 if self.backend.view['error']:
                     raise ValueError(self.backend.view['error'])

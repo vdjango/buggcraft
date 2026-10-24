@@ -328,7 +328,12 @@ class MultiplayerController(QObject):
                 self.patch(friendInvitations=[item for item in self._state['friendInvitations']
                                               if item['id'] != data['id']])
             elif action == 'cancelFriendInvite':
+                pending = self.pending_friend_invite
                 self.pending_friend_invite = None
+                outgoing = dict(self._state['outgoingInvitations'])
+                if pending:
+                    outgoing.pop(pending[1], None)
+                self.patch(outgoingInvitations=outgoing)
                 self.patch(pendingFriendInvite='', notice='已取消待发送的邀请。')
             elif action == 'acceptFriend':
                 self.social_operation('accept', data['account'], ref=data['id'])
@@ -784,6 +789,8 @@ class MultiplayerController(QObject):
                 self.check_room_compatibility(record)
             if event.get('title'):
                 record['title'] = event['title']
+            if event.get('state') == 'ready' or record.get('availability') == 'ready':
+                self._dispatch_pending_friend_invite(name)
         elif event.get('type') == 'ready':
             record['chatState'] = '在线'
             record['bridgeStatus'] = str(event.get('bridge', record['bridgeStatus']))[:160]
@@ -826,8 +833,12 @@ class MultiplayerController(QObject):
             return
         if state in ('closed', 'stopped', 'error'):
             if self.pending_friend_invite and self.pending_friend_invite[2:] == (name,):
+                account = self.pending_friend_invite[1]
                 self.pending_friend_invite = None
-                self.patch(pendingFriendInvite='', socialError='房间未能保持连接，未发送好友邀请。请创建房间后重新邀请。')
+                outgoing = dict(self._state['outgoingInvitations'])
+                outgoing[account] = dict(outgoing.get(account, {}), status='房间未建立，点击重试', at=time.time())
+                self.patch(pendingFriendInvite='', outgoingInvitations=outgoing,
+                           socialError='房间未能保持连接，未发送好友邀请。请重试邀请。')
             self.forget_room(name, detail if state != 'stopped' else '已退出房间。')
             return
         if state == 'warning':
@@ -846,17 +857,27 @@ class MultiplayerController(QObject):
             self.check_room_compatibility(record)
         self.publish_connections()
 
-        if (state == 'online' and record.get('availability', 'ready') == 'ready'
-                and self.pending_friend_invite
-                and self.pending_friend_invite[0] == self.social_generation
-                and self.pending_friend_invite[2:] == (name,)):
-            account = self.pending_friend_invite[1]
-            self.pending_friend_invite = None
-            self.patch(pendingFriendInvite='')
-            try:
-                self.invite_friend(account)
-            except (ValueError, OSError) as exc:
-                self.patch(socialError='房间已创建，但邀请未发送：' + str(exc))
+        if state == 'online' and record.get('availability', 'ready') == 'ready':
+            self._dispatch_pending_friend_invite(name)
+
+    def _dispatch_pending_friend_invite(self, name):
+        """Send a queued friend invite once the host room is really usable."""
+        record = self.records.get(name, {})
+        if not (record.get('state') == 'online' and
+                record.get('availability', 'ready') == 'ready' and
+                self.pending_friend_invite and
+                self.pending_friend_invite[0] == self.social_generation and
+                self.pending_friend_invite[2:] == (name,)):
+            return
+        account = self.pending_friend_invite[1]
+        self.pending_friend_invite = None
+        self.patch(pendingFriendInvite='')
+        try:
+            self.invite_friend(account)
+        except (ValueError, OSError) as exc:
+            outgoing = dict(self._state['outgoingInvitations'])
+            outgoing[account] = dict(outgoing.get(account, {}), status='发送失败，重试', at=time.time())
+            self.patch(socialError='房间已创建，但邀请未发送：' + str(exc), outgoingInvitations=outgoing)
 
     def check_room_compatibility(self, record):
         remote = record.get('game') or {}
@@ -1044,8 +1065,14 @@ class MultiplayerController(QObject):
         self.job('socialop:' + self.social_generation + ':' + uuid.uuid4().hex, perform())
 
     def invite_friend(self, account):
+        if self._state['friendBusy']:
+            raise ValueError('正在处理好友操作，请稍候。')
         if not self._state['socialReady']:
             raise ValueError('请先登录节点账号。')
+        if self.pending_friend_invite:
+            if self.pending_friend_invite[1] == account:
+                return
+            raise ValueError('还有等待房间开放的邀请。请先发送或取消，再邀请另一位好友。')
         friend = next((item for item in self._state['contacts'] if item['account'] == account), None)
         if not friend or not friend['online']:
             raise ValueError('好友当前不在线，请在对方上线后邀请。')
@@ -1057,9 +1084,19 @@ class MultiplayerController(QObject):
         endpoint = self.service.endpoints.get(name)
         if endpoint is None or not endpoint.connection:
             self.require_available_node()
-            self.navigate('create')
+            waiting = [key for key, record in self.records.items()
+                       if record.get('role') == 'host' and record.get('state') in ('online', 'connecting', 'reconnecting')]
+            waiting_name = selected if selected in waiting else next(iter(waiting), '')
             self.pending_friend_invite = (self.social_generation, account)
+            if waiting_name:
+                self.pending_friend_invite += (waiting_name,)
+                self.patch(page='connected', selected=waiting_name)
+            else:
+                self.navigate('create')
+            outgoing = dict(self._state['outgoingInvitations'])
+            outgoing[account] = dict(status='等待房间开放，自动发送', room='', at=time.time())
             self.patch(pendingFriendInvite=friend['name'],
+                       outgoingInvitations=outgoing,
                        notice='先创建并开放房间，成功后会自动邀请 ' + friend['name'] + '。')
             return
         outgoing = dict(self._state['outgoingInvitations'])
@@ -1094,7 +1131,7 @@ class MultiplayerController(QObject):
         self.seen_friend_invitations.intersection_update(live_ids)
         self.ignored_friend_invitations.intersection_update(live_ids)
         outgoing = {account: dict(item, status='邀请已过期，请重新邀请')
-                    if time.time() - item['at'] >= 300 else item
+                    if item.get('status') == '已发送' and time.time() - item['at'] >= 300 else item
                     for account, item in self._state['outgoingInvitations'].items()}
         self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=invitations,
                    socialReady=True, socialLoading=False, socialAccount=state['account'],

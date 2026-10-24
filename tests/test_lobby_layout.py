@@ -12,6 +12,7 @@ from PySide6.QtCore import Property, QObject, QPointF, Qt, Signal, Slot, QUrl, Q
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from PySide6.QtQuick import QQuickView, QQuickItem
+from PySide6.QtQuickWidgets import QQuickWidget
 
 
 class LobbyBackend(QObject):
@@ -969,6 +970,17 @@ class FriendWindowTests(unittest.TestCase):
         self.assertFalse(find_item(self.dialog.quick, 'back-friends').isVisible())
         self.assertEqual(find_item(self.dialog.quick, 'window-page-title').property('text'), '我的好友')
         self.assertEqual(len(self.owner.backend.store.data['contacts']), 1)
+
+    def test_notification_selects_invites_without_pinning_the_tab(self):
+        invitation = dict(id='notification', account='a' * 32 + '.' + 'b' * 32, username='Friend')
+        self.owner.backend._view['friendInvitations'] = [invitation]
+        self.owner.backend.changed.emit()
+        self.dialog.backend.showInvitations.emit()
+        QTest.qWait(40)
+        self.assertTrue(find_item(self.dialog.quick, 'join-friend-invite').isVisible())
+        self.dialog.backend.changed.emit()
+        QTest.qWait(20)
+        self.assertEqual(self.dialog.quick.status(), QQuickWidget.Ready)
 
 
 if __name__ == '__main__':

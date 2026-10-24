@@ -30,6 +30,7 @@ class MultiplayerDialog(QDialog):
         self.friends_window = None
         self.invitation_dialog = None
         self._invitation = None
+        self._invitation_queue = []
         self.backend = MultiplayerController(self, storage_path)
         self.backend.friend_invited.connect(self.show_friend_invitation)
         self.backend.changed.connect(self.refresh_invitation)
@@ -63,23 +64,35 @@ class MultiplayerDialog(QDialog):
     def detect_instance(self):
         self.backend.detect_instance()
 
-    def show_friends(self):
+    def show_friends(self, invitations=False):
         from ui.dialog.FriendsDialog import FriendsDialog
         if self.friends_window is None:
             self.friends_window = FriendsDialog(self, self.resources)
         self.friends_window.showNormal()
+        if invitations:
+            self.friends_window.backend.local['friendTab'] = 2
+            self.friends_window.backend.changed.emit()
+            self.friends_window.backend.showInvitations.emit()
         self.friends_window.raise_()
         self.friends_window.activateWindow()
 
     def show_friend_invitation(self, invitation):
         """Keep invitations visible even when the friends window is closed."""
-        if self._shutdown:
+        if self._shutdown or not self.backend.view.get('socialReady'):
+            return
+        invitation = dict(invitation)
+        invitation_id = invitation.get('id')
+        if (invitation_id and
+                (invitation_id == (self._invitation or {}).get('id') or
+                 any(item.get('id') == invitation_id for item in self._invitation_queue))):
+            return
+        if self.invitation_dialog is not None:
+            self._invitation_queue.append(invitation)
+            QApplication.alert(self.launcher_page.window() if self.launcher_page else self, 0)
             return
         QApplication.alert(self.launcher_page.window() if self.launcher_page else self, 0)
-        if self.invitation_dialog is not None:
-            return
         from ui.dialog.qml_dialog import QmlDialog
-        self._invitation = dict(invitation)
+        self._invitation = invitation
         dialog = QmlDialog(self, resources=self.resources, title='收到联机邀请',
                            message=invitation['username'] + ' 邀请你加入房间',
                            detail='邀请在发送后 5 分钟内有效。加入前请准备兼容的游戏实例。',
@@ -90,6 +103,18 @@ class MultiplayerDialog(QDialog):
         dialog.controller.actionRequested.connect(self.invitation_action)
         dialog.finished.connect(self.close_invitation)
         dialog.show()
+
+    def _show_next_invitation(self):
+        if (self._shutdown or not self.backend.view.get('socialReady') or
+                self.invitation_dialog is not None):
+            return
+        live = {item.get('id'): item for item in self.backend.view.get('friendInvitations', [])}
+        while self._invitation_queue:
+            candidate = self._invitation_queue.pop(0)
+            invitation_id = candidate.get('id')
+            if invitation_id in live:
+                self.show_friend_invitation(live[invitation_id])
+                return
 
     def invitation_action(self, action):
         invitation = self._invitation
@@ -103,11 +128,13 @@ class MultiplayerDialog(QDialog):
             self.raise_()
             self.activateWindow()
         elif action == '查看邀请':
-            self.show_friends()
+            self.show_friends(invitations=True)
 
     def refresh_invitation(self):
+        live = {item.get('id') for item in self.backend.view.get('friendInvitations', [])}
+        self._invitation_queue = [item for item in self._invitation_queue if item.get('id') in live]
         if self.invitation_dialog and (not self.backend.view['socialReady'] or
-                not any(item['id'] == self._invitation['id'] for item in self.backend.view['friendInvitations'])):
+                not self._invitation or self._invitation.get('id') not in live):
             self.invitation_dialog.reject()
 
     def close_invitation(self, *_):
@@ -116,6 +143,8 @@ class MultiplayerDialog(QDialog):
         if dialog:
             dialog.shutdown()
             dialog.deleteLater()
+        if self._invitation_queue and not self._shutdown:
+            QTimer.singleShot(0, self._show_next_invitation)
 
     def shutdown(self):
         if self._shutdown:

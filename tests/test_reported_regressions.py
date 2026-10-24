@@ -285,3 +285,35 @@ class ReportedUiTests(LauncherQmlCase):
         lobby.shutdown()
         self.assertTrue(lobby.backend.closed)
         self.assert_no_qml_errors()
+
+    def test_friend_notifications_queue_and_skip_expired_invitations(self):
+        lobby = self.window.started_page._ensure_multiplayer_dialog()
+        first = dict(id='first', account='a' * 32 + '.' + 'b' * 32, username='Alice')
+        second = dict(id='second', account='c' * 32 + '.' + 'd' * 32, username='Bob')
+        lobby.backend.patch(socialReady=True, friendInvitations=[first, second])
+        lobby.show_friend_invitation(first)
+        lobby.show_friend_invitation(second)
+        lobby.show_friend_invitation(second)
+        self.assertEqual(lobby._invitation['id'], 'first')
+        self.assertEqual(len(lobby._invitation_queue), 1)
+        lobby.invitation_action('查看邀请')
+        self.pump(60)
+        self.assertTrue(lobby.friends_window.isVisible())
+        self.assertTrue(self.item(lobby.friends_window, 'join-friend-invite').isVisible())
+        self.assertEqual(lobby._invitation['id'], 'second')
+        lobby.backend.patch(friendInvitations=[])
+        self.pump(60)
+        self.assertIsNone(lobby.invitation_dialog)
+        lobby.shutdown()
+        self.assert_no_qml_errors()
+
+    def test_personal_node_starts_background_friend_reception_without_opening_hall(self):
+        start = self.window.started_page
+        store = Mock(data={'nodes': ['anonymous.json', 'personal.json']})
+        dialog = Mock()
+        with patch('hookup.storage.LobbyStore', return_value=store), \
+                patch('hookup.profiles.RelayProfile.load', side_effect=[Mock(token='guest'), Mock(token='acct1.fixture')]), \
+                patch.object(start, '_ensure_multiplayer_dialog', return_value=dialog):
+            start._start_background_social()
+        dialog.backend.reload_store.assert_called_once_with(select='personal.json')
+        dialog.show.assert_not_called()
