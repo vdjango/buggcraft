@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -305,6 +306,45 @@ class ModpackImporter:
         # modpack tasks can still fetch their resources concurrently.
         versions_root = self.root / 'versions'
         before_versions = {item.name for item in versions_root.iterdir()} if versions_root.exists() else set()
+        receipt = cache / ('intermediates-' + hashlib.sha256(identity.encode()).hexdigest() + '.json')
+        # A failed loader/extraction may already have written vanilla and loader
+        # profiles. Keep their ownership across retry, but only if untouched
+        # since the previous attempt; existing or changed installs stay intact.
+        try:
+            previous = json.loads(receipt.read_text(encoding='utf-8'))
+            if isinstance(previous, dict):
+                for name, stamp in previous.items():
+                    if (stamp is not None and name in before_versions
+                            and self._intermediate_stamp(versions_root / name) == stamp):
+                        before_versions.discard(name)
+        except (OSError, ValueError):
+            pass
+        try:
+            return self._assemble_instance(archive_path, identity, info, archive_hash, cache,
+                                           downloader, jobs, target, before_versions)
+        finally:
+            try:
+                if target.exists():
+                    receipt.unlink(missing_ok=True)
+                elif versions_root.exists():
+                    created = {item.name: self._intermediate_stamp(item) for item in versions_root.iterdir()
+                               if item.name not in before_versions and item.is_dir() and not item.is_symlink()}
+                    receipt.write_text(json.dumps(created), encoding='utf-8')
+            except OSError:
+                logging.getLogger(__name__).warning('Could not retain intermediate installation ownership', exc_info=True)
+
+    @staticmethod
+    def _intermediate_stamp(directory):
+        try:
+            if directory.is_symlink():
+                return None
+            return [[item.relative_to(directory).as_posix(), item.stat().st_size, item.stat().st_mtime_ns]
+                    for item in sorted(directory.rglob('*'))]
+        except OSError:
+            return None
+
+    def _assemble_instance(self, archive_path, identity, info, archive_hash, cache, downloader, jobs, target,
+                           before_versions):
         if info.loader:
             installed = install_loader(info.loader, info.minecraft, info.loader_version, str(self.root), self.java,
                 {'setStatus': lambda value: self.status('[3/5] ' + str(value)),

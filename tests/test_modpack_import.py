@@ -128,6 +128,35 @@ class ModpackTests(unittest.TestCase):
         self.assertEqual(malformed.read_text(encoding='utf-8'), '[]')
         self.assertTrue((self.game / 'versions/Combined/Combined.jar').is_file())
 
+    def test_loader_failure_then_retry_removes_profiles_created_by_first_attempt(self):
+        self.manifest['files'] = []
+        self.pack()
+        def fail_after_profiles(*args, **kwargs):
+            self.install_loader()
+            raise RuntimeError('processor stopped after writing profiles')
+        with patch('core.modpacks.install_loader', side_effect=fail_after_profiles):
+            with self.assertRaisesRegex(RuntimeError, 'processor stopped'):
+                ModpackImporter(self.game).install(self.archive, 'Retried')
+        self.assertTrue((self.game / 'versions/1.20.1').exists())
+        with patch('core.modpacks.install_loader', side_effect=self.install_loader):
+            ModpackImporter(self.game).install(self.archive, 'Retried')
+        self.assertEqual([item.name for item in (self.game / 'versions').iterdir()], ['Retried'])
+
+    def test_changed_intermediate_after_failure_is_preserved_on_retry(self):
+        self.manifest['files'] = []
+        self.pack()
+        def fail_after_profiles(*args, **kwargs):
+            self.install_loader()
+            raise RuntimeError('processor stopped')
+        with patch('core.modpacks.install_loader', side_effect=fail_after_profiles):
+            with self.assertRaises(RuntimeError):
+                ModpackImporter(self.game).install(self.archive, 'Retried')
+        marker = self.game / 'versions/1.20.1/user-file.txt'
+        marker.write_text('keep this modified instance', encoding='utf-8')
+        with patch('core.modpacks.install_loader', side_effect=self.install_loader):
+            ModpackImporter(self.game).install(self.archive, 'Retried')
+        self.assertEqual(marker.read_text(encoding='utf-8'), 'keep this modified instance')
+
     def test_imported_alias_copies_display_fields_from_core_for_other_launchers(self):
         self.manifest['files'] = []
         self.pack()
