@@ -39,6 +39,15 @@ def required_java(directory, version):
         if not path.is_file():
             return required or None
         metadata = json.loads(path.read_text(encoding='utf-8'))
+        from core.version_metadata import base_version
+        release_name = base_version(metadata, current)
+        match = re.fullmatch(r'(\d+)\.(\d+)(?:\.(\d+))?(?:[- ].*)?', release_name)
+        if match:
+            release = tuple(int(part or 0) for part in match.groups())
+            required = max(required, 25 if release >= (26, 1, 0) else
+                           21 if release >= (1, 20, 5) else
+                           17 if release >= (1, 18, 0) else
+                           16 if release >= (1, 17, 0) else 8)
         major = metadata.get('javaVersion', {}).get('majorVersion')
         if type(major) is int and major > 0:
             required = max(required, major)

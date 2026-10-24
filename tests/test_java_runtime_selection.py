@@ -71,6 +71,16 @@ class JavaRuntimeSelectionTests(unittest.TestCase):
         self.metadata('future', javaVersion={'majorVersion': 26}, inheritsFrom='26.1')
         self.assertEqual(required_java(self.root, 'future'), 26)
 
+    def test_combined_modpack_keeps_java_policy_after_ancestors_are_removed(self):
+        self.metadata('ModernPack', clientVersion='26.1', buggcraftModpack={'minecraft': '26.1'})
+        self.assertEqual(required_java(self.root, 'ModernPack'), 25)
+        self.assertEqual(java_policy(self.root, 'ModernPack').minimum, 25)
+        self.metadata('LegacyPack', clientVersion='1.12.2',
+                      libraries=[{'name': 'net.minecraftforge:forge:1.12.2-14.23.5.2860'}],
+                      mainClass='net.minecraft.launchwrapper.Launch')
+        policy = java_policy(self.root, 'LegacyPack')
+        self.assertEqual((policy.minimum, policy.maximum), (8, 8))
+
     def test_loader_policy_keeps_legacy_forge_on_java_8(self):
         self.metadata('1.12.2', libraries=[{'name': 'net.minecraftforge:forge:1.12.2-14.23.5.2860'}],
                       mainClass='net.minecraft.launchwrapper.Launch')

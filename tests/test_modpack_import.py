@@ -42,6 +42,7 @@ class ModpackTests(unittest.TestCase):
             destination = self.game / 'versions' / identity / (identity + '.json')
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(json.dumps(metadata), encoding='utf-8')
+        (self.game / 'versions/1.20.1/1.20.1.jar').write_bytes(b'fake minecraft client jar')
         return '1.20.1-forge-47.4.0'
 
     def test_real_http_retry_reuses_verified_files_and_publishes_separate_instance(self):
@@ -79,9 +80,13 @@ class ModpackTests(unittest.TestCase):
         self.assertEqual((target / 'mods/bundled.jar').read_bytes(), b'bundled')
         self.assertTrue((target / 'config/示例.json').is_file())
         metadata = json.loads((target / 'My-Pack.json').read_text(encoding='utf-8'))
-        self.assertEqual(metadata['inheritsFrom'], '1.20.1-forge-47.4.0')
-        self.assertEqual(metadata['jar'], '1.20.1')
+        self.assertNotIn('inheritsFrom', metadata)
+        self.assertNotIn('jar', metadata)
+        self.assertEqual(metadata['id'], 'My-Pack')
+        self.assertEqual((target / 'My-Pack.jar').read_bytes(), b'fake minecraft client jar')
         self.assertFalse((self.game / 'mods').exists())
+        self.assertFalse((self.game / 'versions/1.20.1').exists())
+        self.assertFalse((self.game / 'versions/1.20.1-forge-47.4.0').exists())
         with self.assertRaisesRegex(ValueError, '已存在'):
             ModpackImporter(self.game).install(self.archive, 'My-Pack')
         self.assertEqual((target / 'mods/downloaded.jar').read_bytes(), payload)
@@ -96,6 +101,32 @@ class ModpackTests(unittest.TestCase):
                 importer.install(self.archive, 'cancelled')
         self.assertFalse((self.game / 'versions' / 'cancelled').exists())
         self.assertEqual(list((self.game / '.buggcraft-downloads/modpacks').glob('*/instance-*')), [])
+
+    def test_combined_pack_preserves_natives_and_existing_vanilla_install(self):
+        self.manifest['files'] = []
+        self.pack()
+        self.install_loader()
+        natives = self.game / 'versions/1.20.1/natives'
+        natives.mkdir()
+        (natives / 'fixture.dll').write_bytes(b'fixture native')
+        with patch('core.modpacks.install_loader', side_effect=self.install_loader):
+            ModpackImporter(self.game).install(self.archive, 'Combined')
+        combined = self.game / 'versions/Combined'
+        self.assertEqual((combined / 'natives/fixture.dll').read_bytes(), b'fixture native')
+        metadata = json.loads((combined / 'Combined.json').read_text(encoding='utf-8'))
+        self.assertEqual(metadata['clientVersion'], '1.20.1')
+        self.assertTrue((self.game / 'versions/1.20.1/1.20.1.jar').is_file())
+
+    def test_malformed_neighbor_does_not_break_published_import(self):
+        self.manifest['files'] = []
+        self.pack()
+        malformed = self.game / 'versions/Broken/Broken.json'
+        malformed.parent.mkdir(parents=True)
+        malformed.write_text('[]', encoding='utf-8')
+        with patch('core.modpacks.install_loader', side_effect=self.install_loader):
+            self.assertEqual(ModpackImporter(self.game).install(self.archive, 'Combined'), 'Combined')
+        self.assertEqual(malformed.read_text(encoding='utf-8'), '[]')
+        self.assertTrue((self.game / 'versions/Combined/Combined.jar').is_file())
 
     def test_imported_alias_copies_display_fields_from_core_for_other_launchers(self):
         self.manifest['files'] = []

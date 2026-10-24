@@ -152,7 +152,8 @@ def instance_environment(directory, identity):
             if marker in names:
                 loader = loader or value
         if not metadata.get('inheritsFrom'):
-            return current, loader
+            from core.version_metadata import base_version
+            return base_version(metadata, current), loader
         current = metadata['inheritsFrom']
     raise ValueError('实例缺少有效版本元数据')
 

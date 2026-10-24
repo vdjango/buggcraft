@@ -344,6 +344,13 @@ class MinecraftDownloader:
         if metadata.get("id") != version:
             raise ValueError("版本元数据与所选版本不一致")
 
+        self.install_metadata(version, metadata)
+
+    def install_metadata(self, version, metadata):
+        """Repair a resolved local instance without looking up its display name."""
+        if metadata.get('id') != version or not metadata.get('downloads', {}).get('client'):
+            raise ValueError('实例缺少游戏核心下载信息')
+
         jobs, natives = [], []
         for library in metadata.get("libraries", []):
             if not self.allowed(library.get("rules")):

@@ -296,6 +296,15 @@ class ModpackImporter:
         self.check()
         self.progress(0, 0)
         self.status('[3/5] 正在安装 Minecraft 和加载器…')
+        from utils.download_locks import download_lock
+        with download_lock(self.root / '.buggcraft-loader-install', self.cancel):
+            return self._install_instance(archive_path, identity, info, archive_hash, cache, downloader, jobs, target)
+
+    def _install_instance(self, archive_path, identity, info, archive_hash, cache, downloader, jobs, target):
+        # Loader setup and intermediate cleanup form one transaction. Other
+        # modpack tasks can still fetch their resources concurrently.
+        versions_root = self.root / 'versions'
+        before_versions = {item.name for item in versions_root.iterdir()} if versions_root.exists() else set()
         if info.loader:
             installed = install_loader(info.loader, info.minecraft, info.loader_version, str(self.root), self.java,
                 {'setStatus': lambda value: self.status('[3/5] ' + str(value)),
@@ -361,13 +370,35 @@ class ModpackImporter:
                 if not parent.get('inheritsFrom'):
                     break
                 jar = parent['inheritsFrom']
+            # Publish the pack as one ordinary launcher version. Keeping an
+            # alias with inheritsFrom makes launchers that scan versions offer
+            # the vanilla and loader intermediary entries as separate games.
+            # Resolve the full loader chain now, then place its client JAR and
+            # flattened metadata beside the imported pack.
+            from core.launch_preparation import resolved_metadata, version_chain
+            chain = version_chain(self.root, installed)
+            resolved = resolved_metadata(chain)
+            core_jar = self.root / 'versions' / jar / (jar + '.jar')
+            if not core_jar.is_file():
+                raise FileNotFoundError(f'缺少游戏核心：{core_jar}')
+            resolved.pop('inheritsFrom', None)
+            resolved.pop('jar', None)
+            resolved['id'] = identity
+            resolved['clientVersion'] = info.minecraft
+            shutil.copyfile(core_jar, stage / (identity + '.jar'))
+            # Older Minecraft releases load extracted natives from their version
+            # directory. Move these into the combined instance before cleanup.
+            for name, _ in reversed(chain):
+                natives = self.root / 'versions' / name / 'natives'
+                if natives.is_dir():
+                    shutil.copytree(natives, stage / 'natives', dirs_exist_ok=True)
             self.progress(0, 0)
             self.status('[5/5] 正在保存独立游戏实例…')
-            metadata = {'id': identity, 'inheritsFrom': installed, 'jar': jar,
-                        'buggcraftModpack': {'name': info.name, 'version': info.version, 'minecraft': info.minecraft,
+            metadata = resolved
+            metadata['buggcraftModpack'] = {'name': info.name, 'version': info.version, 'minecraft': info.minecraft,
                                             'loader': info.loader, 'loaderVersion': info.loader_version,
                                             'archiveSha256': archive_hash, 'recommendedRam': info.recommended_ram,
-                                            'source': info.source}}
+                                            'source': info.source}
             # Display metadata is optional for aliases. Include it when available
             # for compatibility with other launchers, without inventing dates.
             for key in ('type', 'time', 'releaseTime'):
@@ -398,8 +429,41 @@ class ModpackImporter:
                         self.status('[5/5] 文件暂被占用，正在等待 Windows 释放后保存实例…')
                     if self.cancel.wait(0.5):
                         self.check()
+            # The loader installation may have created one vanilla and one
+            # loader directory. Remove only those created by this transaction,
+            # and retain any that another installed version still inherits.
+            self._remove_unused_intermediates(target, before_versions, chain)
             self.status('整合包导入完成')
             return identity
         finally:
             if stage.exists():
                 shutil.rmtree(stage)
+
+    def _remove_unused_intermediates(self, target, before_versions, chain):
+        versions = disk_path(self.root / 'versions')
+        created = {name for name, _ in chain} - before_versions - {target.name}
+        referenced = set()
+        for metadata_path in versions.glob('*/*.json'):
+            if metadata_path.parent.name in created or metadata_path.parent.name == target.name:
+                continue
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(metadata, dict):
+                continue
+            for key in ('inheritsFrom', 'jar'):
+                value = metadata.get(key)
+                if isinstance(value, str):
+                    referenced.add(value)
+        # Preserve transitive ancestors of a concurrently published alias too.
+        for _ in chain:
+            for name, metadata in chain:
+                if name in referenced:
+                    referenced.update(value for key in ('inheritsFrom', 'jar')
+                                      if isinstance(value := metadata.get(key), str))
+        for name in created - referenced:
+            path = (versions / name).resolve()
+            if path.parent != versions.resolve() or (versions / name).is_symlink():
+                continue
+            shutil.rmtree(path, ignore_errors=True)

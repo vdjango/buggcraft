@@ -324,6 +324,10 @@ class MinecraftLibLauncher(QObject):
                     self.minecraft_directory, self.minecraft_version, callback,
                     self.settings_manager.get_setting('settings.general.mirrors', '自动'))
                 options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')
+            elif isinstance(metadata.get('buggcraftModpack'), dict):
+                from core.launch_preparation import prepare_standalone
+                prepare_standalone(self.minecraft_directory, self.minecraft_version, callback,
+                                   self.settings_manager.get_setting('settings.general.mirrors', '自动'))
             elif not verified_installation(self.minecraft_directory, self.minecraft_version):
                 from core.loaders import _use_download_source
                 with _use_download_source(self.settings_manager.get_setting('settings.general.mirrors', '自动')):

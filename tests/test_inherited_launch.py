@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
 import minecraft_launcher_lib
-from core.launch_preparation import prepare_inherited, inherited_command, version_chain
+from core.launch_preparation import prepare_inherited, prepare_standalone, inherited_command, version_chain
 
 
 class InheritedLaunchTests(unittest.TestCase):
@@ -78,3 +78,17 @@ class InheritedLaunchTests(unittest.TestCase):
         self.write('forge', {'inheritsFrom': '../outside'})
         with self.assertRaisesRegex(ValueError, '标识'):
             version_chain(self.root, '整合包')
+
+    def test_combined_pack_repairs_its_own_core_without_reinstalling_ancestors(self):
+        metadata = dict(id='Combined', clientVersion='26.1', libraries=[],
+                        downloads={'client': {'url': 'https://example.com/client.jar'}},
+                        buggcraftModpack={'minecraft': '26.1'})
+        self.write('Combined', metadata)
+        with patch('core.launch_preparation.verified_installation', return_value=False), \
+                patch('minecraft_launcher_lib.install.install_libraries') as libraries, \
+                patch('core.launch_preparation.MinecraftDownloader.install', side_effect=AssertionError('vanilla installer')), \
+                patch('core.launch_preparation.MinecraftDownloader.install_metadata') as repair:
+            prepare_standalone(self.root, 'Combined', {})
+        libraries.assert_called_once_with('Combined', [], str(self.root), {})
+        repair.assert_called_once_with('Combined', metadata)
+        self.assertFalse((self.root / 'versions/26.1').exists())

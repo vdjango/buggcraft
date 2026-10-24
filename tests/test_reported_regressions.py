@@ -101,6 +101,7 @@ class ReportedUiTests(LauncherQmlCase):
         def install(*args, **kwargs):
             metadata = self.game_dir / 'versions/1.20.1/1.20.1.json'
             metadata.write_text(json.dumps(dict(id='1.20.1')), encoding='utf-8')
+            metadata.with_suffix('.jar').write_bytes(b'fixture client jar')
             return '1.20.1'
         with patch('core.content.download_content', return_value=[str(archive)]) as download:
             with patch('core.modpacks.install_loader', side_effect=RuntimeError('temporary install failure')):
@@ -152,6 +153,7 @@ class ReportedUiTests(LauncherQmlCase):
                 target = self.game_dir / 'versions' / identity / (identity + '.json')
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(metadata), encoding='utf-8')
+            (self.game_dir / 'versions/1.20.1/1.20.1.jar').write_bytes(b'fixture client jar')
             return 'forge-fixture'
 
         with patch('core.modpacks.install_loader', side_effect=RuntimeError('temporary processor failure')):

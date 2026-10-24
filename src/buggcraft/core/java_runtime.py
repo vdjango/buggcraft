@@ -49,6 +49,10 @@ def java_policy(directory, version):
         if not path.is_file():
             break
         data = json.loads(path.read_text(encoding='utf-8'))
+        from core.version_metadata import base_version
+        match = re.fullmatch(r'(\d+)\.(\d+)(?:\.(\d+))?(?:[- ].*)?', base_version(data, current))
+        if match:
+            release = tuple(int(part or 0) for part in match.groups())
         names = [lib.get('name', '') for lib in data.get('libraries', []) if isinstance(lib, dict)]
         modded |= any(name.startswith(('net.minecraftforge:', 'net.neoforged:',
                         'net.fabricmc:fabric-loader:', 'org.quiltmc:quilt-loader:')) for name in names)

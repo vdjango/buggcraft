@@ -60,6 +60,20 @@ def prepare_inherited(directory, version, callback, source='自动'):
     return jar_owner
 
 
+def prepare_standalone(directory, version, callback, source='自动'):
+    """Keep a combined modpack self-contained when repairing libraries or JARs."""
+    metadata = version_chain(directory, version)[0][1]
+    from core.loaders import _use_download_source
+    with _use_download_source(source):
+        minecraft_launcher_lib.install.install_libraries(
+            version, metadata.get('libraries', []), str(directory), callback)
+    if not verified_installation(directory, version):
+        MinecraftDownloader(directory, source=source, status=callback.get('setStatus'),
+                            progress=lambda current, maximum: (
+                                callback.get('setMax', lambda _: None)(maximum),
+                                callback.get('setProgress', lambda _: None)(current))).install_metadata(version, metadata)
+
+
 def resolved_metadata(chain):
     """Resolve all ancestors; launcher-lib 7.x merges only one parent level."""
     def merge(parent, child):

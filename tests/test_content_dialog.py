@@ -387,6 +387,7 @@ class ContentBrowserTests(LauncherQmlCase):
             target = downloader.root / 'versions' / identity / (identity + '.json')
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(json.dumps(dict(id=identity)), encoding='utf-8')
+            target.with_suffix('.jar').write_bytes(b'fixture client jar')
         downloads = self.window.download_page
         controller = downloads.content_page.controller
         manifests = [

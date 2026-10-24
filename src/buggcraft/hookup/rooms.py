@@ -266,7 +266,8 @@ def instance_metadata(directory, version, game_directory=None):
             result['loader'], result['loader_version'] = loader, loader_version
         inherited = metadata.get('inheritsFrom')
         if not inherited and not result['version']:
-            result['version'] = metadata.get('id', current)
+            from core.version_metadata import base_version
+            result['version'] = base_version(metadata, metadata.get('id', current))
         current = inherited
     mods = Path(game_directory or base) / 'mods'
     jars = sorted(mods.glob('*.jar'), key=lambda item: item.name.lower())

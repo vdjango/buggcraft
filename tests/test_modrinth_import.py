@@ -89,8 +89,9 @@ class ModrinthImportTests(unittest.TestCase):
         self.assertEqual((target / 'config/example.txt').read_bytes(), b'client')
         self.assertFalse((target / 'server.properties').exists())
         metadata = json.loads((target / (identity + '.json')).read_text())
-        self.assertEqual(metadata['jar'], '1.20.1')
-        self.assertTrue((self.game / 'versions' / metadata['jar'] / (metadata['jar'] + '.jar')).is_file())
+        self.assertNotIn('inheritsFrom', metadata)
+        self.assertNotIn('jar', metadata)
+        self.assertEqual((target / (identity + '.jar')).read_bytes(), b'client fixture')
         self.assertEqual(metadata['buggcraftModpack']['source'], 'Modrinth')
         self.assertEqual(len(hits), 2)
 
