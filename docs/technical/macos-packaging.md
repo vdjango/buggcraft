@@ -10,13 +10,13 @@ bash build_macos.sh
 
 产物位于 `dist/Buggcraft-macos-x86_64.zip` 或 `dist/Buggcraft-macos-arm64.zip`。压缩前验证 `.app` 的代码签名结构，再使用系统 `ditto` 打包，保留 Qt framework 的符号链接和可执行权限。`release.json` 记录平台、入口、大小和 SHA-256。
 
-当前构建使用 Nuitka 的 ad-hoc 签名，没有发行者 Developer ID 签名，也没有 Apple 公证；这不能等同于可直接发布的已公证安装包。CI 会执行打包后的 `--package-check`，检查主窗口、QML 大厅、好友页和本地 WebRTC 数据传输；用户设备上的 Finder 启动、Gatekeeper 和游戏启动仍需真机验收。日志写入 `~/Library/Logs/Buggcraft`，避免修改 `.app`。
+当前构建使用 Nuitka 的 ad-hoc 签名，没有发行者 Developer ID 签名，也没有 Apple 公证；这不能等同于可直接发布的已公证安装包。CI 会执行打包后的 `--package-check`，检查主窗口、QML 大厅、好友页和原生联机接口；用户设备上的 Finder 启动、Gatekeeper 和游戏启动仍需真机验收。日志写入 `~/Library/Logs/Buggcraft`，避免修改 `.app`。
 
 ## Qt 官方工具与体积
 
 界面使用系统默认字体，源码已移除不再使用的字体；与 Windows 共用的构建规则继续排除旧工作区残留的字体，保留在用图片和 QML 资源。macOS 图标由保留的 1024 像素原图生成，不需要重复维护各尺寸 PNG。macOS 以原生 `.app` 作为单一 ZIP 下载，体积由对应架构的 CI 构建清单记录。
 
-共用依赖已切换为数据通道子集，不再安装或打包完整 aiortc、PyAV、FFmpeg、音视频编解码器和 pylibsrtp；PDF 图像插件也被排除。来源与更新方法见[子集说明](../../compatibility/legacy_hookup/_rtc/README.md)。Windows 的软件 OpenGL 裁剪及默认光栅渲染仅作用于 Windows，macOS 继续使用原生渲染后端。本轮 Windows 的减重数字不能直接套用到两种 macOS 架构。
+联机使用 `minecraft-tunnel-native` 原生库，不再打包 aiortc、PyAV、FFmpeg 和 pylibsrtp；PDF 图像插件也被排除。macOS 使用 `otool -L` 遍历实际 Mach-O 依赖，裁掉无引用的 Qt framework，再对应用重新签名。Linux 对应使用 `readelf -d` 检查 ELF 依赖。Windows 的软件 OpenGL 裁剪及默认光栅渲染仅作用于 Windows，macOS 继续使用原生渲染后端。
 
 [Qt 官方 `pyside6-deploy`](https://doc.qt.io/qtforpython-6/deployment/deployment-pyside6-deploy.html) 也是 Nuitka 的封装，支持 Windows 和 macOS，并可排除未用到的 QML 插件。项目保留现有 Nuitka 构建入口以复用下载引导程序、哈希清单和运行检查；Qt 的 `qmlimportscanner` 根据 `resources/qml` 的实际导入计算需要保留的模块，其他 QML 插件和翻译按规则排除。
 

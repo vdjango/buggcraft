@@ -69,6 +69,12 @@ logger.info('Startup diagnostics: OS=%s; architecture=%s; Python=%s; CPU_count=%
 logger.info('Application log directory: %s', LOG_DIR)
 logger.info('Persistent P2P session log: %s', _connection_log)
 
+_payload_cache = None
+if IS_PACKAGED:
+    from utils.payload_cache import PayloadCache
+    _payload_cache = PayloadCache(APP_DIR)
+    _payload_cache.register()
+
 if __name__ == '__main__' and '--package-check' in sys.argv:
     from qt_runtime import setup_qt_environment as configure_qt
     if not configure_qt(APP_DIR, APP_DIR / '.buggcraft/dependencies', packaged=IS_PACKAGED):
@@ -195,6 +201,11 @@ def initialize_application():
         launcher.setAttribute(Qt.WA_ShowWithoutActivating)
         launcher.move(-20000, -20000)
     launcher.show()
+    if _payload_cache is not None and startup_report is None:
+        from PySide6.QtCore import QTimer
+        from threading import Thread
+        QTimer.singleShot(5000, lambda: Thread(
+            target=_payload_cache.prune, name='payload-cache-cleanup', daemon=True).start())
     logger.info('Startup timing: imports=%.3fs; window=%.3fs; shown=%.3fs',
                 imports_seconds, window_seconds, perf_counter() - _STARTUP_STARTED)
     if startup_report is not None:

@@ -8,6 +8,7 @@ import hashlib
 import json
 import platform
 import plistlib
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -104,6 +105,66 @@ def trim_qt_libraries(directory, quarantine):
             target.parent.mkdir(exist_ok=True, parents=True)
             removed.append({'name': path.name, 'size': path.stat().st_size})
             path.replace(target)
+    return removed
+
+
+def trim_unix_qt_libraries(directory, quarantine):
+    """Follow ELF/Mach-O imports before discarding unreferenced Qt libraries."""
+    directory = Path(directory).resolve()
+    darwin = platform.system() == 'Darwin'
+    magic = {b'\x7fELF'} if not darwin else {
+        b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xcf\xfa\xed\xfe',
+        b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
+
+    def key(name):
+        framework = re.search(r'(Qt[^/]+)\.framework/', name)
+        return framework.group(1) if framework else Path(name).name
+
+    binaries, candidates, owners, by_name = set(), {}, {}, {}
+    for path in directory.rglob('*'):
+        if not path.is_file():
+            continue
+        resolved = path.resolve()
+        if not resolved.is_relative_to(directory):
+            raise ValueError('Runtime binary link escapes bundle: ' + str(path))
+        with resolved.open('rb') as stream:
+            if stream.read(4) not in magic:
+                continue
+        binaries.add(resolved)
+        by_name.setdefault(key(str(path)), set()).add(resolved)
+        framework = next((parent for parent in path.parents if parent.name.startswith('Qt')
+                          and parent.suffix == '.framework' and parent != directory), None)
+        owner = framework or (path if re.fullmatch(r'libQt6[^/]+\.so(?:\.\d+)*', path.name) else None)
+        if owner is not None:
+            candidates.setdefault(resolved, set()).add(owner)
+            owners[resolved] = owner
+
+    pending = list(binaries - candidates.keys())
+    visited = set()
+    while pending:
+        binary = pending.pop()
+        if binary in visited:
+            continue
+        visited.add(binary)
+        command = ['/usr/bin/otool', '-L', str(binary)] if darwin else ['readelf', '-d', str(binary)]
+        result = subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
+        dependencies = ([line.strip().split(' (', 1)[0] for line in result.stdout.splitlines()[1:]
+                         if line.strip()] if darwin else
+                        re.findall(r'\(NEEDED\).*?\[([^\]]+)\]', result.stdout))
+        for dependency in dependencies:
+            pending.extend(by_name.get(key(dependency), ()))
+
+    removed = []
+    targets = {owner for binary, paths in candidates.items() if binary not in visited for owner in paths}
+    # A framework can contain several architectures or helper binaries.
+    retained = {owners[binary] for binary in visited if binary in owners}
+    for path in sorted(targets - retained):
+        target = quarantine / path.relative_to(directory)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        size = (sum(p.stat().st_size for p in path.rglob('*') if p.is_file() and not p.is_symlink())
+                if path.is_dir() else path.lstat().st_size)
+        removed.append({'name': path.name, 'size': size})
+        path.replace(target)
     return removed
 
 
@@ -430,6 +491,8 @@ def main():
             if len(bundles) != 1:
                 raise RuntimeError('Expected one .app to stage the native bridge')
             stage_native_bridge(bundles[0] / 'Contents/MacOS', args.native_bridge_dir)
+            removed = trim_unix_qt_libraries(bundles[0], output / 'qt-unused')
+            (output / 'qt-trim-report.json').write_text(json.dumps(removed, indent=2), encoding='utf-8')
             subprocess.run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(bundles[0])], check=True)
         print(json.dumps(package_macos(output)))
         return 0

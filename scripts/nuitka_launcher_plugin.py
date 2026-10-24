@@ -29,7 +29,7 @@ class LauncherPayload(NuitkaPluginBase):
         runtime = Path(dist_dir).resolve()
         build.stage_native_bridge(runtime, Path(self.native))
         removed = (build.trim_qt_libraries(runtime, runtime.parent / 'qt-unused')
-                   if os.name == 'nt' else [])
+                   if os.name == 'nt' else build.trim_unix_qt_libraries(runtime, runtime.parent / 'qt-unused'))
         build.validate_runtime_inventory(runtime)
         (runtime.parent / 'qt-trim-report.json').write_text(json.dumps(removed, indent=2), encoding='utf-8')
         self.info('Prepared complete native multiplayer runtime and removed %d unused Qt DLLs.' % len(removed))
