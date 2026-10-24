@@ -14,6 +14,10 @@ ColumnLayout {
     property var game: record.game || ({})
     property bool preparing: !!record.preparing
     property string copiedKind: ""
+    function fileSize(bytes) {
+        return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MiB"
+            : bytes >= 1024 ? (bytes / 1024).toFixed(1) + " KiB" : bytes + " B"
+    }
     Connections {
         target: lobby
         ignoreUnknownSignals: true
@@ -154,6 +158,22 @@ ColumnLayout {
                 Layout.fillWidth: true; visible: !!connected.record.prepareStatus
                 text: connected.record.prepareStatus || ""; font.pixelSize: 11
             }
+            CopyText {
+                Layout.fillWidth: true; visible: !!connected.record.loaderWarning
+                text: connected.record.loaderWarning || ""; font.pixelSize: 11; color: "#dfbd92"
+            }
+            RowLayout {
+                Layout.fillWidth: true; visible: connected.preparing && !!connected.record.prepareFile
+                CopyText {
+                    objectName: "room-download-file"; Layout.fillWidth: true
+                    text: (connected.record.prepareIndex || 1) + "/" + (connected.record.prepareCount || 0) + "  " + (connected.record.prepareFile || "")
+                    font.pixelSize: 11; wrapMode: Text.NoWrap; elide: Text.ElideMiddle
+                }
+                CopyText {
+                    objectName: "room-download-bytes"; font.pixelSize: 11; color: "#b5d3c4"
+                    text: connected.fileSize(connected.record.prepareFileDone || 0) + " / " + connected.fileSize(connected.record.prepareFileTotal || 0) + "  " + (connected.record.prepareSpeed || "")
+                }
+            }
             RowLayout {
                 visible: connected.preparing; Layout.fillWidth: true
                 ProgressBar {
@@ -205,30 +225,54 @@ ColumnLayout {
         id: modsPopup
         objectName: "room-mods-dialog"
         parent: Overlay.overlay; anchors.centerIn: parent
-        width: Math.min(480, parent.width - 40); height: Math.min(340, parent.height - 60)
-        modal: true; focus: true; padding: 14
+        width: Math.min(620, parent.width - 40)
+        height: Math.min(Math.max(230, 150 + (connected.record.mods || []).length * 64), 500, parent.height - 60)
+        modal: true; focus: true; padding: 18
         background: Rectangle { color: "#251f30"; border.color: "#7e699e"; radius: 7 }
         contentItem: ColumnLayout {
             objectName: "room-mods-body"
-            spacing: 8
+            spacing: 12
             RowLayout {
                 Layout.fillWidth: true
                 CopyText { Layout.fillWidth: true; text: "房间模组（" + (connected.game.mods_count || 0) + "）"; font.bold: true; color: "#f3efff" }
                 ActionButton { text: "关闭"; implicitHeight: 28; onClicked: modsPopup.close() }
             }
+            CopyText {
+                Layout.fillWidth: true; color: "#bcb0d3"; font.pixelSize: 11
+                text: "Minecraft " + (connected.game.version || "—") + "  ·  " + (connected.game.loader || "vanilla") + " " + (connected.game.loader_version || "")
+            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#544763" }
             CopyText { Layout.fillWidth: true; visible: !!connected.record.modError; text: connected.record.modError || ""; color: "#ffb5bb" }
             ListView {
                 objectName: "room-mods-list"; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                 model: connected.record.mods || []
                 ScrollBar.vertical: ScrollBar {}
-                delegate: CopyText {
+                spacing: 6
+                delegate: Rectangle {
                     required property var modelData
-                    width: ListView.view.width; height: 28
-                    text: modelData.name + "  ·  " + Math.ceil(modelData.size / 1024) + " KB"
-                    font.pixelSize: 12; wrapMode: Text.NoWrap; elide: Text.ElideMiddle
+                    width: ListView.view.width - 12; height: 58; radius: 5
+                    color: modelData.state === "downloading" ? "#383049" : "#2c2538"
+                    border.color: modelData.state === "downloading" ? "#9b88c7" : "#493d5b"
+                    RowLayout {
+                        anchors.fill: parent; anchors.margins: 10; spacing: 12
+                        Rectangle {
+                            implicitWidth: 30; implicitHeight: 30; radius: 5; color: "#514165"
+                            CopyText { anchors.centerIn: parent; text: modelData.state === "verified" ? "✓" : "JAR"; color: modelData.state === "verified" ? "#bce1c9" : "#ddd2ed"; font.pixelSize: modelData.state === "verified" ? 18 : 9 }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true; spacing: 3
+                            CopyText { Layout.fillWidth: true; text: modelData.name; color: "#eee8fb"; font.pixelSize: 12; wrapMode: Text.NoWrap; elide: Text.ElideMiddle }
+                            CopyText { text: connected.fileSize(modelData.size); font.pixelSize: 10; color: "#bcb0d3" }
+                        }
+                        CopyText {
+                            text: modelData.state === "verified" ? "已校验" : modelData.state === "failed" ? "失败" : modelData.state === "downloading" ? "下载中" : modelData.state === "pending" ? "等待下载" : "房主共享"
+                            color: modelData.state === "verified" ? "#bce1c9" : "#c4b7f1"; font.pixelSize: 11
+                        }
+                    }
                 }
-                CopyText { anchors.centerIn: parent; text: connected.game.mods_count ? "正在读取完整模组清单…" : "原版房间，无需安装模组"; visible: !(connected.record.mods || []).length }
+                CopyText { anchors.centerIn: parent; text: connected.record.modLoading ? "正在读取完整模组清单…" : connected.record.modError ? "模组清单读取失败，请关闭后重试" : "原版房间，无需安装模组"; visible: !(connected.record.mods || []).length }
             }
+            CopyText { Layout.fillWidth: true; text: "模组来自房主，下载完成后核对文件完整性。安装明细可在启动器下载记录中查看。"; color: "#aaa1b5"; font.pixelSize: 10 }
         }
     }
     Surface {

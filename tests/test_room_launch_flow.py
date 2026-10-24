@@ -67,6 +67,51 @@ class RoomLaunchFlowTests(unittest.TestCase):
             self.controller.launch_room()
         self.parent.started_game.assert_not_called()
 
+    def test_modded_room_cannot_launch_vanilla_even_when_compatibility_text_is_stale(self):
+        self.controller.records['room']['game'] = dict(version='1.20.1', loader='forge', mods_count=2)
+        self.controller.game = dict(version='1.20.1', loader='vanilla')
+        with self.assertRaisesRegex(ValueError, '一致的加载器'):
+            self.controller.launch_room()
+        self.controller.patch(instanceLoading=True)
+        with self.assertRaisesRegex(ValueError, '正在核对游戏加载器'):
+            self.controller.launch_room()
+        self.parent.started_game.assert_not_called()
+
+    def test_same_loader_with_another_build_can_launch_with_a_warning(self):
+        game = dict(version='1.20.1', loader='forge', loader_version='47.4.0', mods_hash='a')
+        self.controller.records['room']['game'] = game
+        self.controller.game = dict(game, loader_version='47.3.0')
+        self.controller.check_room_compatibility(self.controller.records['room'])
+        self.assertEqual(self.controller.records['room']['compatibility'], '')
+        self.assertIn('加载器版本与房主不同', self.controller.records['room']['loaderWarning'])
+        self.controller.launch_room()
+        self.parent.started_game.assert_called_once_with(server='127.0.0.1:34567')
+
+    def test_prepared_game_waits_for_selected_metadata_verification_before_launch(self):
+        game = dict(version='1.20.1', loader='forge', loader_version='47.4.0', mods_hash='a')
+        self.controller.records['room']['game'] = game
+        self.controller.records['room']['preparing'] = True
+        self.controller.prepared_launch = None
+        with patch.object(self.controller, 'detect_instance'), patch.object(self.controller, 'select_instance') as select:
+            self.controller.finish('prepare:room', 'room-prepared', None)
+        select.assert_called_once_with('room-prepared')
+        self.parent.started_game.assert_not_called()
+        self.assertEqual(self.controller.prepared_launch, ('room','room-prepared'))
+        self.controller.instance_job = 'instance:verified'
+        self.controller.patch(instanceId='room-prepared')
+        self.controller.finish('instance:verified', game, None)
+        self.parent.started_game.assert_called_once_with(server='127.0.0.1:34567')
+
+    def test_prepared_game_never_launches_when_final_metadata_reports_vanilla(self):
+        game = dict(version='1.20.1', loader='forge', loader_version='47.4.0', mods_hash='a')
+        self.controller.records['room']['game'] = game
+        self.controller.prepared_launch = ('room','room-prepared')
+        self.controller.instance_job = 'instance:verified'
+        self.controller.patch(instanceId='room-prepared')
+        self.controller.finish('instance:verified', dict(game, loader='vanilla'), None)
+        self.parent.started_game.assert_not_called()
+        self.assertIn('复核失败', self.controller.view['error'])
+
     def test_host_can_launch_before_opening_world(self):
         self.controller.records['room'].update(role='host', availability='waiting')
         self.controller.launch_room()

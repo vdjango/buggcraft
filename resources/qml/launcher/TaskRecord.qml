@@ -7,6 +7,7 @@ ListRow {
     required property var modelData
     property bool active: ["等待中", "进行中", "正在取消"].indexOf(modelData.state) >= 0
     property string actionText: modelData.state === "正在取消" ? "正在取消" : active ? "取消"
+        : modelData.kind === "room" ? (modelData.state === "已完成" ? "已准备" : "返回房间重试")
         : modelData.modpack && modelData.state === "已完成" ? "已导入"
         : modelData.modpack ? "继续安装"
         : modelData.content && modelData.content.kind === "modpack" && modelData.state === "已完成" ? "继续安装"
@@ -14,9 +15,11 @@ ListRow {
     signal viewLog(string taskId)
     width: ListView.view.width
     height: implicitHeight
-    title: (modelData.modpack ? "整合包 " : modelData.content && modelData.content.kind
+    title: (modelData.kind === "room" ? "房间配置 " : modelData.modpack ? "整合包 " : modelData.content && modelData.content.kind
         ? ({mod:"模组 ", resourcepack:"资源包 ", shader:"光影包 ", modpack:"整合包 "})[modelData.content.kind] || "资源 " : "Minecraft ") + (modelData.version || "")
-    description: modelData.game_dir || ""
+    description: modelData.kind === "room"
+        ? "Minecraft " + (modelData.base_version || "") + "  ·  " + (modelData.loader || "") + " " + (modelData.loader_version || "") + "  ·  " + (modelData.game_dir || "")
+        : modelData.game_dir || ""
     icon: "../../images/user/offline_login.png"
     actions: Component {
         RowLayout {
@@ -26,8 +29,9 @@ ListRow {
             ActionButton { objectName: "task-log-" + root.modelData.id; text: "日志"; implicitWidth: 50; implicitHeight: 28; onClicked: root.viewLog(root.modelData.id) }
             ActionButton {
                 objectName: "task-action-" + root.modelData.id
+                visible: root.modelData.kind !== "room" || root.active
                 implicitHeight: 28; text: root.actionText
-                enabled: root.modelData.state !== "正在取消" && !(root.modelData.modpack && root.modelData.state === "已完成")
+                enabled: root.modelData.state !== "正在取消" && !(root.modelData.kind === "room" && !root.active) && !(root.modelData.modpack && root.modelData.state === "已完成")
                 onClicked: taskHistory.taskAction(root.modelData.id)
             }
         }

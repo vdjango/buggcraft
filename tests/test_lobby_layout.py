@@ -657,16 +657,26 @@ class LobbyLayoutTests(unittest.TestCase):
         self.backend._view = {**self.backend._view, 'page': 'connected', 'selected': 'mine',
             'connections': [dict(id='mine', title='Modded world', role='client', state='online',
                 availability='ready', game=dict(version='1.20.1', loader='forge', loader_version='47.3.0',
-                    mods_count=2), compatibility='模组集合不一致', mods=[])],
+                    mods_count=2), compatibility='模组集合不一致', preparing=True,
+                    prepareFile='example.jar', prepareFileDone=1048576, prepareFileTotal=2097152,
+                    prepareIndex=1, prepareCount=2, prepareSpeed='2.00 MiB/s',
+                    mods=[dict(name='example.jar', size=2097152, state='downloading'),
+                          dict(name='second.jar', size=1280, state='pending')])],
             'chatState':'在线', 'chatMessages':[], 'chatDraft':'', 'chatError':'',
             'chatSending':False, 'bridgeStatus':'游戏聊天已同步'}
         self.backend.viewChanged.emit()
         QTest.qWait(50)
         self.assertIn('1.20.1', find_item(self.window, 'room-version-summary').property('text'))
         self.assertGreaterEqual(find_item(self.window, 'room-chat').height(), 145)
+        self.assertIn('example.jar', find_item(self.window, 'room-download-file').property('text'))
+        self.assertIn('1.0 MiB / 2.0 MiB', find_item(self.window, 'room-download-bytes').property('text'))
         self.click('show-room-mods')
         self.assertEqual(self.backend.actions[-1], ('loadMods', {}))
         self.assertTrue(find_item(self.window, 'room-mods-body').isVisible())
+        self.assertEqual(find_item(self.window, 'room-mods-list').property('count'), 2)
+        snapshot = ROOT / 'dist' / 'room-mods-preview.png'
+        snapshot.parent.mkdir(exist_ok=True)
+        self.assertTrue(self.window.grabWindow().save(str(snapshot)))
 
     def test_top_level_title_bar_identifies_current_page_and_does_not_overlap_window_controls(self):
         for page, expected in (('hall', 'Buggcraft · 联机大厅'), ('nodes', '联机节点')):

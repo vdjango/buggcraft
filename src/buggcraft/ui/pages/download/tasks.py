@@ -52,7 +52,8 @@ class TaskHistoryController(QObject):
     def tasks(self):
         query = self._query.casefold()
         return [task for task in self._tasks
-                if query in (task.get("version", "") + " " + task.get("game_dir", "")).casefold()
+                if query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
+                             " ".join(item.get('name', '') for item in task.get('files', []))).casefold()
                 and (self._filter == "全部记录" or task.get("state") == self._filter
                      or (self._filter in ("进行中", "正在安装") and task.get("state") in TasksPage.ACTIVE))]
 
@@ -254,6 +255,7 @@ class TasksPage(QWidget):
         )
         self._tasks = self._load_history()
         self._workers = {}
+        self._external_cancellations = {}
         self._closing = False
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(4)
@@ -288,12 +290,14 @@ class TasksPage(QWidget):
                     except (ValueError, TypeError, OverflowError):
                         task[key] = 0
                 logs = task.get('logs', [])
-                task['logs'] = [line for line in logs if isinstance(line, str)][-200:] if isinstance(logs, list) else []
+                limit = 5000 if task.get('kind') == 'room' else 200
+                task['logs'] = [line for line in logs if isinstance(line, str)][-limit:] if isinstance(logs, list) else []
                 if task.get('state') not in (*self.ACTIVE, '已完成', '失败', '已取消', '已中断'):
                     task['state'] = '已中断'
                 if task.get("state") in self.ACTIVE:
                     task["state"] = "已中断"
-                    task["status"] = "上次安装未完成，可点击重试；已校验的文件会复用。"
+                    task["status"] = ("上次房间配置准备未完成，请回到房间重新准备。" if task.get('kind') == 'room'
+                                      else "上次安装未完成，可点击重试；已校验的文件会复用。")
                 cleaned.append(task)
             return cleaned[:200]
         except FileNotFoundError:
@@ -412,6 +416,61 @@ class TasksPage(QWidget):
         self.pool.start(worker)
         self._schedule_save()
 
+    def track_room_preparation(self, title, game_dir, game, cancel):
+        """Track the lobby's async installer in the same persistent history."""
+        task_id = uuid.uuid4().hex
+        task = dict(id=task_id, version=title, game_dir=os.path.abspath(game_dir),
+                    kind='room', loader=game.get('loader', ''), base_version=game.get('version', ''),
+                    loader_version=game.get('loader_version', ''),
+                    state='进行中', status='正在核对房间文件…', progress=0, maximum=0,
+                    created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                    error='', logs=[], files=[])
+        self._tasks.insert(0, task)
+        live = [item for item in self._tasks if item['state'] in self.ACTIVE]
+        ended = [item for item in self._tasks if item['state'] not in self.ACTIVE]
+        self._tasks = sorted(live + ended[:max(0, 200 - len(live))],
+                             key=lambda item: item['created_at'], reverse=True)
+        self._external_cancellations[task_id] = cancel
+        self._log(task, f"准备房间配置：Minecraft {game.get('version', '')} · {game.get('loader', '')} {game.get('loader_version', '')}")
+        self._persist_and_refresh()
+        return task_id
+
+    def room_preparation_event(self, task_id, event):
+        task = self._find_task(task_id)
+        if not task or task.get('kind') != 'room':
+            return
+        kind = event.get('kind')
+        if kind == 'manifest':
+            task['files'] = [dict(item, state='pending') for item in event['files']]
+            self._log(task, f"已收到 {len(task['files'])} 个模组，来源：房主，下载后逐个校验 SHA-256。")
+        elif kind in ('file', 'progress'):
+            for item in task.get('files', []):
+                if item['name'] == event['name']:
+                    item.update({key: value for key, value in event.items() if key != 'kind'})
+            if event.get('state') == 'verified':
+                self._log(task, f"已下载并校验：{event['name']} · {event['size']:,} 字节 · SHA-256 {event['sha256']} · {event['path']}")
+            elif event.get('state') == 'failed':
+                self._log(task, f"模组下载失败：{event['name']} · {event.get('error') or '未知错误'}")
+        elif kind == 'complete':
+            task['installed_version'] = event['version']
+            self._log(task, '已生成隔离实例：' + event['version'])
+        self._schedule_save()
+        self._update_row(task)
+
+    def finish_room_preparation(self, task_id, succeeded, message, cancelled=False):
+        task = self._find_task(task_id)
+        self._external_cancellations.pop(task_id, None)
+        if not task:
+            return
+        task.update(state='已完成' if succeeded else '已取消' if cancelled else '失败',
+                    status=message, error='' if succeeded or cancelled else message,
+                    finished_at=datetime.now(timezone.utc).isoformat(timespec='seconds'))
+        if succeeded:
+            task['progress'] = task['maximum'] or 1
+            task['maximum'] = task['maximum'] or 1
+        self._log(task, message)
+        self._persist_and_refresh()
+
     def _available_pack_name(self, content, game_dir):
         files = content.get('version', {}).get('files') or []
         primary = next((item for item in files if item.get('primary')), files[0] if files else {})
@@ -491,7 +550,9 @@ class TasksPage(QWidget):
             if task["state"] == "等待中":
                 task["state"] = "进行中"
             task["status"] = status
-            self._log(task, status)
+            if task.get('_last_status') != status:
+                self._log(task, status)
+                task['_last_status'] = status
             self._update_row(task)
             self._schedule_save()
 
@@ -576,7 +637,7 @@ class TasksPage(QWidget):
     def _log(self, task, message):
         log = task.setdefault("logs", [])
         log.append(datetime.now().strftime("%H:%M:%S") + "  " + message)
-        del log[:-200]
+        del log[:-(5000 if task.get('kind') == 'room' else 200)]
 
     def refresh_tasks(self):
         self.view_controller.set_tasks(self._tasks)
@@ -587,6 +648,13 @@ class TasksPage(QWidget):
     def task_action(self, task_id):
         task = self._find_task(task_id)
         if not task:
+            return
+        if task.get('kind') == 'room':
+            cancel = self._external_cancellations.get(task_id)
+            if cancel and task['state'] in self.ACTIVE:
+                cancel.set()
+                task.update(state='正在取消', status='正在停止房间配置下载…')
+                self._persist_and_refresh()
             return
         if task["state"] in self.ACTIVE:
             task["state"] = "正在取消"
@@ -610,6 +678,8 @@ class TasksPage(QWidget):
         if self._closing:
             return not self._workers
         self._closing = True
+        for cancel in self._external_cancellations.values():
+            cancel.set()
         for task_id in list(self._workers):
             task = self._find_task(task_id)
             if task and task["state"] in self.ACTIVE:

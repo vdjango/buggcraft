@@ -28,6 +28,7 @@ class MultiplayerController(QObject):
     chat_event = Signal(str, object)
     chat_sent = Signal(str, object)
     preparation_progress = Signal(str, str, object, object)
+    preparation_event = Signal(str, object)
     copied = Signal(str)
     friend_finished = Signal(bool, str)
     friend_invited = Signal(object)
@@ -59,6 +60,8 @@ class MultiplayerController(QObject):
         self.instance_job = None
         self.instance_source = None
         self.preparations = {}
+        self.preparation_tasks = {}
+        self.prepared_launch = None
         self.external_running = None
         self.runtime_job = False
         self.room_generation = uuid.uuid4().hex
@@ -95,6 +98,7 @@ class MultiplayerController(QObject):
         self.chat_event.connect(self.update_chat)
         self.chat_sent.connect(self.finish_chat)
         self.preparation_progress.connect(self.update_preparation)
+        self.preparation_event.connect(self.update_preparation_event)
         self.route_changed.connect(self.show_route_tip)
         QApplication.instance().aboutToQuit.connect(self.close)
         self.reload_store()
@@ -274,6 +278,10 @@ class MultiplayerController(QObject):
                 name = self._state['selected']
                 endpoint = self.service.endpoints.get(name)
                 if endpoint:
+                    if 'manifest:' + name in self.jobs:
+                        return
+                    self.records[name].update(modLoading=True, modError='')
+                    self.publish_connections()
                     from hookup.modpack import fetch_manifest
                     self.job('manifest:' + name, fetch_manifest(endpoint))
             elif action == 'copyInvite':
@@ -852,6 +860,7 @@ class MultiplayerController(QObject):
 
     def check_room_compatibility(self, record):
         remote = record.get('game') or {}
+        record['loaderWarning'] = ''
         if record.get('role') == 'host' or not remote.get('version'):
             record['compatibility'] = ''
             return
@@ -859,7 +868,8 @@ class MultiplayerController(QObject):
             record['compatibility'] = '还没有选择游戏配置'
             return
         errors, warnings = compatibility(self.game, remote)
-        record['compatibility'] = '、'.join(errors or warnings)
+        record['compatibility'] = '、'.join(errors or [item for item in warnings if item != '加载器版本不一致'])
+        record['loaderWarning'] = '加载器版本与房主不同，已保持同类型；若游戏拒绝连接，请使用房主的版本。' if '加载器版本不一致' in warnings else ''
 
     def launch_room(self):
         name = self._state['selected']
@@ -872,6 +882,13 @@ class MultiplayerController(QObject):
             raise ValueError('房主不在游戏内，请等待世界重新开放。')
         if record.get('compatibility'):
             raise ValueError('游戏配置与房间不符；请选择匹配配置或准备新配置。')
+        if record['role'] == 'client' and (record.get('game', {}).get('mods_count') or
+                record.get('game', {}).get('loader', 'vanilla') != 'vanilla'):
+            if self._state['instanceLoading']:
+                raise ValueError('正在核对游戏加载器，请稍候再启动。')
+            expected = record['game'].get('loader', 'vanilla')
+            if expected == 'vanilla' or self.game.get('loader', 'vanilla') != expected:
+                raise ValueError('当前实例没有与房主一致的加载器，请先准备房间配置。')
         if page.current_client or self.external_running or getattr(page.launcher, 'running', False):
             self.patch(notice='游戏已经运行。请进入世界并对局域网开放。' if record['role'] == 'host' else
                        '游戏已经运行。请在多人游戏列表中选择这个房间，或复制地址连接。')
@@ -912,20 +929,71 @@ class MultiplayerController(QObject):
         from hookup.preparation import prepare_configuration
         cancel = threading.Event()
         self.preparations[name] = cancel
+        history = self.preparation_history()
+        if history:
+            self.preparation_tasks[name] = history.track_room_preparation(
+                record.get('title') or '房间配置', directory, record.get('game', {}), cancel)
         record.update(preparing=True, prepareStatus='正在核对房间文件…', prepareProgress=0,
-                      prepareMaximum=0)
+                      prepareMaximum=0, prepareFile='', prepareFileDone=0, prepareFileTotal=0,
+                      prepareIndex=0, prepareCount=0, prepareSpeed='', modError='')
         self.publish_connections()
         def report(status, done, total):
             self.preparation_progress.emit(name, str(status)[:160], done, total)
         java = settings.get_version_setting('java.path', None)
         source = settings.get_setting('settings.general.mirrors', '自动')
-        self.job('prepare:' + name, prepare_configuration(endpoint, directory, java, source, cancel, report))
+        self.job('prepare:' + name, prepare_configuration(endpoint, directory, java, source, cancel, report,
+                 event=lambda event: self.preparation_event.emit(name, event)))
+
+    def preparation_history(self):
+        parent = getattr(self.launcher_page, 'parent', None)
+        main = parent() if callable(parent) else parent
+        # The launcher page is a child of the main window in production; walk
+        # upward for test hosts and embedded windows that add one wrapper.
+        while main is not None and not hasattr(main, 'download_page'):
+            parent = getattr(main, 'parent', None)
+            main = parent() if callable(parent) else parent
+        return getattr(getattr(main, 'download_page', None), 'tasks_page', None)
+
+    @Slot(str, object)
+    def update_preparation_event(self, name, event):
+        task_id = self.preparation_tasks.get(name)
+        history = self.preparation_history()
+        if task_id and history:
+            history.room_preparation_event(task_id, event)
+        record = self.records.get(name)
+        if not record or not record.get('preparing'):
+            return
+        kind = event.get('kind')
+        if kind == 'manifest':
+            record.update(mods=[dict(item, state='pending') for item in event['files']],
+                          prepareCount=len(event['files']), modLoading=False)
+        elif kind == 'file':
+            record['mods'] = [dict(item, state=event['state']) if item['name'] == event['name'] else item
+                              for item in record.get('mods', [])]
+            if event['state'] == 'downloading':
+                record.update(prepareFile=event['name'], prepareFileDone=0, prepareFileTotal=event['size'],
+                              prepareIndex=event.get('index', 1), prepareCount=event.get('count', record.get('prepareCount', 0)),
+                              _downloadStarted=time.monotonic(), prepareSpeed='')
+            elif event['state'] == 'verified' and record.get('prepareFile') == event['name']:
+                record['prepareFileDone'] = event['size']
+        elif kind == 'progress':
+            elapsed = max(.001, time.monotonic() - record.get('_downloadStarted', time.monotonic()))
+            record.update(prepareFile=event['name'], prepareFileDone=event['done'],
+                          prepareFileTotal=event['total'], prepareIndex=event['index'],
+                          prepareCount=event['count'], prepareSpeed=f"{event['done'] / elapsed / 1048576:.2f} MiB/s")
+        self.publish_connections()
 
     @Slot(str, str, object, object)
     def update_preparation(self, name, status, done, total):
+        task_id = self.preparation_tasks.get(name)
+        history = self.preparation_history()
+        if task_id and history:
+            history.update_status(task_id, status)
+            history.update_progress(task_id, done, total)
         record = self.records.get(name)
         if record and record.get('preparing'):
-            record.update(prepareStatus=status, prepareProgress=done, prepareMaximum=total)
+            record.update(prepareStatus=status, prepareProgress=max(0, min(done, total)) if total > 0 else 0,
+                          prepareMaximum=max(0, total))
             self.publish_connections()
 
     def forget_room(self, name, notice):
@@ -1073,8 +1141,11 @@ class MultiplayerController(QObject):
         if key.startswith('manifest:'):
             record = self.records.get(key[9:])
             if record:
-                record['mods'] = value if not error else []
+                # Keep verified/download states when reopening the list mid-install.
+                previous = {item['name']: item.get('state', '') for item in record.get('mods', [])}
+                record['mods'] = [dict(item, state=previous.get(item['name'], '')) for item in value] if not error else []
                 record['modError'] = error or ''
+                record['modLoading'] = False
                 self.publish_connections()
             return
         if key.startswith('syncgame:'):
@@ -1086,7 +1157,12 @@ class MultiplayerController(QObject):
             return
         if key.startswith('prepare:'):
             name = key[8:]
-            self.preparations.pop(name, None)
+            cancel = self.preparations.pop(name, None)
+            task_id = self.preparation_tasks.pop(name, None)
+            history = self.preparation_history()
+            if task_id and history:
+                history.finish_room_preparation(task_id, not error, error or '房间模组与加载器已安装并校验完成',
+                                                cancelled=bool(cancel and cancel.is_set()))
             record = self.records.get(name)
             if record:
                 record['preparing'] = False
@@ -1099,19 +1175,12 @@ class MultiplayerController(QObject):
                 if not record:
                     return
                 self.detect_instance()
+                self.prepared_launch = (name, value)
                 self.select_instance(value)
                 self.detect_instance()
-                # Metadata refresh is asynchronous. The selected room is now
-                # isolated and verified; startup uses its local proxy address.
-                endpoint = self.service.endpoints.get(name)
-                page = self.launcher_page
-                if endpoint and page.auth_manager.is_authenticated() and record.get('availability') != 'waiting':
-                    page.started_game(server=f'127.0.0.1:{endpoint.listen_port}')
-                    self.patch(notice='配置已准备完成，游戏正在启动并连接房间。')
-                else:
-                    self.patch(notice='配置已准备完成。等待房主开放世界后，可以快速启动。' if record.get('availability') == 'waiting'
-                               else '配置已准备完成。请在首页设置角色后点击快速启动。')
+                self.patch(notice='配置已准备完成，正在复核加载器和模组…')
             except Exception as exc:
+                self.prepared_launch = None
                 self.patch(error=str(exc))
             return
         if key.startswith('retarget:'):
@@ -1242,6 +1311,23 @@ class MultiplayerController(QObject):
                             and record.get('game') != self.game):
                         self.job('syncgame:' + name, endpoint.update_game(self.game, self.instance_source[2]))
             self.publish_connections()
+            if self.prepared_launch:
+                name, version = self.prepared_launch
+                self.prepared_launch = None
+                record = self.records.get(name)
+                page = self.launcher_page
+                if record and self._state['instanceId'] == version:
+                    if error or record.get('compatibility'):
+                        self.patch(error='房间配置复核失败：' + (error or record['compatibility']))
+                    elif record.get('availability') == 'waiting':
+                        self.patch(notice='配置已准备完成。等待房主开放世界后，可以快速启动。')
+                    elif not page.auth_manager.is_authenticated():
+                        self.patch(notice='配置已准备完成。请在首页设置角色后点击快速启动。')
+                    elif self._state['selected'] == name:
+                        try:
+                            self.launch_room()
+                        except Exception as exc:
+                            self.patch(error=str(exc))
             if self.pending:
                 self.patch(busy=False)
                 if self.game.get('version'):

@@ -224,10 +224,29 @@ def compatibility(local, remote):
         left, right = local.get(key), remote.get(key)
         if left is not None and right is not None and left != '' and right != '':
             if left != right:
-                errors.append(f'{label}不一致')
+                (warnings if key == 'loader_version' else errors).append(f'{label}不一致')
         elif key in ('version', 'loader', 'mods_hash'):
             warnings.append(f'{label}未检测，需自行核对')
     return errors, warnings
+
+
+def metadata_loader(metadata):
+    """Read real launch libraries/arguments, including modern Forge profiles."""
+    arguments = [arg for arg in metadata.get('arguments', {}).get('game', []) if isinstance(arg, str)]
+    options = dict(zip(arguments, arguments[1:]))
+    libraries = [item.get('name', '') for item in metadata.get('libraries', []) if isinstance(item, dict)]
+    if options.get('--fml.neoForgeVersion') and any(name.startswith('net.neoforged') for name in libraries):
+        return 'neoforge', options['--fml.neoForgeVersion']
+    for prefix, loader in [('net.neoforged:neoforge:', 'neoforge'),
+                           ('net.fabricmc:fabric-loader:', 'fabric'),
+                           ('org.quiltmc:quilt-loader:', 'quilt'),
+                           ('net.minecraftforge:forge:', 'forge'),
+                           ('net.minecraftforge:fmlloader:', 'forge'),
+                           ('net.minecraftforge:fmlcore:', 'forge')]:
+        name = next((name for name in libraries if name.startswith(prefix)), '')
+        if name:
+            return loader, options.get('--fml.forgeVersion', name.split(':')[2]) if loader == 'forge' else name.split(':')[2]
+    return 'vanilla', ''
 
 
 def instance_metadata(directory, version, game_directory=None):
@@ -242,14 +261,9 @@ def instance_metadata(directory, version, game_directory=None):
         room_version = metadata.get('buggcraftRoom', {}).get('version')
         if room_version:
             result['version'] = room_version
-        for library in metadata.get('libraries', []):
-            name = library.get('name', '')
-            for prefix, loader in [('net.minecraftforge:forge:', 'forge'),
-                                   ('net.neoforged:neoforge:', 'neoforge'),
-                                   ('net.fabricmc:fabric-loader:', 'fabric'),
-                                   ('org.quiltmc:quilt-loader:', 'quilt')]:
-                if name.startswith(prefix):
-                    result['loader'], result['loader_version'] = loader, name.split(':')[2]
+        loader, loader_version = metadata_loader(metadata)
+        if result['loader'] == 'vanilla' and loader != 'vanilla':
+            result['loader'], result['loader_version'] = loader, loader_version
         inherited = metadata.get('inheritsFrom')
         if not inherited and not result['version']:
             result['version'] = metadata.get('id', current)

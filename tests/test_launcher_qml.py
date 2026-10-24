@@ -1,5 +1,6 @@
 """Render every production page with nonempty data and exercise QML actions."""
 import json
+import threading
 from unittest.mock import Mock, patch
 
 from _qml_test_support import LauncherQmlCase, QQuickWidget, QTest, Qt
@@ -7,6 +8,48 @@ from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
 class AllLauncherPagesTests(LauncherQmlCase):
+    def test_room_mod_downloads_are_persisted_in_launcher_task_history(self):
+        tasks = self.window.download_page.tasks_page
+        cancel = threading.Event()
+        game = dict(version='1.20.1', loader='forge', loader_version='47.4.0')
+        task_id = tasks.track_room_preparation('好友的房间', str(self.game_dir), game, cancel)
+        item = dict(name='example.jar', size=1280, sha256='a' * 64)
+        tasks.room_preparation_event(task_id, {'kind':'manifest', 'files':[item]})
+        tasks.room_preparation_event(task_id, {'kind':'file', 'name':'example.jar', 'state':'downloading', 'size':1280})
+        tasks.room_preparation_event(task_id, {'kind':'progress', 'name':'example.jar', 'done':640, 'total':1280})
+        self.assertEqual(tasks._find_task(task_id)['files'][0]['done'], 640)
+        tasks.room_preparation_event(task_id, {'kind':'file', 'name':'example.jar', 'state':'verified',
+            'size':1280, 'sha256':'a' * 64, 'path':str(self.game_dir / 'mods/example.jar')})
+        tasks.room_preparation_event(task_id, {'kind':'complete', 'version':'room-1.20.1-abc', 'loader':'forge'})
+        tasks.finish_room_preparation(task_id, True, '房间模组与加载器已安装并校验完成')
+        row = tasks._find_task(task_id)
+        self.assertEqual(row['state'], '已完成')
+        self.assertEqual(row['files'][0]['state'], 'verified')
+        self.assertTrue(any('example.jar' in line and 'SHA-256' in line for line in row['logs']))
+        tasks.task_action(task_id)
+        self.assertEqual(row['state'], '已完成')
+
+    def test_room_preparation_failure_records_the_file_and_reason(self):
+        import threading
+        tasks = self.window.download_page.tasks_page
+        task_id = tasks.track_room_preparation('好友的房间', str(self.game_dir),
+            dict(version='1.20.1', loader='forge', loader_version='47.4.0'), threading.Event())
+        tasks.room_preparation_event(task_id, {'kind':'manifest', 'files':[
+            dict(name='example.jar', size=1280, sha256='a' * 64)]})
+        tasks.room_preparation_event(task_id, {'kind':'file', 'name':'example.jar',
+            'state':'failed', 'error':'SHA-256 校验失败'})
+        tasks.finish_room_preparation(task_id, False, '房间模组下载失败，请返回房间重试')
+        row = tasks._find_task(task_id)
+        self.assertEqual(row['files'][0]['state'], 'failed')
+        self.assertTrue(any('example.jar' in line and 'SHA-256 校验失败' in line for line in row['logs']))
+
+    def test_room_preparation_history_uses_the_launcher_download_page(self):
+        from ui.multiplayer_controller import MultiplayerController
+        page = self.window.started_page
+        from types import SimpleNamespace
+        controller = SimpleNamespace(launcher_page=page)
+        self.assertIs(MultiplayerController.preparation_history(controller), self.window.download_page.tasks_page)
+
     def test_hidden_download_pages_create_hosts_only_when_displayed(self):
         downloads = self.window.download_page
         self.assertIsNone(downloads.tasks_page.host._quick)
