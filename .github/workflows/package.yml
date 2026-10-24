@@ -111,7 +111,7 @@ jobs:
                      'test_connection_diagnostics', 'test_modpack_no_key',
                      'test_inherited_launch', 'test_game_sessions', 'test_game_diagnostics',
                      'test_startup_logging', 'test_startup_resource_paths', 'test_launcher_process',
-                     'test_java_runtime_selection', 'test_launcher_qml', 'test_installation_qml',
+                     'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
                      'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
                      'test_unix_qt_trimming', 'test_room_mod_installation',
                      'test_room_launch_flow', 'test_lobby_layout']

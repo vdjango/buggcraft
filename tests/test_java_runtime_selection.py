@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from _qml_test_support import LauncherQmlCase
 from core.java_runtime import JavaRuntimeUnavailable, select_java
+from core.java_runtime import java_policy
 from core.launch_options import required_java
 from config.settings import SettingsManager
 from config.javafinder import JavaPathFinder
@@ -70,6 +71,29 @@ class JavaRuntimeSelectionTests(unittest.TestCase):
         self.metadata('future', javaVersion={'majorVersion': 26}, inheritsFrom='26.1')
         self.assertEqual(required_java(self.root, 'future'), 26)
 
+    def test_loader_policy_keeps_legacy_forge_on_java_8(self):
+        self.metadata('1.12.2', libraries=[{'name': 'net.minecraftforge:forge:1.12.2-14.23.5.2860'}],
+                      mainClass='net.minecraft.launchwrapper.Launch')
+        self.metadata('1.12.2-forge', inheritsFrom='1.12.2',
+                      libraries=[{'name': 'net.minecraftforge:forge:1.12.2-14.23.5.2860'}])
+        policy = java_policy(self.root, '1.12.2-forge')
+        self.assertEqual((policy.minimum, policy.maximum, policy.recommended), (8, 8, 8))
+        self.assertIn('Java 8', policy.reason)
+
+    def test_loader_policy_tracks_minecraft_java_boundaries(self):
+        cases = (('1.16.5', 8, 8), ('1.17.1', 16, 17), ('1.18.2', 17, 21),
+                 ('1.20.1-forge', 17, 17), ('1.20.5', 21, 21), ('26.1', 25, 25))
+        self.metadata('1.20.1', libraries=[{'name': 'net.minecraftforge:forge:1.20.1-47.3'}])
+        self.metadata('1.20.1-forge', inheritsFrom='1.20.1')
+        for version, minimum, maximum in cases:
+            with self.subTest(version=version):
+                policy = java_policy(self.root, version)
+                self.assertEqual((policy.minimum, policy.maximum), (minimum, maximum))
+
+    def test_minecraft_metadata_declares_java_25_from_26_1(self):
+        for version in ('26.1', '26.2', '26.3', '26.3-forge-test'):
+            self.assertEqual(required_java(self.root, version), 25)
+
     def test_real_java_version_output_formats_include_major_only_and_javaw(self):
         java = self.root / 'java.exe'
         java.touch()
@@ -89,9 +113,33 @@ class JavaRuntimeSelectionTests(unittest.TestCase):
                 raw, parsed = JavaPathFinder()._get_java_version(str(javaw))
                 self.assertEqual((raw, parsed), (output, expected))
                 self.assertEqual(run.call_args.args[0], [str(java), '-version'])
+        with patch('config.javafinder.subprocess.run', return_value=SimpleNamespace(
+                returncode=1, stderr='java version "25"\nFatal runtime error', stdout='')):
+            self.assertEqual(JavaPathFinder()._get_java_version(str(java)), (None, None))
 
 
 class LaunchErrorQmlTests(LauncherQmlCase):
+    def test_java_progress_dialog_uses_wrapped_detail_and_cancels_only_preparation(self):
+        self.window.minecraft_java_install_progress('Downloading Java runtime', 5 * 1024 ** 2, 20 * 1024 ** 2)
+        self.pump()
+        dialog = self.window._java_install_dialog
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.controller.progress, 0.25)
+        self.assertIn('\n5.0 / 20.0 MiB', dialog.controller.detail)
+        message = self.item(dialog, 'dialog-message')
+        detail = self.item(dialog, 'dialog-detail')
+        self.assertGreaterEqual(detail.y(), message.y() + message.height())
+        self.snapshot('java-install-progress', dialog)
+        with patch.object(self.window.launcher, 'cancel_preparation') as cancel:
+            dialog.controller.action('取消安装')
+            cancel.assert_called()
+        self.assertFalse(dialog.isVisible())
+        self.window.minecraft_java_install_progress('Java verified', 1, 1)
+        with patch.object(self.window.launcher, 'cancel_preparation') as cancel:
+            self.window._close_java_progress()
+            cancel.assert_not_called()
+        self.assert_no_qml_errors()
+
     def test_startup_uses_configured_alternative_before_system_scan(self):
         self.manager.set_setting('java.path', None)
         self.manager.set_setting('minecraft.version.enable', '26.3')
@@ -121,9 +169,9 @@ class LaunchErrorQmlTests(LauncherQmlCase):
         self.window.minecraft_handle_stopped(1)
         self.assertIs(self.window._launch_error_dialog, dialog)
         self.assertEqual(dialog.controller.title, '缺少适合的 Java')
-        with patch('windows.main_window.webbrowser.open') as browser:
+        with patch.object(self.window, 'switch_pages') as switch:
             dialog.controller.action('下载 Java')
-        self.assertIn('version=25', browser.call_args.args[0])
+        switch.assert_called_once_with('设置')
         self.window.minecraft_java_required('26.3', 25, 'Java 21')
         dialog.controller.action('Java 设置')
         self.pump()

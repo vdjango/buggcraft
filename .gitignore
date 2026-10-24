@@ -1,4 +1,5 @@
 .minecraft
+.buggcraft/
 venv
 .build-venv/
 native-source/

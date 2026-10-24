@@ -37,6 +37,27 @@ class _QuietSubprocess:
     def __getattr__(self, name):
         return getattr(self.original, name)
 
+    def Popen(self, command, *args, **kwargs):
+        if self.cancel is not None and self.cancel.is_set():
+            raise InterruptedError('安装已取消')
+        if os.name == 'nt':
+            kwargs['creationflags'] = kwargs.get('creationflags', 0) | subprocess.CREATE_NO_WINDOW
+        kwargs.setdefault('stdin', subprocess.DEVNULL)
+        return self.original.Popen(command, *args, **kwargs)
+
+    def check_output(self, command, **kwargs):
+        kwargs.pop('check', None)
+        kwargs['stdout'] = subprocess.PIPE
+        return self.run(command, **kwargs).stdout
+
+    def check_call(self, command, **kwargs):
+        self.run(command, **kwargs)
+        return 0
+
+    def call(self, command, **kwargs):
+        kwargs['check'] = False
+        return self.run(command, **kwargs).returncode
+
     def run(self, command, **kwargs):
         if self.cancel is not None and self.cancel.is_set():
             raise InterruptedError('安装已取消')

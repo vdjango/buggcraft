@@ -215,7 +215,7 @@ class JavaPathFinder:
                 text=True,
                 timeout=5, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
-            if result.returncode == 0 or result.stderr:
+            if result.returncode == 0:
                 # Java版本信息通常输出到stderr
                 output = result.stderr or result.stdout
                 lines = output.split('\n')

@@ -29,6 +29,11 @@ class LauncherProcessTests(unittest.TestCase):
         self.root = self.work / 'minecraft'
         self.root.mkdir()
         self.manager = SettingsManager(str(self.work / 'config'))
+        for guard in (
+                patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('Java 21 fixture', (21, 0, 1))),
+                patch('core.launcher.java_catalogue', side_effect=RuntimeError('isolated test: no network'))):
+            guard.start()
+            self.addCleanup(guard.stop)
         self.manager.set_setting('minecraft.directory.enable', str(self.root))
         self.manager.set_setting('minecraft.version.enable', 'fixture')
         self.manager.set_setting('java.path', sys.executable)
@@ -168,6 +173,37 @@ class LauncherProcessTests(unittest.TestCase):
         self.assertEqual(self.options['executablePath'], str(java25))
         self.assertEqual(self.manager.get_version_setting('java.path'), sys.executable)
         self.assertTrue(self.record.exists())
+
+    def test_missing_java_is_installed_and_selected_before_game_launch(self):
+        from types import SimpleNamespace
+        metadata = self.root / 'versions/fixture/fixture.json'
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({'javaVersion': {'majorVersion': 25}}), encoding='utf-8')
+        runtime = self.work / 'managed-java.exe'
+        runtime.touch()
+        entry = (str(runtime), 'Java 25', [25, 0, 1])
+        package = SimpleNamespace(vendor='Test', version='25.0.1', system='windows', architecture='x64')
+        installed, output = [], []
+        self.launcher.signals.java_installed.connect(installed.append)
+        self.launcher.signals.output.connect(output.append)
+        with patch('core.launcher.java_catalogue', return_value=[package]) as catalog, \
+                patch('core.launcher.install_java', return_value=(package, entry)) as install, \
+                patch('config.javafinder.JavaPathFinder._get_java_version', side_effect=lambda path:
+                      ('Java 25', (25, 0, 1)) if path == str(runtime) else ('Java 21', (21, 0, 1))):
+            self._start()
+        catalog.assert_called_once_with(25, '自动（国内优先）')
+        install.assert_called_once()
+        self.assertEqual(installed, [entry])
+        self.assertEqual(self.options['executablePath'], str(runtime))
+        self.assertEqual(self.manager.get_setting('java.path'), sys.executable)
+        self.assertTrue(any('已安装并验证' in line for line in output))
+        self.assertTrue(self.record.exists())
+
+    def test_cancelled_preparation_cannot_spawn_the_game(self):
+        self.launcher._java_cancel.set()
+        with self.assertRaises(InterruptedError):
+            self._start()
+        self.assertFalse(self.record.exists())
 
 
 if __name__ == '__main__':

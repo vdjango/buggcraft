@@ -9,6 +9,7 @@ import signal
 import time
 import shutil
 import tempfile
+import threading
 import psutil
 import logging
 import minecraft_launcher_lib
@@ -26,7 +27,9 @@ from core.launch_options import (split_arguments, redacted_command, offline_uuid
 from core.downloads import verified_installation
 from core.launch_preparation import prepare_inherited, inherited_command
 from core.memory import AdvancedMemoryRecommender
-from core.java_runtime import select_java, JavaRuntimeUnavailable
+from core.java_runtime import select_java, java_policy, JavaRuntimeUnavailable
+from core.java_downloads import catalogue as java_catalogue, install_available as install_java
+from utils.path_helper import get_launcher_directory
 from utils.install_progress import InstallProgress
 
 
@@ -41,6 +44,8 @@ class MinecraftSignals(QObject):
     error = Signal(str)
     java_required = Signal(str, int, str)
     progress = Signal(int)  # 进度百分比
+    java_install_progress = Signal(str, int, int)
+    java_installed = Signal(object)
 
 
 class OutputHandlerThread(QThread):
@@ -92,6 +97,8 @@ class StartGameThread(QThread):
         """线程主函数"""
         try:
             self.launcher._start_game()
+        except InterruptedError:
+            logger.info('Java preparation cancelled; game launch was skipped')
         except JavaRuntimeUnavailable as exc:
             self.launcher.signals.java_required.emit(exc.version, exc.required, str(exc))
         except Exception as e:
@@ -113,6 +120,7 @@ class MinecraftLibLauncher(QObject):
         self.stopping = False
         self.output_thread = None
         self.start_thread = None
+        self._java_cancel = threading.Event()
         
         self.minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
         self.minecraft_isolation_directory = self.settings_manager.get_minecraft_isolation_directory()
@@ -179,6 +187,7 @@ class MinecraftLibLauncher(QObject):
         if self.running or (self.start_thread and self.start_thread.isRunning()):
             self.signals.error.emit("游戏已经在运行中")
             return
+        self._java_cancel.clear()
         
         # 创建并启动 Qt 线程
         self.start_thread = StartGameThread(self)
@@ -221,12 +230,38 @@ class MinecraftLibLauncher(QObject):
 
             logger.info(f'[JavaRunTime] -> {java_path}')
         
-            requirement = required_java(self.minecraft_directory, self.minecraft_version)
-            if requirement or not java_path:
+            policy = java_policy(self.minecraft_directory, self.minecraft_version)
+            try:
                 selection = select_java(self.settings_manager, self.minecraft_directory, self.minecraft_version)
-                java_path = selection.path
-                if selection.switched:
-                    self.signals.output.emit(f'已自动选择 Java {selection.major}：{java_path}')
+            except JavaRuntimeUnavailable:
+                self.signals.output.emit(f'当前实例缺少适合的 Java，正在准备 Java {policy.recommended}；{policy.reason}')
+                self.signals.java_install_progress.emit(f'正在查找 Java {policy.recommended}…', 0, 0)
+                source = self.settings_manager.get_setting('java.download_source', '自动（国内优先）')
+                try:
+                    packages = java_catalogue(policy.recommended, source)
+                    package = packages[0]
+                    self.signals.output.emit(f'已选择 {package.vendor} Java {package.version} ({package.system}/{package.architecture})')
+                    def progress(message, done, total):
+                        self.signals.java_install_progress.emit(message, done, total)
+                        if not done or done == total:
+                            self.signals.output.emit('[Java 安装] ' + message)
+                    package, entry = install_java(packages, get_launcher_directory() / '.buggcraft' / 'java',
+                                                  self._java_cancel, progress)
+                    if self._java_cancel.is_set():
+                        raise InterruptedError('Java 安装已取消')
+                    entries = list(self.settings_manager.get_setting('java.installations', []) or [])
+                    self.settings_manager.set_setting('java.installations', entries + [list(entry)])
+                    self.signals.java_installed.emit(entry)
+                    self.signals.output.emit(f'已安装并验证 {package.vendor} Java {package.version}，路径：{entry[0]}')
+                    selection = select_java(self.settings_manager, self.minecraft_directory, self.minecraft_version)
+                except InterruptedError:
+                    raise
+                except Exception as exc:
+                    raise JavaRuntimeUnavailable(self.minecraft_version, policy.minimum, '', java_path,
+                        policy.maximum, f'自动安装 Java {policy.recommended} 失败：{exc}。\n{policy.reason}') from exc
+            java_path = selection.path
+            if selection.switched:
+                self.signals.output.emit(f'已自动选择 Java {selection.major}：{java_path}')
             
             jvmArguments = [
                 f"-Xmx{memory}M", 
@@ -370,6 +405,8 @@ class MinecraftLibLauncher(QObject):
                 if pre_command.returncode:
                     raise RuntimeError(f'启动前命令失败（退出码 {pre_command.returncode}），已取消游戏启动')
 
+            if self._java_cancel.is_set():
+                raise InterruptedError('游戏准备已取消')
             self.process = subprocess.Popen(
                 command,
                 cwd=self.minecraft_isolation_directory or self.minecraft_directory,
@@ -492,6 +529,7 @@ class MinecraftLibLauncher(QObject):
         Args:
             force: 是否强制终止进程。为True时跳过关闭直接强制杀死进程。
         """
+        self._java_cancel.set()
         logger.info(f'[Stop] 停止请求: force={force}, 当前状态: running={self.running}, stopping={self.stopping}')
         
         # 检查是否已在停止过程中或未运行

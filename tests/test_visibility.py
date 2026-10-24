@@ -78,7 +78,9 @@ class VisibilityTests(unittest.TestCase):
             def shutdown(self): self.stopped = True
 
         window = Hideable()
-        window.launcher = SimpleNamespace(running=True, start_thread=RunningThread())
+        cancelled = []
+        window.launcher = SimpleNamespace(running=True, start_thread=RunningThread(),
+                                         cancel_preparation=lambda: cancelled.append(True))
         window.started_page = SimpleNamespace(_multiplayer_dialog=Hideable())
         window._debug_dialog = Hideable()
         window._close_after_game = False
@@ -94,6 +96,7 @@ class VisibilityTests(unittest.TestCase):
         self.assertTrue(window.started_page._multiplayer_dialog.stopped)
         self.assertFalse(window._debug_dialog.visible)
         self.assertTrue(window.launcher.running)
+        self.assertEqual(cancelled, [True])
         self.assertFalse(window._closing)
 
     def test_automatic_close_after_game_keeps_rooms_until_the_game_exits(self):

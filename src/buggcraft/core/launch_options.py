@@ -27,9 +27,14 @@ def required_java(directory, version):
         seen.add(current)
         if not isinstance(current, str) or not current or Path(current).name != current or any(c in current for c in '/\\:'):
             raise ValueError('游戏版本标识无效')
-        match = re.fullmatch(r'(\d+)\.(\d+)(?:\.\d+)?(?:[- ].*)?', current)
-        if match and tuple(map(int, match.groups())) >= (26, 1):
-            required = max(required, 25)
+        match = re.fullmatch(r'(\d+)\.(\d+)(?:\.(\d+))?(?:[- ].*)?', current)
+        if match:
+            release = tuple(int(part or 0) for part in match.groups())
+            floor = (25 if release >= (26, 1, 0) else
+                     21 if release >= (1, 20, 5) else
+                     17 if release >= (1, 18, 0) else
+                     16 if release >= (1, 17, 0) else 8)
+            required = max(required, floor)
         path = Path(directory) / 'versions' / current / (current + '.json')
         if not path.is_file():
             return required or None

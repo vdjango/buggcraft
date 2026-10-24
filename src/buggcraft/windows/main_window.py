@@ -2,7 +2,6 @@
 
 import os
 import logging
-import webbrowser
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QStackedWidget, QVBoxLayout
@@ -77,6 +76,7 @@ class MinecraftLauncher(QMainWindow):
         self._debug_dialog = None
         self._launch_error_dialog = None
         self._launch_error_reported = False
+        self._java_install_dialog = None
         self.setWindowIcon(get_app_icon(self.resource_path))
 
         # 窗口拖动
@@ -257,6 +257,8 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
         self.launcher.signals.java_required.connect(self.minecraft_java_required)
+        self.launcher.signals.java_install_progress.connect(self.minecraft_java_install_progress)
+        self.launcher.signals.java_installed.connect(self.minecraft_java_installed)
         self.launcher.signals.progress.connect(self.minecraft_handle_progress)
     
     def minecraft_not_java_runtime(self):
@@ -266,13 +268,11 @@ class MinecraftLauncher(QMainWindow):
         if self.settings_manager.get_version_setting('java.path', None) is None \
                 and not self.settings_manager.get_setting('java.installations', []):
             # 尝试本地搜索
-            self.load_java_path()
+            self.load_java_path(notify_missing=False)
             logger.warning('尝试本地搜索Java')
             return
 
-        if self.minecraft_not_java_version_runtime():
-            self.java_runtime_full.exec()
-            return
+        # Keep startup quiet; selecting Play prepares the correct Java automatically.
 
         # 对于未安装Java环境时,只提示Java环境安装,
         self.minecraft_not_gamed_runtime()
@@ -292,6 +292,7 @@ class MinecraftLauncher(QMainWindow):
         if previous is not None and previous.isRunning():
             return
         self._java_notify_missing = notify_missing
+        configured = list(self.settings_manager.get_setting('java.installations', []) or [])
         
         class JavaSearchWorker(QObject):
             finished = Signal(list)
@@ -301,6 +302,19 @@ class MinecraftLauncher(QMainWindow):
                 try:
                     finder = JavaPathFinder(cancelled=QThread.currentThread().isInterruptionRequested)
                     java_installations = finder.find_all_java_installations()
+                    known = {os.path.normcase(os.path.abspath(item[0])) for item in java_installations}
+                    for entry in configured:
+                        if QThread.currentThread().isInterruptionRequested():
+                            break
+                        if not isinstance(entry, (list, tuple)) or not entry or not isinstance(entry[0], str):
+                            continue
+                        identity = os.path.normcase(os.path.abspath(entry[0]))
+                        if identity in known or not os.path.isfile(entry[0]):
+                            continue
+                        raw, parsed = finder._get_java_version(entry[0])
+                        if parsed:
+                            java_installations.append((entry[0], raw, parsed))
+                            known.add(identity)
                     self.finished.emit(java_installations)
                 except Exception as e:
                     self.error.emit(str(e))
@@ -389,10 +403,10 @@ class MinecraftLauncher(QMainWindow):
 
     def on_java_download_signal(self):
         """用户选择了下载Java向导"""
-        logger.info("用户选择了下载Java向导")
-        major = getattr(self, '_required_java_download', 0) or 25
-        webbrowser.open(f'https://adoptium.net/temurin/releases/?version={major}')
-        pass
+        self.switch_pages('设置')
+        self.settings_page.java_tab_btn_clicked()
+        if not self.settings_page.java_page.controller.java_catalog_open:
+            self.settings_page.java_page.controller.action('', '下载')
 
     def switch_pages(self, name):
         """切换标签页"""
@@ -443,6 +457,7 @@ class MinecraftLauncher(QMainWindow):
     def minecraft_handle_started(self):
         """游戏启动处理"""
         logger.info('minecraft_handle_started 游戏已启动')
+        self._close_java_progress()
         if self.settings_manager.get_version_setting('launcher.debug', '否（推荐）') == '是':
             self._show_debug_output()
         # 应用可见性设置
@@ -451,6 +466,7 @@ class MinecraftLauncher(QMainWindow):
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
+        self._close_java_progress()
         if self._close_after_game:
             QTimer.singleShot(100, self.close)
         else:
@@ -489,14 +505,53 @@ class MinecraftLauncher(QMainWindow):
             self._show_debug_output()
 
     def minecraft_java_required(self, version, required, detail):
+        self._close_java_progress()
         self.minecraft_handle_output(f'[Java 检查] {detail}')
         self.show_launch_error('缺少适合的 Java',
-            f'Minecraft {version} 需要 Java {required} 或更高版本。' if required else '没有可用的 Java 运行环境。',
+            f'Minecraft {version} 缺少兼容的 Java {required} 运行环境。' if required else '没有可用的 Java 运行环境。',
             detail, required=required or 25)
+
+    def minecraft_java_install_progress(self, message, done, total):
+        page = self.settings_page.java_page
+        page.controller._status = message + (f' · {min(100, max(0, done * 100 // total))}%' if total > 0 else '')
+        page.controller.changed.emit()
+        if self._closing:
+            return
+        if self._java_install_dialog is None:
+            self._java_install_dialog = QmlDialog(self, width=620, height=350,
+                title='正在准备 Java', actions=['取消安装'])
+            self._java_install_dialog.controller.actionRequested.connect(self._cancel_java_install)
+            self._java_install_dialog.rejected.connect(lambda:
+                self.launcher.cancel_preparation() if self._java_install_dialog.controller.working else None)
+        dialog = self._java_install_dialog
+        dialog.controller.message = '此游戏缺少兼容的 Java，启动器正在自动安装。'
+        dialog.controller.detail = message + (f'\n{done / 1024 ** 2:.1f} / {total / 1024 ** 2:.1f} MiB'
+            if total > 1 else '')
+        dialog.controller.working = True
+        dialog.controller.progress = min(1., done / total) if total else -1.
+        dialog.controller.changed.emit()
+        if not dialog.isVisible():
+            dialog.open()
+
+    def _close_java_progress(self):
+        if self._java_install_dialog is not None:
+            self._java_install_dialog.controller.working = False
+            self._java_install_dialog.close()
+
+    def _cancel_java_install(self, action):
+        self.launcher.cancel_preparation()
+        self._close_java_progress()
+
+    def minecraft_java_installed(self, entry):
+        from core.java_downloads import register
+        register(self.settings_manager, entry)
+        self.settings_page.java_page.refresh_list()
+        self._close_java_progress()
     
     def minecraft_handle_error(self, message):
         """错误处理"""
         logger.info(f'minecraft_handle_error {message}')
+        self._close_java_progress()
         self.minecraft_handle_output(f'[错误] {message}')
         if self.settings_manager.get_version_setting('launcher.debug', '否（推荐）') == '是':
             self._show_debug_output()
@@ -582,6 +637,7 @@ class MinecraftLauncher(QMainWindow):
             lobby.shutdown()
         thread = getattr(self.launcher, 'start_thread', None)
         if thread is not None and thread.isRunning():
+            self.launcher.cancel_preparation()
             self._close_after_game = True
             self.hide()
             lobby = getattr(self.started_page, '_multiplayer_dialog', None)
@@ -594,6 +650,10 @@ class MinecraftLauncher(QMainWindow):
                 QTimer.singleShot(100, self.close)
             return
         self._closing = True
+        if not self.settings_page.java_page.controller.shutdown():
+            event.ignore()
+            QTimer.singleShot(100, self.close)
+            return
         if not self.download_page.shutdown():
             event.ignore()
             QTimer.singleShot(100, self.close)

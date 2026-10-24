@@ -8,6 +8,47 @@ from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
 class AllLauncherPagesTests(LauncherQmlCase):
+    def test_java_download_catalogue_installs_and_preserves_preferred_java(self):
+        from core.java_downloads import JavaPackage
+        self.window.switch_pages('设置')
+        self.window.settings_page.java_tab_btn_clicked()
+        page = self.window.settings_page.java_page
+        controller = page.controller
+        runtime = self.directory / 'managed-java.exe'
+        runtime.touch()
+        entry = (str(runtime), 'openjdk version "25.0.1"', [25, 0, 1])
+        package = JavaPackage('Eclipse Temurin', 25, '25.0.1', 'windows', 'x64', 'jre',
+                              'temurin.zip', 'a' * 64, 12345, ('https://example.test/temurin.zip',))
+        controller.action('', '下载')
+        controller.set_java_major(25)
+        with patch('ui.pages.qml_lists.catalogue', return_value=[package]):
+            controller.load_java_catalog()
+            self.assertTrue(controller.view['busy'])
+            self.wait_until(lambda: not controller.busy)
+        self.assertEqual(len(controller.view['javaPackages']), 1)
+        self.pump()
+        self.assertTrue(self.item(page, 'java-download-catalog').isVisible())
+        self.snapshot('java-download-catalog')
+        with patch('ui.pages.qml_lists.install_java', return_value=entry):
+            controller.download_java(package.checksum)
+            self.wait_until(lambda: not controller.busy)
+        self.assertIn(list(entry), self.manager.get_setting('java.installations'))
+        self.assertEqual(self.manager.get_setting('java.path'), __import__('sys').executable)
+        self.assertIn('已安装', controller.view['status'])
+        self.assert_no_qml_errors()
+
+    def test_java_search_preserves_manually_installed_runtime(self):
+        runtime = self.directory / 'managed-java.exe'
+        runtime.touch()
+        self.manager.set_setting('java.installations', [[str(runtime), 'Java 25', [25, 0, 1]]])
+        with patch('config.javafinder.JavaPathFinder.find_all_java_installations', return_value=[]), \
+                patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('Java 25', (25, 0, 1))):
+            self.window.load_java_path(notify_missing=False)
+            self.wait_until(lambda: not self.window.search_thread.isRunning())
+            self.pump()
+        self.assertEqual(self.manager.get_setting('java.installations')[0][0], str(runtime))
+        self.assert_no_qml_errors()
+
     def test_room_mod_downloads_are_persisted_in_launcher_task_history(self):
         tasks = self.window.download_page.tasks_page
         cancel = threading.Event()

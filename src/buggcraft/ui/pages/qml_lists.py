@@ -1,9 +1,10 @@
 """Shared QML record pages for Java runtimes and application information."""
 import os
+import threading
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Signal, Slot, QUrl
+from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFileDialog
 
@@ -11,6 +12,30 @@ from config.javafinder import JavaPathFinder
 from config.settings import get_settings_manager
 from ui.pages.qml_host import QmlPage
 from core.minecraft.version import open_folder
+from core.java_downloads import SOURCES, catalogue, install as install_java, register as register_java
+from core.java_runtime import java_policy
+from utils.path_helper import get_launcher_directory
+
+
+class _JavaSignals(QObject):
+    finished = Signal(object, str)
+    progress = Signal(str, int, int)
+
+
+class _JavaWork(QRunnable):
+    def __init__(self, action, complete):
+        super().__init__()
+        self.action = action
+        self.signals = _JavaSignals()
+        self.signals.finished.connect(complete)
+
+    @Slot()
+    def run(self):
+        try:
+            value = self.action(lambda message, done, total: self.signals.progress.emit(message, done, total))
+            self.signals.finished.emit(value, '')
+        except Exception as exc:
+            self.signals.finished.emit(None, str(exc))
 
 
 class RecordController(QObject):
@@ -24,6 +49,16 @@ class RecordController(QObject):
         self._records = []
         self._status = ''
         self.busy = False
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(2)
+        saved_source = self.manager.get_setting('java.download_source', SOURCES[0])
+        self.java_source = saved_source if saved_source in SOURCES else SOURCES[0]
+        self.java_major = 17
+        self.java_catalog_open = False
+        self.java_packages = []
+        self._package_records = []
+        self.java_installing = False
+        self.cancel = threading.Event()
         self.reload()
 
     @Property('QVariantMap', notify=changed)
@@ -34,7 +69,10 @@ class RecordController(QObject):
                     resources=QUrl.fromLocalFile(str(Path(self.resource_path).resolve()) + '/').toString(),
                     sections=[dict(title=title, records=[record for record in self._records if record.get('section') == title])
                               for title in ('关于', '鸣谢', '依赖', '法律声明')],
-                    actions=['刷新', '下载', '添加'] if self.kind == 'java' else [])
+                    javaCatalogOpen=self.java_catalog_open, javaPackages=self.java_packages,
+                    javaSource=self.java_source, javaMajor=self.java_major,
+                    javaSources=list(SOURCES), javaMajors=[8, 11, 16, 17, 21, 25],
+                    actions=['刷新', '添加'] if self.kind == 'java' else [])
 
     @Slot()
     def reload(self):
@@ -91,11 +129,108 @@ class RecordController(QObject):
             self.changed.emit()
             page.parent.parent.load_java_path(notify_missing=False)
         elif action == '下载':
-            page.parent.parent.on_java_download_signal()
+            self.java_catalog_open = not self.java_catalog_open
+            self.java_packages = []
+            self._status = ''
+            if self.java_catalog_open:
+                directory = self.manager.get_setting('minecraft.directory.enable') or ''
+                game = self.manager.get_setting('minecraft.version.enable') or ''
+                if directory and game:
+                    try:
+                        self.java_major = java_policy(directory, game).recommended
+                    except Exception:
+                        self.java_major = 17
+            self.changed.emit()
         elif action == '添加':
             path, _ = QFileDialog.getOpenFileName(page, '选择 Java 可执行文件', '', 'Java (java.exe javaw.exe java);;所有文件 (*)')
             if path:
                 page.add_java(path)
+
+    @Slot(int)
+    def set_java_major(self, major):
+        if major in (8, 11, 16, 17, 21, 25):
+            self.java_major = major
+            self.java_packages = []
+            self._status = ''
+            self.changed.emit()
+
+    @Slot(str)
+    def set_java_source(self, source):
+        if source in SOURCES:
+            self.java_source = source
+            self.manager.set_setting('java.download_source', source)
+            self.manager.save_settings()
+            self.java_packages = []
+            self._status = ''
+            self.changed.emit()
+
+    @Slot()
+    def load_java_catalog(self):
+        if self.busy:
+            return
+        self.busy = True
+        self._status = f'正在获取 Java {self.java_major} 下载列表…'
+        self.java_packages = []
+        self.changed.emit()
+        major, source = self.java_major, self.java_source
+        task = _JavaWork(lambda progress: catalogue(major, source),
+                         self._java_catalog_finished)
+        task.signals.progress.connect(self._java_progress)
+        self.pool.start(task)
+
+    @Slot(object, str)
+    def _java_catalog_finished(self, packages, error):
+        self.busy = False
+        self._package_records = packages or []
+        self.java_packages = [package.record() for package in packages] if packages else []
+        self._status = error or (f'找到 {len(self.java_packages)} 个 Java 压缩包。选择下载后会校验文件并在启动器目录内安装。'
+                                if packages else '没有找到可用版本。')
+        self.changed.emit()
+
+    @Slot(str, int, int)
+    def _java_progress(self, message, done, total):
+        if not self.java_installing:
+            return
+        self._status = f'{message}  {min(100, max(0, done * 100 // total))}%' if total > 0 else message
+        self.changed.emit()
+
+    @Slot(str)
+    def download_java(self, identity):
+        if self.busy:
+            return
+        package = next((item for item in getattr(self, '_package_records', [])
+                        if item.checksum == identity), None)
+        if package is None:
+            self._status = 'Java 下载条目已过期，请刷新列表。'
+            self.changed.emit()
+            return
+        self.busy = True
+        self.java_installing = True
+        self.cancel.clear()
+        self._install_package = package
+        self._status = f'正在准备 {package.vendor} Java {package.version}…'
+        self.changed.emit()
+
+        task = _JavaWork(lambda progress: install_java(package,
+            get_launcher_directory() / '.buggcraft' / 'java', cancel=self.cancel, report=progress), self._java_install_finished)
+        task.signals.progress.connect(self._java_progress)
+        self.pool.start(task)
+
+    @Slot(object, str)
+    def _java_install_finished(self, entry, error):
+        self.java_installing = False
+        self.busy = False
+        if error:
+            self._status = 'Java 安装失败：' + error
+        else:
+            register_java(self.manager, entry)
+            self.reload()
+            self._status = f'Java {self._install_package.version} 已安装、校验并添加到 Java 管理。'
+        self.changed.emit()
+
+    def shutdown(self):
+        self.cancel.set()
+        return self.pool.waitForDone(100)
 
 
 class JavaManagementPage(QmlPage):
@@ -122,6 +257,8 @@ class JavaManagementPage(QmlPage):
         return True
 
     def refresh_list(self):
+        if self.controller.busy:
+            return
         self.controller._status = ''
         self.controller.reload()
 

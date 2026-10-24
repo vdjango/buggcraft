@@ -27,6 +27,9 @@ class GameSessionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.settings = SettingsManager(str(self.root / 'config'))
+        probe = patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('Java 21 fixture', (21, 0, 1)))
+        probe.start()
+        self.addCleanup(probe.stop)
         for key, value in {'minecraft.directory.enable': str(self.root / 'game'),
                            'minecraft.version.enable': 'fixture', 'java.path': sys.executable,
                            'minecraft.auto_allocate_memory': False, 'memory.allocation': 1024}.items():
@@ -107,6 +110,22 @@ class GameSessionTests(unittest.TestCase):
         self.settings.set_setting('memory.allocation', 4096)
         self.assertEqual(launcher.settings_manager.get_setting('minecraft.version.enable'), 'fixture')
         self.assertEqual(launcher.settings_manager.get_setting('memory.allocation'), 1024)
+
+    def test_cancelling_java_preparation_never_stops_selected_running_game(self):
+        from types import SimpleNamespace
+        import threading
+        running = SimpleNamespace(_java_cancel=threading.Event())
+        preparing = SimpleNamespace(_java_cancel=threading.Event())
+        self.sessions._sessions = [dict(id=1, phase='running', launcher=running),
+                                   dict(id=2, phase='starting', launcher=preparing)]
+        self.sessions.selected_id = 1
+        try:
+            self.sessions.cancel_preparation()
+            self.assertFalse(running._java_cancel.is_set())
+            self.assertTrue(preparing._java_cancel.is_set())
+            self.assertTrue(self.sessions._sessions[1]['stop_requested'])
+        finally:
+            self.sessions._sessions = []
 
     def test_manual_stop_is_not_reported_as_crash_but_unexpected_exit_is(self):
         stopped = QSignalSpy(self.sessions.signals.stopped)

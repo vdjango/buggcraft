@@ -18,12 +18,17 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#8b85da" }
         ScrollView {
+            id: messageScroll
             Layout.fillWidth: true; Layout.fillHeight: true; visible: !root.state.log
             contentWidth: availableWidth
+            contentHeight: messageBody.implicitHeight
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ColumnLayout {
-                width: parent.width; spacing: 14
-                Label { Layout.fillWidth: true; text: root.state.message; wrapMode: Text.Wrap; color: "#e0e0e8"; font.pixelSize: 15; font.bold: true }
-                Label { Layout.fillWidth: true; text: root.state.detail; wrapMode: Text.Wrap; color: "#c0c0d0"; font.pixelSize: 13 }
+                id: messageBody
+                width: messageScroll.availableWidth; spacing: 14
+                Label { objectName: "dialog-message"; Layout.fillWidth: true; text: root.state.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#e0e0e8"; font.pixelSize: 15; font.bold: true }
+                Label { objectName: "dialog-detail"; Layout.fillWidth: true; text: root.state.detail; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#c0c0d0"; font.pixelSize: 13 }
                 Label { Layout.fillWidth: true; visible: !!root.state.code; text: root.state.code; font.pixelSize: 26; font.bold: true; color: "#b7abff"; horizontalAlignment: Text.AlignHCenter }
                 Label { Layout.fillWidth: true; visible: !!root.state.uri; text: root.state.uri; color: "#bfc4d5"; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter }
             }
@@ -31,6 +36,13 @@ Rectangle {
         ScrollView {
             Layout.fillWidth: true; Layout.fillHeight: true; visible: !!root.state.log
             TextArea { readOnly: true; text: root.state.log; selectByMouse: true; wrapMode: TextEdit.Wrap; color: "#e0e0e8"; font.pixelSize: 12; background: Rectangle { color: "#1d202b" } }
+        }
+        ProgressBar {
+            Layout.fillWidth: true
+            visible: root.state.working
+            indeterminate: root.state.progress < 0
+            from: 0; to: 1
+            value: Math.max(0, root.state.progress)
         }
         RowLayout {
             Layout.fillWidth: true

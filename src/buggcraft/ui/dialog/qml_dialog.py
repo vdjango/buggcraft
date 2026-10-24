@@ -15,6 +15,8 @@ class DialogController(QObject):
         self.actions = actions or []
         self.code = self.uri = self.log = ''
         self.copied = False
+        self.working = False
+        self.progress = 0.
         self._copy_timer = QTimer(self)
         self._copy_timer.setSingleShot(True)
         self._copy_timer.timeout.connect(self._reset_copy)
@@ -23,7 +25,7 @@ class DialogController(QObject):
     def view(self):
         return dict(title=self.title, message=self.message, detail=self.detail,
                     actions=self.actions, code=self.code, uri=self.uri,
-                    copied=self.copied, log=self.log)
+                    copied=self.copied, log=self.log, working=self.working, progress=self.progress)
 
     @Slot(str)
     def action(self, name):

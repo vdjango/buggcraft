@@ -87,6 +87,8 @@ class GameSessions(QObject):
         launcher.signals.output.connect(lambda text: self.signals.output.emit(
             f"[游戏 {record['id']} · {record['instance'][1]}] {text}"))
         launcher.signals.progress.connect(self.signals.progress)
+        launcher.signals.java_install_progress.connect(self.signals.java_install_progress)
+        launcher.signals.java_installed.connect(self.signals.java_installed)
         launcher.signals.started.connect(lambda: self._started(record))
         launcher.signals.stopped.connect(lambda code: self._stopped(record, code))
         launcher.signals.error.connect(self.signals.error)
@@ -121,9 +123,21 @@ class GameSessions(QObject):
 
     def stop(self, force=False):
         record = self.selected
+
+        if record is not None and record['phase'] == 'starting':
+            record['stop_requested'] = True
+            record['launcher']._java_cancel.set()
+            return
         if record is not None and record['phase'] == 'running':
             record['stop_requested'] = True
             record['launcher'].stop(force=force)
+
+    def cancel_preparation(self):
+        """Cancel the preparing instance even if another running game is selected."""
+        for record in self.sessions:
+            if record['phase'] == 'starting':
+                record['stop_requested'] = True
+                record['launcher']._java_cancel.set()
 
     def is_running(self):
         return self.running
