@@ -20,6 +20,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 import config.settings as settings
 import core.update_client as updates
+import ui.launcher_updates as update_ui
 root = Path(sys.argv[1])
 (root / 'app-version.txt').write_text('1.2.3-rc.1', encoding='ascii')
 with patch.object(settings, 'get_conf_or_cache_manager', return_value=('test', str(root))):
@@ -33,9 +34,8 @@ for setting, channel in [('stable', 'stable'), ('development', 'beta')]:
     manager.get_setting.return_value = setting
     with patch.object(settings, '_settings_manager_instance', manager), \
             patch.object(QTimer, 'singleShot') as deferred, \
-            patch.object(updates, 'check_for_update', return_value=None) as check:
+            patch.object(update_ui, 'check_for_update', return_value=None) as check:
         schedule(window, app)
-        manager.get_setting.assert_called_once_with('settings.general.update', 'stable')
         assert window._update_check_timer.isActive()
         assert window._update_check_timer.interval() == 3600000
         delay, callback = deferred.call_args.args
@@ -46,6 +46,7 @@ for setting, channel in [('stable', 'stable'), ('development', 'beta')]:
         app.processEvents()
         check.assert_called_once_with('1.2.3-rc.1', channel)
         assert window._update_workers == []
+        assert '1.2.3-rc.1' in window.launcher_updates.status
     window._update_check_timer.stop()
     window.deleteLater()
 app.processEvents()

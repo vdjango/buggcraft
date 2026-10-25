@@ -23,7 +23,30 @@ class SettingsController(QObject):
         self.settings = GlobalSettingsScope(self.manager) if scope == 'global' else self.manager
         self._fields = []
         self._memory = {}
+        self._updates = None
         self.reload()
+
+    def bind_updates(self, updates):
+        self._updates = updates
+        updates.changed.connect(self.changed.emit)
+        self.changed.emit()
+
+    @Property(str, notify=changed)
+    def updateStatus(self):
+        return self._updates.status if self._updates else '更新检查正在初始化'
+
+    @Property(str, notify=changed)
+    def currentVersion(self):
+        return self._updates.currentVersion if self._updates else '正在读取'
+
+    @Property(bool, notify=changed)
+    def updateBusy(self):
+        return self._updates.busy if self._updates else False
+
+    @Slot()
+    def checkUpdates(self):
+        if self._updates is not None:
+            self._updates.check(manual=True)
 
     @Property('QVariantList', notify=changed)
     def fields(self):
@@ -41,7 +64,7 @@ class SettingsController(QObject):
                          collapsible=True, inline=False, options=[dict(value=value, title=str(value), description='')
                                                                 for value in field['options']])
             if key == 'settings.general.update':
-                group.update(kind='radio-horizontal', summary='打开发行页', collapsible=False,
+                group.update(kind='radio-horizontal', summary='', collapsible=False,
                              options=[dict(value='stable', title='稳定版', description=''),
                                       dict(value='development', title='开发版', description='')])
             elif key == 'cache':
@@ -114,7 +137,7 @@ class SettingsController(QObject):
         if self.scope == 'general':
             self._fields = [
                 self._field('settings.general.update', '启动器更新', s.get_setting('settings.general.update', 'stable'),
-                            ['stable', 'development'], '启动时自动检查此通道；发布后的版本可从官网下载安装。'),
+                            ['stable', 'development'], '稳定版仅接收正式更新；开发版同时接收开发版和正式版。切换后立即检查，确认后自动下载、校验并重启。'),
                 self._field('launcher.opacity', '启动器透明度', launcher_opacity(s),
                             options=[35, 100], kind='opacity',
                             description='默认 85%，最低 35%，100% 为完全不透明。'),
@@ -226,6 +249,8 @@ class SettingsController(QObject):
                 self.settings.set_version_setting('memory.allocation', memory)
         self.settings.save_settings()
         self.reload()
+        if key == 'settings.general.update' and self._updates is not None:
+            self._updates.channel_changed()
 
     @Slot()
     def openReleases(self):

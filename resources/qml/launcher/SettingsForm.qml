@@ -40,7 +40,20 @@ ScrollView {
                         onActivated: settingsPage.setValue(group.modelData.key, group.modelData.options[currentIndex].value)
                     }
                 }
-                Component { id: releases; ActionButton { text: "打开官网版本页"; implicitHeight: 28; onClicked: settingsPage.openReleases() } }
+                Component {
+                    id: releases
+                    RowLayout {
+                        spacing: 8
+                        ActionButton {
+                            objectName: "launcher-check-updates"
+                            text: settingsPage.updateBusy ? "正在处理…" : "检查更新"
+                            enabled: !settingsPage.updateBusy
+                            implicitHeight: 28
+                            onClicked: settingsPage.checkUpdates()
+                        }
+                        ActionButton { text: "官网版本页"; implicitHeight: 28; onClicked: settingsPage.openReleases() }
+                    }
+                }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -51,6 +64,7 @@ ScrollView {
                             model: group.modelData.kind === "radio-horizontal" ? group.modelData.options : []
                             delegate: SettingOption {
                                 required property var modelData
+                                objectName: "launcher-update-channel-" + modelData.value
                                 Layout.preferredWidth: 105
                                 text: modelData.title; checked: group.modelData.value === modelData.value
                                 enabled: group.modelData.enabled
@@ -58,6 +72,15 @@ ScrollView {
                             }
                         }
                         Item { Layout.fillWidth: true }
+                    }
+                    Label {
+                        objectName: "launcher-update-status"
+                        visible: group.modelData.key === "settings.general.update"
+                        Layout.fillWidth: true
+                        text: "当前版本：" + settingsPage.currentVersion + "\n" + settingsPage.updateStatus
+                        color: "#cce5e5ee"
+                        font.pixelSize: 12
+                        wrapMode: Text.Wrap
                     }
                     Repeater {
                         model: group.modelData.kind === "radio" ? group.modelData.options : []

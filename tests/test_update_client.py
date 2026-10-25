@@ -1,8 +1,11 @@
 import hashlib
+import base64
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest import mock
 
@@ -30,6 +33,46 @@ class Response:
 
 
 class UpdateClientTests(unittest.TestCase):
+    def test_windows_replacement_waits_onefile_parent_and_clears_bootstrap_environment(self):
+        with mock.patch.dict(os.environ, {'NUITKA_ONEFILE_PARENT': '123', 'NUITKA_ONEFILE_START': 'old'}), \
+                mock.patch('psutil.Process') as process, \
+                mock.patch.object(update_client.subprocess, 'Popen') as spawn:
+            process.return_value.ppid.return_value = 123
+            update_client._spawn_windows_replacement(Path('new.exe'), Path('launcher.exe'), 456)
+        args, kwargs = spawn.call_args
+        script = base64.b64decode(args[0][-1]).decode('utf-16le')
+        encoded = script.split("FromBase64String('", 1)[1].split("'", 1)[0]
+        payload = json.loads(base64.b64decode(encoded))
+        self.assertEqual(payload['pids'], [456, 123])
+        self.assertFalse(any(key.startswith('NUITKA_') for key in kwargs['env']))
+        self.assertIn('Move-Item -LiteralPath $backup', script)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell replacement integration')
+    def test_windows_replacement_script_replaces_and_restores_on_restart_failure(self):
+        with tempfile.TemporaryDirectory(prefix='launcher replacement ') as directory:
+            root = Path(directory)
+            target, source, marker = root / 'launcher.exe', root / 'new.exe', root / 'restarted.txt'
+            for failing in (False, True):
+                target.write_bytes(b'original executable')
+                source.write_bytes(b'verified new executable')
+                with mock.patch.dict(os.environ, {'NUITKA_ONEFILE_PARENT': ''}), \
+                        mock.patch.object(update_client.subprocess, 'Popen') as spawn:
+                    update_client._spawn_windows_replacement(source, target, 2147483647)
+                command = spawn.call_args.args[0]
+                script = base64.b64decode(command[-1]).decode('utf-16le')
+                start = 'Start-Process -FilePath $d.target -WorkingDirectory (Split-Path -LiteralPath $d.target);'
+                self.assertIn(start, script)
+                replacement = "throw 'simulated restart failure';" if failing else "'restarted' | Set-Content -LiteralPath '" + str(marker).replace("'", "''") + "';"
+                script = script.replace(start, replacement)
+                command[-1] = base64.b64encode(script.encode('utf-16le')).decode('ascii')
+                subprocess.run(command, check=True, timeout=15, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                self.assertEqual(target.read_bytes(), b'original executable' if failing else b'verified new executable')
+                self.assertFalse(list(root.glob('*.backup-*')))
+                if failing:
+                    self.assertIn('simulated restart failure', (root / 'launcher.exe.update-error.log').read_text(encoding='utf-8-sig'))
+                else:
+                    self.assertTrue(marker.exists())
+
     def test_semver_and_platform_targets(self):
         self.assertGreater(update_client.version_key('1.2.0'), update_client.version_key('1.2.0-rc.2'))
         self.assertGreater(update_client.version_key('1.2.0-rc.2'), update_client.version_key('1.2.0-rc.1'))

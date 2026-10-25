@@ -146,20 +146,38 @@ def download_update(update, directory, progress=None, timeout=30):
 
 
 def _spawn_windows_replacement(source, target, process_id):
-    payload = json.dumps({'source': str(source), 'target': str(target), 'pid': process_id}, ensure_ascii=True)
+    pids = [process_id]
+    parent = os.environ.get('NUITKA_ONEFILE_PARENT', '')
+    if parent.isdecimal() and int(parent) > 0 and int(parent) != process_id:
+        import psutil
+        if psutil.Process(process_id).ppid() == int(parent):
+            pids.append(int(parent))
+    payload = json.dumps({'source': str(source), 'target': str(target), 'pids': pids}, ensure_ascii=True)
     payload64 = __import__('base64').b64encode(payload.encode('utf-8')).decode('ascii')
     script = (
+        "$ErrorActionPreference='Stop';"
         "$d=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload64 + "')) | ConvertFrom-Json;"
-        "while(Get-Process -Id $d.pid -ErrorAction SilentlyContinue){Start-Sleep -Milliseconds 300};"
-        "Move-Item -LiteralPath $d.source -Destination $d.target -Force;"
-        "Start-Process -FilePath $d.target"
+        "foreach($waitId in $d.pids){while(Get-Process -Id $waitId -ErrorAction SilentlyContinue){Start-Sleep -Milliseconds 300}};"
+        "$backup=$d.target+'.backup-'+[Guid]::NewGuid().ToString('N');"
+        "try{"
+        "for($attempt=0;$attempt -lt 30;$attempt++){try{Move-Item -LiteralPath $d.target -Destination $backup;break}catch{if($attempt -eq 29){throw};Start-Sleep -Milliseconds 300}};"
+        "Move-Item -LiteralPath $d.source -Destination $d.target;"
+        "Start-Process -FilePath $d.target -WorkingDirectory (Split-Path -LiteralPath $d.target);"
+        "Remove-Item -LiteralPath $backup -ErrorAction SilentlyContinue"
+        "}catch{if(Test-Path -LiteralPath $backup){Move-Item -LiteralPath $backup -Destination $d.target -Force};"
+        "$_ | Out-String | Set-Content -LiteralPath ($d.target+'.update-error.log') -Encoding UTF8}"
     )
     encoded = __import__('base64').b64encode(script.encode('utf-16le')).decode('ascii')
     flags = getattr(subprocess, 'DETACHED_PROCESS', 0x00000008) | getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
     flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
     subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
                       '-EncodedCommand', encoded], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags)
+                     stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags, env=_replacement_environment())
+
+
+def _replacement_environment():
+    # A detached replacement must start as a fresh onefile parent process.
+    return {key: value for key, value in os.environ.items() if not key.startswith('NUITKA_')}
 
 
 def _mac_bundle_path(executable):
@@ -197,7 +215,7 @@ def _spawn_macos_replacement(archive, target, process_id):
         f'/bin/rm -rf {shlex.quote(str(backup))} {shlex.quote(str(stage))} {shlex.quote(str(archive))}',
     ))
     subprocess.Popen(['/bin/sh', '-c', script], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+                     stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True, env=_replacement_environment())
 
 
 def apply_update(package, executable=None):
@@ -215,7 +233,7 @@ def apply_update(package, executable=None):
         mode = executable.stat().st_mode
         os.chmod(package, mode | 0o755)
         os.replace(package, executable)
-        os.execv(str(executable), [str(executable), *sys.argv[1:]])
+        os.execve(str(executable), [str(executable), *sys.argv[1:]], _replacement_environment())
     if target_platform in ('macos-arm64', 'macos-x86_64'):
         if package.suffix != '.zip':
             raise ValueError('macOS update archive is missing')

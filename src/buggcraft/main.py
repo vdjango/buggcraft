@@ -238,121 +238,17 @@ def initialize_application():
 
 
 def _schedule_launcher_update_checks(launcher, app):
-    if not IS_PACKAGED:
-        return
-    from PySide6.QtCore import QThread, QTimer, QUrl, Qt, Signal
-    from PySide6.QtGui import QDesktopServices
-    from PySide6.QtWidgets import QMessageBox, QProgressDialog
-    from core.update_client import apply_update, check_for_update, current_version, download_update
+    from ui.launcher_updates import LauncherUpdateController
 
-    resource_path = Path(RESOURCE_DIR)
-    version = current_version(resource_path)
-    setting = get_settings_manager().get_setting('settings.general.update', 'stable')
-    channel = 'beta' if setting == 'development' else 'stable'
-    prompted = set()
-
-    class CheckWorker(QThread):
-        result = Signal(object)
-
-        def run(self):
-            try:
-                self.result.emit(check_for_update(version, channel))
-            except Exception as exc:
-                logger.info('Launcher update check unavailable: %s', exc)
-                self.result.emit(None)
-
-    class DownloadWorker(QThread):
-        progress = Signal(int)
-        completed = Signal(object, str)
-
-        def __init__(self, update):
-            super().__init__(launcher)
-            self.update = update
-
-        def run(self):
-            try:
-                executable = Path(sys.argv[0]).resolve()
-                directory = executable.parent
-                if platform.system() == 'Darwin':
-                    bundle = next(parent for parent in executable.parents if parent.suffix == '.app')
-                    directory = bundle.parent
-                package = download_update(
-                    self.update, directory,
-                    lambda done, total: self.progress.emit(int(done * 1000 / total)))
-                self.completed.emit(package, '')
-            except Exception as exc:
-                self.completed.emit(None, str(exc))
-
-    workers = []
-    launcher._update_workers = workers
-
-    def offer(update):
-        if not update or update['version'] in prompted:
-            return
-        prompted.add(update['version'])
-        box = QMessageBox(launcher)
-        box.setWindowTitle('发现启动器更新')
-        box.setIcon(QMessageBox.Information)
-        box.setTextFormat(Qt.PlainText)
-        box.setText(f"Buggcraft {update['version']} 已发布。\n当前版本：{version}")
-        box.setInformativeText(update.get('notes') or '修复问题并改进启动器体验。')
-        install_button = box.addButton('立即更新', QMessageBox.AcceptRole)
-        box.addButton('稍后提醒', QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is not install_button:
-            return
-        if getattr(launcher, 'started_page', None) and launcher.started_page.launcher.running:
-            QMessageBox.information(launcher, '请先关闭游戏', '游戏运行期间无法替换启动器，请关闭游戏后再次启动启动器。')
-            return
-
-        progress = QProgressDialog('正在下载并校验更新…', None, 0, 1000, launcher)
-        progress.setWindowTitle('更新 Buggcraft')
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setAutoClose(False)
-        progress.setAutoReset(False)
-        progress.setValue(0)
-        worker = DownloadWorker(update)
-        workers.append(worker)
-        worker.progress.connect(progress.setValue)
-
-        def complete(package, error):
-            worker.wait()
-            progress.close()
-            workers.remove(worker)
-            if error:
-                logger.warning('Launcher update download failed: %s', error)
-                QMessageBox.warning(launcher, '更新下载失败', error + '\n\n将打开官网对应平台的下载页面。')
-                QDesktopServices.openUrl(QUrl(update['download_page']))
-                return
-            try:
-                apply_update(Path(package))
-                app.quit()
-            except Exception as exc:
-                logger.exception('Could not install launcher update')
-                QMessageBox.warning(launcher, '无法自动安装', str(exc) + '\n\n将打开官网对应平台的下载页面。')
-                QDesktopServices.openUrl(QUrl(update['download_page']))
-
-        worker.completed.connect(complete)
-        worker.start()
-        progress.show()
-
-    def start_check():
-        worker = CheckWorker(launcher)
-        workers.append(worker)
-
-        def completed(update):
-            workers.remove(worker)
-            offer(update)
-
-        worker.result.connect(completed)
-        worker.start()
-
-    QTimer.singleShot(7000, start_check)
-    timer = QTimer(launcher)
-    timer.setInterval(60 * 60 * 1000)
-    timer.timeout.connect(start_check)
-    timer.start()
-    launcher._update_check_timer = timer
+    updates = LauncherUpdateController(launcher, app, Path(RESOURCE_DIR), packaged=IS_PACKAGED)
+    launcher.launcher_updates = updates
+    launcher._update_workers = updates.workers
+    launcher._update_check_timer = updates.timer
+    settings_page = getattr(launcher, 'settings_page', None)
+    if settings_page is not None:
+        settings_page.general_page.controller.bind_updates(updates)
+    updates.start()
+    return updates
 
 
 def main():
