@@ -10,6 +10,11 @@ from ui import launcher_updates as updater
 class LauncherUpdateTests(LauncherQmlCase):
     def setUp(self):
         super().setUp()
+        # macOS packaged downloads run from within an .app; source test runners
+        # are ordinary Python processes and must supply that bundle context.
+        argv = patch.object(updater.sys, 'argv', [str(self.directory / 'Buggcraft.app/Contents/MacOS/Buggcraft')])
+        argv.start()
+        self.addCleanup(argv.stop)
         self.app_proxy = Mock()
         self.updates = updater.LauncherUpdateController(self.window, self.app_proxy, ROOT / 'resources')
         self.page = self.window.settings_page.general_page
@@ -84,12 +89,17 @@ class LauncherUpdateTests(LauncherQmlCase):
             progress(32, 64)
             return package
         with patch.object(updater, 'download_update', side_effect=download), \
+                patch.object(updater.platform, 'system', return_value='Darwin'), \
+                patch.object(updater.QMessageBox, 'warning') as warning, \
+                patch.object(self.updates, 'open_download_page') as fallback, \
                 patch.object(updater, 'apply_update') as install:
             self.updates.download(update)
             self.wait_until(lambda: not self.updates.busy)
             install.assert_called_once_with(package)
             self.app_proxy.quit.assert_called_once()
             self.assertIn('重启', self.updates.status)
+            warning.assert_not_called()
+            fallback.assert_not_called()
         self.app_proxy.quit.reset_mock()
         with patch.object(updater, 'download_update', side_effect=ValueError('SHA-256 mismatch')), \
                 patch.object(updater, 'apply_update') as install, \
