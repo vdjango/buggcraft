@@ -55,8 +55,8 @@ Rectangle {
                 anchors.margins: 12
                 spacing: 5
                 Label { text: "下载的版本"; color: "#9f94b1"; font.pixelSize: 11 }
-                Label { objectName: "content-download-version"; text: root.info.version || ""; color: "#eee8f7"; font.pixelSize: 14; font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                Label { text: [root.info.filename, root.info.size].filter(Boolean).join("  ·  "); color: "#aaa1b7"; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                Label { objectName: "content-download-version"; text: root.info.version || ""; color: "#eee8f7"; font.pixelSize: 14; font.bold: true; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true }
+                Label { text: [root.info.filename, root.info.size].filter(Boolean).join("  ·  "); visible: !!text; color: "#aaa1b7"; font.pixelSize: 11; maximumLineCount: 2; elide: Text.ElideMiddle; wrapMode: Text.Wrap; textFormat: Text.PlainText; Layout.fillWidth: true }
             }
         }
 
@@ -65,7 +65,8 @@ Rectangle {
             objectName: "content-download-target-toggle"
             Layout.fillWidth: true
             implicitHeight: 30
-            text: (root.info.targetExpanded ? "⌄" : "›") + "  下载到「" + (root.info.instance || "未选择") + "」"
+            text: root.info.kind === "modpack" ? "下载到新的独立游戏实例" : (root.info.targetExpanded ? "⌄" : "›") + "  下载到「" + (root.info.instance || "未选择") + "」"
+            enabled: root.info.kind !== "modpack"
             onClicked: dialogModel.action("toggle-target")
             contentItem: Text { text: parent.text; color: "#c9b9ef"; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
             background: Rectangle { radius: 4; color: parent.hovered ? "#2a2635" : "transparent" }
@@ -79,17 +80,57 @@ Rectangle {
             model: root.info.instances || []
             currentIndex: Math.max(0, (root.info.instances || []).indexOf(root.info.instance || ""))
             onActivated: index => dialogModel.action("目标:" + textAt(index))
-            contentItem: Text { leftPadding: 10; text: parent.displayText; color: "#eee8f7"; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; font.pixelSize: 12 }
+            contentItem: Text { leftPadding: 10; rightPadding: 30; text: parent.displayText; color: "#eee8f7"; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; font.pixelSize: 12 }
+            indicator: Text { x: targetPicker.width - width - 12; anchors.verticalCenter: parent.verticalCenter; text: "⌄"; font.pixelSize: 17; color: "#c9b9ef" }
             background: Rectangle { radius: 4; color: "#24212d"; border.color: "#62547d" }
+            delegate: ItemDelegate {
+                required property int index
+                required property string modelData
+                width: targetPicker.width
+                highlighted: targetPicker.highlightedIndex === index
+                contentItem: Text { text: modelData; color: "#eee8f7"; font.pixelSize: 12; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { color: parent.highlighted ? "#45365e" : "#24212d"; radius: 3 }
+            }
+            popup: Popup {
+                y: targetPicker.height + 3
+                width: targetPicker.width
+                padding: 4
+                implicitHeight: Math.min(180, contentItem.implicitHeight + 8)
+                contentItem: ListView {
+                    clip: true
+                    implicitHeight: contentHeight
+                    model: targetPicker.popup.visible ? targetPicker.delegateModel : null
+                    currentIndex: targetPicker.highlightedIndex
+                    ScrollBar.vertical: ScrollBar {}
+                }
+                background: Rectangle { color: "#24212d"; border.color: "#62547d"; radius: 5 }
+            }
         }
 
-        Label {
+        ScrollView {
             Layout.fillWidth: true
-            visible: !!root.info.targetExpanded && root.info.kind === "modpack"
-            text: "整合包将创建独立实例，目标游戏版本由整合包文件决定。"
-            color: "#b9afc9"
-            wrapMode: Text.Wrap
-            font.pixelSize: 11
+            Layout.fillHeight: true
+            contentWidth: availableWidth
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ColumnLayout {
+                width: parent.width
+                spacing: 7
+                Label { text: root.info.environment || ""; color: "#d4c8e8"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                Label {
+                    objectName: "content-download-compatibility"
+                    text: root.info.compatibility || ""
+                    color: root.info.compatibilityState === "incompatible" ? "#f09a9a" : root.info.compatibilityState === "compatible" ? "#add3b6" : "#dfc18d"
+                    font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                }
+                Label {
+                    text: root.info.target || ""; color: "#91869f"; font.pixelSize: 11
+                    Layout.fillWidth: true; elide: Text.ElideMiddle
+                    HoverHandler { id: pathHover }
+                    ToolTip.visible: pathHover.hovered; ToolTip.text: text
+                }
+            }
         }
         Label {
             Layout.fillWidth: true
@@ -100,13 +141,12 @@ Rectangle {
             font.pixelSize: 11
         }
 
-        Item { Layout.fillHeight: true; Layout.minimumHeight: 0 }
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
             Item { Layout.fillWidth: true }
             ActionButton { text: "取消"; implicitWidth: 82; implicitHeight: 34; onClicked: dialogModel.action("取消") }
-            ActionButton { objectName: "content-download-confirm"; text: "确认下载"; implicitWidth: 104; implicitHeight: 34; primary: true; enabled: root.info.kind === "modpack" || !!root.info.instance; onClicked: dialogModel.action("确认下载") }
+            ActionButton { objectName: "content-download-confirm"; text: "确认下载"; implicitWidth: 104; implicitHeight: 34; primary: true; enabled: !!root.info.targetValid && !root.state.working; onClicked: dialogModel.action("确认下载") }
         }
     }
 }

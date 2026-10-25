@@ -96,6 +96,7 @@ class ContentBrowserTests(LauncherQmlCase):
                             filename=filename, size=len(payload), hashes={'sha1': hashlib.sha1(payload).hexdigest()})])
                         controller._query_finished(controller.request_id, 'versions', [version], '')
                         self.pump()
+                        self.click(downloads.games_page, 'content-detail-tab-1')
                         self.click(downloads.games_page, 'download-content-version')
                         self.assertIsNotNone(controller._download_dialog)
                         self.click(controller._download_dialog.host, 'content-download-confirm')
@@ -271,6 +272,9 @@ class ContentBrowserTests(LauncherQmlCase):
             controller.downloadSelected()
             self.assertIsNotNone(controller._download_dialog)
             self.assertEqual(controller._download_dialog.controller.data['instance'], '1.21.8')
+            self.assertFalse(controller._download_dialog.controller.data['targetExpanded'])
+            self.click(controller._download_dialog.host, 'content-download-target-toggle')
+            self.assertTrue(self.item(controller._download_dialog.host, 'content-download-target').isVisible())
             self.snapshot('content-download-confirm', controller._download_dialog)
             controller._download_dialog.controller.actionRequested.emit('目标:1.20.1')
             self.assertEqual(controller._download_dialog.controller.data['instance'], '1.20.1')
@@ -291,8 +295,11 @@ class ContentBrowserTests(LauncherQmlCase):
         controller.selected_version = 0
         with patch.object(self.window.download_page.tasks_page, 'start_install') as enqueue:
             controller.downloadSelected()
+            self.assertFalse(self.item(controller._download_dialog.host, 'content-download-confirm').isEnabled())
+            controller._download_dialog.controller.actionRequested.emit('确认下载')
+            controller._download_dialog.reject()
         enqueue.assert_not_called()
-        self.assertIsNone(getattr(controller, '_download_dialog', None))
+        self.assertIsNone(controller._download_dialog)
 
     def test_game_version_mismatch_names_supported_versions_and_blocks_install(self):
         controller = self.window.download_page.content_page.controller
@@ -304,6 +311,104 @@ class ContentBrowserTests(LauncherQmlCase):
         controller.versions = [row]
         controller.selected_version = 0
         self.assertFalse(controller.viewState['installable'])
+
+    def test_compatibility_does_not_confuse_missing_game_metadata_or_loaders(self):
+        controller = self.window.download_page.content_page.controller
+        cases = [
+            (dict(game_versions=['1.20.1'], loaders=['fabric']), 'incompatible', ['游戏版本不支持', '加载器不匹配']),
+            (dict(game_versions=[], loaders=['fabric']), 'incompatible', ['未声明支持的 Minecraft', '加载器不匹配']),
+            (dict(game_versions=['1.21.8'], loaders=[]), 'unknown', ['未声明支持的模组加载器']),
+        ]
+        for version, state, expected in cases:
+            row = controller._version_row(version)
+            self.assertEqual(row['compatibility_state'], state)
+            for text in expected:
+                self.assertIn(text, row['compatibility'])
+            self.assertNotIn('版本号受支持', row['compatibility'])
+
+    def test_project_requires_game_and_loader_supported_by_the_same_file(self):
+        controller = self.window.download_page.content_page.controller
+        controller.selected_project = dict(game_versions=['1.21.8'])
+        controller._all_versions = [dict(game_versions=['1.21.8'], loaders=['fabric']),
+                                    dict(game_versions=['1.20.1'], loaders=['forge'])]
+        self.assertIn('同一个文件同时支持', controller._project_compatibility())
+        self.assertNotIn('已找到同时支持', controller._project_compatibility())
+
+    def test_dialog_switch_target_revalidates_compatibility_and_respects_target_isolation(self):
+        downloads = self.window.download_page
+        controller = downloads.content_page.controller
+        name = 'Fabric target'
+        folder = self.game_dir / 'versions' / name
+        folder.mkdir()
+        metadata = dict(id=name, inheritsFrom='1.20.1', libraries=[{'name': 'net.fabricmc:fabric-loader:0.16.0'}])
+        (folder / (name + '.json')).write_text(json.dumps(metadata), encoding='utf-8')
+        self.manager.set_setting('minecraft.setting.' + name + '.enable', True)
+        self.manager.set_setting('minecraft.setting.' + name + '.minecraft.isolation', False)
+        controller.versions = [controller._version_row(dict(name='Fabric file', game_versions=['1.20.1'], loaders=['fabric']))]
+        controller.selected_version = 0
+        with patch.object(downloads.tasks_page, 'start_install', return_value=True) as enqueue:
+            controller.downloadSelected()
+            dialog = controller._download_dialog
+            self.assertFalse(dialog.controller.data['targetValid'])
+            dialog.controller.actionRequested.emit('确认下载')
+            enqueue.assert_not_called()
+            dialog.controller.actionRequested.emit('目标:' + name)
+            self.assertTrue(dialog.controller.data['targetValid'])
+            self.assertEqual(dialog.controller.data['compatibilityState'], 'compatible')
+            self.assertEqual(dialog.controller.data['target'], str(self.game_dir))
+            self.confirm_download(controller)
+        self.assertEqual(enqueue.call_args.kwargs['content']['target'], str(self.game_dir))
+        self.assertEqual(self.manager.get_setting('minecraft.version.enable'), '1.21.8')
+
+    def test_dialog_snapshots_destination_and_rechecks_deleted_instance_before_confirm(self):
+        controller = self.window.download_page.content_page.controller
+        controller.kind = 'resourcepack'
+        controller.versions = [dict(name='Fixture', game_versions=['1.21.8'])]
+        controller.selected_version = 0
+        with patch.object(self.window.download_page.tasks_page, 'start_install', return_value=True) as enqueue:
+            controller.downloadSelected()
+            dialog = controller._download_dialog
+            controller.kind = 'shader'
+            self.manager.set_setting('minecraft.directory.enable', str(self.directory / 'other'))
+            self.confirm_download(controller)
+            self.assertEqual(enqueue.call_args.kwargs['content']['kind'], 'resourcepack')
+            self.assertEqual(enqueue.call_args.args[1], str(self.game_dir))
+            controller._content_download_dialog_action(dialog, {}, '确认下载')
+            enqueue.assert_called_once()
+        self.manager.set_setting('minecraft.directory.enable', str(self.game_dir))
+        controller.kind = 'resourcepack'
+        controller.refreshContext()
+        controller.downloadSelected()
+        dialog = controller._download_dialog
+        (self.game_dir / 'versions/1.21.8/1.21.8.json').unlink()
+        with patch.object(self.window.download_page.tasks_page, 'start_install') as enqueue:
+            dialog.controller.actionRequested.emit('确认下载')
+            enqueue.assert_not_called()
+            self.assertFalse(dialog.controller.data['targetValid'])
+        dialog.reject()
+
+    def test_room_target_always_uses_isolated_directory(self):
+        name = '1.20.1'
+        path = self.game_dir / 'versions' / name / (name + '.json')
+        path.write_text(json.dumps(dict(id=name, buggcraftRoom={})), encoding='utf-8')
+        self.manager.set_setting('minecraft.isolation', False)
+        self.assertEqual(self.manager.get_minecraft_isolation_directory(directory=str(self.game_dir), version=name), str(path.parent))
+
+    def test_intro_requires_version_selection_and_cancel_never_enqueues(self):
+        downloads = self.window.download_page
+        controller = downloads.content_page.controller
+        downloads.open_content('resourcepack', 'browse')
+        self.wait_until(lambda: not controller.busy)
+        self.click(downloads.games_page, 'content-project-0')
+        self.wait_until(lambda: not controller.busy)
+        with patch.object(downloads.tasks_page, 'start_install') as enqueue:
+            self.click(downloads.games_page, 'download-content-version')
+            self.assertIsNone(controller._download_dialog)
+            self.click(downloads.games_page, 'download-content-version')
+            self.click(controller._download_dialog.host, 'content-download-close')
+            self.assertIsNone(controller._download_dialog)
+            enqueue.assert_not_called()
+        self.assert_no_qml_errors()
 
     def test_search_pagination_preserves_rows_query_and_source_without_counts(self):
         controller = self.window.download_page.content_page.controller
@@ -339,7 +444,7 @@ class ContentBrowserTests(LauncherQmlCase):
         self.assertIn('1.20.2', controller.versions[0]['game_versions_label'])
         self.assertTrue(controller.viewState['can_install'])
         self.assertFalse(controller.viewState['installable'])
-        self.assertFalse(self.item(downloads.games_page, 'download-content-version').isEnabled())
+        self.assertTrue(self.item(downloads.games_page, 'download-content-version').isEnabled())
         self.snapshot('resource-detail-description')
         self.click(downloads.games_page, 'content-detail-tab-1')
         controller.loadMoreVersions()
@@ -350,6 +455,8 @@ class ContentBrowserTests(LauncherQmlCase):
         self.snapshot('resource-detail-versions')
         with patch.object(downloads.tasks_page, 'start_install', return_value=False) as install:
             controller.downloadSelected()
+            self.assertFalse(self.item(controller._download_dialog.host, 'content-download-confirm').isEnabled())
+            controller._download_dialog.reject()
         install.assert_not_called()
         self.click(downloads.games_page, 'content-back')
         self.assertEqual(controller.view, 'browse')

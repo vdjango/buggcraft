@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 import logging
 import re
 import time
@@ -109,6 +110,7 @@ class ContentBrowserController(QObject):
         self._version_has_more = False
         self._version_offset = 0
         self.file_query = ''
+        self._download_dialog = None
         self._instance_context = self._context_key()
         self.translation_pool = QThreadPool(self)
         self.translation_pool.setMaxThreadCount(1)
@@ -154,11 +156,10 @@ class ContentBrowserController(QObject):
                 'can_install': bool(self._context()[0] and self._context()[1]),
                 'installable': bool(self._context()[0] and self._context()[1]) and not (
                     0 <= self.selected_version < len(self.versions) and
-                    self.versions[self.selected_version].get('compatibility_state') == 'incompatible'),
-                'installed_instances': self._installed_instances()}
+                    self.versions[self.selected_version].get('compatibility_state') == 'incompatible')}
 
-    def _installed_instances(self):
-        directory = self.settings.get_setting('minecraft.directory.enable') or ''
+    def _installed_instances(self, directory=None):
+        directory = (self.settings.get_setting('minecraft.directory.enable') or '') if directory is None else directory
         if not directory:
             return []
         from utils.instances import installed_instance_ids
@@ -428,25 +429,31 @@ class ContentBrowserController(QObject):
         self.status = ''
         self.changed.emit()
 
-    def _version_row(self, item):
-        _, _, game, loader = self._context()
+    def _version_row(self, item, *, environment=None, kind=None):
+        _, _, game, loader = self._context() if environment is None else environment
+        kind = self.kind if kind is None else kind
         games = [str(value) for value in item.get('game_versions', [])]
         loaders = [str(value).lower() for value in item.get('loaders', [])]
-        if self.kind == 'modpack':
+        loader = (loader or 'vanilla').lower()
+        loader_name = {'vanilla': '原版（未安装模组加载器）', 'forge': 'Forge', 'fabric': 'Fabric', 'neoforge': 'NeoForge', 'quilt': 'Quilt'}
+        required = ' / '.join(loader_name.get(value, value) for value in loaders)
+        if kind == 'modpack':
             advice, state = '整合包将导入为独立实例，不改变当前游戏', 'info'
         elif not game:
-            advice, state = '尚未选择安装实例，可先浏览全部版本', 'unknown'
-        elif game and games and game not in games:
-            advice, state = '游戏版本不支持：当前实例是 Minecraft ' + game + '，此文件支持 ' + ' / '.join(games), 'incompatible'
-        elif self.kind == 'mod' and loaders and loader not in loaders:
-            advice = '加载器不匹配：Minecraft ' + game + ' 版本号受支持，但此文件要求 ' + ' / '.join(loaders) + '，当前实例使用 ' + (loader or '原版')
-            state = 'incompatible'
-        elif game and not games:
-            advice, state = '文件未声明支持的 Minecraft 版本，无法确认是否兼容', 'unknown'
-        elif not games:
-            advice, state = '作者未提供完整兼容信息，请查看项目说明', 'unknown'
+            advice, state = '无法识别目标实例的游戏版本，请检查实例后再下载', 'unknown'
         else:
-            advice, state = '支持当前 Minecraft ' + game + (' · ' + loader if loader else ''), 'compatible'
+            errors, unknown = [], []
+            if games and game not in games:
+                errors.append('游戏版本不支持：当前实例是 Minecraft ' + game + '，此文件支持 ' + ' / '.join(games))
+            elif not games:
+                unknown.append('文件未声明支持的 Minecraft 版本，无法确认游戏版本是否兼容')
+            if kind == 'mod' and loaders and loader not in loaders:
+                prefix = 'Minecraft ' + game + ' 版本号受支持，但' if game in games else ''
+                errors.append('加载器不匹配：' + prefix + '此文件要求 ' + required + '，当前实例使用 ' + loader_name.get(loader, loader))
+            elif kind == 'mod' and not loaders:
+                unknown.append('文件未声明支持的模组加载器，请查看作者说明')
+            advice = '；'.join(errors + unknown) or ('兼容 Minecraft ' + game + (' · ' + loader_name.get(loader, loader) if kind == 'mod' else ''))
+            state = 'incompatible' if errors else 'unknown' if unknown else 'compatible'
         files = item.get('files') or []
         primary = next((file for file in files if file.get('primary')), files[0] if files else {})
         size = primary.get('size') or 0
@@ -460,10 +467,17 @@ class ContentBrowserController(QObject):
     def _project_compatibility(self):
         if not self.selected_project or self.kind == 'modpack':
             return ''
-        game = self._context()[2]
+        _, _, game, loader = self._context()
         games = self.selected_project.get('game_versions') or self.selected_project.get('versions') or []
         if game and game in games:
-            return '此项目有支持 Minecraft ' + game + ' 的版本；安装兼容性以所选文件为准'
+            if self.kind == 'mod':
+                matching = any(self._version_row(item)['compatibility_state'] == 'compatible' for item in self._all_versions)
+                if matching:
+                    return '已找到同时支持 Minecraft ' + game + ' 和 ' + (loader or '原版') + ' 的文件，请在版本文件中选择。'
+                return ('项目包含 Minecraft ' + game + ' 版本，但' +
+                        ('当前已加载文件中未找到' if self._version_has_more else '尚未找到') + '与 ' + (loader or '原版') +
+                        ' 匹配的文件；游戏版本和加载器必须由同一个文件同时支持。')
+            return '此项目有支持 Minecraft ' + game + ' 的版本；请选择对应游戏版本的文件。'
         return ''
 
     @Slot()
@@ -566,6 +580,10 @@ class ContentBrowserController(QObject):
 
     @Slot()
     def downloadSelected(self):
+        if self._download_dialog is not None:
+            self._download_dialog.raise_()
+            self._download_dialog.activateWindow()
+            return
         if self._context_key() != self._instance_context:
             self.refreshContext()
             self.status = "安装实例已切换，请确认下方目标目录后再次点击安装。"
@@ -580,70 +598,99 @@ class ContentBrowserController(QObject):
             self.status = "请先选择一个已安装的 Minecraft 实例。"
             self.changed.emit()
             return
-        version = self.versions[self.selected_version]
-        if version.get('compatibility_state') == 'incompatible':
-            self.status = version.get('compatibility', '所选文件与当前实例不兼容')
-            self.changed.emit()
-            return
+        version = deepcopy(self.versions[self.selected_version])
         from ui.dialog.qml_dialog import QmlDialog
-        instances = self._installed_instances()
+        instances = self._installed_instances(directory)
         selected = identity if identity in instances else (instances[0] if instances else '')
         title = version.get("name") or version.get("version_number") or "内容"
         dialog = QmlDialog(self.download_pages.window(), resources=self.download_pages.resource_path,
-                           title='确认下载', width=520, height=360,
+                           title='确认下载', width=560, height=420,
                            source='ContentDownloadConfirm.qml', data={
                                'project': (self.selected_project or {}).get('display_title') or (self.selected_project or {}).get('title') or '资源',
                                'version': title, 'filename': version.get('filename') or '',
                                'size': version.get('file_size_label') or '', 'kind': self.kind,
-                               'instance': selected, 'instances': instances,
+                               'instance': selected, 'instances': instances, 'directory': directory,
                                'targetExpanded': False,
                                'compatibility': version.get('compatibility') or '',
                                'compatibilityState': version.get('compatibility_state') or 'unknown'})
         dialog.controller.actionRequested.connect(
             lambda action: self._content_download_dialog_action(dialog, version, action))
-        dialog.finished.connect(lambda _result: dialog.shutdown())
+        def finished(_result):
+            if self._download_dialog is dialog:
+                self._download_dialog = None
+            dialog.shutdown()
+            QTimer.singleShot(0, dialog, dialog.deleteLater)
+        dialog.finished.connect(finished)
         self._download_dialog = dialog
+        self._refresh_download_target(dialog, version)
         dialog.open()
 
+    def _refresh_download_target(self, dialog, version):
+        data = dialog.controller.data
+        kind, directory, identity = data['kind'], data['directory'], data['instance']
+        if kind == 'modpack':
+            from utils.path_helper import get_default_minecraft_dir
+            directory = directory or str(get_default_minecraft_dir())
+            data.update(target=str(Path(directory) / 'downloads'), directory=directory,
+                        compatibility='整合包将创建独立游戏实例，游戏版本和加载器由整合包决定。',
+                        compatibilityState='info', targetValid=True, environment='独立游戏实例', error='')
+        elif identity not in self._installed_instances(directory):
+            data.update(compatibility='所选 Minecraft 实例已不存在，请重新选择',
+                        compatibilityState='incompatible', targetValid=False, target='', environment='', error='')
+        else:
+            try:
+                game, loader = instance_environment(directory, identity)
+            except (OSError, ValueError):
+                data.update(compatibility='无法读取目标实例的游戏版本和加载器，请检查实例后重试。',
+                            compatibilityState='incompatible', targetValid=False, target='', environment='', error='')
+                dialog.controller.changed.emit()
+                return
+            row = self._version_row(version, environment=(directory, identity, game, loader), kind=kind)
+            data.update(target=self.settings.get_minecraft_isolation_directory(directory=directory, version=identity),
+                        compatibility=row['compatibility'], compatibilityState=row['compatibility_state'],
+                        environment='Minecraft ' + (game or '未知') + (' · ' + (loader or '原版') if kind == 'mod' else ''),
+                        targetValid=bool(game) and row['compatibility_state'] != 'incompatible', error='')
+        dialog.controller.changed.emit()
+
     def _content_download_dialog_action(self, dialog, version, action):
+        if self._download_dialog is not dialog or dialog.controller.working:
+            return
         if action == 'toggle-target':
             dialog.controller.data['targetExpanded'] = not dialog.controller.data.get('targetExpanded', False)
             dialog.controller.changed.emit()
             return
         if action.startswith('目标:'):
             dialog.controller.data['instance'] = action[3:]
-            dialog.controller.changed.emit()
+            self._refresh_download_target(dialog, version)
             return
         if action == '取消':
             dialog.reject()
             return
         if action != '确认下载':
             return
-        identity = str(dialog.controller.data.get('instance') or '')
-        directory = self.settings.get_setting('minecraft.directory.enable') or ''
-        if self.kind != 'modpack' and identity not in self._installed_instances():
-            dialog.controller.data['error'] = '所选 Minecraft 实例已不存在，请重新选择'
-            dialog.controller.changed.emit()
+        self._refresh_download_target(dialog, version)
+        data = dialog.controller.data
+        if not data.get('targetValid'):
             return
-        if self.kind == 'modpack':
-            from utils.path_helper import get_default_minecraft_dir
-            root = Path(directory) if directory else Path(get_default_minecraft_dir())
-            target = str(root / 'downloads')
-            task_directory = str(root)
-        else:
-            isolated = bool(self.settings.get_version_setting('minecraft.isolation', True))
-            target = str(Path(directory) / 'versions' / identity) if isolated else directory
-            task_directory = directory
+        identity, kind, target, directory = data['instance'], data['kind'], data['target'], data['directory']
         title = version.get("name") or version.get("version_number") or "内容"
-        task_version = f"{identity + '-' if identity else ''}{self.kind}-{title}"
-        started = self.download_pages.tasks_page.start_install(
-            task_version, task_directory,
-            content={"kind": self.kind, "version": version, "target": target})
+        task_version = f"{identity + '-' if identity else ''}{kind}-{title}"
+        dialog.controller.working = True
+        try:
+            started = self.download_pages.tasks_page.start_install(
+                task_version, directory, content={"kind": kind, "version": version, "target": target})
+        except Exception as exc:
+            logger.exception('Unable to queue content download')
+            dialog.controller.data['error'] = '无法创建下载任务：' + str(exc)
+            started = False
         if started:
-            logger.info('Content install queued: kind=%s instance=%s target=%s', self.kind, identity, target)
+            logger.info('Content install queued: kind=%s instance=%s target=%s', kind, identity, target)
             self.status = "下载已加入任务列表。"
             dialog.accept()
             self.pageRequested.emit("tasks")
+        else:
+            dialog.controller.data['error'] = dialog.controller.data.get('error') or '该下载任务已存在，请在下载记录中查看。'
+        dialog.controller.working = False
         dialog.controller.changed.emit()
 
     @Slot()
@@ -698,6 +745,8 @@ class ContentBrowserController(QObject):
 
     @Slot()
     def shutdown(self):
+        if self._download_dialog is not None:
+            self._download_dialog.reject()
         self._translation_closed = True
         self.translation_timer.stop()
         self.request_id += 1

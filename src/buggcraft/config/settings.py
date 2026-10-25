@@ -238,10 +238,10 @@ class SettingsManager:
             return self.get_setting(f"minecraft.setting.{version}.enable", False)
         return False
 
-    def get_minecraft_isolation_directory(self):
+    def get_minecraft_isolation_directory(self, *, directory=None, version=None):
         """Return the selected instance data directory or shared Minecraft root."""
-        directory = self.get_setting('minecraft.directory.enable', None)
-        version = self.get_setting('minecraft.version.enable', None)
+        directory = self.get_setting('minecraft.directory.enable', None) if directory is None else directory
+        version = self.get_setting('minecraft.version.enable', None) if version is None else version
         if directory and version:
             try:
                 metadata_path = Path(directory) / 'versions' / version / (version + '.json')
@@ -250,13 +250,12 @@ class SettingsManager:
                     return os.path.join(directory, 'versions', version)
             except (OSError, ValueError):
                 pass
-        if directory and self.get_version_setting('minecraft.isolation', True):
-            version = self.get_setting('minecraft.version.enable', None)
+        if directory and self.get_version_setting('minecraft.isolation', True, version=version):
             if version:
                 return os.path.join(directory, 'versions', version)
         return directory
     
-    def get_version_setting(self, key: str, default: Any = None):
+    def get_version_setting(self, key: str, default: Any = None, *, version=None):
         """
         获取版本配置值，支持点分隔的嵌套键（如 "launcher.visibility"）
         
@@ -267,7 +266,7 @@ class SettingsManager:
         Returns:
             Any: 配置值
         """
-        version = self.get_setting("minecraft.version.enable", None)
+        version = self.get_setting("minecraft.version.enable", None) if version is None else version
         if version and version is not None:
             enable = self.get_setting(f"minecraft.setting.{version}.enable", False)
             if enable and enable is not None:
