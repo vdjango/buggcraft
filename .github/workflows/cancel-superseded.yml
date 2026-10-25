@@ -1,0 +1,27 @@
+name: Cancel superseded launcher builds
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cancel-superseded.yml']
+permissions:
+  actions: write
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const expected = new Map([
+              [40181649785, 'v0.0.1-alphav1.0-beta.5'],
+              [40182577332, 'v0.0.1-alphav1.0-beta.6'],
+              [40183746664, 'main'],
+            ]);
+            for (const [run_id, branch] of expected) {
+              const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id});
+              if (run.name !== 'Package launcher' || run.head_branch !== branch) throw new Error('Unexpected run');
+              if (run.status !== 'completed') {
+                await github.rest.actions.cancelWorkflowRun({...context.repo, run_id});
+                core.info(`Cancelled superseded run ${run_id} (${branch})`);
+              }
+            }
