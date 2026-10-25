@@ -21,7 +21,7 @@ jobs:
               const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id});
               if (run.name !== 'Package launcher' || run.head_branch !== branch) throw new Error('Unexpected run');
               if (run.status !== 'completed') {
-                await github.rest.actions.cancelWorkflowRun({...context.repo, run_id});
+                await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel', {...context.repo, run_id});
                 core.info(`Cancelled superseded run ${run_id} (${branch})`);
               }
             }
