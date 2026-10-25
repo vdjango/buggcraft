@@ -14,6 +14,14 @@ CATALOGUE_SEARCH = ContentCatalogue.search
 
 
 class ContentBrowserTests(LauncherQmlCase):
+    def confirm_download(self, controller, instance=None):
+        dialog = controller._download_dialog
+        self.assertIsNotNone(dialog)
+        if instance is not None:
+            dialog.controller.actionRequested.emit('目标:' + instance)
+        dialog.controller.actionRequested.emit('确认下载')
+        self.pump(30)
+
     def test_detail_prefers_compatible_file_but_keeps_all_files_and_project_advice(self):
         controller = self.window.download_page.content_page.controller
         controller.kind = 'resourcepack'
@@ -25,7 +33,7 @@ class ContentBrowserTests(LauncherQmlCase):
         self.assertEqual(controller.viewState['selected_file']['compatibility_state'], 'compatible')
         self.assertIn('1.21.8', controller.viewState['project_compatibility'])
         controller.selectVersion(1)
-        self.assertIn('当前文件', controller.viewState['selected_file']['compatibility'])
+        self.assertIn('游戏版本不支持', controller.viewState['selected_file']['compatibility'])
         self.assertIn('此项目有支持', controller.viewState['project_compatibility'])
         controller.loadMoreVersions()
         self.assertEqual(len(controller.versions), len(files))
@@ -89,6 +97,8 @@ class ContentBrowserTests(LauncherQmlCase):
                         controller._query_finished(controller.request_id, 'versions', [version], '')
                         self.pump()
                         self.click(downloads.games_page, 'download-content-version')
+                        self.assertIsNotNone(controller._download_dialog)
+                        self.click(controller._download_dialog.host, 'content-download-confirm')
                         self.wait_until(lambda: not downloads.tasks_page._workers)
                         self.assertEqual(downloads.tasks_page._tasks[0]['state'], '已完成')
                         target = self.game_dir / 'versions/1.21.8' if isolated else self.game_dir
@@ -168,6 +178,7 @@ class ContentBrowserTests(LauncherQmlCase):
         self.assertEqual(controller.viewState['target'], str(self.game_dir / 'versions/1.20.1'))
         with patch.object(downloads.tasks_page, 'start_install', return_value=True) as enqueue:
             controller.downloadSelected()
+            self.confirm_download(controller)
         self.assertEqual(enqueue.call_args.kwargs['content']['target'], str(self.game_dir / 'versions/1.20.1'))
 
     def test_mod_resource_and_shader_targets_follow_shared_or_isolated_setting(self):
@@ -182,6 +193,7 @@ class ContentBrowserTests(LauncherQmlCase):
                 self.wait_until(lambda: not controller.busy)
                 with patch.object(downloads.tasks_page, 'start_install', return_value=True) as enqueue:
                     controller.downloadSelected()
+                    self.confirm_download(controller)
                 expected = self.game_dir / 'versions/1.21.8' if isolated else self.game_dir
                 self.assertEqual(Path(enqueue.call_args.kwargs['content']['target']), expected)
 
@@ -253,14 +265,45 @@ class ContentBrowserTests(LauncherQmlCase):
         downloads = self.window.download_page
         controller = downloads.content_page.controller
         controller.kind = 'resourcepack'
-        controller.versions = [dict(name='Fixture', files=[])]
+        controller.versions = [dict(name='Fixture', compatibility_state='compatible', files=[])]
         controller.selected_version = 0
         with patch.object(downloads.tasks_page, 'start_install', return_value=True) as enqueue:
             controller.downloadSelected()
+            self.assertIsNotNone(controller._download_dialog)
+            self.assertEqual(controller._download_dialog.controller.data['instance'], '1.21.8')
+            self.snapshot('content-download-confirm', controller._download_dialog)
+            controller._download_dialog.controller.actionRequested.emit('目标:1.20.1')
+            self.assertEqual(controller._download_dialog.controller.data['instance'], '1.20.1')
+            self.confirm_download(controller)
         job = enqueue.call_args.kwargs['content']
         self.assertEqual(job['kind'], 'resourcepack')
-        self.assertEqual(job['target'], self.manager.get_minecraft_isolation_directory())
+        self.assertEqual(job['target'], str(self.game_dir / 'versions/1.20.1'))
         self.assertIs(downloads.stack.currentWidget(), downloads.tasks_page)
+
+    def test_mod_loader_mismatch_is_distinct_and_blocks_install(self):
+        controller = self.window.download_page.content_page.controller
+        controller.kind = 'mod'
+        row = controller._version_row(dict(name='Fabric build', game_versions=['1.21.8'], loaders=['fabric']))
+        self.assertEqual(row['compatibility_state'], 'incompatible')
+        self.assertIn('Minecraft 1.21.8 版本号受支持', row['compatibility'])
+        self.assertIn('加载器不匹配', row['compatibility'])
+        controller.versions = [row]
+        controller.selected_version = 0
+        with patch.object(self.window.download_page.tasks_page, 'start_install') as enqueue:
+            controller.downloadSelected()
+        enqueue.assert_not_called()
+        self.assertIsNone(getattr(controller, '_download_dialog', None))
+
+    def test_game_version_mismatch_names_supported_versions_and_blocks_install(self):
+        controller = self.window.download_page.content_page.controller
+        controller.kind = 'resourcepack'
+        row = controller._version_row(dict(name='New game build', game_versions=['1.20.1'], loaders=[]))
+        self.assertEqual(row['compatibility_state'], 'incompatible')
+        self.assertIn('游戏版本不支持', row['compatibility'])
+        self.assertIn('当前实例是 Minecraft 1.21.8', row['compatibility'])
+        controller.versions = [row]
+        controller.selected_version = 0
+        self.assertFalse(controller.viewState['installable'])
 
     def test_search_pagination_preserves_rows_query_and_source_without_counts(self):
         controller = self.window.download_page.content_page.controller
@@ -292,10 +335,11 @@ class ContentBrowserTests(LauncherQmlCase):
             self.click(downloads.games_page, 'content-project-0')
             self.wait_until(lambda: not controller.busy and not controller.details_busy)
         self.assertEqual(len(controller.versions), 30)
-        self.assertEqual(controller.versions[0]['compatibility_state'], 'warning')
+        self.assertEqual(controller.versions[0]['compatibility_state'], 'incompatible')
         self.assertIn('1.20.2', controller.versions[0]['game_versions_label'])
         self.assertTrue(controller.viewState['can_install'])
-        self.assertTrue(self.item(downloads.games_page, 'download-content-version').isEnabled())
+        self.assertFalse(controller.viewState['installable'])
+        self.assertFalse(self.item(downloads.games_page, 'download-content-version').isEnabled())
         self.snapshot('resource-detail-description')
         self.click(downloads.games_page, 'content-detail-tab-1')
         controller.loadMoreVersions()
@@ -306,7 +350,7 @@ class ContentBrowserTests(LauncherQmlCase):
         self.snapshot('resource-detail-versions')
         with patch.object(downloads.tasks_page, 'start_install', return_value=False) as install:
             controller.downloadSelected()
-        install.assert_called_once()
+        install.assert_not_called()
         self.click(downloads.games_page, 'content-back')
         self.assertEqual(controller.view, 'browse')
         self.assertEqual(len(controller.results), 1)
@@ -413,6 +457,7 @@ class ContentBrowserTests(LauncherQmlCase):
                     controller.chooseProject(0)
                     self.wait_until(lambda: not controller.busy)
                 controller.downloadSelected()
+                self.confirm_download(controller)
                 self.wait_until(lambda: not downloads.tasks_page._workers)
                 task = downloads.tasks_page._tasks[0]
                 self.assertEqual(task['state'], '已完成')

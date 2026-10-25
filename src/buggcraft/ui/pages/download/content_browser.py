@@ -151,7 +151,21 @@ class ContentBrowserController(QObject):
                 'project_compatibility': self._project_compatibility(),
                 'has_more_versions': len(self.versions) < len(self._filtered_versions()) or self._version_has_more,
                 'selected_file': self.versions[self.selected_version] if 0 <= self.selected_version < len(self.versions) else {},
-                'can_install': bool(self._context()[0] and self._context()[1])}
+                'can_install': bool(self._context()[0] and self._context()[1]),
+                'installable': bool(self._context()[0] and self._context()[1]) and not (
+                    0 <= self.selected_version < len(self.versions) and
+                    self.versions[self.selected_version].get('compatibility_state') == 'incompatible'),
+                'installed_instances': self._installed_instances()}
+
+    def _installed_instances(self):
+        directory = self.settings.get_setting('minecraft.directory.enable') or ''
+        if not directory:
+            return []
+        from utils.instances import installed_instance_ids
+        try:
+            return installed_instance_ids(directory)
+        except OSError:
+            return []
 
     @Slot()
     def toggleOriginal(self):
@@ -422,10 +436,13 @@ class ContentBrowserController(QObject):
             advice, state = '整合包将导入为独立实例，不改变当前游戏', 'info'
         elif not game:
             advice, state = '尚未选择安装实例，可先浏览全部版本', 'unknown'
-        elif games and game not in games:
-            advice, state = '当前文件未声明支持 Minecraft ' + game + '；请在版本文件中选择适配版本', 'warning'
+        elif game and games and game not in games:
+            advice, state = '游戏版本不支持：当前实例是 Minecraft ' + game + '，此文件支持 ' + ' / '.join(games), 'incompatible'
         elif self.kind == 'mod' and loaders and loader not in loaders:
-            advice, state = '加载器不匹配：文件支持 ' + ' / '.join(loaders) + '，当前为 ' + (loader or '原版'), 'warning'
+            advice = '加载器不匹配：Minecraft ' + game + ' 版本号受支持，但此文件要求 ' + ' / '.join(loaders) + '，当前实例使用 ' + (loader or '原版')
+            state = 'incompatible'
+        elif game and not games:
+            advice, state = '文件未声明支持的 Minecraft 版本，无法确认是否兼容', 'unknown'
         elif not games:
             advice, state = '作者未提供完整兼容信息，请查看项目说明', 'unknown'
         else:
@@ -563,24 +580,71 @@ class ContentBrowserController(QObject):
             self.status = "请先选择一个已安装的 Minecraft 实例。"
             self.changed.emit()
             return
-        if self.kind == "modpack":
+        version = self.versions[self.selected_version]
+        if version.get('compatibility_state') == 'incompatible':
+            self.status = version.get('compatibility', '所选文件与当前实例不兼容')
+            self.changed.emit()
+            return
+        from ui.dialog.qml_dialog import QmlDialog
+        instances = self._installed_instances()
+        selected = identity if identity in instances else (instances[0] if instances else '')
+        title = version.get("name") or version.get("version_number") or "内容"
+        dialog = QmlDialog(self.download_pages.window(), resources=self.download_pages.resource_path,
+                           title='确认下载', width=520, height=360,
+                           source='ContentDownloadConfirm.qml', data={
+                               'project': (self.selected_project or {}).get('display_title') or (self.selected_project or {}).get('title') or '资源',
+                               'version': title, 'filename': version.get('filename') or '',
+                               'size': version.get('file_size_label') or '', 'kind': self.kind,
+                               'instance': selected, 'instances': instances,
+                               'targetExpanded': False,
+                               'compatibility': version.get('compatibility') or '',
+                               'compatibilityState': version.get('compatibility_state') or 'unknown'})
+        dialog.controller.actionRequested.connect(
+            lambda action: self._content_download_dialog_action(dialog, version, action))
+        dialog.finished.connect(lambda _result: dialog.shutdown())
+        self._download_dialog = dialog
+        dialog.open()
+
+    def _content_download_dialog_action(self, dialog, version, action):
+        if action == 'toggle-target':
+            dialog.controller.data['targetExpanded'] = not dialog.controller.data.get('targetExpanded', False)
+            dialog.controller.changed.emit()
+            return
+        if action.startswith('目标:'):
+            dialog.controller.data['instance'] = action[3:]
+            dialog.controller.changed.emit()
+            return
+        if action == '取消':
+            dialog.reject()
+            return
+        if action != '确认下载':
+            return
+        identity = str(dialog.controller.data.get('instance') or '')
+        directory = self.settings.get_setting('minecraft.directory.enable') or ''
+        if self.kind != 'modpack' and identity not in self._installed_instances():
+            dialog.controller.data['error'] = '所选 Minecraft 实例已不存在，请重新选择'
+            dialog.controller.changed.emit()
+            return
+        if self.kind == 'modpack':
             from utils.path_helper import get_default_minecraft_dir
             root = Path(directory) if directory else Path(get_default_minecraft_dir())
-            directory = str(root)
-            target = str(root / "downloads")
+            target = str(root / 'downloads')
+            task_directory = str(root)
         else:
-            target = self.settings.get_minecraft_isolation_directory() or directory
-        version = self.versions[self.selected_version]
+            isolated = bool(self.settings.get_version_setting('minecraft.isolation', True))
+            target = str(Path(directory) / 'versions' / identity) if isolated else directory
+            task_directory = directory
         title = version.get("name") or version.get("version_number") or "内容"
         task_version = f"{identity + '-' if identity else ''}{self.kind}-{title}"
         started = self.download_pages.tasks_page.start_install(
-            task_version, directory or target,
+            task_version, task_directory,
             content={"kind": self.kind, "version": version, "target": target})
         if started:
             logger.info('Content install queued: kind=%s instance=%s target=%s', self.kind, identity, target)
             self.status = "下载已加入任务列表。"
+            dialog.accept()
             self.pageRequested.emit("tasks")
-        self.changed.emit()
+        dialog.controller.changed.emit()
 
     @Slot()
     def choosePack(self):

@@ -204,7 +204,7 @@ Rectangle {
                     objectName: "content-compatibility"
                     Layout.fillWidth: true; wrapMode: Text.Wrap; font.pixelSize: 12
                     text: root.state.busy && root.state.selected_version < 0 ? "正在加载版本文件与兼容信息…" : root.state.selected_file.compatibility || "兼容信息供参考，可在版本文件中自行选择。"
-                    color: root.adviceColor
+                    color: root.state.selected_file.compatibility_state === "incompatible" ? "#f09a9a" : root.adviceColor
                 }
                 RowLayout {
                     Layout.fillWidth: true; spacing: 12
@@ -216,7 +216,7 @@ Rectangle {
                             ToolTip.visible: destinationHover.hovered; ToolTip.text: text
                         }
                     }
-                    ActionButton { objectName: "download-content-version"; text: root.state.kind === "modpack" ? "下载并安装" : "安装所选版本"; implicitWidth: 118; primary: true; enabled: !root.state.busy && root.state.selected_version >= 0 && (root.state.kind === "modpack" || root.state.can_install); onClicked: contentController.downloadSelected() }
+                    ActionButton { objectName: "download-content-version"; text: root.state.kind === "modpack" ? "下载并安装" : "安装所选版本"; implicitWidth: 118; primary: true; enabled: !root.state.busy && root.state.selected_version >= 0 && (root.state.kind === "modpack" || root.state.installable); onClicked: contentController.downloadSelected() }
                 }
                 Label { Layout.fillWidth: true; visible: !!root.state.status && !root.state.busy; text: root.state.status; color: "#dfb9bc"; wrapMode: Text.Wrap; font.pixelSize: 11 }
                 ActionButton { visible: versions.loadFailed && root.tab === 1; text: "重试加载"; implicitHeight: 28; onClicked: contentController.loadMoreVersions() }
