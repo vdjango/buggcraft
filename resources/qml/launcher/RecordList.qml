@@ -11,8 +11,30 @@ ScrollView {
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
     ColumnLayout {
         width: root.availableWidth
-        spacing: 20
+        spacing: 14
         Item { Layout.preferredHeight: 0 }
+        Rectangle {
+            visible: root.state.kind === "about"
+            Layout.fillWidth: true; Layout.leftMargin: 15; Layout.rightMargin: 15
+            implicitHeight: aboutIntro.implicitHeight + 30
+            color: "#211d2b"; border.color: "#514568"; radius: 5
+            RowLayout {
+                id: aboutIntro
+                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                anchors.margins: 18; spacing: 14
+                Rectangle {
+                    Layout.preferredWidth: 54; Layout.preferredHeight: 54; radius: 8
+                    color: "#382b52"; border.color: "#7f68b2"
+                    Label { anchors.centerIn: parent; text: "B"; color: "#cdbaff"; font.pixelSize: 30; font.bold: true }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true; spacing: 5
+                    Label { text: "Buggcraft"; color: "#f2edfc"; font.pixelSize: 18; font.bold: true }
+                    Label { Layout.fillWidth: true; text: "Minecraft 启动器 · 实例管理 · 资源下载 · 好友联机"; color: "#b8afc9"; font.pixelSize: 12; wrapMode: Text.Wrap }
+                    Label { Layout.fillWidth: true; text: "让安装、管理和一起游玩都在一个地方完成。"; color: "#897f9a"; font.pixelSize: 11; wrapMode: Text.Wrap }
+                }
+            }
+        }
         SettingsSection {
             visible: root.state.kind === "java"
             objectName: "java-versions-section"
@@ -33,9 +55,10 @@ ScrollView {
                         }
                     }
                     ActionButton {
-                        text: "下载 Java"
+                        objectName: "java-catalog-back"
+                        text: root.state.javaCatalogOpen ? "返回列表" : "下载 Java"
                         implicitWidth: 90; implicitHeight: 30
-                        onClicked: recordPage.action("", "下载")
+                        onClicked: root.state.javaCatalogOpen ? recordPage.close_java_catalog("", "") : recordPage.action("", "下载")
                     }
                 }
             }
@@ -49,104 +72,82 @@ ScrollView {
                 model: root.state.kind === "java" ? root.state.records : []
                 delegate: Rectangle {
                     required property var modelData
-                    Layout.fillWidth: true; implicitHeight: details.implicitHeight + 20
-                    color: "#1affffff"
+                    visible: !root.state.javaCatalogOpen
+                    Layout.fillWidth: true; implicitHeight: details.implicitHeight + 16
+                    color: "transparent"
+                    Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#393445" }
                     ColumnLayout {
                         id: details
                         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-                        anchors.leftMargin: 10; anchors.rightMargin: 10; anchors.topMargin: 10
-                        spacing: 4
+                        anchors.leftMargin: 2; anchors.rightMargin: 2; anchors.topMargin: 7
+                        spacing: 6
                         RowLayout {
                             Layout.fillWidth: true
-                            Label { text: modelData.title; color: "#e6ffffff"; font.pixelSize: 13; font.bold: true; elide: Text.ElideMiddle }
-                            Label { Layout.fillWidth: true; text: "版本：" + modelData.version + "    供应商：" + modelData.vendor; color: "#b3ffffff"; font.pixelSize: 11; elide: Text.ElideRight }
+                            Label { Layout.preferredWidth: 170; text: modelData.title; color: "#eee9f7"; font.pixelSize: 13; font.bold: true; elide: Text.ElideMiddle }
+                            Label { Layout.fillWidth: true; text: "版本 " + modelData.version + "   ·   " + modelData.vendor; color: "#aaa2bb"; font.pixelSize: 11; elide: Text.ElideRight }
                             IconButton { text: "打开目录"; source: "../../images/version/folder.png"; onClicked: recordPage.action(modelData.id, "打开目录") }
-                            Rectangle { implicitWidth: 1; implicitHeight: 20; color: "#4dffffff" }
                             IconButton { text: "移除"; source: "../../images/version/delete.png"; onClicked: recordPage.action(modelData.id, "移除") }
                         }
-                        Label { Layout.fillWidth: true; text: modelData.description; color: "#bcb4ca"; font.pixelSize: 12; elide: Text.ElideMiddle }
+                        Label { Layout.fillWidth: true; text: modelData.description; color: "#8f879e"; font.pixelSize: 11; elide: Text.ElideMiddle }
                     }
                 }
             }
-            Label { visible: root.state.records.length === 0; text: "未检测到 Java，可点击刷新或添加。"; color: "#c9c4d6"; font.pixelSize: 12 }
+            Label { visible: root.state.records.length === 0 && !root.state.javaCatalogOpen; text: "未检测到 Java，可点击刷新或添加。"; color: "#c9c4d6"; font.pixelSize: 12 }
         }
 
-    ModalDialog {
-        parent: Overlay.overlay
-        anchors.centerIn: parent
+    SettingsSection {
         objectName: "java-download-catalog"
-        width: Math.min(root.width - 40, 760)
-        height: Math.min(root.height - 40, 520)
-        modal: true
-        title: "下载 Java"
         visible: root.state.kind === "java" && root.state.javaCatalogOpen
-        onClosed: recordPage.close_java_catalog("", "")
-        footer: DialogButtonBox {
-            ActionButton { text: "关闭"; onClicked: parent.parent.close() }
-        }
-        contentItem: ColumnLayout {
-            spacing: 12
-                RowLayout {
-                    Layout.fillWidth: true; spacing: 10
-                    Label { text: "Java 版本"; color: "#e6ffffff" }
-                    ChoiceBox {
-                        objectName: "java-catalog-major"
-                        implicitWidth: 100
-                        enabled: !root.state.busy
-                        model: root.state.javaMajors
-                        currentIndex: Math.max(0, root.state.javaMajors.indexOf(root.state.javaMajor))
-                        onActivated: recordPage.set_java_major(root.state.javaMajors[currentIndex])
-                    }
-                    Label { text: "下载来源"; color: "#e6ffffff" }
-                    ChoiceBox {
-                        objectName: "java-catalog-source"
-                        enabled: !root.state.busy
-                        Layout.fillWidth: true
-                        model: root.state.javaSources
-                        currentIndex: Math.max(0, root.state.javaSources.indexOf(root.state.javaSource))
-                        onActivated: recordPage.set_java_source(root.state.javaSources[currentIndex])
-                    }
-                    ActionButton {
-                        objectName: "java-catalog-search"
-                        text: root.state.busy ? "正在获取…" : "获取列表"
-                        enabled: !root.state.busy
-                        onClicked: recordPage.load_java_catalog()
+        Layout.fillWidth: true; Layout.leftMargin: 15; Layout.rightMargin: 15
+        title: "下载 Java"
+        summary: "选择适合当前游戏的运行环境"
+        collapsible: false
+        ColumnLayout {
+            Layout.fillWidth: true; spacing: 12
+            RowLayout {
+                Layout.fillWidth: true; spacing: 10
+                Label { text: "Java 版本"; color: "#d8d1e5" }
+                ChoiceBox {
+                    objectName: "java-catalog-major"; implicitWidth: 100
+                    enabled: !root.state.busy; model: root.state.javaMajors
+                    currentIndex: Math.max(0, root.state.javaMajors.indexOf(root.state.javaMajor))
+                    onActivated: recordPage.set_java_major(root.state.javaMajors[currentIndex])
+                }
+                Label { text: "下载来源"; color: "#d8d1e5" }
+                ChoiceBox {
+                    objectName: "java-catalog-source"; enabled: !root.state.busy; Layout.fillWidth: true
+                    model: root.state.javaSources
+                    currentIndex: Math.max(0, root.state.javaSources.indexOf(root.state.javaSource))
+                    onActivated: recordPage.set_java_source(root.state.javaSources[currentIndex])
+                }
+                ActionButton {
+                    objectName: "java-catalog-search"; text: root.state.busy ? "正在获取…" : "获取列表"
+                    enabled: !root.state.busy; onClicked: recordPage.load_java_catalog()
+                }
+            }
+            Label { Layout.fillWidth: true; visible: !!root.state.status; text: root.state.status; color: "#c6bdda"; font.pixelSize: 11; wrapMode: Text.Wrap }
+            Repeater {
+                model: root.state.javaPackages
+                delegate: ColumnLayout {
+                    required property var modelData
+                    Layout.fillWidth: true; spacing: 7
+                    Rectangle { Layout.fillWidth: true; height: 1; color: "#393445" }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 12
+                        ColumnLayout {
+                            Layout.fillWidth: true; spacing: 4
+                            Label { Layout.fillWidth: true; text: modelData.title; color: "#eee9f7"; font.pixelSize: 13; font.bold: true; wrapMode: Text.Wrap }
+                            Label { Layout.fillWidth: true; text: modelData.description + " · " + modelData.sizeText; color: "#aaa2bb"; font.pixelSize: 11; wrapMode: Text.Wrap }
+                        }
+                        ActionButton { text: "下载并安装"; enabled: !root.state.busy; onClicked: recordPage.download_java(modelData.id) }
                     }
                 }
-                ScrollView {
-                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                    contentWidth: availableWidth
-                    ColumnLayout {
-                        width: parent.width; spacing: 8
-                        Repeater {
-                            model: root.state.javaPackages
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                implicitHeight: row.implicitHeight + 20
-                                color: "#1affffff"
-                                RowLayout {
-                                    id: row
-                                    anchors.fill: parent; anchors.margins: 10; spacing: 12
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 4
-                                        Label { Layout.fillWidth: true; text: modelData.title; color: "white"; font.pixelSize: 13; font.bold: true; wrapMode: Text.Wrap }
-                                        Label { Layout.fillWidth: true; text: modelData.description + " · " + modelData.sizeText; color: "#bcb4ca"; font.pixelSize: 12; wrapMode: Text.Wrap }
-                                    }
-                                    ActionButton {
-                                        text: "下载并安装"; enabled: !root.state.busy
-                                        onClicked: recordPage.download_java(modelData.id)
-                                    }
-                                }
-                            }
-                        }
-                        Label {
-                            Layout.fillWidth: true; visible: root.state.javaPackages.length === 0
-                            text: root.state.busy ? "正在连接下载源…" : "选择 Java 大版本并获取可用压缩包。"
-                            color: "#c9c4d6"; font.pixelSize: 12; wrapMode: Text.Wrap
-                        }
-                    }
-                }
+            }
+            Label {
+                Layout.fillWidth: true; visible: root.state.javaPackages.length === 0 && !root.state.status
+                text: root.state.busy ? "正在连接下载源…" : "选择 Java 大版本并获取可用版本。"
+                color: "#c9c4d6"; font.pixelSize: 12; wrapMode: Text.Wrap
+            }
         }
     }
 
@@ -156,14 +157,15 @@ ScrollView {
                 required property var modelData
                 Layout.fillWidth: true; Layout.leftMargin: 15; Layout.rightMargin: 15
                 spacing: 8
-                Label { text: modelData.title; color: "white"; font.pixelSize: 14; font.bold: true }
+                Label { text: modelData.title; color: "#cdbdff"; font.pixelSize: 12; font.bold: true }
                 Repeater {
                     model: modelData.records
                     delegate: Rectangle {
                         required property var modelData
                         Layout.fillWidth: true
                         implicitHeight: Math.max(66, row.implicitHeight + 24)
-                        color: "#33beb7ff"
+                        color: "transparent"
+                        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#393445" }
                         RowLayout {
                             id: row
                             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
@@ -172,7 +174,15 @@ ScrollView {
                             Rectangle {
                                 visible: !!modelData.icon
                                 Layout.preferredWidth: 40; Layout.preferredHeight: 40
-                                color: "#4a4a5a"
+                                color: "#302b3b"
+                                radius: 4
+                                clip: true
+                                Image {
+                                    anchors.fill: parent
+                                    source: "../../settings/" + modelData.icon
+                                    fillMode: Image.PreserveAspectCrop
+                                    smooth: false
+                                }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 4

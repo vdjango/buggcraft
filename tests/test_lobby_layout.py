@@ -282,7 +282,18 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assert_absent_or_hidden('navigation-tabs')
         self.click('back-hall')
         self.click('open-create')
-        self.assertEqual(self.backend.actions[-1], ('navigate', {'page': 'create'}))
+        self.assertIn(('navigate', {'page': 'create'}), self.backend.actions)
+        self.assertEqual(self.backend.actions[-1], ('discover', {}))
+
+    def test_open_lan_world_prompt_is_chinese_and_offers_one_clear_action(self):
+        self.backend._view = {**self.backend._view, 'openWorldPrompt':True, 'openWorldPort':51234}
+        self.backend.viewChanged.emit()
+        QTest.qWait(40)
+        popup = self.window.rootObject().findChild(QObject, 'open-world-create-room-dialog')
+        self.assertIsNotNone(popup)
+        self.assertTrue(popup.property('visible'))
+        for name in ('create-room-for-open-world', 'dismiss-open-world-prompt'):
+            self.assertIsNotNone(self.window.rootObject().findChild(QObject, name))
 
     def test_create_before_game_is_a_fixed_secondary_footer_action(self):
         self.backend._view = {**self.backend._view, 'version':'1.21.8',

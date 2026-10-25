@@ -141,6 +141,8 @@ class RecordController(QObject):
                     except Exception:
                         self.java_major = 17
             self.changed.emit()
+            if self.java_catalog_open:
+                self.load_java_catalog()
         elif action == '添加':
             path, _ = QFileDialog.getOpenFileName(page, '选择 Java 可执行文件', '', 'Java (java.exe javaw.exe java);;所有文件 (*)')
             if path:

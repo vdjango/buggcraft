@@ -216,7 +216,7 @@ class LauncherUpdateController(QObject):
         update = update or {}
         size = update.get('asset', {}).get('size', 0)
         dialog = QmlDialog(self.launcher, resources=self.resource_path, title=title, message=message,
-                           detail=detail, actions=actions, primary_action=primary, width=600, height=530,
+                           detail=detail, actions=actions, primary_action=primary, width=540, height=440,
                            source='LauncherUpdate.qml', data={
                                'phase': phase, 'version': update.get('version', ''), 'currentVersion': self.version,
                                'channelName': '开发版' if self.channel() == 'beta' else '稳定版',

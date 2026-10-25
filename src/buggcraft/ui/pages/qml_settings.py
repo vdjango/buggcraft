@@ -260,7 +260,7 @@ class SettingsController(QObject):
         system = platform.system()
         target = 'mac' if system == 'Darwin' else 'linux' if system == 'Linux' else 'windows'
         query = '?platform=' + target
-        if target == 'mac':
+        if target in ('mac', 'linux'):
             query += '&arch=' + ('arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x86_64')
         QDesktopServices.openUrl(QUrl('https://bugg.icu/download/' + query))
 

@@ -146,8 +146,8 @@ ScrollView {
                         property var memoryField: group.modelData.memory || ({value:2048, options:[512, 4096], enabled:false})
                         spacing: 10
                         RowLayout {
-                            Layout.fillWidth: true; spacing: 15
-                            Label { text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
+                            Layout.fillWidth: true; Layout.leftMargin: 35; Layout.rightMargin: 3; spacing: 14
+                            Label { Layout.preferredWidth: 130; text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
                             Slider {
                                 id: memory
                                 objectName: "setting-memory-slider"
@@ -174,13 +174,13 @@ ScrollView {
                             Label { text: Math.round(memory.value) + " MB"; color: "#e0d9ec"; font.pixelSize: 13 }
                         }
                         Rectangle {
-                            Layout.fillWidth: true; implicitHeight: 12; color: "#4b526b"
+                            Layout.fillWidth: true; Layout.leftMargin: 35; Layout.rightMargin: 3; implicitHeight: 12; color: "#4b526b"
                             property real usedRatio: Math.min(1, (root.memoryInfo.used || 0) / Math.max(1, root.memoryInfo.total))
                             Rectangle { height: parent.height; width: parent.width * parent.usedRatio; color: "#678aff" }
                             Rectangle { x: parent.width * parent.usedRatio; height: parent.height; width: parent.width * Math.min(1 - parent.usedRatio, memory.value / Math.max(1, root.memoryInfo.total)); color: memory.enabled ? "#ffc864" : "#aaaaaa" }
                         }
                         Label {
-                            Layout.fillWidth: true
+                            Layout.fillWidth: true; Layout.leftMargin: 35; Layout.rightMargin: 3
                             text: "设备中已使用 " + ((root.memoryInfo.used || 0) / 1024).toFixed(2) + " GB  |  设备总内存 " + ((root.memoryInfo.total || 0) / 1024).toFixed(2) + " GB  |  可用 " + ((root.memoryInfo.available || 0) / 1024).toFixed(2) + " GB"
                             color: "#ccc4d8"; font.pixelSize: 12; wrapMode: Text.Wrap
                         }

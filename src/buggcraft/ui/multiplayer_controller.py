@@ -64,6 +64,8 @@ class MultiplayerController(QObject):
         self.prepared_launch = None
         self.external_running = None
         self.runtime_job = False
+        self.auto_lan_job = False
+        self.auto_lan_seen = set()
         self.room_generation = uuid.uuid4().hex
         self.node_check_generation = uuid.uuid4().hex
         self.room_search_timer = QTimer(self)
@@ -73,6 +75,7 @@ class MultiplayerController(QObject):
         self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
                            rooms=[], contacts=[], friendRequests=[], friendInvitations=[], socialAccount='', socialName='', socialReady=False, socialError='',
                            connections=[], worlds=[], selected='', busy=False, friendBusy=False, socialLoading=False, loading=False,
+                           openWorldPrompt=False, openWorldPort=0, openWorldMode='create',
                            pendingFriendInvite='', outgoingInvitations={},
                            nodeAccessExpired=False, nodeAccessMessage='',
                            error='', notice='', nodeDraft='', roomError='', needsVersion=False,
@@ -80,7 +83,7 @@ class MultiplayerController(QObject):
                            transportPolicy='auto',
                            nodeUpdatePrompt=False, nodeUpdateMessage='',
                            roomQuery='', roomNext=None, roomTotal=None, loadingMore=False,
-                           version='', loader='vanilla', loaderVersion='', worldPort=0,
+                           version='', loader='vanilla', loaderVersion='', localModsCount=0, worldPort=0,
                            instances=[], instanceId='', instanceLoading=False, instanceError='',
                            instanceLocked=False, chatMessages=[], chatState=self.chat_state,
                            bridgeStatus=self.bridge_status, chatError='', chatDraft='', chatSending=False)
@@ -227,6 +230,29 @@ class MultiplayerController(QObject):
                     result = await native_bridge().request('game.discover', {'exclude': excluded, 'duration_ms': 3000})
                     return result.get('worlds', [])
                 self.job('lan:' + self.generation, discover())
+            elif action == 'createFromOpenWorld':
+                port = int(data.get('port') or self._state.get('openWorldPort') or 0)
+                if port:
+                    self.auto_lan_seen.add(port)
+                if self._state.get('openWorldMode') == 'associate':
+                    host = next(((name, record) for name, record in self.records.items()
+                                 if record.get('role') == 'host' and record.get('availability') == 'waiting'), None)
+                    if not host:
+                        self.patch(openWorldPrompt=False, error='等待中的房间已关闭，请重新创建房间。')
+                        return
+                    self.patch(openWorldPrompt=False, page='connected', selected=host[0], worlds=[], error='', notice='')
+                    self.act('applyWorld', {'port':port})
+                    return
+                already_open = self._state['page'] == 'create'
+                self._state['pendingOpenWorldPort'] = port
+                self.patch(openWorldPrompt=False, page='create', worlds=[], error='', notice='')
+                if already_open:
+                    self.act('discover', {})
+            elif action == 'dismissOpenWorld':
+                port = int(self._state.get('openWorldPort') or 0)
+                if port:
+                    self.auto_lan_seen.add(port)
+                self.patch(openWorldPrompt=False, openWorldPort=0)
             elif action == 'probe':
                 self.probe(data)
             elif action == 'createWaiting':
@@ -631,7 +657,7 @@ class MultiplayerController(QObject):
         self.creation = None
         self.generation = uuid.uuid4().hex
         self.instance_job = None
-        self.patch(version='', loader='vanilla', loaderVersion='', step=0, busy=False,
+        self.patch(version='', loader='vanilla', loaderVersion='', localModsCount=0, step=0, busy=False,
                    instanceLoading=False, instanceError='', error='')
         if not directory or not version:
             return
@@ -646,6 +672,16 @@ class MultiplayerController(QObject):
         if launcher and not self.runtime_job and not self.closed:
             self.runtime_job = True
             self.job('runtime', asyncio.to_thread(running_games, launcher.minecraft_directory))
+        if (launcher and self.external_running and not self.closed and not self.auto_lan_job
+                and (not self._state['connections'] or any(record.get('role') == 'host' and record.get('availability') == 'waiting'
+                                                          for record in self.records.values()))
+                and not self._state['openWorldPrompt']):
+            self.auto_lan_job = True
+            excluded = [e.listen_port for e in self.service.endpoints.values() if e.role == 'client']
+            async def discover_open_worlds():
+                result = await native_bridge().request('game.discover', {'exclude': excluded, 'duration_ms': 2500})
+                return result.get('worlds', [])
+            self.job('auto-lan:' + self.generation, discover_open_worlds())
 
     def require_instance(self):
         if self._state['instanceLoading']:
@@ -1182,7 +1218,22 @@ class MultiplayerController(QObject):
             running = value[0] if not error and len(value) == 1 else None
             if running != self.external_running:
                 self.external_running = running
+                if running is None:
+                    self.auto_lan_seen.clear()
+                    self.patch(openWorldPrompt=False, openWorldPort=0)
                 self.detect_instance()
+            return
+        if key.startswith('auto-lan:'):
+            self.auto_lan_job = False
+            if error or not value:
+                return
+            port = int(value[0].get('port') or 0)
+            waiting_host = any(record.get('role') == 'host' and record.get('availability') == 'waiting'
+                               for record in self.records.values())
+            if port > 0 and port not in self.auto_lan_seen and waiting_host:
+                self.patch(openWorldPrompt=True, openWorldPort=port, openWorldMode='associate')
+            elif port > 0 and port not in self.auto_lan_seen and not self._state['connections']:
+                self.patch(openWorldPrompt=True, openWorldPort=port, openWorldMode='create')
             return
         if key.startswith('manifest:'):
             record = self.records.get(key[9:])
@@ -1346,7 +1397,7 @@ class MultiplayerController(QObject):
                 return
             self.game = {} if error else value
             self.patch(version=self.game.get('version', ''), loader=self.game.get('loader', 'vanilla'),
-                       loaderVersion=self.game.get('loader_version', ''), instanceLoading=False,
+                       loaderVersion=self.game.get('loader_version', ''), localModsCount=self.game.get('mods_count', 0), instanceLoading=False,
                        instanceError='所选实例读取失败，请在首页检查安装或切换实例。' if error else '')
             for record in self.records.values():
                 self.check_room_compatibility(record)
@@ -1393,7 +1444,12 @@ class MultiplayerController(QObject):
             self.patch(error=message)
             return
         if key.startswith('lan:'):
-            self.patch(worlds=value, error='' if value else '没有找到世界。确认已对局域网开放，或手动填写端口。')
+            pending_port = int(self._state.get('pendingOpenWorldPort') or 0)
+            selected = next((item for item in value if int(item.get('port') or 0) == pending_port), None)
+            self.patch(worlds=value, error='' if value else '暂未发现已开放的世界。进入单人世界后，在暂停菜单选择“对局域网开放”，启动器会自动查找。',
+                       pendingOpenWorldPort=0)
+            if selected:
+                self.patch(worldPort=selected['port'], notice='已找到刚才开放的世界，确认后即可继续创建房间。')
         elif key.startswith('probe:') and self.creation:
             detected = value.get('version', '')
             if re.fullmatch(r'\d+\.\d+(?:\.\d+)?', detected) and detected != self.creation['game']['version']:

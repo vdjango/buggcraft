@@ -139,6 +139,38 @@ class RoomLaunchFlowTests(unittest.TestCase):
             self.controller.act('create', {'title': 'Already running world'})
         self.assertEqual(start.call_args.args[0].game_port, world['port'])
 
+    def test_open_lan_world_is_found_automatically_and_prompts_for_a_room(self):
+        world = dict(port=51234, version='1.21.8', protocol=772)
+        self.controller.external_running = ('game-dir', '1.21.8', 'game-dir')
+        self.controller.runtime_job = True
+        bridge = SimpleNamespace(request=AsyncMock(return_value={'worlds':[world]}))
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=bridge):
+            self.controller.detect_runtime()
+        bridge.request.assert_awaited_once_with('game.discover', {'exclude':[34567], 'duration_ms':2500})
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+        self.assertEqual(self.controller.view['openWorldPort'], world['port'])
+        self.controller.act('dismissOpenWorld', {})
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.assertIn(world['port'], self.controller.auto_lan_seen)
+
+    def test_open_lan_world_associates_with_a_room_created_before_game(self):
+        world = dict(port=51234, version='1.21.8', protocol=772)
+        endpoint = SimpleNamespace(role='host', retarget_world=AsyncMock(return_value=world))
+        self.service.endpoints['room'] = endpoint
+        self.controller.records['room'].update(role='host', availability='waiting')
+        self.controller.external_running = ('game-dir', '1.21.8', 'game-dir')
+        self.controller.runtime_job = True
+        bridge = SimpleNamespace(request=AsyncMock(return_value={'worlds':[world]}))
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=bridge):
+            self.controller.detect_runtime()
+            self.assertEqual(self.controller.view['openWorldMode'], 'associate')
+            self.controller.act('createFromOpenWorld', {'port':world['port']})
+        endpoint.retarget_world.assert_awaited_once_with(world['port'])
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.assertEqual(self.controller.view['page'], 'connected')
+
     def test_waiting_host_can_discover_and_reselect_world_after_starting_game(self):
         world = dict(port=51234, version='1.21.8', protocol=772)
         self.controller.records['room'].update(role='host', availability='waiting')

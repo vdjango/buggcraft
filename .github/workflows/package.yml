@@ -35,6 +35,9 @@ jobs:
           - os: ubuntu-24.04
             platform: linux-x86_64
             arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            arch: arm64
           - os: macos-15-intel
             platform: macos-x86_64
             arch: x64
@@ -277,6 +280,7 @@ jobs:
 
           - Windows x64：下载并运行 `Buggcraft.exe`。
           - Linux x86_64：下载 `Buggcraft` 并赋予可执行权限后运行；构建目标为 Ubuntu 24.04。
+          - Linux ARM64：下载 `Buggcraft-linux-arm64` 并赋予可执行权限后运行；构建目标为 Ubuntu 24.04 ARM64。
           - macOS：按芯片选择 `arm64`（Apple Silicon）或 `x86_64`（Intel），解压后运行应用。
           - `SHA256SUMS-*.txt` 用于核对文件完整性；构建日志留在 Actions，不放入发布下载。
 

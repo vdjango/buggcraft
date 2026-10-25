@@ -178,7 +178,8 @@ class StartGamePage(QmlPage):
             self.auth_manager.refresh_login()
             return
         self._launch_state('启动中…', enabled=False)
-        self.launcher.set_language('简体中文')
+        language = self.settings_manager.get_setting('game.language', 'zh_cn')
+        self.launcher.set_language(language if language in ('zh_cn', 'zh_tw', 'en_us') else 'zh_cn')
         size = self.settings_manager.get_version_setting('launcher.window_size', '默认')
         fullscreen, width, height = False, None, None
         if size == '默认':

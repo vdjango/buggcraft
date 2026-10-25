@@ -13,8 +13,8 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 22
-        spacing: 14
+        anchors.margins: 18
+        spacing: 10
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
@@ -43,7 +43,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: versionDetails.implicitHeight + 24
+            implicitHeight: versionDetails.implicitHeight + 20
             radius: 5
             color: "#24212d"
             border.color: "#40384e"
@@ -52,9 +52,14 @@ Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: 12
-                spacing: 5
-                Label { text: "下载的版本"; color: "#9f94b1"; font.pixelSize: 11 }
+                anchors.margins: 10
+                spacing: 4
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: "下载版本"; color: "#bda9ee"; font.pixelSize: 11; font.bold: true }
+                    Item { Layout.fillWidth: true }
+                    Label { text: root.info.kind === "mod" ? "模组" : root.info.kind === "resourcepack" ? "资源包" : root.info.kind === "shader" ? "光影" : "整合包"; color: "#948ba5"; font.pixelSize: 10 }
+                }
                 Label { objectName: "content-download-version"; text: root.info.version || ""; color: "#eee8f7"; font.pixelSize: 14; font.bold: true; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true }
                 Label { text: [root.info.filename, root.info.size].filter(Boolean).join("  ·  "); visible: !!text; color: "#aaa1b7"; font.pixelSize: 11; maximumLineCount: 2; elide: Text.ElideMiddle; wrapMode: Text.Wrap; textFormat: Text.PlainText; Layout.fillWidth: true }
             }
@@ -68,8 +73,8 @@ Rectangle {
             text: root.info.kind === "modpack" ? "下载到新的独立游戏实例" : (root.info.targetExpanded ? "⌄" : "›") + "  下载到「" + (root.info.instance || "未选择") + "」"
             enabled: root.info.kind !== "modpack"
             onClicked: dialogModel.action("toggle-target")
-            contentItem: Text { text: parent.text; color: "#c9b9ef"; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-            background: Rectangle { radius: 4; color: parent.hovered ? "#2a2635" : "transparent" }
+            contentItem: Text { leftPadding: 10; rightPadding: 10; text: parent.text; color: "#c9b9ef"; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+            background: Rectangle { radius: 4; color: parent.hovered ? "#2a2635" : "#211d2a"; border.color: "#40384e" }
         }
 
         ComboBox {
@@ -109,13 +114,13 @@ Rectangle {
 
         ScrollView {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.preferredHeight: 78
             contentWidth: availableWidth
             clip: true
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ColumnLayout {
                 width: parent.width
-                spacing: 7
+                spacing: 5
                 Label { text: root.info.environment || ""; color: "#d4c8e8"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 Label {
                     objectName: "content-download-compatibility"

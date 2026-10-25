@@ -36,6 +36,7 @@ class LauncherQmlCase(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.write_text(json.dumps(dict(id=name, type='release', releaseTime='2026-01-01')), encoding='utf-8')
         self.manager = settings.SettingsManager(self.directory / 'config')
+        self.manager.set_setting('onboarding.completed', True)
         self.manager.set_setting('minecraft.directory.enable', str(self.game_dir))
         self.manager.set_setting('minecraft.directory.installed', [str(self.game_dir)])
         self.manager.set_setting('minecraft.version.enable', '1.21.8')

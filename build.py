@@ -462,8 +462,9 @@ def main():
         parser.error('--onefile requires --native-bridge-dir with the complete native runtime')
     if platform.system() == 'Linux' and not args.onefile:
         parser.error('Linux releases require --onefile')
-    if platform.system() == 'Linux' and platform.machine().lower() not in ('x86_64', 'amd64'):
-        parser.error('Linux releases currently target x86_64')
+    if platform.system() == 'Linux' and platform.machine().lower() not in (
+            'x86_64', 'amd64', 'aarch64', 'arm64'):
+        parser.error('Linux releases target x86_64 and arm64')
     if platform.system() not in ('Windows', 'Darwin', 'Linux'):
         parser.error('Release packaging currently supports Windows, macOS and Linux hosts')
     if platform.system() != 'Windows' and (args.runtime_url or args.certificate_pin or
@@ -514,7 +515,11 @@ def main():
         (output / 'signing-status.json').write_text(json.dumps(signing, indent=2), encoding='utf-8')
         with executable.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        release_platform = 'windows-x64' if os.name == 'nt' else 'linux-x86_64'
+        if os.name == 'nt':
+            release_platform = 'windows-x64'
+        else:
+            machine = platform.machine().lower()
+            release_platform = 'linux-arm64' if machine in ('aarch64', 'arm64') else 'linux-x86_64'
         manifest = dict(schema=1, launcher_version=launcher_version(), platform=release_platform,
                         format='onefile', entrypoint=executable.name,
                         size=executable.stat().st_size, sha256=digest,

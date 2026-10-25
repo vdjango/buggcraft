@@ -6,6 +6,9 @@ Rectangle {
     id: root
     property var state: dialogModel.view
     property var info: state.data
+    property var noteItems: String(root.state.detail || "").replace(/\r/g, "").split("\n").map(function(line) {
+        return line.trim().replace(/^[-*•]\s*/, "")
+    }).filter(function(line) { return line.length > 0 })
     color: "#272937"
     border.color: "#655e9b"
     radius: 6
@@ -17,7 +20,7 @@ Rectangle {
         onPressed: dialogModel.dragWindow()
     }
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 26; spacing: 18
+        anchors.fill: parent; anchors.margins: 20; spacing: 12
         RowLayout {
             Layout.fillWidth: true; spacing: 10
             Rectangle {
@@ -42,10 +45,10 @@ Rectangle {
             }
         }
         ColumnLayout {
-            Layout.fillWidth: true; spacing: 7
+            Layout.fillWidth: true; spacing: 5
             Label {
                 objectName: "update-title"; Layout.fillWidth: true
-                text: root.state.title; color: "#f3f0fa"; font.pixelSize: 23; font.bold: true
+                text: root.state.title; color: "#f3f0fa"; font.pixelSize: 20; font.bold: true
                 wrapMode: Text.Wrap; textFormat: Text.PlainText
             }
             Label {
@@ -55,13 +58,13 @@ Rectangle {
             }
         }
         Rectangle {
-            Layout.fillWidth: true; implicitHeight: versionRow.implicitHeight + 28
+            Layout.fillWidth: true; implicitHeight: versionRow.implicitHeight + 20
             visible: !!root.info.version
             color: "#222431"; radius: 6; border.color: "#454054"
             RowLayout {
                 id: versionRow
                 anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: 18; spacing: 16
+                anchors.margins: 12; spacing: 12
                 ColumnLayout {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; spacing: 8
                     Label { text: "当前版本"; font.pixelSize: 11; color: "#9993ad" }
@@ -79,20 +82,28 @@ Rectangle {
             }
         }
         ColumnLayout {
-            Layout.fillWidth: true; Layout.fillHeight: true; spacing: 10
+            Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 90; spacing: 7
             Label { text: root.info.phase === "error" ? "处理建议" : "本次更新"; color: "#eee8f6"; font.pixelSize: 12; font.bold: true }
             ScrollView {
                 id: notesScroll
                 Layout.fillWidth: true; Layout.fillHeight: true
                 contentWidth: availableWidth; clip: true
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                TextArea {
-                    objectName: "update-notes"; width: notesScroll.availableWidth
-                    text: root.state.detail; textFormat: TextEdit.PlainText
-                    readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
-                    color: "#c0bbcf"; font.pixelSize: 13
-                    padding: 0; rightPadding: 14
-                    background: null
+                ColumnLayout {
+                    objectName: "update-notes"; width: notesScroll.availableWidth; spacing: 7
+                    Repeater {
+                        model: root.noteItems
+                        delegate: RowLayout {
+                            required property string modelData
+                            Layout.fillWidth: true; spacing: 9
+                            Rectangle { Layout.alignment: Qt.AlignTop; Layout.topMargin: 6; width: 5; height: 5; radius: 2; color: "#a58bf3" }
+                            Label {
+                                Layout.fillWidth: true; text: modelData; color: "#c0bbcf"; font.pixelSize: 12
+                                wrapMode: Text.Wrap; textFormat: Text.PlainText
+                            }
+                        }
+                    }
+                    Label { visible: root.noteItems.length === 0; text: "本次更新没有附加说明。"; color: "#9d96ad"; font.pixelSize: 12 }
                 }
             }
         }

@@ -14,6 +14,7 @@ ColumnLayout {
     property var game: record.game || ({})
     property bool preparing: !!record.preparing
     property string copiedKind: ""
+    property string prepareSuggestionRoom: ""
     function fileSize(bytes) {
         return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MiB"
             : bytes >= 1024 ? (bytes / 1024).toFixed(1) + " KiB" : bytes + " B"
@@ -22,6 +23,13 @@ ColumnLayout {
         target: lobby
         ignoreUnknownSignals: true
         function onCopied(kind) { connected.copiedKind = kind; copiedTimer.restart() }
+        function onChanged() {
+            if (!connected.host && connected.online && !connected.preparing && !!connected.record.compatibility &&
+                    connected.prepareSuggestionRoom !== vm.selected) {
+                connected.prepareSuggestionRoom = vm.selected
+                preparePopup.open()
+            }
+        }
     }
     Timer { id: copiedTimer; interval: 2200; onTriggered: connected.copiedKind = "" }
     spacing: 7
@@ -200,13 +208,18 @@ ColumnLayout {
             spacing: 12
             CopyText { text: "准备匹配的游戏配置"; font.bold: true; color: "#f3efff" }
             InstancePicker { Layout.fillWidth: true }
-            CopyText { Layout.fillWidth: true; text: "可先关闭此窗口，在房间页选择已有配置；或创建新配置，自动安装对应版本、加载器和房主共享的模组。现有存档与模组会保留。" }
+            CopyText {
+                Layout.fillWidth: true
+                text: (connected.record.compatibility.indexOf("模组集合不一致") >= 0 ?
+                    "房主使用 " + (connected.game.mods_count || 0) + " 个模组，你当前实例有 " + (vm.localModsCount || 0) + " 个，模组文件不完全一致。\n" : "当前游戏配置与房主要求不一致。\n") +
+                    "可以创建一个独立配置，启动器会自动安装房主共享的模组并校验文件。现有实例、存档和模组会保留。"
+            }
             CopyText { Layout.fillWidth: true; text: "模组来自房主，请仅在信任房主时安装。"; color: "#dfbd92"; font.pixelSize: 11 }
             RowLayout {
                 Layout.fillWidth: true
                 ActionButton { text: "选择已有配置"; onClicked: preparePopup.close() }
                 Item { Layout.fillWidth: true }
-                ActionButton { objectName: "confirm-room-install"; text: "新建并自动安装"; primary: true; onClicked: { preparePopup.close(); lobby.act("prepareRoom", {}) } }
+                ActionButton { objectName: "confirm-room-install"; text: "创建匹配配置并下载"; primary: true; onClicked: { preparePopup.close(); lobby.act("prepareRoom", {}) } }
             }
         }
     }

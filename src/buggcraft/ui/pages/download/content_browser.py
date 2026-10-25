@@ -604,7 +604,7 @@ class ContentBrowserController(QObject):
         selected = identity if identity in instances else (instances[0] if instances else '')
         title = version.get("name") or version.get("version_number") or "内容"
         dialog = QmlDialog(self.download_pages.window(), resources=self.download_pages.resource_path,
-                           title='确认下载', width=560, height=420,
+                           title='确认下载', width=540, height=400,
                            source='ContentDownloadConfirm.qml', data={
                                'project': (self.selected_project or {}).get('display_title') or (self.selected_project or {}).get('title') or '资源',
                                'version': title, 'filename': version.get('filename') or '',

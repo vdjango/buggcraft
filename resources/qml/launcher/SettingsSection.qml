@@ -16,9 +16,11 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
-        implicitHeight: section.inlineControl ? 50 : 60
+        implicitHeight: section.inlineControl ? 46 : 54
         visible: section.headerVisible
-        color: "#4dbeb7ff"
+        color: "#292536"
+        border.color: "#49415c"
+        border.width: 1
         MouseArea {
             objectName: section.objectName + "-header"
             anchors.fill: parent
@@ -28,7 +30,7 @@ ColumnLayout {
         }
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 25; anchors.rightMargin: 25
+            anchors.leftMargin: 18; anchors.rightMargin: 18
             spacing: 14
             ColumnLayout {
                 Layout.fillWidth: true
@@ -46,13 +48,15 @@ ColumnLayout {
     }
     Rectangle {
         Layout.fillWidth: true
-        implicitHeight: contents.implicitHeight + 30
+        implicitHeight: contents.implicitHeight + 28
         visible: section.expanded && !section.inlineControl
-        color: "#33beb7ff"
+        color: "#1d1a25"
+        border.color: "#383246"
+        border.width: 1
         ColumnLayout {
             id: contents
             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-            anchors.margins: 15
+            anchors.margins: 18
             spacing: 10
         }
     }

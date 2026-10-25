@@ -7,6 +7,8 @@
 | 系统 | 产物名称包含 | 使用方式 |
 |---|---|---|
 | Windows 10/11 x64 | `windows-x64` | 解压 Actions 下载的文件，保留 `Buggcraft-Setup.exe` 与运行包 ZIP 在同一目录，再运行安装程序。 |
+| Linux x86_64 | `linux-x86_64` | 下载 `Buggcraft` 并赋予可执行权限后运行。 |
+| Linux ARM64 | `linux-arm64` | 下载 `Buggcraft-linux-arm64` 并赋予可执行权限后运行。 |
 | macOS Intel | `macos-x86_64` | 解压产物，再解压其中的应用 ZIP。 |
 | macOS Apple Silicon | `macos-arm64` | 解压产物，再解压其中的应用 ZIP。 |
 

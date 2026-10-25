@@ -11,7 +11,12 @@ ARCHIVES = {
     'macos-x86_64': 'Buggcraft-macos-x86_64.zip',
     'macos-arm64': 'Buggcraft-macos-arm64.zip',
 }
-ONEFILES = {'windows-x64': 'Buggcraft.exe', 'linux-x86_64': 'Buggcraft'}
+ONEFILES = {
+    'windows-x64': 'Buggcraft.exe',
+    'linux-x86_64': 'Buggcraft',
+    'linux-arm64': 'Buggcraft',
+}
+PUBLISHED_ONEFILES = {'linux-arm64': 'Buggcraft-linux-arm64'}
 VERSION_MARKER = 'BUGGCRAFT_VERSION.txt'
 
 
@@ -33,10 +38,11 @@ def stage(output, platform, repository_root):
             raise ValueError('Release executable size or SHA-256 does not match its manifest')
         destination = output / 'release'
         destination.mkdir(exist_ok=False)
-        shutil.copy2(executable, destination / executable.name)
+        published_name = PUBLISHED_ONEFILES.get(platform, executable.name)
+        shutil.copy2(executable, destination / published_name)
         (destination / VERSION_MARKER).write_text(version + '\n', encoding='ascii')
         (destination / ('SHA256SUMS-' + platform + '.txt')).write_text(
-            digest + '  ' + executable.name + '\n', encoding='ascii')
+            digest + '  ' + published_name + '\n', encoding='ascii')
         return destination
     if manifest.get('platform') != platform or manifest.get('archive') != ARCHIVES[platform]:
         raise ValueError('Release platform or archive name does not match the build')

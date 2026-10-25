@@ -69,6 +69,7 @@ git push origin v1.2.3
 | --- | --- | --- |
 | Windows x64 | `Buggcraft.exe` | `SHA256SUMS-windows-x64.txt` |
 | Linux x86_64 | `Buggcraft` | `SHA256SUMS-linux-x86_64.txt` |
+| Linux ARM64 | `Buggcraft-linux-arm64` | `SHA256SUMS-linux-arm64.txt` |
 | macOS Apple Silicon | `Buggcraft-macos-arm64.zip` | `SHA256SUMS-macos-arm64.txt` |
 | macOS Intel | `Buggcraft-macos-x86_64.zip` | `SHA256SUMS-macos-x86_64.txt` |
 | 版本标记 | `BUGGCRAFT_VERSION.txt` | 内容必须等于不带 `v` 的标签版本 |

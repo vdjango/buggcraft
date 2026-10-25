@@ -133,7 +133,8 @@ class UpdateClientTests(unittest.TestCase):
         self.assertGreater(update_client.version_key('1.2.0-rc.2'), update_client.version_key('1.2.0-rc.1'))
         self.assertEqual(update_client.platform_id('Windows', 'AMD64'), 'windows-x64')
         self.assertEqual(update_client.platform_id('Darwin', 'arm64'), 'macos-arm64')
-        self.assertEqual(update_client.platform_id('Linux', 'aarch64'), None)
+        self.assertEqual(update_client.platform_id('Linux', 'aarch64'), 'linux-arm64')
+        self.assertEqual(update_client.platform_id('Linux', 'arm64'), 'linux-arm64')
 
     def test_check_accepts_only_newer_trusted_release(self):
         package = b'launcher binary'

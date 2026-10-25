@@ -51,6 +51,8 @@ def platform_id(system=None, machine=None):
         return 'windows-x64'
     if system == 'linux' and machine in ('amd64', 'x86_64', 'x64'):
         return 'linux-x86_64'
+    if system == 'linux' and machine in ('arm64', 'aarch64'):
+        return 'linux-arm64'
     if system == 'darwin' and machine in ('arm64', 'aarch64'):
         return 'macos-arm64'
     if system == 'darwin' and machine in ('x86_64', 'amd64', 'x64'):
@@ -97,7 +99,8 @@ def check_for_update(current_version, channel='stable', target=None, timeout=8):
             raise ValueError('macOS update must be an application archive')
     elif target == 'windows-x64' and asset.get('name') != 'Buggcraft.exe':
         raise ValueError('Windows update must be the launcher executable')
-    elif target == 'linux-x86_64' and asset.get('name') != 'Buggcraft':
+    elif target in ('linux-x86_64', 'linux-arm64') and asset.get('name') != (
+            'Buggcraft-linux-arm64' if target == 'linux-arm64' else 'Buggcraft'):
         raise ValueError('Linux update must be the launcher executable')
     return payload
 
@@ -239,7 +242,7 @@ def apply_update(package, executable=None):
             raise ValueError('Windows update executable is missing')
         _spawn_windows_replacement(package, executable, os.getpid())
         return 'scheduled'
-    if target_platform == 'linux-x86_64':
+    if target_platform in ('linux-x86_64', 'linux-arm64'):
         if package.suffix or not executable.is_file():
             raise ValueError('Linux update executable is missing')
         mode = executable.stat().st_mode

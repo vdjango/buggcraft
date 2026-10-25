@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 
-// The existing download/instance list row: square, translucent, 70 px, icon + two text lines.
+// Shared compact row for instances, Java versions, resources and task lists.
 Rectangle {
     id: row
     property string title: ""
@@ -13,15 +13,17 @@ Rectangle {
     property Component footer
     signal clicked()
     implicitHeight: 70 + (footerLoader.item ? footerLoader.item.implicitHeight : 0)
-    color: selected ? "#3dbeb7ff" : rowMouse.containsMouse ? "#2abeb7ff" : "#1abeb7ff"
-    border.color: selected ? "#8b85da" : "transparent"
+    color: selected ? "#2b2538" : rowMouse.containsMouse ? "#211e2a" : "transparent"
+    border.color: selected ? "#7964a9" : "transparent"
     MouseArea { id: rowMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: row.clicked() }
+    Rectangle { visible: row.selected; x: 0; y: 8; width: 3; height: row.height - 16; radius: 1; color: "#a88df1" }
+    Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#393445" }
     RowLayout {
         id: header
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
         height: row.footer ? 70 : row.height
-        anchors.leftMargin: 15; anchors.rightMargin: 15
-        spacing: 15
+        anchors.leftMargin: 14; anchors.rightMargin: 14
+        spacing: 12
         Image {
             id: rowIcon
             visible: !!row.icon.toString(); Layout.preferredWidth: 30; Layout.preferredHeight: 30
@@ -39,7 +41,7 @@ Rectangle {
                 HoverHandler { id: titleHover }
                 ToolTip.visible: titleHover.hovered; ToolTip.text: text
             }
-            Label { Layout.fillWidth: true; text: row.description; color: "#b3ffffff"; font.pixelSize: 12; elide: Text.ElideRight }
+            Label { Layout.fillWidth: true; text: row.description; color: "#aaa2bb"; font.pixelSize: 11; elide: Text.ElideRight }
         }
         Loader { sourceComponent: row.actions; Layout.preferredWidth: item ? item.implicitWidth : 0 }
     }

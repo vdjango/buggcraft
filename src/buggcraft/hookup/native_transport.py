@@ -173,7 +173,7 @@ class NativeEndpoint:
         if self.role != 'host' or not self.session:
             raise ValueError('Only the active host can update the room version')
         if self.game_port:
-            raise ValueError('The world is already open; close it before changing the room version')
+            raise ValueError('游戏世界仍处于开放状态。请先关闭当前世界，再更改房间版本。')
         self.room_settings['game'] = dict(game)
         if game_directory:
             self.game_directory = game_directory

@@ -138,6 +138,9 @@ class MinecraftLauncher(QMainWindow):
             widget.setAcceptDrops(True)
             widget.installEventFilter(self._modpack_drop_filter)
         self.apply_window_opacity()
+
+        if not self.settings_manager.get_setting('onboarding.completed', False):
+            QTimer.singleShot(1400, self.show_first_run_onboarding)
         
         self.java_runtime_full = JavaRuntimeNotFuilDialog(self)
         self.gamed_version_full = VersionNotFuilDialog(self)
@@ -149,6 +152,15 @@ class MinecraftLauncher(QMainWindow):
 
     def apply_window_opacity(self):
         self.setWindowOpacity(launcher_opacity(self.settings_manager) / 100)
+
+    def show_first_run_onboarding(self):
+        if self._closing or self.settings_manager.get_setting('onboarding.completed', False):
+            return
+        from ui.dialog.OnboardingDialog import OnboardingDialog
+        self._onboarding_dialog = OnboardingDialog(self, self.resource_path)
+        self._onboarding_dialog.show()
+        self._onboarding_dialog.raise_()
+        self._onboarding_dialog.activateWindow()
 
     def _open_dropped_pack(self, archive):
         if self._closing:

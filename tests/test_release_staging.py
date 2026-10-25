@@ -55,6 +55,16 @@ class ReleaseStagingTests(unittest.TestCase):
         self.assertEqual({p.name for p in destination.iterdir()}, {
             'Buggcraft', 'SHA256SUMS-linux-x86_64.txt', release.VERSION_MARKER})
 
+    def test_linux_arm_single_file_has_architecture_specific_name(self):
+        self.package('linux-arm64')
+        destination = release.stage(self.output, 'linux-arm64', ROOT)
+        self.assertEqual({p.name for p in destination.iterdir()}, {
+            'Buggcraft-linux-arm64', 'SHA256SUMS-linux-arm64.txt', release.VERSION_MARKER})
+        checksum = (destination / 'SHA256SUMS-linux-arm64.txt').read_text().strip()
+        digest, name = checksum.split('  ', 1)
+        self.assertEqual(name, 'Buggcraft-linux-arm64')
+        self.assertEqual(hashlib.sha256((destination / name).read_bytes()).hexdigest(), digest)
+
     def test_each_mac_architecture_has_distinct_download_names(self):
         for platform in ('macos-x86_64', 'macos-arm64'):
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:

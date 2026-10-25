@@ -33,7 +33,7 @@ Buggcraft 是一个开源的 Minecraft Java 版启动器。它提供游戏版本
 
 ## 下载与安装
 
-从 [GitHub Releases](https://github.com/vdjango/buggcraft/releases/latest) 下载正式发行包。Windows 提供 x64 启动器；macOS 提供 Intel（`x86_64`）与 Apple Silicon（`arm64`）版本。macOS 包是应用 `.app` 的归档，解压后运行应用。
+从 [GitHub Releases](https://github.com/vdjango/buggcraft/releases/latest) 下载正式发行包。Windows 提供 x64 启动器；Linux 提供 x86_64 和 ARM64 单文件程序；macOS 提供 Intel（`x86_64`）与 Apple Silicon（`arm64`）版本。macOS 包是应用 `.app` 的归档，解压后运行应用。
 
 Windows 启动器可作为单个 `Buggcraft.exe` 分发。首次启动时，它会将应用运行时释放到用户缓存，之后复用该缓存；游戏目录默认位于启动器旁边的 `.minecraft`。正式发行包和对应的校验文件请从 Releases 下载，不要把 Windows 启动器误认为完整运行时之外的游戏文件。
 

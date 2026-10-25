@@ -19,7 +19,8 @@ Item {
             Layout.preferredWidth: 235
             Layout.minimumWidth: 180
             Layout.fillHeight: true
-            color: "#405c5a98"
+            color: "#e61d1a25"
+            border.color: "#49415c"
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 10
@@ -30,24 +31,26 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    spacing: 8
+                    spacing: 2
                     model: root.state.directories
                     ScrollBar.vertical: ScrollBar {}
                     delegate: Rectangle {
                         required property var modelData
                         width: directories.width - 6
-                        height: 60
-                        color: root.state.directory === modelData.path ? "#7859ff" : "#33ad9df4"
-                        border.color: "#7859ff"
+                        height: 64
+                        color: root.state.directory === modelData.path ? "#292536" : "transparent"
+                        border.color: "transparent"
+                        Rectangle { visible: root.state.directory === modelData.path; x: 0; y: 8; width: 3; height: parent.height - 16; color: "#a88df1"; radius: 1 }
+                        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#393445" }
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 10; anchors.rightMargin: 23
+                            anchors.leftMargin: 12; anchors.rightMargin: 26
                             spacing: 10
                             Image { Layout.preferredWidth: 30; Layout.preferredHeight: 30; source: "../../images/version/" + (root.state.directory === modelData.path ? "selected.png" : "not-selected.png") }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 5
                                 Text { Layout.fillWidth: true; text: modelData.title; elide: Text.ElideRight; color: "#f2f2f2"; font.pixelSize: 13; font.bold: true }
-                                Text { Layout.fillWidth: true; text: modelData.path; elide: Text.ElideMiddle; color: "#f2f2f2"; font.pixelSize: 12 }
+                                Text { Layout.fillWidth: true; text: modelData.path; elide: Text.ElideMiddle; color: "#aaa2bb"; font.pixelSize: 11 }
                             }
                         }
                         MouseArea { anchors.fill: parent; onClicked: instancesPage.selectDirectory(modelData.path) }
@@ -78,7 +81,6 @@ Item {
                     id: instanceRow
                     required property var modelData
                     width: versions.width; height: 68
-                    color: "#40beb7ff"
                     title: "版本号：" + modelData.version
                     description: modelData.description
                     icon: "../../images/version/" + (root.state.selected === modelData.version ? "selected.png" : "not-selected.png")
@@ -87,7 +89,6 @@ Item {
                         RowLayout {
                             spacing: 8
                             IconButton { text: "设置"; source: "../../images/version/setting.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "settings") }
-                            Rectangle { implicitWidth: 2; implicitHeight: 40; color: "#4dffffff" }
                             IconButton { text: "目录"; source: "../../images/version/folder.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "folder") }
                             IconButton { text: "删除"; source: "../../images/version/delete.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "deleteVersion") }
                         }

@@ -11,8 +11,9 @@ ColumnLayout {
     property bool requireInvite: false
     property bool gameChatEnabled: false
     spacing: 10
+    Component.onCompleted: lobby.act("discover", {})
     RowLayout {
-        Layout.fillWidth: true; spacing: 12
+        Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter; spacing: 12
         Repeater {
             model: ["确认游戏世界", "设置房间"]
             delegate: RowLayout {
@@ -34,37 +35,42 @@ ColumnLayout {
         contentWidth: availableWidth
         ColumnLayout {
             width: parent.width; spacing: 10
+            Item { Layout.preferredHeight: 2 }
             Surface {
                 objectName: "create-game-config"
                 visible: vm.step === 0
-                Layout.fillWidth: true
-                implicitHeight: gameConfig.implicitHeight + 24
+                Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
+                implicitHeight: gameConfig.implicitHeight + 28
+                color: "#211d2b"; border.color: "#49415c"
                 InstancePicker {
                     id: gameConfig
-                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                    anchors.leftMargin: 18; anchors.rightMargin: 18; anchors.topMargin: 14
                 }
             }
             Surface {
                 objectName: "create-world-discovery"
                 visible: vm.step === 0
-                Layout.fillWidth: true
-                implicitHeight: discovery.implicitHeight + 24
+                Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
+                implicitHeight: discovery.implicitHeight + 28
+                color: "#211d2b"; border.color: "#49415c"
                 ColumnLayout {
                     id: discovery
-                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                    anchors.leftMargin: 18; anchors.rightMargin: 18; anchors.topMargin: 14
                     spacing: 8
                     RowLayout {
                         Layout.fillWidth: true
                         CopyText { Layout.fillWidth: true; text: "局域网世界"; font.pixelSize: 14; font.bold: true; color: "#f4f0ff" }
-                        ActionButton { objectName: "discover-worlds"; text: vm.busy ? "正在查找…" : "查找世界"; primary: true; enabled: !vm.busy; onClicked: { create.worldIndex = -1; lobby.act("discover", {}) } }
+                        ActionButton { objectName: "discover-worlds"; text: vm.busy ? "正在查找…" : "重新查找"; enabled: !vm.busy; onClicked: { create.worldIndex = -1; lobby.act("discover", {}) } }
                     }
-                    CopyText { Layout.fillWidth: true; text: "进入游戏世界，按 Esc → 对局域网开放，再点击查找。" }
+                    CopyText { Layout.fillWidth: true; text: "打开单人世界，在暂停菜单选择“对局域网开放”。本页会自动查找，无需手动刷新。" }
                     Rectangle {
                         objectName: "create-worlds-empty"
                         visible: vm.worlds.length === 0
                         Layout.fillWidth: true; implicitHeight: 44
                         color: "#241e30"; border.color: "#42384f"
-                        CopyText { anchors.centerIn: parent; text: vm.busy ? "正在查找本机开放的世界…" : "等待选择游戏世界"; color: "#91899f" }
+                        CopyText { anchors.centerIn: parent; text: vm.busy ? "正在查找本机开放的世界…" : "暂未发现开放的世界"; color: "#91899f" }
                     }
                     Repeater {
                         model: vm.worlds
@@ -97,10 +103,16 @@ ColumnLayout {
                             onClicked: { create.worldIndex = index; port.text = String(modelData.port) }
                         }
                     }
+                    ColumnLayout {
+                        visible: vm.worlds.length === 0 && !vm.busy
+                        Layout.fillWidth: true; spacing: 3
+                        CopyText { Layout.fillWidth: true; text: "还没进入世界？可以先创建房间，再启动游戏并开放局域网。"; color: "#c7bdd8"; font.pixelSize: 11; wrapMode: Text.Wrap }
+                    }
                     Button {
+                        visible: vm.worlds.length > 0 || create.manual
                         objectName: "show-manual"
                         implicitHeight: 28
-                        text: create.manual ? "收起手动端口 ↑" : "未找到世界？手动填写端口 ↓"
+                        text: create.manual ? "收起手动填写 ↑" : "高级选项：手动填写端口 ↓"
                         contentItem: CopyText { text: parent.text; color: parent.hovered ? "#d0baff" : "#b4a1cc"; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { color: "transparent"; border.width: parent.activeFocus ? 1 : 0; border.color: "#a28aef" }
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -121,8 +133,9 @@ ColumnLayout {
             }
             Surface {
                 visible: vm.step === 1
-                Layout.fillWidth: true
+                Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
                 implicitHeight: details.implicitHeight + 24
+                color: "#211d2b"; border.color: "#49415c"
                 ColumnLayout {
                     id: details
                     anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
@@ -165,8 +178,9 @@ ColumnLayout {
             }
             Surface {
                 visible: vm.step === 1
-                Layout.fillWidth: true
+                Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
                 implicitHeight: chatOptions.implicitHeight + 24
+                color: "#211d2b"; border.color: "#49415c"
                 ColumnLayout {
                     id: chatOptions
                     anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
@@ -206,7 +220,7 @@ ColumnLayout {
     }
     RowLayout {
         objectName: "create-footer"
-        Layout.fillWidth: true
+        Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
         ActionButton { objectName: "create-back"; text: "上一步"; visible: vm.step === 1; onClicked: lobby.act("backCreate", {}) }
         ActionButton {
             objectName: "create-before-game"
@@ -223,12 +237,20 @@ ColumnLayout {
         ActionButton {
             objectName: "create-next"
             text: vm.busy ? "正在确认…" : vm.step === 0 ? "确认世界，下一步 →" : "创建房间"
-            primary: true; enabled: !!vm.nodeAvailable && !vm.busy && !vm.instanceLoading && (vm.step === 0 || !create.gameChatEnabled || chatName.acceptableInput)
+            primary: true; enabled: !!vm.nodeAvailable && !vm.busy && !vm.instanceLoading &&
+                (vm.step === 0 ? (create.worldIndex >= 0 || (create.manual && port.acceptableInput)) : (!create.gameChatEnabled || chatName.acceptableInput))
             onClicked: vm.step === 0 ? lobby.act("probe", {port:port.text}) : lobby.act("create", {title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, transport:vm.transportPolicy})
         }
     }
     Connections {
         target: lobby
-        function onChanged() { if (vm.worlds.length === 1 && create.worldIndex < 0) { create.worldIndex = 0; port.text = String(vm.worlds[0].port) } }
+        function onChanged() {
+            if (vm.worlds.length && create.worldIndex < 0) {
+                var requested = Number(vm.pendingOpenWorldPort || vm.worldPort || 0)
+                var selected = vm.worlds.findIndex(function(world) { return Number(world.port) === requested })
+                create.worldIndex = selected >= 0 ? selected : (vm.worlds.length === 1 ? 0 : -1)
+                if (create.worldIndex >= 0) port.text = String(vm.worlds[create.worldIndex].port)
+            }
+        }
     }
 }

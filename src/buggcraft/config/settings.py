@@ -122,6 +122,7 @@ class SettingsManager:
         self.default_settings = {
             "minecraft": minecraft,
             "translation": {"enabled": False, "source": "Buggcraft"},
+            "onboarding": {"completed": False, "game_preferences": []},
             "launcher": {
                 "visibility": "游戏启动后保持不变",
                 "process_priority": "平衡模式",
@@ -139,6 +140,7 @@ class SettingsManager:
                 "allocation": 1024,
             },
             "game": {
+                "language": "zh_cn",
                 "launch_jvm_args": "",
                 "launch_args": "",
                 "launch_pre_command": ""

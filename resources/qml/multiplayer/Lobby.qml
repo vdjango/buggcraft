@@ -144,7 +144,29 @@ Rectangle {
         }
         Shortcut { sequence: "Escape"; enabled: nodeUpdatePopup.visible; onActivated: lobby.act("cancelNodeUpdate", {}) }
     }
-    onPageChanged: if (page !== "connected") leavePopup.close()
+    onPageChanged: {
+        if (page !== "connected") leavePopup.close()
+    }
+    Popup {
+        id: openWorldPopup; objectName: "open-world-create-room-dialog"
+        parent: Overlay.overlay; anchors.centerIn: parent
+        width: Math.min(430, parent.width - 48); padding: 20; modal: true; focus: true
+        visible: !!vm.openWorldPrompt
+        closePolicy: Popup.NoAutoClose
+        background: Surface { color: "#251f30"; border.color: "#8a72c7" }
+        contentItem: ColumnLayout {
+            spacing: 12
+            CopyText { text: vm.openWorldMode === "associate" ? "找到可以关联的游戏世界" : "发现已开放的局域网世界"; color: "#f3efff"; font.pixelSize: 16; font.bold: true }
+            CopyText { Layout.fillWidth: true; text: vm.openWorldMode === "associate" ? "要将这个世界关联到你已创建的房间吗？关联后，房间里的好友即可加入。" : "要把这个世界分享给好友吗？创建房间后，好友可通过邀请码或联机大厅加入。"; color: "#cfc3e0"; font.pixelSize: 12; wrapMode: Text.Wrap }
+            CopyText { text: "游戏端口  " + vm.openWorldPort; color: "#a998d4"; font.pixelSize: 11 }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 10
+                Item { Layout.fillWidth: true }
+                ActionButton { objectName: "dismiss-open-world-prompt"; text: "暂不创建"; onClicked: lobby.act("dismissOpenWorld", {}) }
+                ActionButton { objectName: "create-room-for-open-world"; text: vm.openWorldMode === "associate" ? "关联房间" : "创建房间"; primary: true; onClicked: lobby.act("createFromOpenWorld", {port:vm.openWorldPort}) }
+            }
+        }
+    }
     Popup {
         id: invitePopup; objectName: "room-invite-dialog"
         parent: Overlay.overlay; anchors.centerIn: parent

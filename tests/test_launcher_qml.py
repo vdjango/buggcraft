@@ -19,20 +19,21 @@ class AllLauncherPagesTests(LauncherQmlCase):
         entry = (str(runtime), 'openjdk version "25.0.1"', [25, 0, 1])
         package = JavaPackage('Eclipse Temurin', 25, '25.0.1', 'windows', 'x64', 'jre',
                               'temurin.zip', 'a' * 64, 12345, ('https://example.test/temurin.zip',))
-        controller.action('', '下载')
-        controller.set_java_major(25)
         with patch('ui.pages.qml_lists.catalogue', return_value=[package]):
+            controller.action('', '下载')
+            self.wait_until(lambda: not controller.busy)
+            controller.set_java_major(25)
             controller.load_java_catalog()
             self.assertTrue(controller.view['busy'])
             self.wait_until(lambda: not controller.busy)
         self.assertEqual(len(controller.view['javaPackages']), 1)
         self.pump()
-        from PySide6.QtCore import QObject, QMetaObject
+        from PySide6.QtCore import QObject
         dialog = page.quick.rootObject().findChild(QObject, 'java-download-catalog')
         self.assertIsNotNone(dialog)
         self.assertTrue(dialog.property('visible'))
         self.snapshot('java-download-catalog')
-        QMetaObject.invokeMethod(dialog, 'close')
+        self.click(page, 'java-catalog-back')
         self.pump()
         self.assertFalse(controller.view['javaCatalogOpen'])
         with patch('ui.pages.qml_lists.install_java', return_value=entry):
@@ -302,7 +303,7 @@ class AllLauncherPagesTests(LauncherQmlCase):
         page.controller.setValue('launcher.window_size', '最大化')
         self.pump()
         self.assertFalse(self.item(page, 'setting-group-minecraft.isolation').property('expanded'))
-        self.assertEqual(self.item(page, 'setting-group-minecraft.isolation').height(), 60)
+        self.assertEqual(self.item(page, 'setting-group-minecraft.isolation').height(), 54)
         self.assertTrue(page.memory_timer.isActive())
         self.window.settings_page.general_tab_btn_clicked()
         self.pump()
