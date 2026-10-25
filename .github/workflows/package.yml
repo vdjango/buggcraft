@@ -88,7 +88,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          vcpkg install openssl:x64-windows
+          vcpkg install openssl:x64-windows 'curl[openssl]:x64-windows'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
       - name: Prepare macOS native dependencies
@@ -100,10 +100,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libssl-dev patchelf libgl1 libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
+          sudo apt-get install -y build-essential cmake libssl-dev libcurl4-openssl-dev patchelf libgl1 libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
       - name: Build and test native multiplayer runtime
         run: |
-          python scripts/build_bridge.py --native-source native-source --output dist/native-runtime
+          python scripts/build_bridge.py --native-source native-source --output dist/native-runtime --log dist/native-build.log
           ctest --test-dir native-source/build --build-config Release --output-on-failure
       - name: Test resource catalogues and gateway
         run: |
@@ -230,6 +230,8 @@ jobs:
             dist/package-check.*
             dist/build.log
             dist/preflight.log
+            dist/native-build.log
+            native-source/build/Testing/Temporary/LastTest.log
       - name: Link downloads in the run summary
         env:
           BUILD_PLATFORM: ${{ matrix.platform }}
@@ -252,6 +254,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - name: Test platform synchronization client
+        run: python -m unittest discover -s tests -p test_release_platform_sync.py -v
       - uses: actions/download-artifact@v4
         with:
           pattern: Buggcraft-*
