@@ -158,7 +158,8 @@ def instance_environment(directory, identity):
     raise ValueError('实例缺少有效版本元数据')
 
 
-def download_content(version, target_root, kind, cancel=None, status=None, progress=None, source='自动', content_source=None):
+def download_content(version, target_root, kind, cancel=None, status=None, progress=None, source='自动', content_source=None,
+                     file_event=None):
     """Download one selected version, preserving its source and expected hashes."""
     if kind not in KINDS:
         raise ValueError('不支持的内容下载类型')
@@ -195,7 +196,8 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
         jobs.append((item, destination / name, sha512, sha1, item.get('size')))
     if not jobs:
         raise ValueError('项目版本没有有效下载文件')
-    downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status)
+    downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status,
+                                     file_event=file_event)
     downloader.content_source = content_source
     downloader.curseforge_key = os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
     downloader.curseforge_fallbacks = {}

@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import json
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
@@ -63,6 +64,55 @@ class LoaderCatalogueTests(unittest.TestCase):
                 '{\"libraries\":[{\"name\":\"net.minecraftforge:forge:1.20.1-47.2.0:client\"}]}',
                 encoding='utf-8')
             self.assertEqual(loaders._installed_forge_version(root, '1.20.1', '47.2.0'), actual)
+
+    def test_forge_profile_is_flattened_and_fresh_vanilla_intermediate_is_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            versions = root / 'versions'
+            base = versions / '1.20.1'
+            forge = versions / '1.20.1-forge-47.4.0'
+            base.mkdir(parents=True)
+            forge.mkdir(parents=True)
+            (base / '1.20.1.json').write_text(json.dumps({'id': '1.20.1', 'mainClass': 'net.minecraft.client.main.Main',
+                'libraries': [{'name': 'com.example:base:1'}], 'arguments': {'game': ['base']}}), encoding='utf-8')
+            (base / '1.20.1.jar').write_bytes(b'client')
+            (base / 'natives').mkdir()
+            (base / 'natives/base.dll').write_bytes(b'base')
+            (forge / 'natives').mkdir()
+            (forge / 'natives/forge.dll').write_bytes(b'forge')
+            (forge / '1.20.1-forge-47.4.0.json').write_text(json.dumps({'id': 'forge', 'inheritsFrom': '1.20.1',
+                'mainClass': 'cpw.mods.bootstraplauncher.BootstrapLauncher',
+                'libraries': [{'name': 'net.minecraftforge:forge:1.20.1-47.4.0'}]}), encoding='utf-8')
+            loaders._flatten_forge_version(root, forge.name, '1.20.1', set())
+            metadata = json.loads((forge / (forge.name + '.json')).read_text(encoding='utf-8'))
+            self.assertNotIn('inheritsFrom', metadata)
+            self.assertEqual(metadata['id'], forge.name)
+            self.assertEqual({item['name'] for item in metadata['libraries']},
+                             {'com.example:base:1', 'net.minecraftforge:forge:1.20.1-47.4.0'})
+            self.assertEqual((forge / (forge.name + '.jar')).read_bytes(), b'client')
+            self.assertEqual((forge / 'natives/base.dll').read_bytes(), b'base')
+            self.assertEqual((forge / 'natives/forge.dll').read_bytes(), b'forge')
+            self.assertFalse(base.exists())
+
+    def test_forge_flattening_keeps_preexisting_or_referenced_vanilla_versions(self):
+        for mode in ('preexisting', 'referenced'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                versions = root / 'versions'
+                base = versions / '1.20.1'
+                forge = versions / 'forge-profile'
+                base.mkdir(parents=True)
+                forge.mkdir(parents=True)
+                (base / '1.20.1.json').write_text('{"id":"1.20.1"}', encoding='utf-8')
+                (base / '1.20.1.jar').write_bytes(b'client')
+                (forge / 'forge-profile.json').write_text('{"id":"forge-profile","inheritsFrom":"1.20.1"}', encoding='utf-8')
+                if mode == 'referenced':
+                    other = versions / 'other'
+                    other.mkdir()
+                    (other / 'other.json').write_text('{"id":"other","inheritsFrom":"1.20.1"}', encoding='utf-8')
+                before = {'1.20.1'} if mode == 'preexisting' else set()
+                loaders._flatten_forge_version(root, 'forge-profile', '1.20.1', before)
+                self.assertTrue(base.exists())
 
     def test_loader_download_has_timeout_and_falls_back_without_global_patches(self):
         import requests

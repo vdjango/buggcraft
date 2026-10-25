@@ -3,8 +3,8 @@ import json
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Qt, Signal, Slot
-from PySide6.QtWidgets import QFileDialog, QDialog
+from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Qt, Signal, Slot
+from PySide6.QtWidgets import QFileDialog
 
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
@@ -16,6 +16,40 @@ from utils.instances import installed_instance_ids
 class MinecraftSettingSignals(QObject):
     versions = Signal(str)
     directory = Signal(str)
+
+
+class _DeleteSignals(QObject):
+    finished = Signal(str)
+
+
+class _DeleteWorker(QRunnable):
+    def __init__(self, parent, pending):
+        super().__init__()
+        self.pending = dict(pending)
+        self.signals = _DeleteSignals(parent)
+
+    def run(self):
+        identity = self.pending['identity']
+        directory = self.pending['directory']
+        try:
+            if self.pending['action'] == 'deleteDirectory':
+                deleted = delete_minecraft_directory(identity, raise_errors=True)
+            else:
+                for version in installed_instance_ids(directory):
+                    metadata = json.loads((Path(directory) / 'versions' / version / (version + '.json')).read_text(encoding='utf-8'))
+                    if not isinstance(metadata, dict):
+                        raise ValueError(f'{version} 的版本信息格式无效，无法安全检查依赖。')
+                    room = metadata.get('buggcraftRoom')
+                    if (metadata.get('inheritsFrom') == identity or metadata.get('jar') == identity
+                            or isinstance(room, dict) and room.get('parent') == identity):
+                        raise ValueError(f'{version} 仍依赖此实例，请先处理依赖。')
+                deleted = delete_minecraft_version(directory, identity, raise_errors=True)
+            if not deleted:
+                raise OSError('删除失败，请检查文件占用与权限。')
+        except Exception as exc:
+            self.signals.finished.emit(str(exc) or type(exc).__name__)
+        else:
+            self.signals.finished.emit('')
 
 
 class InstancesController(QObject):
@@ -30,6 +64,7 @@ class InstancesController(QObject):
         self._status = ''
         self._pending = {}
         self._delete_dialog = None
+        self._delete_worker = None
 
     @Property('QVariantMap', notify=changed)
     def view(self):
@@ -118,11 +153,10 @@ class InstancesController(QObject):
             self.changed.emit()
             dialog = QmlDialog(self.page, title=self._pending['title'],
                                message=identity, detail=self._pending['message'].split('\n', 1)[1],
-                               actions=['取消', '删除'], width=510, height=225,
-                               primary_action='', danger_action='删除')
+                               actions=['取消', '删除'], width=510, height=205,
+                               primary_action='删除')
             self._delete_dialog = dialog
-            dialog.controller.actionRequested.connect(
-                lambda label: dialog.accept() if label == '删除' else dialog.reject())
+            dialog.controller.actionRequested.connect(self._delete_action)
             dialog.finished.connect(self._finish_delete_dialog, Qt.QueuedConnection)
             dialog.open()
         elif action == 'download':
@@ -141,13 +175,27 @@ class InstancesController(QObject):
         if dialog is not None:
             dialog.shutdown()
             dialog.deleteLater()
-        self.confirmDelete(result == QDialog.Accepted)
+        self._pending = {}
+        self.changed.emit()
+
+    @Slot(str)
+    def _delete_action(self, label):
+        if self._delete_worker is not None:
+            return
+        if label in ('删除', '重试删除'):
+            self.confirmDelete(True)
+        elif self._delete_dialog:
+            self._delete_dialog.reject()
 
     @Slot(bool)
     def confirmDelete(self, confirmed):
-        pending, self._pending = self._pending, {}
+        pending = self._pending
         if not confirmed or not pending:
+            if self._delete_dialog:
+                self._delete_dialog.reject()
             self.changed.emit()
+            return
+        if self._delete_worker is not None:
             return
         identity, action = pending['identity'], pending['action']
         directory = self.settings.get_setting('minecraft.directory.enable') or ''
@@ -160,35 +208,62 @@ class InstancesController(QObject):
                 if any(instance[0] and Path(instance[0]).resolve().is_relative_to(Path(identity).resolve())
                        for instance in self._running()):
                     raise ValueError('请先退出此目录中运行的游戏。')
-                if not delete_minecraft_directory(identity):
-                    raise OSError('目录删除失败，请检查文件占用与权限。')
-                directories = [item['path'] for item in self._directories if item['path'] != identity]
-                self.settings.set_setting('minecraft.directory.installed', directories)
-                if directory == identity:
-                    self.settings.set_setting('minecraft.directory.enable', directories[0] if directories else None)
-                    self.page.signals.directory.emit(directories[0] if directories else '')
             else:
                 if not any(item['version'] == identity for item in self._versions):
                     raise ValueError('实例不在当前列表中。')
                 if any(instance[0] and Path(instance[0]).resolve() == Path(directory).resolve()
                        and instance[1] == identity for instance in self._running()):
                     raise ValueError('请先退出此实例中运行的游戏。')
-                for version in installed_instance_ids(directory):
-                    metadata = json.loads((Path(directory) / 'versions' / version / (version + '.json')).read_text(encoding='utf-8'))
-                    if not isinstance(metadata, dict):
-                        raise ValueError(f'{version} 的版本信息格式无效，无法安全检查依赖。')
-                    room = metadata.get('buggcraftRoom')
-                    if (metadata.get('inheritsFrom') == identity or metadata.get('jar') == identity
-                            or isinstance(room, dict) and room.get('parent') == identity):
-                        raise ValueError(f'{version} 仍依赖此实例，请先处理依赖。')
-                if not delete_minecraft_version(directory, identity):
-                    raise OSError('实例删除失败，请检查文件占用与权限。')
-            self.settings.save_settings()
-            self._status = ''
-            self.reload()
         except (OSError, ValueError, TypeError) as exc:
-            self._status = str(exc)
+            self._delete_finished(str(exc))
+            return
+        if self._delete_dialog:
+            model = self._delete_dialog.controller
+            model.title = '正在删除…'
+            model.detail = '正在检查依赖并删除文件，请稍候。'
+            model.working, model.progress = True, -1.
+            model.dismissible = model.actions_enabled = False
+            model.actions = ['删除中…']
+            model.changed.emit()
+        self._delete_worker = _DeleteWorker(self, pending)
+        self._delete_worker.signals.finished.connect(self._delete_finished, Qt.QueuedConnection)
+        QThreadPool.globalInstance().start(self._delete_worker)
+
+    @Slot(str)
+    def _delete_finished(self, error):
+        if self._delete_worker is not None:
+            self._delete_worker.signals.deleteLater()
+        self._delete_worker = None
+        dialog = self._delete_dialog
+        if dialog:
+            model = dialog.controller
+            model.working = False
+            model.dismissible = model.actions_enabled = True
+        if error:
+            self._status = error
+            if dialog:
+                dialog.setMinimumHeight(170)
+                dialog.resize(dialog.width(), 205)
+                model.title = '删除失败'
+                model.detail = error
+                model.actions = ['关闭', '重试删除']
+                model.primary_action = '重试删除'
+                model.changed.emit()
             self.changed.emit()
+            return
+        pending = self._pending
+        if pending['action'] == 'deleteDirectory':
+            directories = [path for path in self.settings.get_setting('minecraft.directory.installed', []) or []
+                           if path != pending['identity']]
+            self.settings.set_setting('minecraft.directory.installed', directories)
+            if self.settings.get_setting('minecraft.directory.enable') == pending['identity']:
+                self.settings.set_setting('minecraft.directory.enable', directories[0] if directories else None)
+                self.page.signals.directory.emit(directories[0] if directories else '')
+        self.settings.save_settings()
+        self._status = ''
+        self.reload()
+        if dialog:
+            dialog.accept()
 
 
 class VersionsPage(QmlPage):

@@ -61,6 +61,32 @@ class PortalTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.get(path)).status, 401)
         self.assertEqual((await self.client.post('/api/profile', json={})).status, 401)
 
+    async def test_admin_and_support_pages_render_the_correct_login_state(self):
+        response = await self.client.get('/admin/settings')
+        body = await response.text()
+        self.assertIn('<form id="login-form" class="console-card login-card">', body)
+        self.assertIn('<div id="admin-panel" hidden>', body)
+        response = await self.client.get('/admin/diagnostics')
+        body = await response.text()
+        self.assertIn('<form id="diagnostic-login" class="user-card">', body)
+        self.assertIn('<section id="diagnostic-panel" hidden>', body)
+        response = await self.client.get('/admin/feedback')
+        body = await response.text()
+        self.assertNotIn('href="/admin/nodes"', body)
+        self.assertIn('<section id="feedback-login" class="user-card">', body)
+        response = await self.client.get('/feedback')
+        body = await response.text()
+        self.assertNotIn('href="/admin"', body)
+        self.assertNotIn('href="/admin/feedback"', body)
+
+        await self.login()
+        response = await self.client.get('/admin/settings')
+        body = await response.text()
+        self.assertIn('<form id="login-form" class="console-card login-card" hidden>', body)
+        self.assertIn('<div id="admin-panel">', body)
+        settings = body.split('id="settings"', 1)[1].split('</section>', 1)[0]
+        self.assertNotIn('hidden', settings)
+
     async def test_game_counts_have_freshness_and_do_not_guess_from_forwarded_streams(self):
         import time
         from unittest.mock import Mock

@@ -111,7 +111,7 @@ class TitleBar(QmlPage):
         if self._picker is None:
             self._picker = VersionPicker(self, self.resource_path)
         picker = self._picker
-        height = min(420, max(74, len(self.controller.versions) * 59) + 10)
+        height = min(420, max(1, len(self.controller.versions)) * 59 + 10)
         width = 310
         position = self.quick.mapToGlobal(QPoint(round(x), round(y)))
         screen = QApplication.screenAt(position) or QApplication.primaryScreen()

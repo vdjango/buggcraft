@@ -20,6 +20,8 @@ class DialogController(QObject):
         self.copied = False
         self.working = False
         self.progress = 0.
+        self.dismissible = True
+        self.actions_enabled = True
         self._copy_timer = QTimer(self)
         self._copy_timer.setSingleShot(True)
         self._copy_timer.timeout.connect(self._reset_copy)
@@ -29,7 +31,8 @@ class DialogController(QObject):
         return dict(title=self.title, message=self.message, detail=self.detail,
                     actions=self.actions, code=self.code, uri=self.uri,
                     copied=self.copied, log=self.log, working=self.working, progress=self.progress,
-                    primaryAction=self.primary_action, dangerAction=self.danger_action)
+                    primaryAction=self.primary_action, dangerAction=self.danger_action,
+                    actionsEnabled=self.actions_enabled)
 
     @Slot(str)
     def action(self, name):
@@ -76,6 +79,16 @@ class QmlDialog(QDialog):
         self.setWindowTitle(value)
         self.controller.changed.emit()
 
+    def reject(self):
+        if self.controller.dismissible:
+            super().reject()
+
+    def closeEvent(self, event):
+        if not self.controller.dismissible:
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def set_message(self, value):
         self.controller.message = value
         self.controller.changed.emit()
@@ -90,7 +103,7 @@ class QmlDialog(QDialog):
         # fires. Never destroy its engine content until that callback returns.
         if not self._shutdown_scheduled:
             self._shutdown_scheduled = True
-            QTimer.singleShot(0, self.host.unload)
+            QTimer.singleShot(0, self.host, self.host.unload)
 
 
 class DebugOutputDialog(QmlDialog):

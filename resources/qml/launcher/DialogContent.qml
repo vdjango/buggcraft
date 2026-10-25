@@ -8,13 +8,20 @@ Rectangle {
     color: "#272937"
     border.color: "#655e9b"
     radius: 6
+    MouseArea {
+        objectName: "dialog-drag-region"
+        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+        height: 64
+        acceptedButtons: Qt.LeftButton
+        onPressed: dialogModel.dragWindow()
+    }
     Connections { target: dialogModel; function onChanged() { root.state = dialogModel.view } }
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 24; spacing: 14
         Label {
-            Layout.fillWidth: true; text: root.state.title
+            id: titleLabel
+            Layout.fillWidth: true; text: root.state.title; textFormat: Text.PlainText
             font.pixelSize: 19; font.bold: true; color: "#eeeef4"
-            MouseArea { anchors.fill: parent; onPressed: dialogModel.dragWindow() }
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#454052" }
         ScrollView {
@@ -56,6 +63,7 @@ Rectangle {
                     objectName: "dialog-action-" + index
                     implicitWidth: 84
                     text: modelData
+                    enabled: root.state.actionsEnabled
                     primary: modelData === root.state.primaryAction
                     danger: modelData === root.state.dangerAction
                     onClicked: dialogModel.action(modelData)

@@ -146,6 +146,11 @@ class RecordController(QObject):
             if path:
                 page.add_java(path)
 
+    @Slot(str, str)
+    def close_java_catalog(self, identity='', action=''):
+        self.java_catalog_open = False
+        self.changed.emit()
+
     @Slot(int)
     def set_java_major(self, major):
         if major in (8, 11, 16, 17, 21, 25):

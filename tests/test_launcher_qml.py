@@ -27,8 +27,14 @@ class AllLauncherPagesTests(LauncherQmlCase):
             self.wait_until(lambda: not controller.busy)
         self.assertEqual(len(controller.view['javaPackages']), 1)
         self.pump()
-        self.assertTrue(self.item(page, 'java-download-catalog').isVisible())
+        from PySide6.QtCore import QObject, QMetaObject
+        dialog = page.quick.rootObject().findChild(QObject, 'java-download-catalog')
+        self.assertIsNotNone(dialog)
+        self.assertTrue(dialog.property('visible'))
         self.snapshot('java-download-catalog')
+        QMetaObject.invokeMethod(dialog, 'close')
+        self.pump()
+        self.assertFalse(controller.view['javaCatalogOpen'])
         with patch('ui.pages.qml_lists.install_java', return_value=entry):
             controller.download_java(package.checksum)
             self.wait_until(lambda: not controller.busy)

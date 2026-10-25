@@ -233,13 +233,14 @@ class CurseForgeClient(CurseForgeAPI):
 
 class ModpackImporter:
     def __init__(self, directory, source='自动', java=None, cancel=None, status=None, progress=None, api_key=None,
-                 content_source=None):
+                 content_source=None, file_event=None):
         self.root = Path(directory).resolve()
         self.source, self.java = source, java
         self.content_source = content_source
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda value: None)
         self.progress = progress or (lambda done, total: None)
+        self.file_event = file_event
         self.client = CurseForgeClient(api_key, self.cancel, mirror=content_source or '官方')
 
     def check(self):
@@ -277,7 +278,7 @@ class ModpackImporter:
         cache = self.root / '.buggcraft-downloads' / 'modpacks' / archive_hash
         cache.mkdir(parents=True, exist_ok=True)
         downloader = MinecraftDownloader(cache / 'files', source=self.source, cancel=self.cancel,
-                                         status=self.status, progress=self.progress)
+                                         status=self.status, progress=self.progress, file_event=self.file_event)
         downloader.content_source = self.content_source
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
@@ -293,6 +294,7 @@ class ModpackImporter:
                         self.check()
                         digest.update(chunk)
                 if digest.hexdigest().lower() != item['hashes']['sha512'].lower():
+                    downloader._file_event(item['path'], 'failed', error='Modrinth 文件 SHA512 校验失败')
                     raise ValueError('Modrinth 文件 SHA512 校验失败：' + item['path'])
         self.check()
         self.progress(0, 0)
@@ -349,10 +351,12 @@ class ModpackImporter:
             installed = install_loader(info.loader, info.minecraft, info.loader_version, str(self.root), self.java,
                 {'setStatus': lambda value: self.status('[3/5] ' + str(value)),
                  'setProgress': lambda done: self.progress(done, -1),
-                 'setMax': lambda total: self.progress(-1, total)}, self.cancel, source=self.source)
+                 'setMax': lambda total: self.progress(-1, total),
+                 'fileEvent': self.file_event}, self.cancel, source=self.source)
         else:
             MinecraftDownloader(self.root, source=self.source, cancel=self.cancel,
-                                 status=self.status, progress=self.progress).install(info.minecraft)
+                                 status=self.status, progress=self.progress,
+                                 file_event=self.file_event).install(info.minecraft)
             installed = info.minecraft
         instance_name(installed)
         if not (self.root / 'versions' / installed / (installed + '.json')).is_file():

@@ -82,7 +82,7 @@ class SettingsController(QObject):
             elif key == 'instance.enable':
                 group.update(kind='instance', summary=self.manager.get_setting('minecraft.directory.enable') or '',
                              collapsible=False)
-            elif key == 'launcher.allow_multiple':
+            elif key in ('launcher.allow_multiple', 'translation.enabled'):
                 group.update(kind='standalone-toggle', collapsible=False)
             elif key == 'launcher.opacity':
                 group.update(kind='opacity', collapsible=False, summary='')
@@ -114,7 +114,7 @@ class SettingsController(QObject):
         if self.scope == 'general':
             self._fields = [
                 self._field('settings.general.update', '启动器更新', s.get_setting('settings.general.update', 'stable'),
-                            ['stable', 'development'], '稳定版 / 开发版；打开发行页查看更新。'),
+                            ['stable', 'development'], '启动时自动检查此通道；发布后的版本可从官网下载安装。'),
                 self._field('launcher.opacity', '启动器透明度', launcher_opacity(s),
                             options=[35, 100], kind='opacity',
                             description='默认 85%，最低 35%，100% 为完全不透明。'),
@@ -132,6 +132,12 @@ class SettingsController(QObject):
                 self._field('launcher.allow_multiple', '允许多开游戏',
                             bool(s.get_setting('launcher.allow_multiple', False)), kind='toggle',
                             description='首页可按版本和 PID 选择停止目标。'),
+                self._field('translation.enabled', '自动翻译资源介绍',
+                            bool(s.get_setting('translation.enabled', False)), kind='toggle',
+                            description='自动翻译模组、资源包、光影和整合包的列表简介与详情。首次翻译在后台进行，不影响浏览和下载。'),
+                self._field('translation.source', '资源翻译源', s.get_setting('translation.source', 'Buggcraft'),
+                            ['Buggcraft'], description='默认使用 Buggcraft 共享译文服务，AI 译文仅供参考。',
+                            enabled=bool(s.get_setting('translation.enabled', False))),
             ]
         else:
             get = s.get_version_setting
@@ -223,10 +229,15 @@ class SettingsController(QObject):
 
     @Slot()
     def openReleases(self):
+        import platform
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        prerelease = 'true' if self.manager.get_setting('settings.general.update', 'stable') == 'development' else 'false'
-        QDesktopServices.openUrl(QUrl(f'https://github.com/vdjango/buggcraft/releases?q=prerelease%3A{prerelease}'))
+        system = platform.system()
+        target = 'mac' if system == 'Darwin' else 'linux' if system == 'Linux' else 'windows'
+        query = '?platform=' + target
+        if target == 'mac':
+            query += '&arch=' + ('arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x86_64')
+        QDesktopServices.openUrl(QUrl('https://bugg.icu/download/' + query))
 
     @Slot()
     def chooseJava(self):

@@ -121,6 +121,7 @@ class SettingsManager:
         # 默认配置
         self.default_settings = {
             "minecraft": minecraft,
+            "translation": {"enabled": False, "source": "Buggcraft"},
             "launcher": {
                 "visibility": "游戏启动后保持不变",
                 "process_priority": "平衡模式",

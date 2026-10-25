@@ -40,7 +40,7 @@ ScrollView {
                         onActivated: settingsPage.setValue(group.modelData.key, group.modelData.options[currentIndex].value)
                     }
                 }
-                Component { id: releases; ActionButton { text: "打开发行页"; implicitHeight: 28; onClicked: settingsPage.openReleases() } }
+                Component { id: releases; ActionButton { text: "打开官网版本页"; implicitHeight: 28; onClicked: settingsPage.openReleases() } }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 10

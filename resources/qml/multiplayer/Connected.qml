@@ -63,7 +63,9 @@ ColumnLayout {
                 }
                 CopyText {
                     objectName: "game-latency"; font.pixelSize: 12; color: "#bcb0d3"
-                    text: connected.host ? "房主 · 本地世界" : "游戏延迟 " + (typeof connected.record.latency_ms === "number" ? connected.record.latency_ms + " ms" : "—")
+                    text: "游戏延迟 " + (typeof connected.record.latency_ms === "number" ? connected.record.latency_ms + " ms" :
+                        connected.record.latency_state === "timeout" ? "测量超时" :
+                        connected.waiting ? "等待世界开放" : "测量中…") + (connected.host ? " · 本地" : "")
                     ToolTip.visible: latencyHover.hovered
                     ToolTip.text: "通过游戏连接发送 Minecraft 服务器列表 Ping/Pong；与游戏内玩家列表的统计可能不同。"
                     HoverHandler { id: latencyHover }

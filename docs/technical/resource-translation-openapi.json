@@ -1,0 +1,4733 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Buggcraft Resource Translation API",
+    "version": "1.4.0",
+    "description": "Implemented Buggcraft resource translation protocol. Project entities only; title passthrough, summary/body machine translation. See /docs for operational limits."
+  },
+  "servers": [
+    {
+      "url": "https://translate.bugg.icu",
+      "description": "Buggcraft"
+    },
+    {
+      "url": "http://127.0.0.1:18448",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Discovery"
+    },
+    {
+      "name": "Translations"
+    },
+    {
+      "name": "Sources"
+    },
+    {
+      "name": "Jobs"
+    },
+    {
+      "name": "Contributions"
+    },
+    {
+      "name": "Catalogue"
+    }
+  ],
+  "paths": {
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "tags": [
+          "Discovery"
+        ],
+        "summary": "Discover providers, hashes, profiles and generation availability",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Capabilities",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/translations:resolve": {
+      "post": {
+        "operationId": "resolveTranslations",
+        "tags": [
+          "Translations"
+        ],
+        "summary": "Read exact-hash translations in one batch; no generation or source fetch",
+        "security": [
+          {},
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Client-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Public application identifier, never an authentication secret."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-item results, including misses",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/translations:ensure": {
+      "post": {
+        "operationId": "ensureTranslations",
+        "tags": [
+          "Translations"
+        ],
+        "summary": "Verify source hashes and request deduplicated background generation",
+        "description": "Requires translations:ensure authorization, including a short-lived anonymous generation session. No developer secret in launchers. Idempotency keys are principal-scoped, retained 24 hours, and return 409 for a different body. Deferred fields are explicit and never claim generation is running.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Client-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Public application identifier, never an authentication secret."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnsureRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "All requested content already available or items deferred/rejected; no pending work",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnsureResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "At least one caller-owned ticket has pending asynchronous work",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnsureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/projects/{provider}/{project_id}/manifest": {
+      "get": {
+        "operationId": "getProjectManifest",
+        "tags": [
+          "Sources"
+        ],
+        "summary": "Read the latest verified project snapshot and current translation selection",
+        "security": [
+          {},
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "target_language",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 35
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest known verified source, not a live source fetch",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Manifest"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Manifest unchanged",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "operationId": "getJob",
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Read a caller-owned request ticket",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ticket state",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "subscribeEvents",
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Subscribe to ticket notifications over SSE",
+        "description": "Maximum 50 distinct caller-owned ticket IDs. Heartbeat about every 20 seconds. Retain event cursors for 24 hours; send reset when the cursor expired. Use authenticated fetch streaming or same-site secure cookies, never a URL token. Disable proxy buffering. SSE connection counts have a separate quota. Event payload schema is given in x-event-schema.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_ids",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "minItems": 1,
+              "maxItems": 50
+            },
+            "style": "form",
+            "explode": false
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE frames with id, event, data. Data is a JSON Event; heartbeats are SSE comments.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              },
+              "X-Accel-Buffering": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no"
+              }
+            },
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "id: evt_01\nevent: translation.published\ndata: {\"event_id\":\"evt_01\",\"type\":\"translation.published\",\"job_id\":\"job_01\"}\n\n"
+              }
+            },
+            "x-event-schema": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifact_sha256}": {
+      "get": {
+        "operationId": "getArtifact",
+        "tags": [
+          "Translations"
+        ],
+        "summary": "Download an immutable, published, complete translation artifact",
+        "security": [],
+        "parameters": [
+          {
+            "name": "artifact_sha256",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Content-addressed JSON output",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifact"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Artifact unchanged",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/feedback": {
+      "post": {
+        "operationId": "submitFeedback",
+        "tags": [
+          "Contributions"
+        ],
+        "summary": "Submit a translation correction for review",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Feedback queued for human review; published translation unchanged",
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Trace identifier"
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/sessions/anonymous": {
+      "post": {
+        "operationId": "createAnonymousSession",
+        "tags": [
+          "Discovery"
+        ],
+        "summary": "Issue a short-lived anonymous generation session",
+        "description": "client_id is public. Enforce origin IP issuance rate, per-session generation limits and global spend before issuing/using tokens. Do not trust forwarded IP headers except from configured proxies. No-store response; do not log token bodies.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnonymousSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Short-lived caller session; token validity at most one hour",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousSession"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              },
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          }
+        }
+      }
+    },
+    "/v1/catalog/projects": {
+      "get": {
+        "operationId": "listIndexedProjects",
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Browse the indexed public catalogue",
+        "description": "Local indexed catalogue only. Signed keyset cursor, bound to q/kind/limit, expires after 15 minutes. A 409 cursor_expired response requires restarting pagination. No deep OFFSET scan or upstream/model calls.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mod",
+                "resourcepack",
+                "shader",
+                "modpack"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Indexed catalogue page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=15; sensitive personalized variants must use private"
+              },
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/catalog/search": {
+      "get": {
+        "operationId": "searchIndexedProjects",
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Search indexed titles, aliases and summaries",
+        "description": "Local indexed catalogue only. Signed keyset cursor, bound to q/kind/limit, expires after 15 minutes. A 409 cursor_expired response requires restarting pagination. No deep OFFSET scan or upstream/model calls.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mod",
+                "resourcepack",
+                "shader",
+                "modpack"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Indexed catalogue page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=15; sensitive personalized variants must use private"
+              },
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/projects/{provider}/{project_id}/history": {
+      "get": {
+        "operationId": "getProjectHistory",
+        "tags": [
+          "Sources"
+        ],
+        "summary": "Read public source and translation revision history",
+        "description": "Cursor bound to project and a stable history watermark; same 15-minute expiry/restart policy as catalogue cursors. Withdrawn content and private contribution details are excluded.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public history page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=15"
+              },
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/projects/{provider}/{project_id}/refresh": {
+      "post": {
+        "operationId": "refreshProject",
+        "summary": "Queue canonical upstream import or update check. Returns a session-private refresh job ticket.",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Queue canonical upstream import or update check. Returns a session-private refresh job ticket."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ClientKey": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{provider}/{project_id}/source": {
+      "get": {
+        "operationId": "sourceProject",
+        "summary": "Get stored verified source fields. Read only; no upstream fetch.",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get stored verified source fields. Read only; no upstream fetch."
+          }
+        }
+      }
+    },
+    "/v1/admin/overview": {
+      "get": {
+        "operationId": "adminOverview",
+        "summary": "Admin-only queue, budget and feedback state",
+        "responses": {
+          "200": {
+            "description": "Operational overview"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminFeedbackState",
+        "summary": "Admin-only feedback triage. Does not publish suggested translations.",
+        "responses": {
+          "200": {
+            "description": "Updated overview"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/settings": {
+      "get": {
+        "operationId": "adminGetSettings",
+        "summary": "adminGetSettings",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminUpdateSettings",
+        "summary": "adminUpdateSettings",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeSettingsPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/clients": {
+      "get": {
+        "operationId": "adminListClients",
+        "summary": "adminListClients",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cursor from the previous response, 50 records per page."
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminReviewClient",
+        "summary": "adminReviewClient",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientReview"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/clients/applications": {
+      "post": {
+        "operationId": "applyForClientKey",
+        "summary": "applyForClientKey",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientApplication"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/clients/application": {
+      "get": {
+        "operationId": "getClientApplicationStatus",
+        "summary": "getClientApplicationStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "ClientKey": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/mail": {
+      "get": {
+        "operationId": "adminGetMailStatus",
+        "summary": "adminGetMailStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminQueueMailTest",
+        "summary": "adminQueueMailTest",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          },
+          "409": {
+            "description": "Mail notifications are disabled"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MailTestRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/models": {
+      "get": {
+        "operationId": "adminListModels",
+        "summary": "adminListModels",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminPreviewModels",
+        "summary": "adminPreviewModels",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelListRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/tasks": {
+      "get": {
+        "operationId": "adminListTranslationTasks",
+        "summary": "adminListTranslationTasks",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminTaskList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/usage": {
+      "get": {
+        "operationId": "adminListModelUsage",
+        "summary": "adminListModelUsage",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUsageList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "schema": {
+              "enum": [
+                "day",
+                "month"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/session": {
+      "post": {
+        "operationId": "adminCreateBrowserSession",
+        "summary": "adminCreateBrowserSession",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "adminDeleteBrowserSession",
+        "summary": "adminDeleteBrowserSession",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Key awaiting approval or revoked"
+          },
+          "429": {
+            "description": "Rate limit; obey Retry-After"
+          }
+        },
+        "security": [
+          {
+            "AdminSessionCookie": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Short-lived anonymous token from POST /v1/sessions/anonymous; admin endpoints require the separately configured server admin token."
+      },
+      "ClientKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Approved developer key prefixed bct_. Reuse for ensure/jobs/events/feedback. Public reads remain anonymous. Never embed a privileged server key in distributed launchers; use your backend or individual user credentials."
+      },
+      "AdminToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Private server administrator token. Never distribute to clients."
+      },
+      "AdminSessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "translation_admin",
+        "description": "Short-lived HttpOnly browser session established after administrator-token login."
+      }
+    },
+    "schemas": {
+      "ResourceRef": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+          },
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        },
+        "required": [
+          "provider",
+          "project_id",
+          "entity_type",
+          "entity_id"
+        ],
+        "additionalProperties": false,
+        "description": "Stable upstream identity. For project entities entity_id must equal project_id. Provider must appear in capabilities. Author and creation date are not part of the primary key."
+      },
+      "IdentityHint": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "description": "Untrusted corroboration only; ownership changes never change the resource identity."
+      },
+      "FieldRef": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "field",
+          "source_hash"
+        ],
+        "additionalProperties": false
+      },
+      "LookupItem": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldRef"
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "snapshot_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "identity_hint": {
+            "$ref": "#/components/schemas/IdentityHint"
+          }
+        },
+        "required": [
+          "request_id",
+          "resource",
+          "fields"
+        ],
+        "additionalProperties": false,
+        "description": "No arbitrary source text. request_id values must be unique within a batch and fields unique within an item. snapshot_hash is optional and valid only for a complete source entity."
+      },
+      "ResolveRequest": {
+        "type": "object",
+        "properties": {
+          "target_language": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 35
+          },
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "allow_stale": {
+            "type": "boolean",
+            "default": false
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupItem"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "target_language",
+          "profile",
+          "items"
+        ],
+        "additionalProperties": false,
+        "description": "Read-only lookup, maximum 64 KiB. No source fetch or generation is started. Batch POST is not automatically CDN cacheable."
+      },
+      "EnsureRequest": {
+        "type": "object",
+        "properties": {
+          "target_language": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 35
+          },
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "visible_list",
+              "detail"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupItem"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "target_language",
+          "profile",
+          "purpose",
+          "items"
+        ],
+        "additionalProperties": false,
+        "description": "Request verified generation without uploading arbitrary text. Priority is server controlled; at most 64 KiB."
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactRef": {
+        "type": "object",
+        "properties": {
+          "artifact_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "artifact_sha256",
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "Translation": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "plain",
+              "markdown",
+              "html"
+            ]
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactRef"
+          },
+          "translation_revision": {
+            "type": "string"
+          },
+          "policy_revision": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "machine",
+              "reviewed",
+              "author",
+              "original"
+            ]
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "format",
+          "translation_revision",
+          "policy_revision",
+          "quality",
+          "generated_at"
+        ],
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "text"
+            ]
+          },
+          {
+            "required": [
+              "artifact"
+            ]
+          }
+        ],
+        "description": "For body fields prefer an artifact reference, avoiding large inline batch responses. Only safe validated content is published."
+      },
+      "Segment": {
+        "type": "object",
+        "properties": {
+          "segment_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "missing",
+              "running",
+              "failed"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "plain",
+              "markdown",
+              "html"
+            ]
+          }
+        },
+        "required": [
+          "segment_id",
+          "order",
+          "state"
+        ],
+        "additionalProperties": false,
+        "description": "Only ready segments include validated translated text. An incomplete document must not be represented as a complete ready translation."
+      },
+      "FieldResult": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "requested_source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "current_source_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "partial",
+              "missing",
+              "queued",
+              "running",
+              "deferred",
+              "failed",
+              "blocked"
+            ]
+          },
+          "matches_request": {
+            "type": "boolean"
+          },
+          "is_current": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "translation": {
+            "$ref": "#/components/schemas/Translation"
+          },
+          "partial_segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "fallback_translation": {
+            "$ref": "#/components/schemas/Translation"
+          },
+          "fallback_source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "source_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "stale",
+              "unknown"
+            ]
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          },
+          "update": {
+            "$ref": "#/components/schemas/UpdateStatus"
+          }
+        },
+        "required": [
+          "field",
+          "requested_source_hash",
+          "current_source_hash",
+          "state",
+          "matches_request",
+          "is_current",
+          "freshness"
+        ],
+        "additionalProperties": false,
+        "description": "ready requires an exact verified match to requested_source_hash; it may describe a historical source (is_current=false). current_source_hash is the latest verified source, not an absolute upstream freshness guarantee. Stale fallback is allowed only when explicitly requested and is never placed in translation for a different source hash.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "ready"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "translation"
+              ],
+              "properties": {
+                "matches_request": {
+                  "const": true
+                }
+              }
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "translation"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "fallback_translation"
+              ]
+            },
+            "then": {
+              "required": [
+                "fallback_source_hash"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "partial"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "partial_segments"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "current_source_hash": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "current_source_hash"
+              ]
+            },
+            "then": {
+              "properties": {
+                "is_current": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "LookupResult": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldResult"
+            },
+            "minItems": 0,
+            "maxItems": 4
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "request_id",
+          "fields"
+        ],
+        "additionalProperties": false
+      },
+      "ResolveResponse": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupResult"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "request_id",
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "Ticket": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body",
+              "__refresh__"
+            ]
+          },
+          "requested_source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "For internal source refresh jobs this is an opaque coalescing hash, not a field source hash."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "verifying",
+              "queued",
+              "running",
+              "partial",
+              "ready",
+              "deferred",
+              "failed",
+              "source_mismatch",
+              "blocked"
+            ]
+          },
+          "current_source_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "completed_segments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_segments": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "job_id",
+          "resource",
+          "field",
+          "requested_source_hash",
+          "state",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false,
+        "description": "Caller-owned request ticket, internally attached to deduplicated generation. Reading it requires the owning principal/session. Source mismatch never changes the requested hash into a verified source.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "source_mismatch"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "current_source_hash",
+                "error"
+              ],
+              "properties": {
+                "current_source_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "deferred"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "retry_after_seconds"
+              ]
+            }
+          }
+        ]
+      },
+      "EnsureItemResult": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "existing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldResult"
+            },
+            "minItems": 0,
+            "maxItems": 4
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ticket"
+            },
+            "minItems": 0,
+            "maxItems": 4
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "request_id",
+          "existing",
+          "tickets"
+        ],
+        "additionalProperties": false
+      },
+      "EnsureResponse": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnsureItemResult"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "request_id",
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "ManifestField": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "plain",
+              "markdown",
+              "html"
+            ]
+          },
+          "source_language": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 35
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "partial",
+              "missing",
+              "queued",
+              "running",
+              "deferred",
+              "failed",
+              "blocked"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "source_hash",
+          "format",
+          "source_language",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "Manifest": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "resource_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mod",
+              "resourcepack",
+              "shader",
+              "modpack"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "snapshot_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "metadata_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "fields_complete": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManifestField"
+            },
+            "minItems": 0,
+            "maxItems": 4
+          },
+          "metadata_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "body_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "stale",
+              "unknown"
+            ]
+          },
+          "next_check_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "withdrawn": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "team_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "game_versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "loaders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "downloads": {
+            "type": "number"
+          },
+          "metadata_complete": {
+            "type": "boolean"
+          },
+          "dependency_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "releases": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "$ref": "#/components/schemas/Release"
+            }
+          }
+        },
+        "required": [
+          "resource",
+          "resource_id",
+          "snapshot_hash",
+          "fields_complete",
+          "fields",
+          "freshness",
+          "withdrawn"
+        ],
+        "additionalProperties": false,
+        "description": "Only checked data, never a synchronous upstream fetch. Unknown body must not be hashed as empty; fields_complete=false implies snapshot_hash=null. Field translation states are evaluated for requested language/profile.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "fields_complete": {
+                  "const": false
+                }
+              },
+              "required": [
+                "fields_complete"
+              ]
+            },
+            "then": {
+              "properties": {
+                "snapshot_hash": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "hash_schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "target_languages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 35
+            },
+            "minItems": 1
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "generation_available": {
+            "type": "boolean"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "resolve_items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "ensure_items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "fields_per_item": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "request_bytes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "event_tickets": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "resolve_items",
+              "ensure_items",
+              "fields_per_item",
+              "request_bytes",
+              "event_tickets"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "api_version",
+          "hash_schemas",
+          "providers",
+          "target_languages",
+          "profiles",
+          "generation_available",
+          "limits"
+        ],
+        "additionalProperties": false
+      },
+      "Artifact": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "const": "mc-translation-artifact-v1"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "target_language": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 35
+          },
+          "profile": {
+            "type": "string"
+          },
+          "translation_revision": {
+            "type": "string"
+          },
+          "policy_revision": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "machine",
+              "reviewed",
+              "author",
+              "original"
+            ]
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "plain",
+              "markdown",
+              "html"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "minItems": 0,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "schema",
+          "resource",
+          "field",
+          "source_hash",
+          "target_language",
+          "profile",
+          "translation_revision",
+          "policy_revision",
+          "quality",
+          "generated_at",
+          "format",
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Published complete output, encoded as JCS UTF-8 JSON bytes. SHA-256 of exactly those bytes equals the digest in the URL. The artifact contains no self-hash field. Current selection and revocation are checked through manifests; historical bytes remain immutable."
+      },
+      "FeedbackRequest": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "translation_revision": {
+            "type": "string"
+          },
+          "segment_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "incorrect",
+              "terminology",
+              "format",
+              "stale",
+              "other"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "suggested_text": {
+            "type": "string",
+            "maxLength": 16000
+          }
+        },
+        "required": [
+          "resource",
+          "field",
+          "source_hash",
+          "translation_revision",
+          "category",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "FeedbackReceipt": {
+        "type": "object",
+        "properties": {
+          "feedback_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "state": {
+            "type": "string",
+            "const": "pending_review"
+          }
+        },
+        "required": [
+          "feedback_id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "job.updated",
+              "translation.published",
+              "source.changed",
+              "reset"
+            ]
+          },
+          "job_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "type"
+        ],
+        "additionalProperties": false,
+        "description": "Notification only. Re-resolve or read ticket state after each relevant event. Events are scoped to authenticated ticket subscriptions; reset means retained cursor expired."
+      },
+      "AnonymousSessionRequest": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "client_id"
+        ],
+        "additionalProperties": false,
+        "description": "Application identification only. Cannot grant special privileges or bypass IP/global budget limits. No fingerprint, upstream key or arbitrary prompt is accepted."
+      },
+      "AnonymousSession": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "scopes"
+        ],
+        "additionalProperties": false,
+        "description": "Opaque short-lived session; keep in memory, never put in query strings. Suggested scopes are translations:ensure, jobs:read and feedback:write. Issuance and generation have independent quotas."
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mod",
+              "resourcepack",
+              "shader",
+              "modpack"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title_source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "summary_source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "localized_title": {
+            "type": "string"
+          },
+          "localized_summary": {
+            "type": "string"
+          },
+          "translation_quality": {
+            "type": "string",
+            "enum": [
+              "machine",
+              "reviewed",
+              "author",
+              "original"
+            ]
+          },
+          "translation_state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "partial",
+              "missing",
+              "queued",
+              "running",
+              "deferred",
+              "failed",
+              "blocked"
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ProjectMetadata"
+          },
+          "update": {
+            "$ref": "#/components/schemas/UpdateStatus"
+          },
+          "field_states": {
+            "type": "object",
+            "required": [
+              "summary",
+              "body"
+            ],
+            "properties": {
+              "summary": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "missing",
+                  "queued",
+                  "running",
+                  "deferred",
+                  "failed",
+                  "blocked"
+                ]
+              },
+              "body": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "missing",
+                  "queued",
+                  "running",
+                  "deferred",
+                  "failed",
+                  "blocked"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "resource",
+          "kind",
+          "title",
+          "summary",
+          "source_url",
+          "title_source_hash",
+          "summary_source_hash",
+          "translation_state"
+        ],
+        "additionalProperties": false,
+        "description": "translation_state aggregates summary and body; ready requires both to match current source, language, context and policy. field_states contains individual readiness. localized_summary alone does not imply body readiness."
+      },
+      "CatalogueResponse": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            },
+            "minItems": 0,
+            "maxItems": 50
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2048
+          },
+          "total_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "request_id",
+          "projects",
+          "next_cursor"
+        ],
+        "additionalProperties": false
+      },
+      "HistoryEntry": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "source_observed",
+              "translation_published",
+              "translation_reviewed",
+              "withdrawn"
+            ]
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "body"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "translation_revision": {
+            "type": "string"
+          },
+          "changed_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "title",
+                "summary",
+                "body"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 4
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "machine",
+              "reviewed",
+              "author",
+              "original"
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "type",
+          "observed_at"
+        ],
+        "additionalProperties": false,
+        "description": "Public audit metadata only. observed_at is when the platform learned the event, not a promise of the exact upstream edit time."
+      },
+      "HistoryResponse": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "$ref": "#/components/schemas/ResourceRef"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryEntry"
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "resource",
+          "events",
+          "next_cursor"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectMetadata": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "team_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "author_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "game_versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "loaders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "downloads": {
+            "type": "number"
+          },
+          "metadata_complete": {
+            "type": "boolean"
+          },
+          "dependency_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "releases": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "$ref": "#/components/schemas/Release"
+            }
+          }
+        }
+      },
+      "Release": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version_number": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "game_versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "loaders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "project_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string",
+                  "enum": [
+                    "required",
+                    "optional",
+                    "incompatible",
+                    "embedded",
+                    "tool"
+                  ]
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "UpdateStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "source_changed",
+          "previous_translation_available",
+          "current_translation_state",
+          "notice",
+          "action"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "up_to_date",
+              "translation_pending",
+              "source_updated",
+              "update_pending",
+              "update_queued",
+              "update_running",
+              "update_failed"
+            ]
+          },
+          "source_changed": {
+            "type": "boolean"
+          },
+          "previous_translation_available": {
+            "type": "boolean"
+          },
+          "current_translation_state": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "none",
+              "ensure",
+              "refresh_source"
+            ]
+          }
+        }
+      },
+      "ClientApplication": {
+        "type": "object",
+        "required": [
+          "name",
+          "contact",
+          "purpose"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "contact": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Optional project homepage; HTTP URLs and other public homepage formats are accepted."
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuntimeSettingsPatch": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "api_key": {
+            "type": "string",
+            "maxLength": 4096,
+            "writeOnly": true
+          },
+          "daily_token_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000000
+          },
+          "monthly_token_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000000
+          },
+          "daily_call_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "model_prices": {
+            "type": "object",
+            "description": "USD per one million tokens, keyed by exact upstream model id. Cached input is priced separately. Prices are snapshotted per call; omitting a model price makes its cost unknown.",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "input",
+                "cached_input",
+                "output"
+              ],
+              "properties": {
+                "input": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "cached_input": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "output": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 131072
+          },
+          "model_timeout": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 600
+          },
+          "mail_enabled": {
+            "type": "boolean"
+          },
+          "smtp_host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "smtp_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "smtp_security": {
+            "type": "string",
+            "enum": [
+              "ssl",
+              "starttls"
+            ]
+          },
+          "smtp_username": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "smtp_password": {
+            "type": "string",
+            "maxLength": 1024,
+            "writeOnly": true
+          },
+          "mail_from": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "mail_to": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "mail_timeout": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 60
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuntimeSettings": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "daily_token_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000000
+          },
+          "monthly_token_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000000
+          },
+          "daily_call_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "model_prices": {
+            "type": "object",
+            "description": "USD per one million tokens, keyed by exact upstream model id. Cached input is priced separately. Prices are snapshotted per call; omitting a model price makes its cost unknown.",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "input",
+                "cached_input",
+                "output"
+              ],
+              "properties": {
+                "input": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "cached_input": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "output": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 131072
+          },
+          "model_timeout": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 600
+          },
+          "mail_enabled": {
+            "type": "boolean"
+          },
+          "smtp_host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "smtp_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "smtp_security": {
+            "type": "string",
+            "enum": [
+              "ssl",
+              "starttls"
+            ]
+          },
+          "smtp_username": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "mail_from": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "mail_to": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "mail_timeout": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 60
+          },
+          "api_key_configured": {
+            "type": "boolean"
+          },
+          "smtp_password_configured": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientReview": {
+        "type": "object",
+        "required": [
+          "id",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "rejected",
+              "revoked"
+            ]
+          },
+          "fields_per_hour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "requests_per_minute": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "prefix": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "contact": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "website": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "rejected",
+              "revoked"
+            ]
+          },
+          "fields_per_hour": {
+            "type": "integer"
+          },
+          "requests_per_minute": {
+            "type": "integer"
+          },
+          "created": {
+            "type": "number"
+          },
+          "updated": {
+            "type": "number"
+          },
+          "fields_used_this_hour": {
+            "type": "integer"
+          },
+          "notice": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientReceipt": {
+        "type": "object",
+        "required": [
+          "application_id",
+          "access_token",
+          "state",
+          "notice"
+        ],
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "access_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Shown once. Store safely. Pending credentials cannot generate; active after approval."
+          },
+          "state": {
+            "const": "pending"
+          },
+          "notice": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientList": {
+        "type": "object",
+        "required": [
+          "clients",
+          "next_cursor"
+        ],
+        "properties": {
+          "clients": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/ClientRecord"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MailTestRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "const": "test"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MailReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "state": {
+            "const": "pending"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MailMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "sending",
+              "sent",
+              "failed"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created": {
+            "type": "number"
+          },
+          "updated": {
+            "type": "number"
+          },
+          "sent_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MailStatus": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "counts",
+          "messages"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/MailMessage"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModelList": {
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModelListRequest": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "api_key": {
+            "type": "string",
+            "maxLength": 4096,
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdminTaskRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "field",
+          "language",
+          "state",
+          "updated"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "language": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "attempt": {
+            "type": "integer"
+          },
+          "completed": {
+            "type": "integer"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "created": {
+            "type": "number"
+          },
+          "updated": {
+            "type": "number"
+          },
+          "next_attempt": {
+            "type": "number"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "AdminTaskList": {
+        "type": "object",
+        "required": [
+          "tasks",
+          "next_cursor",
+          "pause"
+        ],
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AdminTaskRecord"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pause": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "resume_at": {
+                "type": "number"
+              },
+              "reason": {
+                "enum": [
+                  "daily_budget",
+                  "monthly_budget"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdminUsageRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "unknown",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "tokens": {
+            "type": "integer"
+          },
+          "actual": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "cached_tokens": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "details_known": {
+            "type": "integer"
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currency": {
+            "const": "USD"
+          },
+          "created": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdminUsageList": {
+        "type": "object",
+        "required": [
+          "period",
+          "key",
+          "calls",
+          "next_cursor",
+          "summary",
+          "currency"
+        ],
+        "properties": {
+          "period": {
+            "enum": [
+              "day",
+              "month"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "calls": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AdminUsageRecord"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "currency": {
+            "const": "USD"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdminSession": {
+        "type": "object",
+        "required": [
+          "authenticated"
+        ],
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed request",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication required",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Insufficient scope or quota permission",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not found or unavailable to this principal",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Idempotency key reused with a different body, or expired pagination cursor; inspect error code.",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooLarge": {
+        "description": "Body exceeds 64 KiB",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Invalid": {
+        "description": "Invalid field, resource, hash, profile or batch",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Platform rate limit",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Seconds until a suggested retry"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "Service cannot accept work",
+        "headers": {
+          "X-Request-Id": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Trace identifier"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "ETag": {
+            "schema": {
+              "type": "string"
+            }
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Seconds until a suggested retry"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-draft-status": "planned-not-implemented",
+  "x-rate-limits": {
+    "resolve_items": 50,
+    "ensure_items": 20,
+    "fields_per_item": 4,
+    "request_bytes": 65536,
+    "event_tickets": 50
+  }
+}

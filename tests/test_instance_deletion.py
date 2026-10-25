@@ -16,6 +16,11 @@ class InstanceDeletionTests(LauncherQmlCase):
         self.assertIsNotNone(dialog)
         return controller, dialog
 
+    def delete_and_wait(self, controller, dialog):
+        self.click(dialog.host, 'dialog-action-1')
+        self.wait_until(lambda: controller._delete_worker is None
+                        and (controller._delete_dialog is None or dialog.controller.title != '正在删除…'))
+
     def test_cancel_button_keeps_instance_and_launcher_alive(self):
         controller, dialog = self.open_confirmation()
         self.click(dialog.host, 'dialog-action-0')
@@ -27,7 +32,7 @@ class InstanceDeletionTests(LauncherQmlCase):
 
     def test_delete_button_removes_only_target_and_keeps_launcher_alive(self):
         controller, dialog = self.open_confirmation()
-        self.click(dialog.host, 'dialog-action-1')
+        self.delete_and_wait(controller, dialog)
         self.assertIsNone(controller._delete_dialog)
         self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
         self.assertTrue((self.game_dir / 'versions/1.21.8').is_dir())
@@ -39,7 +44,7 @@ class InstanceDeletionTests(LauncherQmlCase):
             controller, dialog = self.open_confirmation()
             self.assertFalse(self.item(dialog.host, 'dialog-action-0').property('primary'))
             self.assertFalse(self.item(dialog.host, 'dialog-action-0').property('danger'))
-            self.assertTrue(self.item(dialog.host, 'dialog-action-1').property('danger'))
+            self.assertFalse(self.item(dialog.host, 'dialog-action-1').property('danger'))
             if index % 2:
                 QTest.keyClick(dialog.quick, Qt.Key_Escape)
                 self.pump()
@@ -52,20 +57,21 @@ class InstanceDeletionTests(LauncherQmlCase):
     def test_running_or_inherited_instance_is_not_deleted(self):
         controller, dialog = self.open_confirmation()
         with patch.object(controller, '_running', return_value=[(str(self.game_dir), '1.20.1')]):
-            self.click(dialog.host, 'dialog-action-1')
+            self.delete_and_wait(controller, dialog)
+        self.assertIn('退出', dialog.controller.detail)
         self.assertIn('退出', controller.view['status'])
         path = self.game_dir / 'versions/1.21.8/1.21.8.json'
         path.write_text(json.dumps(dict(id='1.21.8', inheritsFrom='1.20.1')), encoding='utf-8')
         controller, dialog = self.open_confirmation()
-        self.click(dialog.host, 'dialog-action-1')
-        self.assertIn('依赖', controller.view['status'])
+        self.delete_and_wait(controller, dialog)
+        self.assertIn('依赖', dialog.controller.detail)
         self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
 
     def test_directory_switch_during_confirmation_prevents_deletion(self):
         controller, dialog = self.open_confirmation()
         self.manager.set_setting('minecraft.directory.enable', str(self.directory / 'other'))
-        self.click(dialog.host, 'dialog-action-1')
-        self.assertIn('目录已切换', controller.view['status'])
+        self.delete_and_wait(controller, dialog)
+        self.assertIn('目录已切换', dialog.controller.detail)
         self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
 
     def test_directory_cancel_and_delete_only_touch_temporary_games(self):
@@ -73,7 +79,7 @@ class InstanceDeletionTests(LauncherQmlCase):
         self.click(dialog.host, 'dialog-action-0')
         self.assertTrue(self.game_dir.exists())
         controller, dialog = self.open_confirmation(str(self.game_dir), 'deleteDirectory')
-        self.click(dialog.host, 'dialog-action-1')
+        self.delete_and_wait(controller, dialog)
         self.assertFalse(self.game_dir.exists())
         self.assertTrue(self.window.isVisible())
         self.assert_no_qml_errors()
@@ -81,12 +87,15 @@ class InstanceDeletionTests(LauncherQmlCase):
     def test_delete_failure_reports_error_and_allows_retry(self):
         controller, dialog = self.open_confirmation()
         with patch('ui.pages.qml_instances.delete_minecraft_version', return_value=False):
-            self.click(dialog.host, 'dialog-action-1')
+            self.delete_and_wait(controller, dialog)
+        self.assertEqual(controller._delete_dialog, dialog)
+        self.assertIn('删除失败', dialog.controller.detail)
         self.assertIn('删除失败', controller.view['status'])
+        self.assertLess(dialog.height(), 240)
         self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
         controller, dialog = self.open_confirmation()
         self.snapshot('instance-delete-confirmation', dialog)
-        self.click(dialog.host, 'dialog-action-1')
+        self.delete_and_wait(controller, dialog)
         self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
         self.assert_no_qml_errors()
 
@@ -96,7 +105,7 @@ class InstanceDeletionTests(LauncherQmlCase):
         for identity in identities:
             controller.selectVersion(identity)
             controller, dialog = self.open_confirmation(identity)
-            self.click(dialog.host, 'dialog-action-1')
+            self.delete_and_wait(controller, dialog)
             remaining = [item['version'] for item in controller.view['versions']]
             self.assertNotIn(identity, remaining)
             if remaining:
@@ -110,11 +119,11 @@ class InstanceDeletionTests(LauncherQmlCase):
         path = self.game_dir / 'versions/1.21.8/1.21.8.json'
         path.write_text(json.dumps(dict(id='1.21.8', jar='1.20.1', buggcraftRoom=None)), encoding='utf-8')
         controller, dialog = self.open_confirmation()
-        self.click(dialog.host, 'dialog-action-1')
-        self.assertIn('依赖', controller.view['status'])
+        self.delete_and_wait(controller, dialog)
+        self.assertIn('依赖', dialog.controller.detail)
         self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
         path.write_text(json.dumps(dict(id='1.21.8', buggcraftRoom=None)), encoding='utf-8')
         controller, dialog = self.open_confirmation()
-        self.click(dialog.host, 'dialog-action-1')
+        self.delete_and_wait(controller, dialog)
         self.assertFalse((self.game_dir / 'versions/1.20.1').exists())
         self.assert_no_qml_errors()

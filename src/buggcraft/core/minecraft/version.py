@@ -8,7 +8,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-def delete_minecraft_directory(minecraft_directory):
+def delete_minecraft_directory(minecraft_directory, *, raise_errors=False):
     """
     删除指定目录
     :param minecraft_directory: Minecraft 根目录路径
@@ -17,6 +17,8 @@ def delete_minecraft_directory(minecraft_directory):
     try:
         # 验证路径和版本 ID
         if not os.path.isdir(minecraft_directory):
+            if raise_errors:
+                raise FileNotFoundError(f"游戏目录不存在：{minecraft_directory}")
             logger.error(f"无效的 Minecraft 目录: {minecraft_directory}")
             return False
         
@@ -31,9 +33,11 @@ def delete_minecraft_directory(minecraft_directory):
     
     except Exception as e:
         logger.error(f"删除版本失败: {e}")
+        if raise_errors:
+            raise
         return False
     
-def delete_minecraft_version(minecraft_directory, version_id):
+def delete_minecraft_version(minecraft_directory, version_id, *, raise_errors=False):
     """
     删除指定目录下的 Minecraft 版本
     :param minecraft_directory: Minecraft 根目录路径
@@ -43,10 +47,14 @@ def delete_minecraft_version(minecraft_directory, version_id):
     try:
         # 验证路径和版本 ID
         if not os.path.isdir(minecraft_directory):
+            if raise_errors:
+                raise FileNotFoundError(f"游戏目录不存在：{minecraft_directory}")
             logger.error(f"无效的 Minecraft 目录: {minecraft_directory}")
             return False
         
         if not version_id:
+            if raise_errors:
+                raise ValueError("未提供版本 ID")
             logger.error("未提供版本 ID")
             return False
         
@@ -56,11 +64,15 @@ def delete_minecraft_version(minecraft_directory, version_id):
         resolved_versions = Path(versions_dir).resolve()
         resolved_version = Path(version_dir).resolve()
         if resolved_version.parent != resolved_versions:
+            if raise_errors:
+                raise ValueError("版本删除路径超出 versions 目录")
             logger.error('版本删除路径超出 versions 目录')
             return False
         
         # 验证版本目录是否存在
         if not os.path.isdir(version_dir):
+            if raise_errors:
+                raise FileNotFoundError(f"实例目录不存在：{version_dir}")
             logger.error(f"版本目录不存在: {version_dir}")
             return False
         
@@ -76,6 +88,8 @@ def delete_minecraft_version(minecraft_directory, version_id):
     
     except Exception as e:
         logger.error(f"删除版本失败: {e}")
+        if raise_errors:
+            raise
         return False
 
 def _delete_version_related_files(self, minecraft_directory, version_id):

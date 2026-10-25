@@ -12,10 +12,14 @@ ARCHIVES = {
     'macos-arm64': 'Buggcraft-macos-arm64.zip',
 }
 ONEFILES = {'windows-x64': 'Buggcraft.exe', 'linux-x86_64': 'Buggcraft'}
+VERSION_MARKER = 'BUGGCRAFT_VERSION.txt'
 
 
 def stage(output, platform, repository_root):
     manifest = json.loads((output / 'release.json').read_text(encoding='utf-8'))
+    version = manifest.get('launcher_version')
+    if not isinstance(version, str) or not version:
+        raise ValueError('Release manifest is missing the launcher version')
     if platform in ONEFILES:
         executable = output / ONEFILES[platform]
         if not executable.is_file():
@@ -30,6 +34,7 @@ def stage(output, platform, repository_root):
         destination = output / 'release'
         destination.mkdir(exist_ok=False)
         shutil.copy2(executable, destination / executable.name)
+        (destination / VERSION_MARKER).write_text(version + '\n', encoding='ascii')
         (destination / ('SHA256SUMS-' + platform + '.txt')).write_text(
             digest + '  ' + executable.name + '\n', encoding='ascii')
         return destination
@@ -56,6 +61,7 @@ def stage(output, platform, repository_root):
             checksums.append(hashlib.file_digest(stream, 'sha256').hexdigest() + '  ' + name)
     (destination / ('SHA256SUMS-' + platform + '.txt')).write_text(
         '\n'.join(checksums) + '\n', encoding='ascii')
+    (destination / VERSION_MARKER).write_text(version + '\n', encoding='ascii')
     return destination
 
 

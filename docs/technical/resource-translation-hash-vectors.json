@@ -1,0 +1,124 @@
+{
+  "schema": "mc-hash-test-vectors-v1",
+  "status": "stable-v1",
+  "algorithm": "SHA-256 of RFC 8785 JCS UTF-8, no BOM",
+  "normalization": "Replace CRLF with LF, then CR with LF. Preserve all other text; reject invalid Unicode. Unknown field is omitted, not an empty string.",
+  "vectors": [
+    {
+      "name": "plain-en",
+      "input": {
+        "field": "summary",
+        "source_language": "en",
+        "format": "plain",
+        "text": "A performance optimization mod."
+      },
+      "canonical_utf8": "{\"field\":\"summary\",\"format\":\"plain\",\"schema\":\"mc-text-v1\",\"source_language\":\"en\",\"text\":\"A performance optimization mod.\"}",
+      "source_hash": "sha256:abdad85a106fdf055366fe62a7e22276cfc111c1a6a3ad0f629422e0278fd643"
+    },
+    {
+      "name": "crlf",
+      "input": {
+        "field": "body",
+        "source_language": "und",
+        "format": "markdown",
+        "text": "# Intro\r\n\r\nUse **Fabric**.\r\n"
+      },
+      "canonical_utf8": "{\"field\":\"body\",\"format\":\"markdown\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\"# Intro\\n\\nUse **Fabric**.\\n\"}",
+      "source_hash": "sha256:c0bf591d708a1b7e873da955be0694550050ddacdd0378cfccd55fcaad576ec9"
+    },
+    {
+      "name": "lf-equivalent",
+      "input": {
+        "field": "body",
+        "source_language": "und",
+        "format": "markdown",
+        "text": "# Intro\n\nUse **Fabric**.\n"
+      },
+      "canonical_utf8": "{\"field\":\"body\",\"format\":\"markdown\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\"# Intro\\n\\nUse **Fabric**.\\n\"}",
+      "source_hash": "sha256:c0bf591d708a1b7e873da955be0694550050ddacdd0378cfccd55fcaad576ec9"
+    },
+    {
+      "name": "unicode-html",
+      "input": {
+        "field": "body",
+        "source_language": "und",
+        "format": "html",
+        "text": "<p>Shaders 光影 🌈</p>"
+      },
+      "canonical_utf8": "{\"field\":\"body\",\"format\":\"html\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\"<p>Shaders 光影 🌈</p>\"}",
+      "source_hash": "sha256:dd927fb9aec569bc4a0b747613b79848615c7cb278e69f51ab35f0fd8ead139c"
+    },
+    {
+      "name": "empty",
+      "input": {
+        "field": "summary",
+        "source_language": "und",
+        "format": "plain",
+        "text": ""
+      },
+      "canonical_utf8": "{\"field\":\"summary\",\"format\":\"plain\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\"\"}",
+      "source_hash": "sha256:5ee2c0cf5284314824b1f3ef506a4c7bd260714a49d9f7e926a04f4fe0d712d6"
+    },
+    {
+      "name": "leading-trailing-space",
+      "input": {
+        "field": "summary",
+        "source_language": "und",
+        "format": "plain",
+        "text": " A mod. "
+      },
+      "canonical_utf8": "{\"field\":\"summary\",\"format\":\"plain\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\" A mod. \"}",
+      "source_hash": "sha256:3f989672bb6d39f583121ba36103e49c3e6d9869edc643af14c145438065dd4e"
+    },
+    {
+      "name": "quote-code",
+      "input": {
+        "field": "body",
+        "source_language": "und",
+        "format": "markdown",
+        "text": "Use `mods/example.jar` and \"Fabric\".\nDo not use version 1.20.1.\\path"
+      },
+      "canonical_utf8": "{\"field\":\"body\",\"format\":\"markdown\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\"Use `mods/example.jar` and \\\"Fabric\\\".\\nDo not use version 1.20.1.\\\\path\"}",
+      "source_hash": "sha256:fa94e06a9df8c74ddda871f2cd7604919048c8722d704429ab0e684797085b8d"
+    },
+    {
+      "name": "unicode-preserved",
+      "input": {
+        "field": "summary",
+        "source_language": "und",
+        "format": "plain",
+        "text": "Café / Café / 模组"
+      },
+      "canonical_utf8": "{\"field\":\"summary\",\"format\":\"plain\",\"schema\":\"mc-text-v1\",\"source_language\":\"und\",\"text\":\"Café / Café / 模组\"}",
+      "source_hash": "sha256:6e22d2f740e98f87b30a87531f51bff8b3726b866324e23ef1feb19a35231d2e"
+    }
+  ],
+  "snapshot_vector": {
+    "input": {
+      "schema": "mc-snapshot-v1",
+      "fields": {
+        "summary": "sha256:abdad85a106fdf055366fe62a7e22276cfc111c1a6a3ad0f629422e0278fd643",
+        "body": "sha256:c0bf591d708a1b7e873da955be0694550050ddacdd0378cfccd55fcaad576ec9"
+      }
+    },
+    "canonical_utf8": "{\"fields\":{\"body\":\"sha256:c0bf591d708a1b7e873da955be0694550050ddacdd0378cfccd55fcaad576ec9\",\"summary\":\"sha256:abdad85a106fdf055366fe62a7e22276cfc111c1a6a3ad0f629422e0278fd643\"},\"schema\":\"mc-snapshot-v1\"}",
+    "snapshot_hash": "sha256:7de0b69c867e622ab386c1816541a1e4dba36f35e403cb9bb0e1a77ad91f967c"
+  },
+  "equivalence_checks": [
+    {
+      "left": "crlf",
+      "right": "lf-equivalent",
+      "same_hash": true
+    }
+  ],
+  "invalid_inputs": [
+    {
+      "name": "unknown-body",
+      "reason": "No input field or snapshot digest may be fabricated for an unfetched body."
+    },
+    {
+      "name": "unpaired-surrogate",
+      "reason": "Invalid Unicode must be rejected before UTF-8 encoding."
+    }
+  ]
+}

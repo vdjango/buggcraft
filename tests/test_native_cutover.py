@@ -34,6 +34,12 @@ class NativeEndpointTests(unittest.IsolatedAsyncioTestCase):
     def profile(self):
         return RelayProfile('127.0.0.1', 3333, 'x' * 48, 'ssh-ed25519 AAAA')
 
+    async def test_game_latency_keeps_zero_and_replaces_stale_measurements(self):
+        for endpoint in (TunnelHost(self.profile()), TunnelClient(self.profile(), RoomInvite.create())):
+            for value, expected in ((0, 0), (57, 57), (None, None), (-1, None), (True, None)):
+                endpoint._apply_event({'type': 'latency', 'latency_ms': value, 'state': 'ready'})
+                self.assertEqual(endpoint.room_info['latency_ms'], expected)
+
     async def test_host_parameters_and_native_termination_reach_ui(self):
         routes = SimpleNamespace(handle=AsyncMock(return_value='node'), request=AsyncMock(side_effect=[
             {'session': 'native-session', 'invite': RoomInvite.create().encode(), 'info': {}, 'transport': 'relay'},

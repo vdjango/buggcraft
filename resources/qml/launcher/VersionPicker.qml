@@ -48,7 +48,9 @@ Item {
                 Item { Layout.preferredWidth: 2 }
                 Image { Layout.preferredWidth: 25; Layout.preferredHeight: 25; source: root.state.resources + "images/user/offline_login.png"; fillMode: Image.PreserveAspectFit }
                 Text {
-                    Layout.fillWidth: true; text: option.modelData; elide: Text.ElideMiddle
+                    objectName: "version-option-title-" + option.index
+                    Layout.fillWidth: true; Layout.minimumWidth: 0
+                    text: option.modelData; elide: Text.ElideMiddle
                     color: "#f4f0ff"; font.pixelSize: 13; font.bold: option.selected
                     verticalAlignment: Text.AlignVCenter
                 }

@@ -4,14 +4,16 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 import re
+import time
 from html.parser import HTMLParser
 
-from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Signal, Slot
+from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Signal, Slot, QTimer
 from PySide6.QtWidgets import QFileDialog, QWidget, QVBoxLayout
 
 from config.settings import get_settings_manager
 from core.content import ContentCatalogue, instance_environment
 from core.content_mirrors import configured_source
+from core.translation import TranslationClient, endpoint as translation_endpoint
 from core.modpacks import inspect_pack, instance_name, suggested_name
 from ui.pages.qml_host import QmlPage
 
@@ -108,6 +110,21 @@ class ContentBrowserController(QObject):
         self._version_offset = 0
         self.file_query = ''
         self._instance_context = self._context_key()
+        self.translation_pool = QThreadPool(self)
+        self.translation_pool.setMaxThreadCount(1)
+        self.translation_client = TranslationClient(self.settings.config_path)
+        self.translation_enabled = False
+        self.translation_status = ''
+        self.show_original = False
+        self._translation_signature = None
+        self._translation_running = False
+        self._translation_next = 0
+        self._translation_generation = 0
+        self._translation_closed = False
+        self.translation_timer = QTimer(self)
+        self.translation_timer.setInterval(500)
+        self.translation_timer.timeout.connect(self._translation_tick)
+        self.translation_timer.start()
 
     def _target(self):
         directory = self.settings.get_setting('minecraft.directory.enable') or ''
@@ -126,7 +143,8 @@ class ContentBrowserController(QObject):
         return {key: getattr(self, key) for key in (
             'kind', 'status', 'busy', 'results', 'versions', 'selected_version',
             'selected_project', 'pack_path', 'pack_name', 'pack_summary', 'pack_error',
-            'view', 'import_directory', 'source', 'query', 'has_more', 'details_busy', 'file_query')} | {
+            'view', 'import_directory', 'source', 'query', 'has_more', 'details_busy', 'file_query',
+            'translation_enabled', 'translation_status', 'show_original')} | {
                 'instance': self.settings.get_setting('minecraft.version.enable') or '尚未选择',
                 'target': self._target(), 'game_version': self._context()[2],
                 'loader': self._context()[3],
@@ -134,6 +152,92 @@ class ContentBrowserController(QObject):
                 'has_more_versions': len(self.versions) < len(self._filtered_versions()) or self._version_has_more,
                 'selected_file': self.versions[self.selected_version] if 0 <= self.selected_version < len(self.versions) else {},
                 'can_install': bool(self._context()[0] and self._context()[1])}
+
+    @Slot()
+    def toggleOriginal(self):
+        self.show_original = not self.show_original
+        self.changed.emit()
+
+    def _translation_tick(self):
+        if self._translation_closed:
+            return
+        enabled = bool(self.settings.get_setting('translation.enabled', False))
+        if not enabled and not self.translation_enabled:
+            return
+        rows = [self.selected_project] if self.view == 'detail' and self.selected_project else self.results if self.view == 'browse' else []
+        try:
+            source = translation_endpoint(self.settings.get_setting('translation.source', 'Buggcraft'))
+        except ValueError:
+            self.translation_status = '翻译源配置无效，继续显示原文'
+            return
+        signature = (enabled, source, self.request_id, self.view,
+                     tuple((r.get('source'), str(r.get('project_id')), r.get('title'), r.get('description'), r.get('body'), r.get('body_html')) for r in rows))
+        if signature != self._translation_signature:
+            was_enabled = self.translation_enabled
+            self._translation_signature = signature
+            self._translation_generation += 1
+            self._translation_next = 0
+            self.translation_enabled = enabled
+            self.translation_status = ''
+            if enabled and not was_enabled:
+                self.show_original = False
+            # Never label a previous source revision as the current translation.
+            # This also clears translations when switching service providers.
+            for row in rows:
+                revision = (source, row.get('source'), str(row.get('project_id')),
+                            row.get('title'), row.get('description'), row.get('body'), row.get('body_html'))
+                if row.get('_translation_source') != revision:
+                    row.pop('translated_summary', None)
+                    row.pop('translated_body', None)
+                    row['display_summary'] = (row.get('description') or '').replace('\n', ' ')[:180]
+            if not enabled:
+                self.results = [dict(row, display_summary=(row.get('description') or '').replace('\n',' ')[:180], translated_summary='', translated_body='') for row in self.results]
+                if self.selected_project:
+                    self.selected_project = dict(self.selected_project, translated_summary='', translated_body='')
+            self.changed.emit()
+        if not enabled or not rows or self._translation_running or time.monotonic()<self._translation_next:
+            return
+        self._translation_running = True
+        generation = self._translation_generation
+        detail = self.view == 'detail'
+        # A separate pool keeps model availability independent of catalogue work.
+        self.translation_pool.start(_SearchWorker(generation, ('translation', lambda:
+            dict(self.translation_client.resolve(source, rows, detail), signature=signature)), self._translation_finished))
+
+    @Slot(int, str, object, str)
+    def _translation_finished(self, generation, _mode, data, error):
+        self._translation_running = False
+        if self._translation_closed or generation != self._translation_generation or not self.settings.get_setting('translation.enabled',False):
+            return
+        if isinstance(data,dict) and data.get('signature'):
+            rows = [self.selected_project] if self.view == 'detail' and self.selected_project else self.results if self.view == 'browse' else []
+            current = (True,translation_endpoint(self.settings.get_setting('translation.source','Buggcraft')),self.request_id,self.view,
+                       tuple((r.get('source'),str(r.get('project_id')),r.get('title'),r.get('description'),r.get('body'),r.get('body_html')) for r in rows))
+            if data['signature'] != current:
+                return
+        if error or not isinstance(data,dict):
+            self.translation_status = '翻译服务暂不可用，继续显示原文'
+            self._translation_next = time.monotonic()+30
+        else:
+            self.translation_status = data['status']
+            self._translation_next = time.monotonic()+data.get('retry',2) if data['pending'] else float('inf')
+            rows = [dict(self.selected_project)] if self.view == 'detail' and self.selected_project else [dict(row) for row in self.results]
+            for index, row in enumerate(rows):
+                translated = data['translations'].get(str(index),{})
+                row['_translation_source'] = (
+                    translation_endpoint(self.settings.get_setting('translation.source', 'Buggcraft')),
+                    row.get('source'), str(row.get('project_id')), row.get('title'),
+                    row.get('description'), row.get('body'), row.get('body_html'))
+                if 'summary' in translated:
+                    row['translated_summary'] = translated['summary']['text']
+                    row['display_summary'] = row['translated_summary'].replace('\n',' ')[:180]
+                if 'body' in translated:
+                    row['translated_body'] = project_description(translated['body']['text'], html=translated['body']['format']=='html')
+            if self.view == 'detail' and rows:
+                self.selected_project = rows[0]
+            else:
+                self.results = rows
+        self.changed.emit()
 
     @Slot()
     @Slot(str)
@@ -530,10 +634,16 @@ class ContentBrowserController(QObject):
 
     @Slot()
     def shutdown(self):
+        self._translation_closed = True
+        self.translation_timer.stop()
         self.request_id += 1
         self.catalogue.cancel.set()
         self.pool.clear()
-        return self.pool.activeThreadCount() == 0
+        self.translation_pool.clear()
+        done = self.pool.activeThreadCount() == 0 and self.translation_pool.activeThreadCount() == 0
+        if done:
+            self.translation_client.close()
+        return done
 
 
 

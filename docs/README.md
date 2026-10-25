@@ -4,6 +4,7 @@
 
 ## 使用指南
 
+- [启动器发布验收清单](guides/launcher-release-checklist.md)
 - [游戏与整合包导入、内容下载与加载器兼容](guides/modpack-import-and-compatibility.md)
 - [联机与节点使用](guides/relay-usage.md)
 - [联机测试、网络快照与日志导出](guides/network-tester-guide.md)
@@ -13,9 +14,11 @@
 
 - [BMCLAPI 下载源接入](technical/bmclapi-downloads.md)
 - [CurseForge 多源与资源服务](technical/content-gateway.md)
+- [资源翻译平台规划与开放接口草案](technical/resource-translation-platform.md)
 - [第三方启动器桥接接入](technical/bridge-integration.md)
 - [微软登录实现说明](technical/microsoft-login.md)
 - [账号与源站安全边界](technical/node-accounts-security.md)
+- [启动器版本发布与自动更新](technical/launcher-updates.md)
 - [QML 界面结构](technical/qml-interface.md)
 - [Windows 打包](technical/windows-packaging.md)
 - [macOS 打包与 Qt 官方工具](technical/macos-packaging.md)

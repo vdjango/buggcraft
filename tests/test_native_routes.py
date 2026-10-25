@@ -29,6 +29,11 @@ class NativeRoutesTests(unittest.IsolatedAsyncioTestCase):
                 await manager.choose(self.a)
             find.assert_called_once()
 
+    async def test_empty_refresh_preserves_previous_pinned_backup(self):
+        from hookup.nodes import candidates
+        remember(self.a, [])
+        self.assertEqual(candidates(self.a), [self.a, self.b])
+
     async def test_os_denied_execution_fails_without_disclosing_credentials(self):
         manager = NativeRoutes()
         with patch('hookup.native_routes.library_path', return_value=None), \

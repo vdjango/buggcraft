@@ -54,6 +54,25 @@ def encode_code(profile):
         json.dumps(profile_data(profile), separators=(',', ':')).encode()).decode().rstrip('=')
 
 
+async def import_code(code):
+    """Let the native bridge redeem, validate and pin the supplied access code."""
+    from .native_routes import manager
+    from .profiles import RelayProfile
+    if not isinstance(code, str) or len(code) > 4096:
+        raise ValueError('请粘贴节点网页提供的启动器接入码。')
+    routes = manager()
+    result = await routes.request('node.add', {'code': code.strip()})
+    handle = result['node']
+    try:
+        selected = await routes.request('node.selected', {'node': handle})
+        profile = RelayProfile(**selected['profile'])
+        remember(profile, selected.get('backups', []))
+        object.__setattr__(profile, '_name', result.get('name', 'Node'))
+        return profile
+    finally:
+        await routes.request('node.remove', {'node': handle})
+
+
 def candidates(profile):
     from .profiles import RelayProfile
     values = list(profile._nodes)
@@ -84,6 +103,30 @@ def remember(profile, nodes):
     if not isinstance(nodes, list) or len(nodes) > 32:
         raise ValueError('节点网络列表超过限制')
     cleaned = [profile_data(RelayProfile(**item)) for item in nodes]
+    # A failed refresh must not erase the last known-good route set. Keep the
+    # newest signed topology first and retain only distinct pinned endpoints.
+    previous = list(profile._nodes)
+    if profile._source:
+        path = Path(profile._source + '.network.json')
+        try:
+            if path.stat().st_size <= 65536:
+                previous = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError, TypeError):
+            pass
+    merged = []
+    seen = set()
+    for item in cleaned + (previous if isinstance(previous, list) else []):
+        try:
+            candidate = profile_data(RelayProfile(**item))
+        except (ValueError, TypeError):
+            continue
+        identity = (candidate['server_host'], candidate['server_port'], candidate['server_public_key'])
+        if identity not in seen:
+            merged.append(candidate)
+            seen.add(identity)
+        if len(merged) >= 32:
+            break
+    cleaned = merged
     object.__setattr__(profile, '_nodes', tuple(cleaned))
     if profile._source:
         save_json(profile._source + '.network.json', cleaned)

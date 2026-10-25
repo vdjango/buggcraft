@@ -50,11 +50,25 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: Embed the launcher release version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-dev+${GITHUB_SHA:0:12}"
+          fi
+          python - "$version" <<'PY'
+          import re, sys
+          value = sys.argv[1]
+          if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', value):
+              raise SystemExit('Tag must contain a semantic launcher version')
+          open('resources/app-version.txt', 'w', encoding='ascii').write(value + '\n')
+          PY
       - name: Check out pinned native multiplayer implementation
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 2c2d7548efd4fb3885baf539560ee8ff76d2476f
+          ref: 40147016103a5ee624bebecc2a5d86e4b389cded
           path: native-source
       - uses: actions/setup-python@v5
         with:
@@ -65,7 +79,7 @@ jobs:
             requirements.txt
             requirements-build.txt
       - name: Test release file validation
-        run: python -m unittest tests.test_release_staging -v
+        run: python -m unittest tests.test_release_staging tests.test_release_platform_sync -v
       - name: Install build dependencies
         run: |
           python -m pip install -r requirements.txt -r requirements-build.txt
@@ -111,6 +125,8 @@ jobs:
                      'test_connection_diagnostics', 'test_modpack_no_key',
                      'test_inherited_launch', 'test_game_sessions', 'test_game_diagnostics',
                      'test_startup_logging', 'test_startup_resource_paths', 'test_launcher_process',
+                     'test_update_client', 'test_resource_translation', 'test_ui_refinements',
+                     'test_loader_catalogue', 'test_native_code_import',
                      'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
                      'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
                      'test_unix_qt_trimming', 'test_room_mod_installation',
@@ -233,6 +249,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -244,6 +261,7 @@ jobs:
         run: |
           git archive --format=tar.gz -o release-files/Buggcraft-source.tar.gz HEAD
           cp LICENSE release-files/LICENSE
+          printf '%s\n' "${GITHUB_REF_NAME#v}" > release-files/BUGGCRAFT_VERSION.txt
       - name: Create reviewable release draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -260,4 +278,15 @@ jobs:
 
           Windows 构建目前没有受信任的代码签名，macOS 构建使用 ad-hoc 签名且未经 Apple 公证。发布者应先完成对应系统的安装验收与签名审查，再公开此草稿。
           NOTES
-          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Buggcraft $RELEASE_TAG" --notes-file release-notes.md release-files/*
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Existing release retained; retrying platform synchronization."
+          else
+            prerelease=()
+            [[ "${RELEASE_TAG#v}" == *-* ]] && prerelease=(--prerelease)
+            gh release create "$RELEASE_TAG" --verify-tag --draft "${prerelease[@]}" --title "Buggcraft $RELEASE_TAG" --notes-file release-notes.md release-files/*
+          fi
+      - name: Synchronize build assets to platform cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/sync_platform_release.py

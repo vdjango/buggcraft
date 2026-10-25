@@ -66,7 +66,6 @@ Item {
                 Layout.fillWidth: true
                 Label { objectName: "instance-heading"; Layout.fillWidth: true; text: "游戏实例"; font.pixelSize: 14; font.weight: Font.DemiBold; color: "#f2edf8" }
             }
-            Label { Layout.fillWidth: true; visible: !!root.state.status; text: root.state.status; color: "#ff9b9b"; wrapMode: Text.Wrap }
             ListView {
                 id: versions
                 Layout.fillWidth: true

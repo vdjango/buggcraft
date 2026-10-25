@@ -219,7 +219,7 @@ class NativeRoutes:
             'node': await self.handle(profile), 'request': request})
 
     async def choose(self, profile):
-        from .nodes import profile_data
+        from .nodes import profile_data, remember
         from .profiles import RelayProfile
 
         key = hashlib.sha256(json.dumps(profile_data(profile), sort_keys=True).encode()).digest()
@@ -234,6 +234,12 @@ class NativeRoutes:
                 candidate = RelayProfile(**value)
                 if candidate not in ordered:
                     ordered.append(candidate)
+            # Persist a successful native refresh for the next launcher run.
+            # A local write failure must not tear down an otherwise valid route.
+            try:
+                remember(profile, [profile_data(item) for item in ordered])
+            except OSError:
+                LOG.warning('native_route_cache_write_failed')
             self.cached[key] = (time.monotonic(), ordered)
             events = await self._request('bridge.events', {})
             for event in events.get('events', []):

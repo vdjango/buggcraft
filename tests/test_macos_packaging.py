@@ -40,6 +40,7 @@ class MacOSPackagingTests(unittest.TestCase):
                 if command[0] == '/usr/bin/ditto':
                     Path(command[-1]).write_bytes(b'archive with preserved symlinks')
             with patch.object(build.subprocess, 'run', side_effect=run), \
+                    patch.object(build.platform, 'system', return_value='Darwin'), \
                     patch.object(build.platform, 'machine', return_value='arm64'):
                 manifest = build.package_macos(output)
             self.assertEqual(calls[0][:2], ['/usr/bin/codesign', '--verify'])

@@ -50,6 +50,7 @@ Rectangle {
                 Label { Layout.fillWidth: true; text: [root.project.source, root.project.author ? "由 " + root.project.author + " 发布" : ""].filter(Boolean).join("  ·  "); color: "#a69db7"; font.pixelSize: 11; elide: Text.ElideRight }
             }
             ActionButton { text: "项目原站 ↗"; implicitHeight: 32; visible: !!root.project.website_url; onClicked: { if (root.project.website_url.startsWith("https://")) Qt.openUrlExternally(root.project.website_url) } }
+            ActionButton { objectName: "content-toggle-original"; text: root.state.show_original ? "显示译文" : "查看原文"; implicitHeight: 32; visible: root.state.translation_enabled; onClicked: contentController.toggleOriginal() }
         }
         RowLayout {
             Layout.fillWidth: true; spacing: 0
@@ -88,7 +89,7 @@ Rectangle {
                 width: descriptionScroll.availableWidth; spacing: 12
                 Label {
                     Layout.fillWidth: true
-                    text: root.project.description || root.project.display_summary || "作者暂未提供简介。"
+                    text: !root.state.show_original && root.project.translated_summary ? root.project.translated_summary : root.project.description || root.project.display_summary || "作者暂未提供简介。"
                     color: "#ddd6eb"; font.pixelSize: 13; wrapMode: Text.Wrap; lineHeight: 1.25
                     textFormat: Text.PlainText; maximumLineCount: 3; elide: Text.ElideRight
                     HoverHandler { id: summaryHover }
@@ -144,8 +145,15 @@ Rectangle {
                 }
                 Label { text: "项目说明"; color: "#eee6fb"; font.pixelSize: 13; font.bold: true }
                 Label {
+                    objectName: "content-translation-status"
+                    Layout.fillWidth: true; visible: root.state.translation_enabled
+                    text: root.state.translation_status || (root.project.translated_body ? "AI 自动翻译 · 可切换查看原文" : "正在查找译文…")
+                    textFormat: Text.PlainText; color: "#a69db7"; font.pixelSize: 11; wrapMode: Text.Wrap
+                }
+                Label {
                     Layout.fillWidth: true
-                    text: root.state.details_busy ? "正在加载项目介绍…" : root.project.body_text || root.project.detail_error || "可在版本文件中查看每个文件支持的游戏版本、加载器和发布日期。"
+                    objectName: "content-body-text"
+                    text: root.state.details_busy ? "正在加载项目介绍…" : (!root.state.show_original && root.project.translated_body ? root.project.translated_body : root.project.body_text) || root.project.detail_error || "可在版本文件中查看每个文件支持的游戏版本、加载器和发布日期。"
                     textFormat: Text.MarkdownText; wrapMode: Text.Wrap; color: "#c7bfd5"; font.pixelSize: 13; lineHeight: 1.2
                     onLinkActivated: link => { if (link.startsWith("https://")) Qt.openUrlExternally(link) }
                 }

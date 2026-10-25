@@ -101,7 +101,7 @@ def main(report):
         result['checks'].append('native-multiplayer-api')
 
         from PySide6.QtWidgets import QApplication
-        from PySide6.QtCore import QMetaObject, QTimer, QObject, Qt
+        from PySide6.QtCore import QEventLoop, QMetaObject, QTimer, QObject, Qt
         from PySide6.QtQuickWidgets import QQuickWidget
         import config.settings as settings
         resources = Path(__import__('sys').executable).resolve().parent / 'resources'
@@ -207,6 +207,11 @@ def main(report):
                         button = find_item(dialog.quick.rootObject(), 'dialog-action-' + str(index))
                         if button is None or not QMetaObject.invokeMethod(button, 'clicked', Qt.DirectConnection):
                             raise RuntimeError('Missing instance deletion QML action')
+                        if instances._delete_worker is not None:
+                            finished = QEventLoop()
+                            instances._delete_worker.signals.finished.connect(finished.quit)
+                            QTimer.singleShot(5000, finished, finished.quit)
+                            finished.exec()
                         app.processEvents()
                         if instances._delete_dialog is not None or metadata.exists() != (index == 0):
                             raise RuntimeError('Instance deletion cancel/confirm did not complete safely')

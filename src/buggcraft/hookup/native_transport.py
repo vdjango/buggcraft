@@ -136,6 +136,10 @@ class NativeEndpoint:
                 self._transport = transport
         elif event.get('type') == 'bridge':
             self.bridge_status = str(event.get('status', self.bridge_status))[:160]
+        elif event.get('type') == 'latency':
+            value = event.get('latency_ms')
+            self.room_info['latency_ms'] = value if type(value) is int and 0 <= value <= 1000000 else None
+            self.room_info['latency_state'] = event.get('state', 'unavailable')
 
     async def stop(self):
         self._stopped = True

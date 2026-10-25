@@ -16,7 +16,7 @@ from hookup.native_transport import TunnelHost, TunnelClient, TunnelService
 from hookup.native_routes import manager as native_bridge
 from hookup.rooms import instance_metadata, list_room_page, resolve_room, compatibility, lookup_account
 from hookup.storage import LobbyStore
-from hookup.nodes import decode_code, probe, save_json, profile_data, remember, node_identity
+from hookup.nodes import probe, save_json, profile_data, remember, node_identity
 from hookup.social import check_expiry, credential_expiry, ExpiredNodeCredential, EXPIRED_CODE_MESSAGE
 from utils.instances import installed_instance_ids, running_games
 
@@ -357,8 +357,13 @@ class MultiplayerController(QObject):
             elif action == 'nodeDraft':
                 self.patch(nodeDraft=str(data.get('text', ''))[:4096])
             elif action == 'addNodeCode':
-                profile = decode_code(self._state['nodeDraft'])
-                self.verify_node(profile)
+                if self._state['busy']:
+                    return
+                if not self.store:
+                    raise ValueError('请先修复本地配置。')
+                from hookup.nodes import import_code
+                self.patch(busy=True, error='', notice='正在验证节点身份和连接…')
+                self.job('nodecode:' + self.generation, import_code(self._state['nodeDraft']))
             elif action == 'confirmNodeUpdate':
                 pending = self.pending_node_update
                 if pending:
@@ -791,6 +796,10 @@ class MultiplayerController(QObject):
                 record['title'] = event['title']
             if event.get('state') == 'ready' or record.get('availability') == 'ready':
                 self._dispatch_pending_friend_invite(name)
+        elif event.get('type') == 'latency':
+            value = event.get('latency_ms')
+            record['latency_ms'] = value if type(value) is int and 0 <= value <= 1000000 else None
+            record['latency_state'] = event.get('state', 'unavailable')
         elif event.get('type') == 'ready':
             record['chatState'] = '在线'
             record['bridgeStatus'] = str(event.get('bridge', record['bridgeStatus']))[:160]

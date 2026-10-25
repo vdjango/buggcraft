@@ -221,10 +221,17 @@ def onefile_cache_tag(native=None):
     return digest.hexdigest()[:20]
 
 
+def launcher_version():
+    value = (Path(__file__).resolve().parent / 'resources/app-version.txt').read_text(encoding='ascii').strip()
+    if not value:
+        raise ValueError('The launcher release version is empty')
+    return value
+
+
 def make_command(onefile=False, output=None, jobs=None, native=None):
     root = Path(__file__).resolve().parent
     resources = root / 'resources'
-    required = [resources / 'qml/multiplayer/Lobby.qml', resources / 'images/minecraft_bg.png',
+    required = [resources / 'app-version.txt', resources / 'qml/multiplayer/Lobby.qml', resources / 'images/minecraft_bg.png',
                 *[resources / 'qml/launcher' / name for name in
                   ('LauncherHeader.qml', 'Home.qml', 'Downloads.qml', 'GameCatalogue.qml', 'GameInstallation.qml',
                    'InstallationComponent.qml', 'DownloadHub.qml',
@@ -304,7 +311,8 @@ def package_macos(output):
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
     subprocess.run(['/usr/bin/ditto', '-c', '-k', '--sequesterRsrc', '--keepParent',
                     str(bundle), str(archive)], check=True)
-    manifest = {'schema': 1, 'platform': 'macos-' + architecture, 'archive': archive.name,
+    manifest = {'schema': 1, 'launcher_version': launcher_version(),
+                'platform': 'macos-' + architecture, 'archive': archive.name,
                 'size': archive.stat().st_size, 'bundle': bundle.name,
                 'entrypoint': executable.relative_to(output).as_posix(),
                 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
@@ -334,7 +342,8 @@ def package_runtime(directory, output, urls, certificate_pins=None):
             bundle.writestr(entry, data, compresslevel=9)
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-    manifest = {'schema': 1, 'version': digest[:16], 'platform': 'windows-x64',
+    manifest = {'schema': 1, 'version': digest[:16], 'launcher_version': launcher_version(),
+                'platform': 'windows-x64',
                 'entrypoint': 'Buggcraft.exe', 'archive': archive.name,
                 'size': archive.stat().st_size, 'sha256': digest,
                 'urls': [url.replace('{version}', digest[:16]) for url in urls],
@@ -506,7 +515,8 @@ def main():
         with executable.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         release_platform = 'windows-x64' if os.name == 'nt' else 'linux-x86_64'
-        manifest = dict(schema=1, platform=release_platform, format='onefile', entrypoint=executable.name,
+        manifest = dict(schema=1, launcher_version=launcher_version(), platform=release_platform,
+                        format='onefile', entrypoint=executable.name,
                         size=executable.stat().st_size, sha256=digest,
                         cache_tag=onefile_cache_tag(args.native_bridge_dir),
                         signed=signing['signed'])

@@ -8,6 +8,53 @@ import unittest
 
 
 class StartupLoggingTests(unittest.TestCase):
+    def test_packaged_startup_schedules_update_check_with_selected_channel(self):
+        source = Path(__file__).resolve().parents[1] / 'src/buggcraft'
+        with tempfile.TemporaryDirectory(prefix='buggcraft-update-startup-') as temporary:
+            env = dict(os.environ, PYTHONPATH=str(source),
+                       BUGGCRAFT_LOG_DIR=temporary, QT_QPA_PLATFORM='offscreen')
+            code = '''import runpy, sys
+from pathlib import Path
+from unittest.mock import Mock, patch
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QWidget
+import config.settings as settings
+import core.update_client as updates
+root = Path(sys.argv[1])
+(root / 'app-version.txt').write_text('1.2.3-rc.1', encoding='ascii')
+with patch.object(settings, 'get_conf_or_cache_manager', return_value=('test', str(root))):
+    module = runpy.run_module('main', run_name='update_startup_probe')
+schedule = module['_schedule_launcher_update_checks']
+schedule.__globals__.update(IS_PACKAGED=True, RESOURCE_DIR=root)
+app = QApplication([])
+for setting, channel in [('stable', 'stable'), ('development', 'beta')]:
+    window = QWidget()
+    manager = Mock()
+    manager.get_setting.return_value = setting
+    with patch.object(settings, '_settings_manager_instance', manager), \
+            patch.object(QTimer, 'singleShot') as deferred, \
+            patch.object(updates, 'check_for_update', return_value=None) as check:
+        schedule(window, app)
+        manager.get_setting.assert_called_once_with('settings.general.update', 'stable')
+        assert window._update_check_timer.isActive()
+        assert window._update_check_timer.interval() == 3600000
+        delay, callback = deferred.call_args.args
+        assert delay == 7000
+        callback()
+        worker, = window._update_workers
+        assert worker.wait(5000), 'Update worker did not finish'
+        app.processEvents()
+        check.assert_called_once_with('1.2.3-rc.1', channel)
+        assert window._update_workers == []
+    window._update_check_timer.stop()
+    window.deleteLater()
+app.processEvents()
+'''
+            run = subprocess.run([sys.executable, '-c', code, temporary], env=env,
+                                 cwd=temporary, capture_output=True, timeout=30)
+            self.assertEqual(run.returncode, 0,
+                             (run.stdout + run.stderr).decode('utf-8', errors='replace'))
+
     def test_early_import_failure_is_logged_in_selected_directory_and_retained(self):
         source = Path(__file__).resolve().parents[1] / 'src/buggcraft'
         with tempfile.TemporaryDirectory(prefix='buggcraft-diagnostics-') as temporary:

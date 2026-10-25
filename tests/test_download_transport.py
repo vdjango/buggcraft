@@ -18,6 +18,49 @@ import requests
 
 
 class DownloadTransportTests(unittest.TestCase):
+    def test_file_events_report_real_bytes_verification_and_cached_reuse(self):
+        events = []
+        self.downloader.file_event = events.append
+        digest = hashlib.sha1(self.payload).hexdigest()
+        self.downloader.fetch(self.url, 'libraries/progress.jar', digest)
+        self.assertTrue(any(event['state'] == 'downloading' and event.get('done', 0) > 0
+                            and event['total'] == len(self.payload) for event in events))
+        self.assertEqual(events[-2]['state'], 'verifying')
+        self.assertEqual(events[-1]['state'], 'verified')
+        self.assertEqual(events[-1]['done'], len(self.payload))
+        self.assertEqual(events[-1]['total'], len(self.payload))
+        self.downloader.fetch(self.url, 'libraries/progress.jar', digest)
+        self.assertEqual(events[-1]['state'], 'cached')
+        self.assertEqual(len(self.requests), 1)
+
+    def test_parallel_file_events_distinguish_same_filename_and_keep_failure_reason(self):
+        events = []
+        self.downloader.file_event = events.append
+        digest = hashlib.sha1(self.payload).hexdigest()
+        self.downloader._batch([(self.url, folder + '/same.jar', digest, len(self.payload))
+                                for folder in ('libraries', 'mods')], 'parallel fixture')
+        completed = [event for event in events if event['state'] == 'verified']
+        self.assertEqual(len(completed), 2)
+        self.assertNotEqual(completed[0]['key'], completed[1]['key'])
+        with patch.object(self.downloader.cancel, 'wait', return_value=False):
+            with self.assertRaisesRegex(RuntimeError, '文件校验失败'):
+                self.downloader.fetch(self.url, 'broken.jar', '0' * 40, len(self.payload))
+        self.assertEqual(events[-1]['state'], 'failed')
+        self.assertIn('文件校验失败', events[-1]['error'])
+        self.assertFalse((Path(self.temp.name) / 'broken.jar').exists())
+
+    def test_cancelled_file_event_is_terminal_and_partial_file_is_removed(self):
+        events = []
+        def receive(event):
+            events.append(event)
+            if event['state'] == 'downloading' and event.get('done', 0) > 0:
+                self.downloader.cancel.set()
+        self.downloader.file_event = receive
+        with self.assertRaises(DownloadCancelled):
+            self.downloader.fetch(self.url, 'cancel.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(events[-1]['state'], 'cancelled')
+        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part')))
+
     def test_parallel_tasks_share_one_verified_target_without_part_file_races(self):
         from concurrent.futures import ThreadPoolExecutor
         second = MinecraftDownloader(self.temp.name, source='官方')

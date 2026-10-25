@@ -30,6 +30,7 @@ class TaskHistoryController(QObject):
     """QML presentation model for the existing download task engine."""
 
     changed = Signal()
+    logChanged = Signal()
 
     def __init__(self, page):
         super().__init__(page)
@@ -40,6 +41,7 @@ class TaskHistoryController(QObject):
         self._log_task_id = ""
         self._log_title = ""
         self._log_lines = []
+        self._log_files = []
         self._tasks_timer = QTimer(self)
         self._tasks_timer.setSingleShot(True)
         self._tasks_timer.setInterval(80)
@@ -51,7 +53,7 @@ class TaskHistoryController(QObject):
     @Property("QVariantList", notify=changed)
     def tasks(self):
         query = self._query.casefold()
-        return [task for task in self._tasks
+        return [{key: value for key, value in task.items() if key not in ('files', 'logs', '_last_status')} for task in self._tasks
                 if query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
                              " ".join(item.get('name', '') for item in task.get('files', []))).casefold()
                 and (self._filter == "全部记录" or task.get("state") == self._filter
@@ -73,9 +75,13 @@ class TaskHistoryController(QObject):
     def logTitle(self):
         return self._log_title
 
-    @Property("QVariantList", notify=changed)
+    @Property("QVariantList", notify=logChanged)
     def logLines(self):
         return self._log_lines
+
+    @Property('QVariantList', notify=logChanged)
+    def currentFiles(self):
+        return self._log_files
 
     @Slot(str)
     def setQuery(self, value):
@@ -116,6 +122,9 @@ class TaskHistoryController(QObject):
     def closeLog(self):
         self._log_timer.stop()
         self._log_task_id = ""
+        self._log_files = []
+        self._log_lines = []
+        self.logChanged.emit()
 
     def set_tasks(self, tasks):
         self._tasks = tasks
@@ -126,13 +135,19 @@ class TaskHistoryController(QObject):
         task = self.page._find_task(self._log_task_id)
         if task:
             self._log_lines = list(task.get("logs", []))
-            self.changed.emit()
+            order = {'failed': 0, 'retrying': 1, 'downloading': 2, 'verifying': 3, 'pending': 4}
+            self._log_files = sorted([dict(item) for item in task.get('files', [])],
+                                     key=lambda item: order.get(item.get('state'), 5))
+            self.logChanged.emit()
+        elif self._log_task_id:
+            self.closeLog()
 
 
 class DownloadWorkerSignals(QObject):
     status = Signal(str, str)
     # Byte totals may exceed Qt's signed 32-bit int (large modpacks).
     progress = Signal(str, object, object)
+    file_event = Signal(str, object)
     resolved = Signal(str, str)
     downloaded = Signal(str, object)
     pack_ready = Signal(str, str)
@@ -169,6 +184,7 @@ class DownloadWorker(QRunnable):
             progress = lambda current, maximum: self.signals.progress.emit(
                 self.task_id, int(current), int(maximum)
             )
+            file_event = lambda event: self.signals.file_event.emit(self.task_id, event)
             status = lambda value: self.signals.status.emit(self.task_id, str(value))
             if self.addons:
                 from core.loader_rules import incompatibility
@@ -182,7 +198,8 @@ class DownloadWorker(QRunnable):
             if self.content and self.content.get('kind') == 'modpack' and (not self.modpack or not os.path.isfile(self.modpack)):
                 from core.content import download_content
                 files = download_content(self.content['version'], self.content['target'], 'modpack',
-                                         self.cancel_event, status, progress, source=self.source, content_source=self.content_source)
+                                         self.cancel_event, status, progress, source=self.source, content_source=self.content_source,
+                                         file_event=file_event)
                 if len(files) != 1:
                     raise ValueError('整合包版本必须包含唯一的主文件')
                 self.signals.downloaded.emit(self.task_id, files)
@@ -192,19 +209,22 @@ class DownloadWorker(QRunnable):
             if self.modpack:
                 from core.modpacks import ModpackImporter
                 ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
-                                status, progress, self.api_key, content_source=self.content_source).install(
+                                status, progress, self.api_key, content_source=self.content_source,
+                                file_event=file_event).install(
                                     self.modpack, self.version, expected_archive_sha256=self.archive_sha256,
                                     archive_identified=lambda digest: self.signals.archive_identified.emit(self.task_id, digest))
             elif self.content:
                 from core.content import download_content
                 files = download_content(self.content['version'], self.content['target'], self.content['kind'],
-                                         self.cancel_event, status, progress, source=self.source, content_source=self.content_source)
+                                         self.cancel_event, status, progress, source=self.source, content_source=self.content_source,
+                                         file_event=file_event)
                 self.signals.downloaded.emit(self.task_id, files)
             elif self.loader:
                 version_id = install_loader(self.loader, self.base_version, self.loader_version,
                     self.game_dir, self.java, {"setStatus": status,
                     "setProgress": lambda current: progress(current, -1),
-                    "setMax": lambda maximum: progress(-1, maximum)}, self.cancel_event,
+                    "setMax": lambda maximum: progress(-1, maximum),
+                    "fileEvent": file_event}, self.cancel_event,
                     source=self.source)
                 if not isinstance(version_id, str) or not version_id or version_id in ('.', '..') \
                         or any(char in version_id for char in ('/', '\\', ':')):
@@ -213,7 +233,7 @@ class DownloadWorker(QRunnable):
             else:
                 downloader = MinecraftDownloader(
                     self.game_dir, source=self.source, cancel=self.cancel_event,
-                    status=status, progress=progress,
+                    status=status, progress=progress, file_event=file_event,
                 )
                 downloader.install(self.version)
             if not self.content or self.modpack:
@@ -226,7 +246,8 @@ class DownloadWorker(QRunnable):
                 for addon in self.addons:
                     status('正在安装 ' + addon['name'])
                     download_content(addon['version'], target, 'mod', self.cancel_event, status, progress,
-                                     source=self.source, content_source=self.content_source)
+                                     source=self.source, content_source=self.content_source,
+                                     file_event=file_event)
             if self.loader:
                 self.signals.resolved.emit(self.task_id, self.version)
             message = '整合包导入完成' if self.modpack else '内容下载完成' if self.content else f"{self.loader + ' ' if self.loader else ''}安装完成"
@@ -254,6 +275,7 @@ class TasksPage(QWidget):
             self.settings_manager.config_path, "download_history.json"
         )
         self._tasks = self._load_history()
+        self._file_indexes = {}
         self._workers = {}
         self._external_cancellations = {}
         self._closing = False
@@ -292,6 +314,17 @@ class TasksPage(QWidget):
                 logs = task.get('logs', [])
                 limit = 5000 if task.get('kind') == 'room' else 200
                 task['logs'] = [line for line in logs if isinstance(line, str)][-limit:] if isinstance(logs, list) else []
+                files = task.get('files', [])
+                task['files'] = [item for item in files if isinstance(item, dict) and isinstance(item.get('name'), str)] \
+                    if isinstance(files, list) else []
+                for item in task['files']:
+                    for key in ('done', 'total', 'size'):
+                        try:
+                            item[key] = max(0, int(item.get(key) or 0))
+                        except (ValueError, TypeError, OverflowError):
+                            item[key] = 0
+                    if item.get('state') in ('pending', 'downloading', 'verifying', 'retrying'):
+                        item['state'] = 'interrupted'
                 if task.get('state') not in (*self.ACTIVE, '已完成', '失败', '已取消', '已中断'):
                     task['state'] = '已中断'
                 if task.get("state") in self.ACTIVE:
@@ -407,6 +440,7 @@ class TasksPage(QWidget):
                                 content_source=task['content_source'])
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
+        worker.signals.file_event.connect(self.update_file_event)
         worker.signals.resolved.connect(self.resolve_version)
         worker.signals.downloaded.connect(self.resolve_files)
         worker.signals.pack_ready.connect(self.resolve_pack)
@@ -573,6 +607,26 @@ class TasksPage(QWidget):
         self._update_row(task)
         self._schedule_save()
 
+    @Slot(str, object)
+    def update_file_event(self, task_id, event):
+        task = self._find_task(task_id)
+        if not task:
+            return
+        files = task.setdefault('files', [])
+        if task_id not in self._file_indexes:
+            self._file_indexes[task_id] = {item.get('key', item['name']): item for item in files}
+        index = self._file_indexes[task_id]
+        key = event.get('key', event['name'])
+        entry = index.get(key)
+        if entry is None:
+            entry = dict(name=event['name'], done=0, total=0, state='pending')
+            files.append(entry)
+            index[key] = entry
+        entry.update(event)
+        # Only the open detail view needs byte updates; avoid rebuilding every
+        # task row for each chunk of thousands of assets.
+        self._schedule_save()
+
     @Slot(str, bool, str)
     def finish_task(self, task_id, succeeded, message):
         task = self._find_task(task_id)
@@ -584,6 +638,9 @@ class TasksPage(QWidget):
             if cancelled:
                 task["status"] = "已停止下载，点击重试可复用已校验文件。"
             task["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            for item in task.get('files', []):
+                if item.get('state') in ('pending', 'downloading', 'verifying', 'retrying'):
+                    item['state'] = 'cancelled' if cancelled else 'interrupted'
             self._log(task, message)
             if succeeded:
                 task["progress"] = task["maximum"] or task["progress"]
@@ -689,6 +746,8 @@ class TasksPage(QWidget):
 
     def clear_completed(self):
         self._tasks = [task for task in self._tasks if task.get("state") in self.ACTIVE]
+        self._file_indexes = {task_id: index for task_id, index in self._file_indexes.items()
+                              if self._find_task(task_id)}
         self._persist_and_refresh()
 
     def on_page_activate(self):

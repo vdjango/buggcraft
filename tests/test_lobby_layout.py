@@ -637,7 +637,12 @@ class LobbyLayoutTests(unittest.TestCase):
                            invite.mapToScene(QPointF(0, invite.height())).y())
         self.assertGreater(submit.mapToScene(QPointF(0, 0)).x(),
                            cancel.mapToScene(QPointF(cancel.width(), 0)).x())
-        self.assertGreaterEqual(submit.mapToScene(QPointF(0, 0)).y(), 450)
+        card = find_item(self.window, 'join-form-card')
+        actions = find_item(self.window, 'join-form-actions')
+        self.assertIs(submit.parentItem(), actions)
+        self.assertLess(submit.mapToScene(QPointF(0, submit.height())).y(),
+                        card.mapToScene(QPointF(0, card.height())).y())
+        self.assertLessEqual(card.width(), 548)
         self.assertFalse(submit.isEnabled())
         self.click('cancel-join')
         self.assertEqual(self.backend.view['page'], 'hall')
@@ -706,6 +711,15 @@ class LobbyLayoutTests(unittest.TestCase):
             self.assertEqual(item.property('text'), expected)
         self.assertGreaterEqual(find_item(self.window, 'room-chat').height(),145)
         self.assert_absent_or_hidden('node-picker')
+
+    def test_local_host_game_ping_can_display_zero(self):
+        self.backend._view = {**self.backend._view, 'page':'connected', 'selected':'mine',
+            'connections':[dict(id='mine', title='World', role='host', state='online',
+                availability='ready', latency_ms=0)],
+            'chatMessages':[], 'chatDraft':'', 'chatError':'', 'chatSending':False}
+        self.backend.viewChanged.emit()
+        QTest.qWait(40)
+        self.assertEqual(find_item(self.window, 'game-latency').property('text'), '游戏延迟 0 ms · 本地')
 
     def test_room_exit_is_in_title_bar_and_waiting_guidance_keeps_chat(self):
         for role in ('host', 'client'):

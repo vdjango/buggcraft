@@ -25,7 +25,7 @@ class ReleaseStagingTests(unittest.TestCase):
             name = release.ONEFILES[platform]
             executable = self.output / name
             executable.write_bytes(b'single-file executable')
-            manifest = dict(platform=platform, format='onefile', entrypoint=name,
+            manifest = dict(platform=platform, launcher_version='1.2.3', format='onefile', entrypoint=name,
                             size=executable.stat().st_size,
                             sha256=hashlib.sha256(executable.read_bytes()).hexdigest())
             (self.output / 'release.json').write_text(json.dumps(manifest), encoding='utf-8')
@@ -34,7 +34,7 @@ class ReleaseStagingTests(unittest.TestCase):
         archive = self.output / release.ARCHIVES[platform]
         with zipfile.ZipFile(archive, 'w') as bundle:
             bundle.writestr('app/runtime.txt', 'packaged runtime')
-        manifest = dict(platform=platform, archive=archive.name, size=archive.stat().st_size,
+        manifest = dict(platform=platform, launcher_version='1.2.3', archive=archive.name, size=archive.stat().st_size,
                         sha256=hashlib.sha256(archive.read_bytes()).hexdigest())
         (self.output / 'release.json').write_text(json.dumps(manifest), encoding='utf-8')
         (self.output / 'build.log').write_text('compiler diagnostics', encoding='utf-8')
@@ -44,7 +44,7 @@ class ReleaseStagingTests(unittest.TestCase):
         executable = self.package('windows-x64')
         destination = release.stage(self.output, 'windows-x64', ROOT)
         self.assertEqual({p.name for p in destination.iterdir()}, {
-            'Buggcraft.exe', 'SHA256SUMS-windows-x64.txt'})
+            'Buggcraft.exe', 'SHA256SUMS-windows-x64.txt', release.VERSION_MARKER})
         for line in (destination / 'SHA256SUMS-windows-x64.txt').read_text().splitlines():
             expected, name = line.split('  ', 1)
             self.assertEqual(hashlib.sha256((destination / name).read_bytes()).hexdigest(), expected)
@@ -53,7 +53,7 @@ class ReleaseStagingTests(unittest.TestCase):
         self.package('linux-x86_64')
         destination = release.stage(self.output, 'linux-x86_64', ROOT)
         self.assertEqual({p.name for p in destination.iterdir()}, {
-            'Buggcraft', 'SHA256SUMS-linux-x86_64.txt'})
+            'Buggcraft', 'SHA256SUMS-linux-x86_64.txt', release.VERSION_MARKER})
 
     def test_each_mac_architecture_has_distinct_download_names(self):
         for platform in ('macos-x86_64', 'macos-arm64'):
@@ -63,7 +63,7 @@ class ReleaseStagingTests(unittest.TestCase):
                 destination = release.stage(self.output, platform, ROOT)
                 self.assertEqual({p.name for p in destination.iterdir()}, {
                     archive.name, 'release-' + platform + '.json',
-                    'SHA256SUMS-' + platform + '.txt'})
+                    'SHA256SUMS-' + platform + '.txt', release.VERSION_MARKER})
 
     def test_corrupt_archive_is_rejected_before_creating_download_directory(self):
         archive = self.package('macos-arm64')
