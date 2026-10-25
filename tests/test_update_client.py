@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import tempfile
 import subprocess
+import sys
+import time
 import unittest
 from unittest import mock
 
@@ -33,6 +35,42 @@ class Response:
 
 
 class UpdateClientTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Real Windows updater process integration')
+    def test_background_helper_survives_creator_exit_replaces_and_restarts(self):
+        compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        if not compiler.is_file():
+            self.skipTest('.NET Framework C# compiler unavailable')
+        with tempfile.TemporaryDirectory(prefix='launcher restart ') as directory:
+            root = Path(directory)
+            marker, source, target = root / 'restarted.txt', root / 'new.exe', root / 'launcher.exe'
+            fixture = root / 'RestartProbe.cs'
+            fixture.write_text('using System; using System.IO; class Program { [STAThread] static void Main() {'
+                               'File.WriteAllText(@"' + str(marker).replace('"', '""') + '", "restarted"); } }')
+            result = subprocess.run([str(compiler), '/nologo', '/target:winexe', '/out:' + str(source), str(fixture)],
+                                    capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            expected = source.read_bytes()
+            target.write_bytes(b'old launcher')
+            creator = root / 'creator.py'
+            creator.write_text('import os,sys\nfrom pathlib import Path\n'
+                               'sys.path.insert(0,sys.argv[1])\n'
+                               'from core.update_client import _spawn_windows_replacement\n'
+                               '_spawn_windows_replacement(Path(sys.argv[2]),Path(sys.argv[3]),os.getpid())\n')
+            env = dict(os.environ, NUITKA_ONEFILE_PARENT='')
+            subprocess.run([sys.executable, str(creator), str(Path(update_client.__file__).resolve().parents[1]),
+                            str(source), str(target)], env=env, check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+            for _ in range(150):
+                if marker.exists():
+                    break
+                time.sleep(.1)
+            self.assertTrue(marker.exists(), 'The background helper did not replace and restart the executable')
+            self.assertEqual(target.read_bytes(), expected)
+            for _ in range(50):
+                if not list(root.glob('*.backup-*')):
+                    break
+                time.sleep(.1)
+            self.assertFalse(list(root.glob('*.backup-*')))
+
     def test_windows_replacement_waits_onefile_parent_and_clears_bootstrap_environment(self):
         with mock.patch.dict(os.environ, {'NUITKA_ONEFILE_PARENT': '123', 'NUITKA_ONEFILE_START': 'old'}), \
                 mock.patch('psutil.Process') as process, \

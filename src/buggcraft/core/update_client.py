@@ -168,7 +168,9 @@ def _spawn_windows_replacement(source, target, process_id):
         "$_ | Out-String | Set-Content -LiteralPath ($d.target+'.update-error.log') -Encoding UTF8}"
     )
     encoded = __import__('base64').b64encode(script.encode('utf-16le')).decode('ascii')
-    flags = getattr(subprocess, 'DETACHED_PROCESS', 0x00000008) | getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+    # DETACHED_PROCESS makes Windows PowerShell exit without running the command
+    # on some hosts. A hidden independent process group survives launcher exit.
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
     flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
     subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
                       '-EncodedCommand', encoded], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
