@@ -233,8 +233,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
+      - name: Test platform synchronization client
+        run: python -m unittest discover -s tests -p test_release_platform_sync.py -v
       - uses: actions/download-artifact@v4
         with:
           pattern: Buggcraft-*
@@ -244,6 +247,7 @@ jobs:
         run: |
           git archive --format=tar.gz -o release-files/Buggcraft-source.tar.gz HEAD
           cp LICENSE release-files/LICENSE
+          printf '%s\n' "${GITHUB_REF_NAME#v}" > release-files/BUGGCRAFT_VERSION.txt
       - name: Create reviewable release draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -260,4 +264,15 @@ jobs:
 
           Windows 构建目前没有受信任的代码签名，macOS 构建使用 ad-hoc 签名且未经 Apple 公证。发布者应先完成对应系统的安装验收与签名审查，再公开此草稿。
           NOTES
-          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Buggcraft $RELEASE_TAG" --notes-file release-notes.md release-files/*
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Existing release retained; retrying platform synchronization."
+          else
+            prerelease=()
+            [[ "${RELEASE_TAG#v}" == *-* ]] && prerelease=(--prerelease)
+            gh release create "$RELEASE_TAG" --verify-tag --draft "${prerelease[@]}" --title "Buggcraft $RELEASE_TAG" --notes-file release-notes.md release-files/*
+          fi
+      - name: Synchronize build assets to platform cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/sync_platform_release.py
