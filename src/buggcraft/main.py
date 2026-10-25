@@ -201,13 +201,28 @@ def initialize_application():
         launcher.setAttribute(Qt.WA_ShowWithoutActivating)
         launcher.move(-20000, -20000)
     launcher.show()
+    update_handshake = os.environ.pop('BUGGCRAFT_UPDATE_HANDSHAKE', '')
+    completed_update = os.environ.pop('BUGGCRAFT_UPDATE_INSTALLED', '') == '1'
+    if update_handshake:
+        def acknowledge_update_startup():
+            try:
+                ready_path = Path(update_handshake).resolve()
+                if (ready_path.parent == BASE_DIR.resolve() and
+                        ready_path.name.startswith('.buggcraft-update-ready-')):
+                    ready_path.touch(exist_ok=False)
+            except OSError:
+                logger.exception('Could not acknowledge successful launcher update startup')
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(750, acknowledge_update_startup)
     if startup_report is None:
         _schedule_launcher_update_checks(launcher, app)
     if _payload_cache is not None and startup_report is None:
         from PySide6.QtCore import QTimer
         from threading import Thread
+        minimum_age = 0 if completed_update else 24 * 60 * 60
         QTimer.singleShot(5000, lambda: Thread(
-            target=_payload_cache.prune, name='payload-cache-cleanup', daemon=True).start())
+            target=lambda: _payload_cache.prune(minimum_age=minimum_age, keep_previous=not completed_update),
+            name='payload-cache-cleanup', daemon=True).start())
     logger.info('Startup timing: imports=%.3fs; window=%.3fs; shown=%.3fs',
                 imports_seconds, window_seconds, perf_counter() - _STARTUP_STARTED)
     if startup_report is not None:

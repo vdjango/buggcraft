@@ -87,8 +87,8 @@ class PayloadCache:
             except OSError:
                 pass
 
-    def prune(self, *, now=None, minimum_age=24 * 60 * 60):
-        """Keep this payload, the newest previous one, recent and active versions.
+    def prune(self, *, now=None, minimum_age=24 * 60 * 60, keep_previous=True):
+        """Keep this payload, optionally the newest previous one, recent and active versions.
 
         Only payloads registered by this implementation are eligible. Unknown
         legacy cache directories and user folders are deliberately left alone.
@@ -113,7 +113,10 @@ class PayloadCache:
                         candidates.append((used, directory))
                     except (OSError, ValueError, TypeError, KeyError):
                         continue
-                for used, directory in sorted(candidates, reverse=True)[1:]:
+                previous = sorted(candidates, reverse=True)
+                if keep_previous:
+                    previous = previous[1:]
+                for used, directory in previous:
                     if now - used < minimum_age:
                         continue
                     locks = []

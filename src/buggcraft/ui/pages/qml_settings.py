@@ -137,7 +137,7 @@ class SettingsController(QObject):
         if self.scope == 'general':
             self._fields = [
                 self._field('settings.general.update', '启动器更新', s.get_setting('settings.general.update', 'stable'),
-                            ['stable', 'development'], '稳定版仅接收正式更新；开发版同时接收开发版和正式版。切换后立即检查，确认后自动下载、校验并重启。'),
+                            ['stable', 'development'], '启动 10 秒后检查，之后每 4 小时检查；稍后提醒间隔 24 小时。稳定版仅接收正式更新，开发版也接收测试更新。切换通道立即检查。'),
                 self._field('launcher.opacity', '启动器透明度', launcher_opacity(s),
                             options=[35, 100], kind='opacity',
                             description='默认 85%，最低 35%，100% 为完全不透明。'),

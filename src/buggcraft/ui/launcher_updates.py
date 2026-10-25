@@ -3,15 +3,18 @@ import logging
 from pathlib import Path
 import platform
 import sys
+import time
 
 from PySide6.QtCore import QObject, Property, QThread, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QMessageBox, QProgressDialog
 
 from config.settings import get_settings_manager
 from core.update_client import apply_update, check_for_update, current_version, download_update
 
 logger = logging.getLogger(__name__)
+STARTUP_DELAY_MS = 10_000
+CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
+REMINDER_SECONDS = 24 * 60 * 60
 
 
 class CheckWorker(QThread):
@@ -30,7 +33,7 @@ class CheckWorker(QThread):
 
 
 class DownloadWorker(QThread):
-    progress = Signal(int)
+    progress = Signal(object, object)
     completed = Signal(object, str)
 
     def __init__(self, parent, update):
@@ -44,7 +47,7 @@ class DownloadWorker(QThread):
             if platform.system() == 'Darwin':
                 directory = next(parent for parent in executable.parents if parent.suffix == '.app').parent
             package = download_update(self.update, directory,
-                                      lambda done, total: self.progress.emit(int(done * 1000 / total)))
+                                      lambda done, total: self.progress.emit(done, total))
             self.completed.emit(package, '')
         except Exception as exc:
             self.completed.emit(None, str(exc))
@@ -58,14 +61,20 @@ class LauncherUpdateController(QObject):
         self.launcher, self.app = launcher, app
         self.version = current_version(resource_path)
         self.packaged = packaged
+        self.resource_path = resource_path
         self.workers = []
-        self.prompted = set()
+        self.dialog = None
         self._checking = self._downloading = False
         self._pending_manual = False
+        self._stopping = False
         self._status = '等待自动检查更新' if packaged else '源码运行；可检查官网下载版本'
         self.timer = QTimer(self)
-        self.timer.setInterval(60 * 60 * 1000)
+        self.timer.setInterval(CHECK_INTERVAL_MS)
         self.timer.timeout.connect(self.check)
+        self.startup_timer = QTimer(self)
+        self.startup_timer.setSingleShot(True)
+        self.startup_timer.setInterval(STARTUP_DELAY_MS)
+        self.startup_timer.timeout.connect(self.check)
         self.app.aboutToQuit.connect(self.shutdown)
 
     @Property(str, constant=True)
@@ -90,7 +99,7 @@ class LauncherUpdateController(QObject):
 
     def start(self):
         if self.packaged:
-            QTimer.singleShot(7000, self.check)
+            self.startup_timer.start()
             self.timer.start()
 
     @Slot()
@@ -101,7 +110,12 @@ class LauncherUpdateController(QObject):
 
     @Slot()
     def check(self, manual=False):
+        if self._stopping:
+            return
         if self._downloading:
+            if manual and self.dialog:
+                self.dialog.show()
+                self.dialog.raise_()
             return
         if self._checking:
             self._pending_manual |= manual
@@ -119,6 +133,8 @@ class LauncherUpdateController(QObject):
             self.workers.remove(worker)
             worker.deleteLater()
             self._checking = False
+            if self._stopping:
+                return
             pending = self._pending_manual
             self._pending_manual = False
             if channel != self.channel():
@@ -127,7 +143,8 @@ class LauncherUpdateController(QObject):
             if error:
                 self._set_status('检查更新失败，请检查网络后重试')
                 if manual or pending:
-                    QMessageBox.warning(self.launcher, '检查更新失败', error + '\n\n可以重试，或从官网手动下载。')
+                    self._show_error('暂时无法检查更新', '请检查网络连接后重试。当前版本可以继续使用。', error,
+                                     lambda: self.check(manual=True))
             elif update:
                 self._set_status(f"发现新版本 {update['version']}")
                 logger.info('Launcher update available: %s', update['version'])
@@ -142,53 +159,130 @@ class LauncherUpdateController(QObject):
         worker.start()
 
     def offer(self, update, manual=False):
-        if self._downloading or (update['version'] in self.prompted and not manual):
+        if self._downloading:
             return
-        self.prompted.add(update['version'])
-        box = QMessageBox(self.launcher)
-        box.setWindowTitle('发现启动器更新')
-        box.setIcon(QMessageBox.Information)
-        box.setTextFormat(Qt.PlainText)
-        box.setText(f"Buggcraft {update['version']} 已发布。\n当前版本：{self.version}")
-        box.setInformativeText(update.get('notes') or '修复问题并改进启动器体验。')
-        install = box.addButton('立即更新' if self.packaged else '打开官网下载', QMessageBox.AcceptRole)
-        box.addButton('稍后提醒', QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is not install:
-            return
+        settings = get_settings_manager()
+        reminder = settings.get_setting('settings.general.update_reminder', {})
+        if not manual and isinstance(reminder, dict) and reminder.get('version') == update['version']:
+            try:
+                if float(reminder.get('until', 0)) > time.time():
+                    return
+            except (ValueError, TypeError, OverflowError):
+                pass
+        if self.dialog and self.dialog.isVisible() and self.dialog.controller.data.get('phase') == 'offer':
+            if self.dialog.controller.data.get('version') == update['version']:
+                self.dialog.raise_()
+                return
+        install = '立即更新' if self.packaged else '打开官网下载'
+        dialog = self._show_dialog('发现新版本', '新的启动器版本已准备就绪。',
+                                  update.get('notes') or '修复问题并改进启动器体验。',
+                                  ['稍后提醒', install], install, update, 'offer')
+        dialog.controller.data['footer'] = ('启动 10 秒后首次检查，此后每 4 小时检查一次。更新完成后自动重启。'
+                                            if self.packaged else '源码运行时从官网下载打包版本。') + \
+                                           '稍后提醒将在 24 小时后再次提示。'
+        dialog.controller.changed.emit()
+        def action(name):
+            if name == install:
+                dialog.accept()
+                self._install_requested(update)
+            else:
+                dialog.reject()
+        dialog.controller.actionRequested.connect(action)
+        def remind_later():
+            settings.set_setting('settings.general.update_reminder',
+                                 {'version': update['version'], 'until': time.time() + REMINDER_SECONDS})
+            settings.save_settings()
+        dialog.rejected.connect(remind_later)
+
+    def _install_requested(self, update):
         if not self.packaged:
             self.open_download_page(update)
             return
         started = getattr(self.launcher, 'started_page', None)
         if started and started.launcher.running:
-            QMessageBox.information(self.launcher, '请先关闭游戏', '请关闭游戏后，在设置中点击「检查更新」重试。')
+            self._show_error('请先关闭游戏', '游戏正在运行，暂时无法替换启动器。',
+                             '关闭游戏后点击重试，即可开始下载更新。', lambda: self._install_requested(update), update)
             return
         self.download(update)
 
+    @staticmethod
+    def _file_size(size):
+        return f'{size / 1024 / 1024:.1f} MB'
+
+    def _show_dialog(self, title, message, detail, actions, primary, update=None, phase='error'):
+        from ui.dialog.qml_dialog import QmlDialog
+
+        self._close_dialog()
+        update = update or {}
+        size = update.get('asset', {}).get('size', 0)
+        dialog = QmlDialog(self.launcher, resources=self.resource_path, title=title, message=message,
+                           detail=detail, actions=actions, primary_action=primary, width=600, height=530,
+                           source='LauncherUpdate.qml', data={
+                               'phase': phase, 'version': update.get('version', ''), 'currentVersion': self.version,
+                               'channelName': '开发版' if self.channel() == 'beta' else '稳定版',
+                               'packageSize': self._file_size(size) if size else '',
+                           })
+        self.dialog = dialog
+        def finished(_):
+            if self.dialog is dialog:
+                self.dialog = None
+            dialog.shutdown()
+            dialog.deleteLater()
+        dialog.finished.connect(finished, Qt.QueuedConnection)
+        dialog.open()
+        return dialog
+
+    def _close_dialog(self):
+        if self.dialog:
+            dialog, self.dialog = self.dialog, None
+            dialog.accept()
+
+    def _show_error(self, title, message, detail, retry, update=None):
+        dialog = self._show_dialog(title, message, detail, ['关闭', '官网下载', '重试'], '重试', update)
+        def action(name):
+            dialog.accept()
+            if name == '重试':
+                retry()
+            elif name == '官网下载':
+                self.open_download_page(update or {})
+        dialog.controller.actionRequested.connect(action)
+
     def download(self, update):
+        if self._downloading:
+            return
         self._downloading = True
         self._set_status('正在下载并校验更新…')
-        progress = QProgressDialog(self._status, None, 0, 1000, self.launcher)
-        progress.setWindowTitle('更新 Buggcraft')
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setAutoClose(False)
-        progress.setAutoReset(False)
-        progress.setValue(0)
+        dialog = self._show_dialog('正在更新启动器', '下载完成并通过校验后，启动器将自动重启。',
+                                  update.get('notes') or '修复问题并改进启动器体验。',
+                                  ['后台下载'], '', update, 'download')
+        dialog.controller.working = True
+        dialog.controller.dismissible = False
+        dialog.controller.data['footer'] = '安装包将核对大小与 SHA-256。校验失败时保留当前版本。'
+        dialog.controller.changed.emit()
+        dialog.controller.actionRequested.connect(lambda _: dialog.hide())
         worker = DownloadWorker(self, update)
         self.workers.append(worker)
-        worker.progress.connect(progress.setValue)
+        def progress(done, total):
+            model = dialog.controller
+            model.progress = min(1., done / total) if total else 0.
+            model.data['progressText'] = ('正在校验安装包…' if done == total else
+                                          self._file_size(done) + ' / ' + self._file_size(total))
+            model.changed.emit()
+        worker.progress.connect(progress)
 
         def complete(package, error):
             worker.wait()
             self.workers.remove(worker)
             worker.deleteLater()
-            progress.close()
+            self._close_dialog()
             self._downloading = False
+            if self._stopping:
+                return
             if error:
                 self._set_status('更新下载或校验失败，可以重新检查并重试')
                 logger.warning('Launcher update download failed: %s', error)
-                QMessageBox.warning(self.launcher, '更新下载失败', error + '\n\n将打开官网对应平台的下载页面。')
-                self.open_download_page(update)
+                self._show_error('更新未完成', '当前版本已保留，可以重试或从官网下载。', error,
+                                 lambda: self.download(update), update)
                 return
             try:
                 self._set_status('校验通过，正在安装并重启…')
@@ -198,12 +292,11 @@ class LauncherUpdateController(QObject):
             except Exception as exc:
                 self._set_status('自动安装失败，请从官网手动下载')
                 logger.exception('Could not install launcher update')
-                QMessageBox.warning(self.launcher, '无法自动安装', str(exc) + '\n\n将打开官网对应平台的下载页面。')
-                self.open_download_page(update)
+                self._show_error('暂时无法安装更新', '当前版本已保留，请重试或从官网下载。', str(exc),
+                                 lambda: self._install_requested(update), update)
 
         worker.completed.connect(complete)
         worker.start()
-        progress.show()
 
     @staticmethod
     def open_download_page(update):
@@ -211,6 +304,9 @@ class LauncherUpdateController(QObject):
 
     @Slot()
     def shutdown(self):
+        self._stopping = True
         self.timer.stop()
+        self.startup_timer.stop()
         for worker in list(self.workers):
             worker.wait()
+        self._close_dialog()

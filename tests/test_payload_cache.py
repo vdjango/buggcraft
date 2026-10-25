@@ -51,6 +51,17 @@ class PayloadCacheTests(unittest.TestCase):
         self.assertTrue(unknown.is_dir())
         self.assertEqual((user / 'save').read_bytes(), b'world')
 
+    def test_completed_update_removes_all_inactive_previous_payloads(self):
+        current = self.payload(1, 0)
+        previous = self.payload(2, 5)
+        oldest = self.payload(3, 500)
+        cache = self.register(current)
+        self.assertEqual(set(cache.prune(now=self.now, minimum_age=0, keep_previous=False)),
+                         {previous.name, oldest.name})
+        self.assertTrue(current.is_dir())
+        self.assertFalse(previous.exists())
+        self.assertFalse(oldest.exists())
+
     def test_running_payload_in_another_process_is_never_removed(self):
         current = self.payload(1, 0)
         self.payload(2, 2 * 86400)

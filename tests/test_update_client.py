@@ -43,9 +43,11 @@ class UpdateClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='launcher restart ') as directory:
             root = Path(directory)
             marker, source, target = root / 'restarted.txt', root / 'new.exe', root / 'launcher.exe'
+            handshake = root / '.buggcraft-update-ready-probe'
             fixture = root / 'RestartProbe.cs'
             fixture.write_text('using System; using System.IO; class Program { [STAThread] static void Main() {'
-                               'File.WriteAllText(@"' + str(marker).replace('"', '""') + '", "restarted"); } }')
+                               'File.WriteAllText(@"' + str(marker).replace('"', '""') + '", "restarted");'
+                               'File.WriteAllText(Environment.GetEnvironmentVariable("BUGGCRAFT_UPDATE_HANDSHAKE"), "ready"); } }')
             result = subprocess.run([str(compiler), '/nologo', '/target:winexe', '/out:' + str(source), str(fixture)],
                                     capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
             self.assertEqual(result.returncode, 0, result.stdout)
@@ -55,12 +57,13 @@ class UpdateClientTests(unittest.TestCase):
             creator.write_text('import os,sys\nfrom pathlib import Path\n'
                                'sys.path.insert(0,sys.argv[1])\n'
                                'from core.update_client import _spawn_windows_replacement\n'
+                               'os.environ["BUGGCRAFT_UPDATE_HANDSHAKE"] = ""\n'
                                '_spawn_windows_replacement(Path(sys.argv[2]),Path(sys.argv[3]),os.getpid())\n')
             env = dict(os.environ, NUITKA_ONEFILE_PARENT='')
             subprocess.run([sys.executable, str(creator), str(Path(update_client.__file__).resolve().parents[1]),
                             str(source), str(target)], env=env, check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
             for _ in range(150):
-                if marker.exists():
+                if marker.exists() and not list(root.glob('*.backup-*')):
                     break
                 time.sleep(.1)
             self.assertTrue(marker.exists(), 'The background helper did not replace and restart the executable')
@@ -82,8 +85,11 @@ class UpdateClientTests(unittest.TestCase):
         encoded = script.split("FromBase64String('", 1)[1].split("'", 1)[0]
         payload = json.loads(base64.b64decode(encoded))
         self.assertEqual(payload['pids'], [456, 123])
+        self.assertEqual(Path(payload['handshake']).resolve().parent, Path('launcher.exe').resolve().parent)
         self.assertFalse(any(key.startswith('NUITKA_') for key in kwargs['env']))
         self.assertIn('Move-Item -LiteralPath $backup', script)
+        self.assertIn('BUGGCRAFT_UPDATE_HANDSHAKE', script)
+        self.assertIn('BUGGCRAFT_UPDATE_INSTALLED', script)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell replacement integration')
     def test_windows_replacement_script_replaces_and_restores_on_restart_failure(self):
@@ -98,12 +104,23 @@ class UpdateClientTests(unittest.TestCase):
                     update_client._spawn_windows_replacement(source, target, 2147483647)
                 command = spawn.call_args.args[0]
                 script = base64.b64decode(command[-1]).decode('utf-16le')
-                start = 'Start-Process -FilePath $d.target -WorkingDirectory (Split-Path -LiteralPath $d.target);'
+                start = "$started=Start-Process -FilePath $d.target -WorkingDirectory (Split-Path -LiteralPath $d.target) -PassThru;"
                 self.assertIn(start, script)
-                replacement = "throw 'simulated restart failure';" if failing else "'restarted' | Set-Content -LiteralPath '" + str(marker).replace("'", "''") + "';"
+                if failing:
+                    replacement = "throw 'simulated restart failure';"
+                else:
+                    handshake = json.loads(base64.b64decode(
+                        script.split("FromBase64String('", 1)[1].split("'", 1)[0]))['handshake']
+                    replacement = "'restarted' | Set-Content -LiteralPath '" + str(marker).replace("'", "''") + "';" + \
+                                  "'ready' | Set-Content -LiteralPath '" + handshake.replace("'", "''") + "';"
                 script = script.replace(start, replacement)
                 command[-1] = base64.b64encode(script.encode('utf-16le')).decode('ascii')
-                subprocess.run(command, check=True, timeout=15, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                result = subprocess.run(command, timeout=15, capture_output=True,
+                                         creationflags=subprocess.CREATE_NO_WINDOW)
+                log = root / 'launcher.exe.update-error.log'
+                self.assertEqual(result.returncode, 0,
+                                 log.read_text(encoding='utf-8-sig') if log.exists() else
+                                 result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'))
                 self.assertEqual(target.read_bytes(), b'original executable' if failing else b'verified new executable')
                 self.assertFalse(list(root.glob('*.backup-*')))
                 if failing:

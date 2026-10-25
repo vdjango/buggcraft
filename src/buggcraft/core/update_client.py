@@ -152,7 +152,9 @@ def _spawn_windows_replacement(source, target, process_id):
         import psutil
         if psutil.Process(process_id).ppid() == int(parent):
             pids.append(int(parent))
-    payload = json.dumps({'source': str(source), 'target': str(target), 'pids': pids}, ensure_ascii=True)
+    handshake = target.parent / ('.buggcraft-update-ready-' + uuid.uuid4().hex)
+    payload = json.dumps({'source': str(source), 'target': str(target), 'pids': pids,
+                          'handshake': str(handshake)}, ensure_ascii=True)
     payload64 = __import__('base64').b64encode(payload.encode('utf-8')).decode('ascii')
     script = (
         "$ErrorActionPreference='Stop';"
@@ -162,8 +164,16 @@ def _spawn_windows_replacement(source, target, process_id):
         "try{"
         "for($attempt=0;$attempt -lt 30;$attempt++){try{Move-Item -LiteralPath $d.target -Destination $backup;break}catch{if($attempt -eq 29){throw};Start-Sleep -Milliseconds 300}};"
         "Move-Item -LiteralPath $d.source -Destination $d.target;"
-        "Start-Process -FilePath $d.target -WorkingDirectory (Split-Path -LiteralPath $d.target);"
-        "Remove-Item -LiteralPath $backup -ErrorAction SilentlyContinue"
+        "$env:BUGGCRAFT_UPDATE_HANDSHAKE=$d.handshake;"
+        "$env:BUGGCRAFT_UPDATE_INSTALLED='1';"
+        "$started=Start-Process -FilePath $d.target -WorkingDirectory (Split-Path -LiteralPath $d.target) -PassThru;"
+        "$deadline=(Get-Date).AddSeconds(45);"
+        "while(!(Test-Path -LiteralPath $d.handshake) -and !$started.HasExited -and (Get-Date) -lt $deadline){Start-Sleep -Milliseconds 250};"
+        "if(Test-Path -LiteralPath $d.handshake){Remove-Item -LiteralPath $d.handshake -Force;Remove-Item -LiteralPath $backup -Force}else{"
+        "if(!$started.HasExited){Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue};"
+        "Remove-Item -LiteralPath $d.target -Force -ErrorAction SilentlyContinue;"
+        "Move-Item -LiteralPath $backup -Destination $d.target -Force;"
+        "throw 'Updated launcher did not complete startup; restored previous version.'}"
         "}catch{if(Test-Path -LiteralPath $backup){Move-Item -LiteralPath $backup -Destination $d.target -Force};"
         "$_ | Out-String | Set-Content -LiteralPath ($d.target+'.update-error.log') -Encoding UTF8}"
     )

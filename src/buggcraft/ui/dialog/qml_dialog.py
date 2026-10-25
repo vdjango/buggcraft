@@ -22,6 +22,7 @@ class DialogController(QObject):
         self.progress = 0.
         self.dismissible = True
         self.actions_enabled = True
+        self.data = {}
         self._copy_timer = QTimer(self)
         self._copy_timer.setSingleShot(True)
         self._copy_timer.timeout.connect(self._reset_copy)
@@ -32,7 +33,7 @@ class DialogController(QObject):
                     actions=self.actions, code=self.code, uri=self.uri,
                     copied=self.copied, log=self.log, working=self.working, progress=self.progress,
                     primaryAction=self.primary_action, dangerAction=self.danger_action,
-                    actionsEnabled=self.actions_enabled)
+                    actionsEnabled=self.actions_enabled, data=self.data)
 
     @Slot(str)
     def action(self, name):
@@ -59,7 +60,8 @@ class DialogController(QObject):
 
 class QmlDialog(QDialog):
     def __init__(self, parent=None, *, resources=None, title='', message='', detail='',
-                 actions=None, width=550, height=320, primary_action=None, danger_action=''):
+                 actions=None, width=550, height=320, primary_action=None, danger_action='',
+                 source='DialogContent.qml', data=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setWindowTitle(title)
@@ -67,8 +69,9 @@ class QmlDialog(QDialog):
         self.setMinimumSize(width, height)
         resources = resources or getattr(parent, 'resource_path', None) or Path(__file__).resolve().parents[4] / 'resources'
         self.controller = DialogController(self, title, message, detail, actions, primary_action, danger_action)
+        self.controller.data = data or {}
         self._shutdown_scheduled = False
-        self.host = QmlPage(self, resources, 'DialogContent.qml', 'dialogModel', self.controller)
+        self.host = QmlPage(self, resources, source, 'dialogModel', self.controller)
         self.quick = self.host.quick
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

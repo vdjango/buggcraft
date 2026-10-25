@@ -33,14 +33,12 @@ for setting, channel in [('stable', 'stable'), ('development', 'beta')]:
     manager = Mock()
     manager.get_setting.return_value = setting
     with patch.object(settings, '_settings_manager_instance', manager), \
-            patch.object(QTimer, 'singleShot') as deferred, \
             patch.object(update_ui, 'check_for_update', return_value=None) as check:
         schedule(window, app)
         assert window._update_check_timer.isActive()
-        assert window._update_check_timer.interval() == 3600000
-        delay, callback = deferred.call_args.args
-        assert delay == 7000
-        callback()
+        assert window._update_check_timer.interval() == 4 * 60 * 60 * 1000
+        assert window.launcher_updates.startup_timer.interval() == 10000
+        window.launcher_updates.startup_timer.timeout.emit()
         worker, = window._update_workers
         assert worker.wait(5000), 'Update worker did not finish'
         app.processEvents()
