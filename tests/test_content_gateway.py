@@ -2,11 +2,18 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
+
+# aiohttp's test server can leave a Proactor pipe pending on Windows when a
+# streamed response follows a redirect.  SelectorEventLoop is the supported
+# asyncio backend for this test workload on Windows.
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 spec = importlib.util.spec_from_file_location('content_gateway', Path(__file__).resolve().parents[1] / 'packaging/content_gateway.py')
