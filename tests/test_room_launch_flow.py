@@ -236,7 +236,7 @@ class RoomLaunchFlowTests(unittest.TestCase):
         with patch.object(self.controller, 'job', side_effect=self.run_job):
             self.controller.act('updateRoomSettings', {'title': '新的房间', 'public': True, 'requireInvite': False})
         endpoint._routes.request.assert_awaited_once_with('room.configure', {
-            'session': endpoint.session, 'settings': dict(result)})
+            'session': endpoint.session, 'settings': dict(result, allow_mod_transfer=False)})
         self.assertEqual(self.controller.records['room']['title'], '新的房间')
         self.assertFalse(self.controller.records['room']['requireInvite'])
         self.assertEqual(endpoint.room_settings['game'], game)
@@ -246,6 +246,24 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.assertEqual(self.controller.records['room']['title'], '新的房间')
         self.assertEqual(endpoint.room_settings['title'], '新的房间')
         self.assertFalse(self.controller.view['busy'])
+
+    def test_live_transport_poll_updates_the_room_path_badge(self):
+        from hookup.native_transport import NativeEndpoint
+        endpoint = NativeEndpoint(Mock(), role='client')
+        events = []
+        endpoint.on_chat = events.append
+
+        endpoint._set_transport('relay', force=True)
+        endpoint._set_transport('p2p')
+        endpoint._set_transport('p2p')
+
+        self.assertEqual(events, [
+            {'type': 'transport', 'transport': 'relay'},
+            {'type': 'transport', 'transport': 'p2p'},
+        ])
+        for event in events:
+            self.controller.update_chat('room', event)
+        self.assertEqual(self.controller.records['room']['transport'], 'p2p')
 
     def test_guest_cannot_change_host_settings(self):
         with patch.object(self.controller, 'job') as job:
@@ -472,6 +490,19 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.assertEqual(self.controller.view['instanceId'], 'running-version')
         self.assertTrue(self.controller.view['instanceLocked'])
         self.assertEqual(self.controller.instance_source, self.parent.running_instance)
+
+    def test_forced_instance_scan_refreshes_mod_metadata_for_same_selected_configuration(self):
+        directory = self.parent.launcher.minecraft_directory
+        self.controller.instance_source = (directory, 'selected', directory)
+        scanner = Mock(side_effect=lambda key, coroutine: coroutine.close())
+        with patch.object(self.controller, 'job', scanner), \
+                patch('ui.multiplayer_controller.installed_instance_ids', return_value=['selected']):
+            self.controller.detect_instance()
+            scanner.assert_not_called()
+            self.controller.detect_instance(force=True)
+        scanner.assert_called_once()
+        self.assertTrue(scanner.call_args.args[0].startswith('instance:'))
+        self.assertTrue(self.controller.view['instanceLoading'])
 
     def test_waiting_host_metadata_refresh_updates_room_for_joined_players(self):
         self.controller.records['room'].update(role='host', availability='waiting', game={'version':'old'})

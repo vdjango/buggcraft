@@ -246,14 +246,17 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: (connected.record.compatibility.indexOf("模组集合不一致") >= 0 ?
                     "房主使用 " + (connected.game.mods_count || 0) + " 个模组，你当前实例有 " + (vm.localModsCount || 0) + " 个，模组文件不完全一致。\n" : "当前游戏配置与房主要求不一致。\n") +
-                    "可以创建一个独立配置，启动器会自动安装房主共享的模组并校验文件。现有实例、存档和模组会保留。"
+                    "可以全新安装匹配配置，或按文件校验补齐已有配置。启动器只会把缺少或不同的房主模组放入新的房间配置，原配置和存档会保留。"
             }
             CopyText { Layout.fillWidth: true; text: "模组来自房主，请仅在信任房主时安装。"; color: "#dfbd92"; font.pixelSize: 11 }
             RowLayout {
                 Layout.fillWidth: true
-                ActionButton { text: "选择已有配置"; onClicked: preparePopup.close() }
+                ActionButton {
+                    objectName: "incremental-room-install"; text: "在已有配置中补齐"; enabled: !vm.instanceLoading
+                    onClicked: { preparePopup.close(); lobby.act("prepareRoom", {mode:"existing"}) }
+                }
                 Item { Layout.fillWidth: true }
-                ActionButton { objectName: "confirm-room-install"; text: "创建匹配配置并下载"; primary: true; onClicked: { preparePopup.close(); lobby.act("prepareRoom", {}) } }
+                ActionButton { objectName: "confirm-room-install"; text: "全新下载配置"; primary: true; onClicked: { preparePopup.close(); lobby.act("prepareRoom", {mode:"fresh"}) } }
             }
         }
     }
@@ -395,6 +398,7 @@ ColumnLayout {
         onOpened: {
             roomTitle.text = connected.record.title || ""
             access.currentIndex = !connected.record["public"] ? 0 : connected.record.requireInvite ? 1 : 2
+            allowModTransfer.checked = !!connected.record.allowModTransfer
         }
         background: Rectangle { color: "#211d2b"; border.color: "#7e699e" }
         contentItem: ColumnLayout {
@@ -410,6 +414,16 @@ ColumnLayout {
                     model: ["仅邀请好友", "大厅公开，凭邀请码加入", "大厅公开，直接加入"]
                 }
             }
+            CheckBox {
+                id: allowModTransfer; objectName: "allow-mod-transfer"
+                text: "允许房间成员从本机接收模组"
+                enabled: !vm.busy; checked: false
+            }
+            CopyText {
+                Layout.fillWidth: true
+                text: "资源库找不到房主模组时，启动器会尝试从房间传输；关闭后只会使用公开资源。"
+                font.pixelSize: 11; color: "#bcb0d3"; wrapMode: Text.Wrap
+            }
             CopyText { Layout.fillWidth: true; visible: !!vm.error; text: vm.error || ""; color: "#e8b3b3"; font.pixelSize: 11 }
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
@@ -422,7 +436,7 @@ ColumnLayout {
                 ActionButton {
                     objectName: "save-room-settings"; text: vm.busy ? "保存中…" : "保存"; primary: true
                     enabled: !vm.busy && roomTitle.text.trim().length > 0
-                    onClicked: lobby.act("updateRoomSettings", {title:roomTitle.text.trim(), "public":access.currentIndex > 0, requireInvite:access.currentIndex !== 2})
+                    onClicked: lobby.act("updateRoomSettings", {title:roomTitle.text.trim(), "public":access.currentIndex > 0, requireInvite:access.currentIndex !== 2, allowModTransfer:allowModTransfer.checked})
                 }
             }
         }

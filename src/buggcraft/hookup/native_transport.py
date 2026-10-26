@@ -86,7 +86,7 @@ class NativeEndpoint:
             if ':' in address:
                 self.listen_port = int(address.rsplit(':', 1)[1])
             self.room_info = dict(result.get('info') or {})
-            self._transport = result.get('transport', 'relay')
+            self._set_transport(result.get('transport', 'relay'), force=True)
             self.bridge_status = 'Native bridge controls this room'
             self.connection = self
             self.listener = self.role == 'client'
@@ -108,7 +108,7 @@ class NativeEndpoint:
                         detail = current.get('reason', 'Room disconnected') if current else 'Room disconnected'
                         await self._emit('closed', detail)
                         break
-                    self._transport = current.get('transport', self._transport)
+                    self._set_transport(current.get('transport', self._transport))
                     self.room_info.update(current.get('info') or {})
                     state = current.get('state', 'online')
                     if state != self.room_state:
@@ -133,13 +133,23 @@ class NativeEndpoint:
                 self.room_info['availability'] = event['state']
             transport = event.get('transport')
             if transport:
-                self._transport = transport
+                self._set_transport(transport, notify=False)
+        elif event.get('type') == 'transport':
+            self._set_transport(event.get('transport'), notify=False)
         elif event.get('type') == 'bridge':
             self.bridge_status = str(event.get('status', self.bridge_status))[:160]
         elif event.get('type') == 'latency':
             value = event.get('latency_ms')
             self.room_info['latency_ms'] = value if type(value) is int and 0 <= value <= 1000000 else None
             self.room_info['latency_state'] = event.get('state', 'unavailable')
+
+    def _set_transport(self, transport, *, force=False, notify=True):
+        if transport not in ('p2p', 'relay', 'auto'):
+            return
+        changed = transport != self._transport
+        self._transport = transport
+        if notify and self.on_chat and (changed or force):
+            self.on_chat({'type': 'transport', 'transport': transport})
 
     async def stop(self):
         self._stopped = True
@@ -183,11 +193,12 @@ class NativeEndpoint:
             'session': self.session, 'settings': self.room_settings}))
         return dict(game)
 
-    async def update_settings(self, title, public, require_invite):
+    async def update_settings(self, title, public, require_invite, allow_mod_transfer=False):
         if self.role != 'host' or not self.session:
             raise ValueError('只有在线房主可以修改房间设置。')
         settings = dict(self.room_settings, title=title, public=public,
-                        require_invite=not public or require_invite)
+                        require_invite=not public or require_invite,
+                        allow_mod_transfer=bool(allow_mod_transfer))
         info = dict(await self._routes.request('room.configure', {
             'session': self.session, 'settings': settings}))
         self.room_settings = settings

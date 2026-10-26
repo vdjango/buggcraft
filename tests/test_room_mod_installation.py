@@ -89,10 +89,11 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
             file.write_text(json.dumps(value), encoding='utf8')
         return 'forge-installed'
 
-    async def prepare(self, cancel=None):
+    async def prepare(self, cancel=None, existing_instance=None):
         with patch('hookup.preparation.install_game', side_effect=self.install):
             return await prepare_configuration(self.endpoint, self.root, 'java', 'BMCLAPI',
-                cancel or threading.Event(), lambda *value: self.progress.append(value), event=self.events.append)
+                cancel or threading.Event(), lambda *value: self.progress.append(value), event=self.events.append,
+                existing_instance=existing_instance)
 
     async def test_downloads_are_verified_and_isolated_with_loader_and_detailed_events(self):
         existing = self.root / 'mods/existing.jar'
@@ -112,6 +113,94 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         verified = next(item for item in self.events if item.get('state') == 'verified')
         self.assertEqual(verified['sha256'], self.item['sha256'])
         self.assertTrue(all(0 <= done <= total for _, done, total in self.progress if total))
+
+    async def test_existing_instance_reuses_sixty_five_matching_mods_and_downloads_only_missing_one(self):
+        versions = self.root / 'versions'
+        (versions / '1.20.1').mkdir(parents=True)
+        (versions / '1.20.1' / '1.20.1.json').write_text(
+            json.dumps(dict(id='1.20.1', libraries=[], arguments={'game':['base']})), encoding='utf8')
+        (versions / 'forge-installed').mkdir()
+        (versions / 'forge-installed' / 'forge-installed.json').write_text(json.dumps(dict(
+            id='forge-installed', inheritsFrom='1.20.1', mainClass='cpw.mods.bootstraplauncher.BootstrapLauncher',
+            libraries=[{'name':'net.minecraftforge:fmlloader:1.20.1-47.4.0'}],
+            arguments={'game':['--fml.forgeVersion','47.4.0']})), encoding='utf8')
+        old_mods = self.root / 'mods'
+        old_mods.mkdir()
+        items, payloads = [], {}
+        for index in range(66):
+            payload = f'jar contents {index}'.encode()
+            name = f'host-{index:02}.jar'
+            item = dict(name=name, size=len(payload), sha256=hashlib.sha256(payload).hexdigest())
+            items.append(item)
+            payloads[item['sha256']] = payload
+            if index < 65:
+                (old_mods / f'local-{index:02}.jar').write_bytes(payload)
+        self.game.update(mods_count=len(items), mods_hash=manifest_hash(items))
+        self.endpoint.room_info['game'] = self.game
+        self.endpoint.mod_manifest.return_value = items
+        async def download(item, target, cancel, progress):
+            target.write_bytes(payloads[item['sha256']])
+            progress(item['size'], item['size'])
+        self.endpoint.download_mod.side_effect = download
+        with patch('hookup.preparation.install_game', side_effect=AssertionError('existing install must be reused')):
+            identity = await prepare_configuration(self.endpoint, self.root, 'java', 'BMCLAPI',
+                threading.Event(), lambda *value: None, event=self.events.append,
+                existing_instance={'version':'forge-installed', 'game_directory':str(self.root)})
+        self.endpoint.download_mod.assert_awaited_once_with(items[-1], self.root / 'versions' / identity / 'mods' / items[-1]['name'],
+                                                              unittest.mock.ANY, unittest.mock.ANY)
+        installed = self.root / 'versions' / identity / 'mods'
+        self.assertEqual(len(list(installed.glob('*.jar'))), 66)
+        self.assertEqual((installed / items[0]['name']).read_bytes(), payloads[items[0]['sha256']])
+        self.assertEqual((installed / items[-1]['name']).read_bytes(), payloads[items[-1]['sha256']])
+        self.assertEqual((old_mods / 'local-00.jar').read_bytes(), payloads[items[0]['sha256']])
+
+    async def test_public_hash_match_is_tried_before_host_transfer(self):
+        item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest())
+        self.game['mods_hash'] = manifest_hash([item])
+        self.endpoint.room_info['game'] = self.game
+        self.endpoint.mod_manifest.return_value = [item]
+        async def public_download(item, base, target, source, cancel, progress):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(self.payload)
+            progress(len(self.payload), len(self.payload))
+            return True
+        with patch('hookup.preparation.fetch_public_mod', side_effect=public_download) as resource:
+            identity = await self.prepare()
+        resource.assert_awaited_once()
+        self.endpoint.download_mod.assert_not_awaited()
+        self.assertEqual((self.root / 'versions' / identity / 'mods' / item['name']).read_bytes(), self.payload)
+
+    async def test_public_resource_lookup_requires_exact_hash_and_size(self):
+        from hookup.preparation import fetch_public_mod
+        from unittest.mock import ANY
+        item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest(),
+                    sha512=hashlib.sha512(self.payload).hexdigest())
+        url = 'https://cdn.modrinth.com/data/project/version/example.jar'
+        response = {'files': [
+            {'hashes': {'sha1': item['sha1'], 'sha512': item['sha512']}, 'size': item['size'] + 1,
+             'primary': True, 'url': url},
+            {'hashes': {'sha1': item['sha1'], 'sha512': item['sha512']}, 'size': item['size'],
+             'primary': True, 'url': url},
+        ]}
+        with patch('core.content_mirrors.get_modrinth', return_value=response) as lookup, \
+                patch('core.downloads.MinecraftDownloader') as downloader:
+            found = await fetch_public_mod(item, self.root, self.root / 'mods' / item['name'],
+                                           'BMCLAPI', threading.Event(), Mock())
+        self.assertTrue(found)
+        lookup.assert_called_once_with('/version_file/' + item['sha1'], {}, ANY, 'MCIM')
+        downloader.return_value.fetch.assert_called_once_with(url, 'mods/example.jar', item['sha1'],
+                                                               item['size'], file_progress=ANY)
+
+    async def test_invited_install_surfaces_host_transfer_denial_without_publishing_partial_instance(self):
+        denial = '房主尚未允许房间成员从本机接收模组，请房主在房间设置中开启模组共享。'
+        with patch('hookup.preparation.fetch_public_mod', new=AsyncMock(return_value=False)):
+            self.endpoint.download_mod.side_effect = ConnectionError(denial)
+            with self.assertRaisesRegex(ConnectionError, '房主尚未允许'):
+                await self.prepare()
+        failed = next(event for event in self.events if event.get('state') == 'failed')
+        self.assertIn('房主尚未允许', failed['error'])
+        for folder in (self.root / 'versions').glob('room-*'):
+            self.assertFalse((folder / (folder.name + '.json')).exists())
 
     async def test_wrong_installed_loader_never_downloads_or_publishes_configuration(self):
         original = self.install

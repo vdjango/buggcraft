@@ -42,8 +42,10 @@ class MultiplayerDialog(QDialog):
         self.backend.friend_invited.connect(self.show_friend_invitation)
         self.backend.changed.connect(self.refresh_invitation)
         if hasattr(parent, 'friends_btn'):
-            self.backend.changed.connect(lambda: parent.friends_btn.setVisible(self.backend.view['socialReady']))
-            parent.friends_btn.setVisible(self.backend.view['socialReady'])
+            visible = lambda: (self.backend.view['socialReady'] or self.backend.view['socialLoading'] or
+                               bool(self.backend.view['socialAccount']))
+            self.backend.changed.connect(lambda: parent.friends_btn.setVisible(visible()))
+            parent.friends_btn.setVisible(visible())
         if parent is not None and hasattr(parent, 'instance_changed'):
             parent.instance_changed.connect(self.backend.detect_instance)
         self.service = self.backend.service

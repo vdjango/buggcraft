@@ -23,6 +23,9 @@ def validate_manifest(value):
                 not re.fullmatch('[0-9a-f]{64}', digest) or type(size) is not int or
                 not 0 <= size <= MAX_MOD_SIZE):
             raise ValueError('房间模组文件名、校验值或大小无效。')
+        sha1 = item.get('sha1')
+        if sha1 is not None and (not isinstance(sha1, str) or not re.fullmatch('[0-9a-f]{40}', sha1)):
+            raise ValueError('房间模组 SHA-1 信息无效。')
         names.add(name.casefold())
     return value
 

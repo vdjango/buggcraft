@@ -78,7 +78,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 4f7ef8b42680ec9508d6bdfa41bfaf894695ce9f
+          ref: 706108656c4a73885803c7f27953a18045d70556
           path: native-source
       - uses: actions/setup-python@v5
         with:
@@ -145,6 +145,7 @@ jobs:
           sys.stdout.reconfigure(encoding='utf-8')
           modules = ['test_native_library', 'test_native_routes', 'test_native_cutover',
                      'test_native_bridge_staging', 'test_visibility',
+                     'test_native_transport_poll',
                      'test_slim_packaging', 'test_system_fonts', 'test_qt_runtime',
                      'test_macos_packaging', 'test_portable_game_directory',
                      'test_connection_diagnostics', 'test_modpack_no_key',

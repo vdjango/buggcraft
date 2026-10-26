@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 import re
 import secrets
+import shutil
 import time
 
 from .modpack import fetch_manifest, fetch_mod, manifest_hash
@@ -90,7 +91,45 @@ def install_game(game, directory, java, source, cancel, report):
     return install_loader(loaders[loader], version, loader_version, directory, java, callback, cancel, source)
 
 
-async def prepare_configuration(endpoint, directory, java, source, cancel, report, event=None):
+async def fetch_public_mod(item, base, target, source, cancel, progress):
+    """Try a byte-identical Modrinth file before asking the room host to send it."""
+    if not item.get('sha1'):
+        return False
+    try:
+        from core.content_mirrors import get_modrinth
+        content_source = '官方' if source == '官方' else 'MCIM'
+        metadata = await asyncio.to_thread(get_modrinth, '/version_file/' + item['sha1'],
+                                           {}, cancel, content_source)
+        candidates = []
+        for file in (metadata or {}).get('files', []):
+            hashes = file.get('hashes', {})
+            if (hashes.get('sha1') == item['sha1'] and file.get('size') == item['size'] and
+                    (not item.get('sha512') or hashes.get('sha512') == item['sha512'])):
+                candidates.append(file)
+        if not candidates:
+            return False
+        file = next((value for value in candidates if value.get('primary') is True), candidates[0])
+        from urllib.parse import urlsplit
+        url = file.get('url', '')
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.hostname != 'cdn.modrinth.com' or
+                parsed.username or parsed.password or parsed.port not in (None, 443)):
+            return False
+        from core.downloads import MinecraftDownloader
+        relative = target.relative_to(base).as_posix()
+        downloader = MinecraftDownloader(base, source=source, cancel=cancel)
+        downloader.content_source = content_source
+        await asyncio.to_thread(downloader.fetch, url, relative, item['sha1'], item['size'],
+                                file_progress=progress)
+        return True
+    except Exception:
+        if cancel.is_set():
+            raise InterruptedError('安装已取消。')
+        return False
+
+
+async def prepare_configuration(endpoint, directory, java, source, cancel, report, event=None,
+                                existing_instance=None):
     event = event or (lambda value: None)
     game = dict((endpoint.room_info or {}).get('game') or {})
     count = game.get('mods_count', len(game.get('mods', [])))
@@ -101,11 +140,24 @@ async def prepare_configuration(endpoint, directory, java, source, cancel, repor
     event(dict(kind='manifest', files=items))
     if cancel.is_set():
         raise InterruptedError('安装已取消。')
-    installed = await asyncio.to_thread(install_game, game, str(directory), java, source, cancel, report)
+    base = Path(directory).resolve()
+    if existing_instance:
+        installed = existing_instance['version']
+        metadata = await asyncio.to_thread(resolved_metadata, base, installed)
+        installed_loader, _ = metadata_loader(metadata)
+        expected_loader = game.get('loader', 'vanilla').lower()
+        if installed_loader != expected_loader:
+            raise ValueError(f'所选配置的加载器为 {installed_loader}，房间需要 {expected_loader}；请选择匹配的配置。')
+        from .rooms import instance_metadata
+        local_game = await asyncio.to_thread(instance_metadata, base, installed,
+                                             existing_instance.get('game_directory'))
+        if local_game.get('version') != game.get('version') or local_game.get('loader') != expected_loader:
+            raise ValueError('所选配置的 Minecraft 或加载器与房间不符。')
+    else:
+        installed = await asyncio.to_thread(install_game, game, str(directory), java, source, cancel, report)
+        metadata = await asyncio.to_thread(resolved_metadata, base, installed)
     if cancel.is_set():
         raise InterruptedError('安装已取消。')
-    base = Path(directory).resolve()
-    metadata = resolved_metadata(base, installed)
     loader, _ = metadata_loader(metadata)
     expected_loader = game.get('loader', 'vanilla').lower()
     if loader != expected_loader or (items and loader == 'vanilla'):
@@ -120,6 +172,16 @@ async def prepare_configuration(endpoint, directory, java, source, cancel, repor
         mods.mkdir()
         completed_bytes = 0
         total_bytes = sum(item['size'] for item in items)
+        existing_mods = (Path(existing_instance.get('game_directory') or base) / 'mods'
+                         if existing_instance else None)
+        existing_by_hash = {}
+        if existing_mods and existing_mods.is_dir():
+            for candidate in existing_mods.glob('*.jar'):
+                digest = hashlib.sha256()
+                with candidate.open('rb') as stream:
+                    for block in iter(lambda: stream.read(1024 * 1024), b''):
+                        digest.update(block)
+                existing_by_hash.setdefault(digest.hexdigest(), candidate)
         for index, item in enumerate(items):
             status = f'下载模组 {index + 1}/{len(items)} · ' + item['name']
             event(dict(kind='file', name=item['name'], state='downloading', size=item['size'],
@@ -138,7 +200,20 @@ async def prepare_configuration(endpoint, directory, java, source, cancel, repor
                            index=index + 1, count=len(items)))
             report(status, completed_bytes, total_bytes)
             try:
-                await fetch_mod(endpoint, item, mods / item['name'], cancel, progress)
+                cached = existing_by_hash.get(item['sha256'])
+                if cached:
+                    await asyncio.to_thread(shutil.copy2, cached, mods / item['name'])
+                    progress(item['size'], item['size'])
+                else:
+                    downloaded = await fetch_public_mod(item, base, mods / item['name'], source, cancel, progress)
+                    if not downloaded:
+                        (mods / item['name']).unlink(missing_ok=True)
+                        try:
+                            await fetch_mod(endpoint, item, mods / item['name'], cancel, progress)
+                        except Exception as exc:
+                            if not cancel.is_set() and 'transfer' in str(exc).lower():
+                                raise ConnectionError('模组资源不可用，且房主尚未授权从本机传输；请房主在房间设置中允许模组共享。') from exc
+                            raise
                 if cancel.is_set():
                     raise InterruptedError('安装已取消。')
                 digest = hashlib.sha256()

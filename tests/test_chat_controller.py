@@ -216,6 +216,19 @@ class ChatControllerTests(unittest.TestCase):
         controller.apply_social_state(self._social_state(invitations=[]))
         self.assertEqual(controller.view['friendInvitations'], [])
 
+    def test_transient_friend_status_failure_keeps_login_shortcut_and_last_contacts(self):
+        controller = self.controller
+        friend = dict(account='c' * 32 + '.' + 'd' * 32, username='Alice', online=True)
+        controller.apply_social_state(self._social_state(friends=[friend]))
+        generation = controller.social_generation
+        controller.finish('socialstatus:' + generation + ':fixture-node', None,
+                          ConnectionError('temporary node timeout'))
+        self.assertTrue(controller.view['socialReady'])
+        self.assertEqual(controller.view['socialAccount'], 'a' * 32 + '.' + 'b' * 32)
+        self.assertEqual(controller.view['contacts'][0]['name'], 'Alice')
+        self.assertEqual(controller.view['contacts'][0]['account'], friend['account'])
+        self.assertIn('temporary node timeout', controller.view['socialError'])
+
     def test_friend_room_invite_reports_success_and_failure_for_retry(self):
         controller = self.controller
         account = 'c' * 32 + '.' + 'd' * 32
