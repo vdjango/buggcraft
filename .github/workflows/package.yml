@@ -123,10 +123,21 @@ jobs:
           import os, pathlib, subprocess, sys
           modules = ['test_curseforge', 'test_content_download', 'test_content_dialog',
                      'test_modpack_import', 'test_content_gateway']
-          result = subprocess.run([sys.executable, '-X', 'faulthandler', '-u', '-m', 'unittest',
-                                   *['tests.' + name for name in modules], '-v'],
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  text=True, encoding='utf-8', errors='replace')
+          command = [sys.executable, '-X', 'faulthandler', '-u', '-m', 'unittest',
+                     *['tests.' + name for name in modules], '-v']
+          try:
+              result = subprocess.run(command, stdout=subprocess.PIPE,
+                                      stderr=subprocess.STDOUT, text=True,
+                                      encoding='utf-8', errors='replace', timeout=900)
+          except subprocess.TimeoutExpired as error:
+              output = error.stdout or ''
+              if not isinstance(output, str):
+                  output = output.decode('utf-8', errors='replace')
+              pathlib.Path('dist').mkdir(exist_ok=True)
+              pathlib.Path('dist/resource-tests.log').write_text(output, encoding='utf-8')
+              tail = output[-6000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Resource tests timed out after 15 minutes::' + tail)
+              raise SystemExit(124)
           pathlib.Path('dist').mkdir(exist_ok=True)
           pathlib.Path('dist/resource-tests.log').write_text(result.stdout, encoding='utf-8')
           print(result.stdout)
