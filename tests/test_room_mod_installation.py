@@ -150,7 +150,9 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         call = self.endpoint.download_mod.await_args
         self.assertEqual(call.args[0], items[-1])
         self.assertTrue(call.args[1].name.startswith('.p2p-'))
-        self.assertEqual(call.args[1].parent, self.root / 'versions' / identity / 'mods')
+        # macOS exposes temporary directories through a /private symlink.
+        self.assertEqual(call.args[1].parent.resolve(),
+                         (self.root / 'versions' / identity / 'mods').resolve())
         installed = self.root / 'versions' / identity / 'mods'
         self.assertEqual(len(list(installed.glob('*.jar'))), 66)
         self.assertEqual((installed / items[0]['name']).read_bytes(), payloads[items[0]['sha256']])
