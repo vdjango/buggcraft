@@ -74,6 +74,11 @@ ColumnLayout {
         ActionButton { objectName: "add-friend"; text: "添加好友"; visible: !!vm.socialReady; primary: true; implicitHeight: 32; onClicked: lobby.act("navigate", {page:"friendForm"}) }
     }
     Surface {
+        objectName: "friends-stale-state"; visible: !!vm.socialReady && vm.socialState === "stale"
+        Layout.fillWidth: true; implicitHeight: 54; color: "#3b2b25"; border.color: "#a9764d"
+        CopyText { anchors.fill: parent; anchors.margins: 10; text: (vm.socialError || "好友节点暂时不可达") + "\n显示上次同步的联系人，在线状态未知。"; color: "#ffd7b0"; font.pixelSize: 11; wrapMode: Text.Wrap; verticalAlignment: Text.AlignVCenter }
+    }
+    Surface {
         objectName: "friends-sign-in"; visible: !vm.socialReady
         Layout.fillWidth: true; Layout.fillHeight: true; color: "#201b29"; border.color: "#43364f"
         ColumnLayout {

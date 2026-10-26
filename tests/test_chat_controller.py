@@ -227,6 +227,9 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(controller.view['socialAccount'], 'a' * 32 + '.' + 'b' * 32)
         self.assertEqual(controller.view['contacts'][0]['name'], 'Alice')
         self.assertEqual(controller.view['contacts'][0]['account'], friend['account'])
+        self.assertFalse(controller.view['contacts'][0]['online'])
+        self.assertTrue(controller.view['contacts'][0]['presenceStale'])
+        self.assertEqual(controller.view['socialState'], 'stale')
         self.assertIn('temporary node timeout', controller.view['socialError'])
 
     def test_friend_room_invite_reports_success_and_failure_for_retry(self):

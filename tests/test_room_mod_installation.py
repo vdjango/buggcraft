@@ -146,8 +146,11 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
             identity = await prepare_configuration(self.endpoint, self.root, 'java', 'BMCLAPI',
                 threading.Event(), lambda *value: None, event=self.events.append,
                 existing_instance={'version':'forge-installed', 'game_directory':str(self.root)})
-        self.endpoint.download_mod.assert_awaited_once_with(items[-1], self.root / 'versions' / identity / 'mods' / items[-1]['name'],
-                                                              unittest.mock.ANY, unittest.mock.ANY)
+        self.endpoint.download_mod.assert_awaited_once()
+        call = self.endpoint.download_mod.await_args
+        self.assertEqual(call.args[0], items[-1])
+        self.assertTrue(call.args[1].name.startswith('.p2p-'))
+        self.assertEqual(call.args[1].parent, self.root / 'versions' / identity / 'mods')
         installed = self.root / 'versions' / identity / 'mods'
         self.assertEqual(len(list(installed.glob('*.jar'))), 66)
         self.assertEqual((installed / items[0]['name']).read_bytes(), payloads[items[0]['sha256']])

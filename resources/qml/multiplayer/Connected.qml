@@ -399,6 +399,8 @@ ColumnLayout {
             roomTitle.text = connected.record.title || ""
             access.currentIndex = !connected.record["public"] ? 0 : connected.record.requireInvite ? 1 : 2
             allowModTransfer.checked = !!connected.record.allowModTransfer
+            modTransferLimit.currentIndex = [128, 256, 512, 1024, 2048, 5120].indexOf(connected.record.modTransferLimitKib || 512)
+            if (modTransferLimit.currentIndex < 0) modTransferLimit.currentIndex = 2
         }
         background: Rectangle { color: "#211d2b"; border.color: "#7e699e" }
         contentItem: ColumnLayout {
@@ -419,9 +421,18 @@ ColumnLayout {
                 text: "允许房间成员从本机接收模组"
                 enabled: !vm.busy; checked: false
             }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 10
+                CopyText { text: "房主上传限速"; Layout.preferredWidth: 96 }
+                ChoiceBox {
+                    id: modTransferLimit; objectName: "mod-transfer-limit"; Layout.fillWidth: true
+                    model: ["128 KiB/s", "256 KiB/s", "512 KiB/s", "1 MiB/s", "2 MiB/s", "5 MiB/s"]
+                    enabled: !vm.busy && allowModTransfer.checked
+                }
+            }
             CopyText {
                 Layout.fillWidth: true
-                text: "资源库找不到房主模组时，启动器会尝试从房间传输；关闭后只会使用公开资源。"
+                text: "资源库找不到房主模组时，启动器会同时尝试公开源和 P2P；P2P 文件只走直连，不经中转。限速按房主所有受邀玩家合计计算。"
                 font.pixelSize: 11; color: "#bcb0d3"; wrapMode: Text.Wrap
             }
             CopyText { Layout.fillWidth: true; visible: !!vm.error; text: vm.error || ""; color: "#e8b3b3"; font.pixelSize: 11 }
@@ -436,7 +447,7 @@ ColumnLayout {
                 ActionButton {
                     objectName: "save-room-settings"; text: vm.busy ? "保存中…" : "保存"; primary: true
                     enabled: !vm.busy && roomTitle.text.trim().length > 0
-                    onClicked: lobby.act("updateRoomSettings", {title:roomTitle.text.trim(), "public":access.currentIndex > 0, requireInvite:access.currentIndex !== 2, allowModTransfer:allowModTransfer.checked})
+                    onClicked: lobby.act("updateRoomSettings", {title:roomTitle.text.trim(), "public":access.currentIndex > 0, requireInvite:access.currentIndex !== 2, allowModTransfer:allowModTransfer.checked, modTransferLimitKib:[128, 256, 512, 1024, 2048, 5120][modTransferLimit.currentIndex]})
                 }
             }
         }

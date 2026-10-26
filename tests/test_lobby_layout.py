@@ -607,7 +607,8 @@ class LobbyLayoutTests(unittest.TestCase):
         access.setProperty('currentIndex', 2)
         self.click('save-room-settings')
         self.assertEqual(self.backend.actions[-1], ('updateRoomSettings', {
-            'title':'New Friends', 'public':True, 'requireInvite':False}))
+            'title':'New Friends', 'public':True, 'requireInvite':False,
+            'allowModTransfer':False, 'modTransferLimitKib':512}))
         self.assertTrue(dialog.property('visible'))
         self.backend.roomSettingsSaved.emit(); QTest.qWait(30)
         self.assertFalse(dialog.property('visible'))

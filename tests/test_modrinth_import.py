@@ -64,8 +64,10 @@ class ModrinthImportTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         original_get = _DownloadSession.get
         def local_get(session, url, **kwargs):
-            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture/', 'https://mod.mcimirror.top/files/')))
+            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture/', 'https://mod.mcimirror.top/files/',
+                                           'https://cdn.modrinth.com/fixture/')))
             return original_get(session, url.replace('https://mod.mcimirror.top',
+                         f'http://127.0.0.1:{server.server_port}').replace('https://cdn.modrinth.com',
                          f'http://127.0.0.1:{server.server_port}').replace('/fixture/', '/'), **kwargs)
         return patch.object(_DownloadSession, 'get', local_get), hits
 
@@ -101,7 +103,9 @@ class ModrinthImportTests(unittest.TestCase):
         http, hits = self.server()
         with http, patch('core.modpacks.install_loader', side_effect=self.loader):
             ModpackImporter(self.game).install(self.archive, 'Mirrors')
-        self.assertEqual(hits.count('/broken'), 1)
+        # A rejected mirror is retried once through the publisher before moving
+        # to the next URL; both routes stay inside this local HTTP fixture.
+        self.assertEqual(hits.count('/broken'), 2)
         self.assertIn('/mods/example.jar', hits)
 
     def test_zip_with_forge_cdn_files_imports_through_domestic_mirror(self):

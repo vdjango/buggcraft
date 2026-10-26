@@ -10,11 +10,44 @@ ScrollView {
     clip: true
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+    function revealTutorialTarget(targetName) {
+        for (var i = 0; i < settingsGroups.count; ++i) {
+            var section = settingsGroups.itemAt(i)
+            if (section && (targetName === (section.modelData.key === "game.language" ? "setting-select-game-language" : "setting-select-" + section.modelData.key) ||
+                            targetName === "setting-toggle-" + section.modelData.key))
+                section.expanded = true
+        }
+        Qt.callLater(function() {
+            function find(item) {
+                if (item.objectName === targetName && item.visible && item.width > 0 && item.height > 0)
+                    return item
+                for (var j = 0; j < item.children.length; ++j) {
+                    var match = find(item.children[j])
+                    if (match) return match
+                }
+                return null
+            }
+            var control = find(root.contentItem)
+            if (!control) return
+            var position = control.mapToItem(root.contentItem.contentItem, 0, 0)
+            var top = position.y - 16
+            var bottom = position.y + control.height + 16
+            var flick = root.contentItem
+            var maximum = Math.max(0, flick.contentHeight - flick.height)
+            if (top < flick.contentY || bottom > flick.contentY + flick.height)
+                flick.contentY = Math.max(0, Math.min(maximum, top - (flick.height - control.height) / 2))
+        })
+    }
+    Connections {
+        target: settingsPage
+        function onTutorialTargetRequested(targetName) { root.revealTutorialTarget(targetName) }
+    }
     ColumnLayout {
         width: root.availableWidth
         spacing: 10
         Item { Layout.preferredHeight: 5 }
         Repeater {
+            id: settingsGroups
             model: settingsPage.groups
             delegate: SettingsSection {
                 id: group
@@ -106,8 +139,10 @@ ScrollView {
                         currentIndex: Math.max(0, group.modelData.options.findIndex(function(option) { return option.value === group.modelData.value }))
                         enabled: group.modelData.enabled
                         onActivated: {
-                            settingsPage.setValue(group.modelData.key, group.modelData.options[currentIndex].value)
-                            if (group.modelData.key === "game.language") tutorial.action("language")
+                            var key = group.modelData.key
+                            var value = group.modelData.options[currentIndex].value
+                            if (key === "game.language") tutorial.action("language")
+                            settingsPage.setValue(key, value)
                         }
                     }
                     SettingOption {
@@ -119,8 +154,10 @@ ScrollView {
                         checked: !!group.modelData.value
                         enabled: group.modelData.enabled
                         onChosen: {
-                            settingsPage.setValue(group.modelData.key, !group.modelData.value)
-                            if (group.modelData.key === "translation.enabled") tutorial.action("translation")
+                            var key = group.modelData.key
+                            var value = !group.modelData.value
+                            if (key === "translation.enabled") tutorial.action("translation")
+                            settingsPage.setValue(key, value)
                         }
                     }
                     RowLayout {

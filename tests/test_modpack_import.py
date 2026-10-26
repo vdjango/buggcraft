@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -44,6 +45,57 @@ class ModpackTests(unittest.TestCase):
             destination.write_text(json.dumps(metadata), encoding='utf-8')
         (self.game / 'versions/1.20.1/1.20.1.jar').write_bytes(b'fake minecraft client jar')
         return '1.20.1-forge-47.4.0'
+
+    def test_import_uses_16_32_and_64_real_http_workers_with_verified_files(self):
+        self.pack()
+        payload = b'concurrent resource' * 4096
+        digest = hashlib.sha1(payload).hexdigest()
+        lock = threading.Lock()
+        active = peak = hits = 0
+        class Server(ThreadingHTTPServer):
+            request_queue_size = 128
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                nonlocal active, peak, hits
+                with lock:
+                    active += 1
+                    hits += 1
+                    peak = max(peak, active)
+                try:
+                    time.sleep(.2)
+                    self.send_response(200)
+                    self.send_header('Content-Length', str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                finally:
+                    with lock:
+                        active -= 1
+            def log_message(self, *args):
+                pass
+        server = Server(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        for workers in (16, 32, 64):
+            with self.subTest(workers=workers):
+                peak = hits = 0
+                # Separate archives avoid a previous run's verified file cache.
+                self.pack({'overrides/worker-count.txt': str(workers)})
+                jobs = [(f'http://127.0.0.1:{server.server_port}/{i}',
+                         f'mods/resource-{i}.jar', digest, len(payload)) for i in range(128)]
+                started = time.monotonic()
+                with patch.dict(os.environ, {'NO_PROXY': '127.0.0.1', 'no_proxy': '127.0.0.1'}), \
+                        patch('core.content.CONTENT_DOWNLOAD_WORKERS', workers), \
+                        patch.object(CurseForgeClient, 'resolve', return_value=jobs), \
+                        patch('core.modpacks.install_loader', side_effect=self.install_loader):
+                    identity = ModpackImporter(self.game).install(self.archive, f'Workers-{workers}')
+                self.assertEqual(hits, 128)
+                self.assertGreaterEqual(peak, workers // 2)
+                self.assertLessEqual(peak, workers)
+                for _, relative, _, _ in jobs:
+                    self.assertEqual((self.game / 'versions' / identity / relative).read_bytes(), payload)
+                print(f'HTTP import workers={workers} peak={peak} verified=128/128 '
+                      f'elapsed={time.monotonic() - started:.2f}s', flush=True)
 
     def test_real_http_retry_reuses_verified_files_and_publishes_separate_instance(self):
         self.pack()

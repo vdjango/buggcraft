@@ -3,14 +3,106 @@ import asyncio
 import json
 import copy
 import hashlib
+import os
 from pathlib import Path
 import re
 import secrets
 import shutil
+import threading
 import time
 
 from .modpack import fetch_manifest, fetch_mod, manifest_hash
 from .rooms import metadata_loader
+
+
+class _AnyCancel:
+    def __init__(self, *events):
+        self.events = events
+
+    def is_set(self):
+        return any(event.is_set() for event in self.events)
+
+    def wait(self, timeout=None):
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            self.events[0].wait(min(.05, remaining) if remaining is not None else .05)
+        return True
+
+
+def _verify_mod(path, item, cancel):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            if cancel.is_set():
+                raise InterruptedError('安装已取消。')
+            digest.update(block)
+    if path.stat().st_size != item['size'] or digest.hexdigest() != item['sha256']:
+        raise ValueError('模组校验失败：' + item['name'])
+
+
+async def _download_room_mod(endpoint, item, base, target, source, cancel, progress):
+    """Race independent public/P2P files; publish only a verified winner."""
+    paths = {name: target.with_name('.' + name + '-' + target.name)
+             for name in ('public', 'p2p')}
+    stops = {name: threading.Event() for name in paths}
+    signals = {name: _AnyCancel(cancel, stops[name]) for name in paths}
+
+    async def download(name):
+        path, signal = paths[name], signals[name]
+        callback = lambda done, total: progress(name, done, total)
+        if name == 'public':
+            if not await fetch_public_mod(item, base, path, source, signal, callback):
+                return ''
+        else:
+            # Public mirrors get the first chance. Start the direct file
+            # channel shortly after so a slow or missing mirror can be
+            # assisted without making P2P the visible primary path.
+            for _ in range(5):
+                if signal.is_set():
+                    return ''
+                await asyncio.sleep(.1)
+            await fetch_mod(endpoint, item, path, signal, callback)
+        await asyncio.to_thread(_verify_mod, path, item, signal)
+        return name
+
+    tasks = {name: asyncio.create_task(download(name)) for name in paths}
+    errors = {}
+    winner = ''
+    try:
+        pending = set(tasks.values())
+        while pending and not winner:
+            if cancel.is_set():
+                raise InterruptedError('安装已取消。')
+            done, pending = await asyncio.wait(pending, timeout=.1,
+                                               return_when=asyncio.FIRST_COMPLETED)
+            for name, task in tasks.items():
+                if task not in done:
+                    continue
+                try:
+                    winner = task.result() or winner
+                except Exception as exc:
+                    errors[name] = exc
+        if not winner:
+            error = errors.get('p2p') or errors.get('public')
+            if error is not None and 'P2P file channel' not in str(error):
+                raise error
+            raise ConnectionError('下载失败，正在重试。')
+        if cancel.is_set():
+            raise InterruptedError('安装已取消。')
+        await asyncio.to_thread(os.replace, paths[winner], target)
+        return winner
+    finally:
+        for stop in stops.values():
+            stop.set()
+        # to_thread cannot be forcibly cancelled: wait for writers to stop
+        # before removing their temporary files or the instance directory.
+        await asyncio.shield(asyncio.gather(*tasks.values(), return_exceptions=True))
+        for path in paths.values():
+            path.unlink(missing_ok=True)
+            path.with_name(path.name + '.buggcraft-part').unlink(missing_ok=True)
 
 
 def resolved_metadata(directory, identity, seen=None):
@@ -172,6 +264,9 @@ async def prepare_configuration(endpoint, directory, java, source, cancel, repor
         mods.mkdir()
         completed_bytes = 0
         total_bytes = sum(item['size'] for item in items)
+        progress_lock = threading.Lock()
+        active_progress = [0] * len(items)
+        last_progress = [0.0] * len(items)
         existing_mods = (Path(existing_instance.get('game_directory') or base) / 'mods'
                          if existing_instance else None)
         existing_by_hash = {}
@@ -182,53 +277,66 @@ async def prepare_configuration(endpoint, directory, java, source, cancel, repor
                     for block in iter(lambda: stream.read(1024 * 1024), b''):
                         digest.update(block)
                 existing_by_hash.setdefault(digest.hexdigest(), candidate)
-        for index, item in enumerate(items):
-            status = f'下载模组 {index + 1}/{len(items)} · ' + item['name']
-            event(dict(kind='file', name=item['name'], state='downloading', size=item['size'],
-                       index=index + 1, count=len(items)))
-            last = [0.0]
-            def progress(done, total):
-                if cancel.is_set():
-                    raise InterruptedError('安装已取消。')
-                now = time.monotonic()
-                if now - last[0] < .1 and done < total:
-                    return
-                last[0] = now
-                done = max(0, min(done, item['size']))
-                report(status, completed_bytes + done, total_bytes)
-                event(dict(kind='progress', name=item['name'], done=done, total=item['size'],
+        semaphore = asyncio.Semaphore(4)
+        aborted = threading.Event()
+        signal = _AnyCancel(cancel, aborted)
+
+        async def prepare_mod(index, item):
+            nonlocal completed_bytes
+            async with semaphore:
+                if signal.is_set():
+                    raise InterruptedError('??????')
+                status = f'下载模组 {index + 1}/{len(items)} · ' + item['name']
+                event(dict(kind='file', name=item['name'], state='downloading', size=item['size'],
                            index=index + 1, count=len(items)))
-            report(status, completed_bytes, total_bytes)
-            try:
-                cached = existing_by_hash.get(item['sha256'])
-                if cached:
-                    await asyncio.to_thread(shutil.copy2, cached, mods / item['name'])
-                    progress(item['size'], item['size'])
-                else:
-                    downloaded = await fetch_public_mod(item, base, mods / item['name'], source, cancel, progress)
-                    if not downloaded:
-                        (mods / item['name']).unlink(missing_ok=True)
-                        try:
-                            await fetch_mod(endpoint, item, mods / item['name'], cancel, progress)
-                        except Exception as exc:
-                            if not cancel.is_set() and 'transfer' in str(exc).lower():
-                                raise ConnectionError('模组资源不可用，且房主尚未授权从本机传输；请房主在房间设置中允许模组共享。') from exc
-                            raise
-                if cancel.is_set():
-                    raise InterruptedError('安装已取消。')
-                digest = hashlib.sha256()
-                with (mods / item['name']).open('rb') as downloaded:
-                    for block in iter(lambda: downloaded.read(1024 * 1024), b''):
-                        digest.update(block)
-                if (mods / item['name']).stat().st_size != item['size'] or digest.hexdigest() != item['sha256']:
-                    raise ValueError('模组校验失败：' + item['name'])
-            except BaseException as exc:
-                event(dict(kind='file', name=item['name'], state='failed', size=item['size'], error=str(exc)))
-                raise
-            completed_bytes += item['size']
-            report('模组已下载并校验：' + item['name'], completed_bytes, total_bytes)
-            event(dict(kind='file', name=item['name'], state='verified', size=item['size'],
-                       sha256=item['sha256'], path=str(mods / item['name'])))
+
+                source_progress = {}
+
+                def source_progress_update(source_name, done, total):
+                    if signal.is_set():
+                        raise InterruptedError('安装已取消。')
+                    now = time.monotonic()
+                    with progress_lock:
+                        source_progress[source_name] = max(0, min(done, item['size']))
+                        done = max(source_progress.values())
+                        active_progress[index] = done
+                        current = completed_bytes + sum(active_progress)
+                        should_report = now - last_progress[index] >= .1 or done >= total
+                        if should_report:
+                            last_progress[index] = now
+                    if not should_report:
+                        return
+                    report(status, current, total_bytes)
+                    event(dict(kind='progress', name=item['name'], done=done, total=item['size'],
+                               index=index + 1, count=len(items)))
+
+                final_path = mods / item['name']
+                try:
+                    cached = existing_by_hash.get(item['sha256'])
+                    if cached:
+                        await asyncio.to_thread(shutil.copy2, cached, final_path)
+                        source_progress_update('cached', item['size'], item['size'])
+                    else:
+                        await _download_room_mod(endpoint, item, base, final_path, source,
+                                                 signal, source_progress_update)
+                    await asyncio.to_thread(_verify_mod, final_path, item, signal)
+                except BaseException as exc:
+                    aborted.set()
+                    event(dict(kind='file', name=item['name'], state='failed', size=item['size'], error=str(exc)))
+                    raise
+                with progress_lock:
+                    completed_bytes += item['size']
+                    active_progress[index] = 0
+                    completed = completed_bytes
+                report('模组已下载并校验：' + item['name'], completed, total_bytes)
+                event(dict(kind='file', name=item['name'], state='verified', size=item['size'],
+                           sha256=item['sha256'], path=str(final_path)))
+
+        tasks = [asyncio.create_task(prepare_mod(index, item)) for index, item in enumerate(items)]
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        failures = [result for result in outcomes if isinstance(result, BaseException)]
+        if failures:
+            raise next((failure for failure in failures if not isinstance(failure, InterruptedError)), failures[0])
         actual = manifest_hash(items)
         if game.get('mods_hash') and actual != game['mods_hash']:
             raise ValueError('房间模组已改变，请重新准备。')

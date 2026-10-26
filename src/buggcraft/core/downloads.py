@@ -45,6 +45,69 @@ class _MirrorHealth:
 
 
 _CONTENT_HEALTH = _MirrorHealth()
+_CONTENT_ROUTE_CACHE = {}
+_CONTENT_ROUTE_LOCK = threading.Lock()
+_CONTENT_PROBE_LOCK = threading.Lock()
+_CONTENT_ROUTE_TTL = 600
+_CONTENT_PROBE_BYTES = 64 * 1024
+
+
+def _measure_content_route(url):
+    started = time.monotonic()
+    try:
+        with requests.get(url, stream=True, timeout=(3, 5), allow_redirects=True,
+                          headers={'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity',
+                                   'Range': f'bytes=0-{_CONTENT_PROBE_BYTES - 1}'}) as response:
+            response.raise_for_status()
+            if str(response.headers.get('Content-Type', '')).split(';')[0].lower() in ('text/html', 'application/xhtml+xml'):
+                return 0.0
+            chunk = next(response.iter_content(_CONTENT_PROBE_BYTES), b'')
+            if not chunk:
+                return 0.0
+            return len(chunk) / max(time.monotonic() - started, 0.001)
+    except (requests.RequestException, OSError, ValueError):
+        return 0.0
+
+
+def _rank_content_candidates(candidates, preference='自动测速'):
+    # Concurrent files share one measurement per host and cache lifetime.
+    with _CONTENT_PROBE_LOCK:
+        return _rank_content_candidates_locked(candidates, preference)
+
+
+def _rank_content_candidates_locked(candidates, preference):
+    """Rank trusted public content routes by a bounded, cached range probe."""
+    candidates = list(dict.fromkeys(candidates))
+    if len(candidates) < 2:
+        return candidates
+    hosts = {candidate: urlsplit(candidate).hostname for candidate in candidates}
+    pending = {}
+    now = time.monotonic()
+    with _CONTENT_ROUTE_LOCK:
+        for candidate, host in hosts.items():
+            cached = _CONTENT_ROUTE_CACHE.get(host)
+            if cached and cached[1] > now:
+                pending[candidate] = cached[0]
+    missing = [candidate for candidate in candidates if candidate not in pending]
+    if missing:
+        with ThreadPoolExecutor(max_workers=min(4, len(missing))) as pool:
+            measured = dict(zip(missing, pool.map(_measure_content_route, missing)))
+        with _CONTENT_ROUTE_LOCK:
+            for candidate, speed in measured.items():
+                host = hosts[candidate]
+                _CONTENT_ROUTE_CACHE[host] = (speed, time.monotonic() + _CONTENT_ROUTE_TTL)
+                pending[candidate] = speed
+    ranked = sorted(candidates, key=lambda candidate: pending.get(candidate, 0), reverse=True)
+    if preference == 'MCIM':
+        mirror_host = urlsplit(CONTENT_MIRROR).hostname
+        mirror = next((candidate for candidate in ranked if hosts[candidate] == mirror_host), None)
+        if mirror and pending.get(mirror, 0) >= pending.get(ranked[0], 0) * 0.85:
+            ranked.remove(mirror)
+            ranked.insert(0, mirror)
+    logger.info('content_routes_ranked routes=%s', [
+        {'host': hosts[candidate], 'bytes_per_second': round(pending.get(candidate, 0))}
+        for candidate in ranked])
+    return ranked
 
 
 class _DownloadSession(requests.Session):
@@ -316,9 +379,10 @@ class MinecraftDownloader:
         temporary = target.with_name(target.name + ".buggcraft-part")
         candidates = list(dict.fromkeys(candidate for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
                                         for candidate in self.urls(address)))
-        if (self.content_source or self.source) != '官方':
-            # Try all supplied domestic mirrors before falling back overseas.
-            candidates.sort(key=lambda value: urlsplit(value).hostname != urlsplit(CONTENT_MIRROR).hostname)
+        content_source = self.content_source or self.source
+        if content_source != '官方' and any(urlsplit(candidate).hostname == urlsplit(CONTENT_MIRROR).hostname
+                                           for candidate in candidates):
+            candidates = _rank_content_candidates(candidates, content_source)
         for candidate in candidates:
             host = urlsplit(candidate).hostname
             content_mirror = host == urlsplit(CONTENT_MIRROR).hostname
@@ -369,7 +433,8 @@ class MinecraftDownloader:
                         last_progress = 0.0
                         transfer_started = time.monotonic()
                         window_bytes = offset
-                        parallel = (file_progress is not None and size is not None and size >= 8 * 1024 * 1024
+                        parallel = (getattr(self, 'parallel_content', True) and file_progress is not None
+                                    and size is not None and size >= 8 * 1024 * 1024
                                     and (sha1 or sha512) and not offset and response.status_code == 200
                                     and response.headers.get('Accept-Ranges', '').lower() == 'bytes'
                                     and host in ('mod.mcimirror.top', 'cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net')
@@ -497,14 +562,14 @@ class MinecraftDownloader:
             allowed = rule.get("action") == "allow"
         return allowed
 
-    def _batch(self, jobs, label):
+    def _batch(self, jobs, label, *, workers=8):
         # Dedupe shared objects before scheduling to avoid competing file writers.
         jobs = list({str(job[1]): job for job in jobs}.values())
         self.status(label)
         self.progress(0, len(jobs))
         if not jobs:
             return
-        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="minecraft-download") as pool:
+        with ThreadPoolExecutor(max_workers=min(max(1, int(workers)), 64, len(jobs)), thread_name_prefix="minecraft-download") as pool:
             futures = [pool.submit(self.fetch, *job) for job in jobs]
             try:
                 for completed, future in enumerate(as_completed(futures), 1):

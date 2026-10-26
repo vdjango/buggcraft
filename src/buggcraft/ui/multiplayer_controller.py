@@ -83,7 +83,7 @@ class MultiplayerController(QObject):
         self.room_search_timer.setInterval(300)
         self.room_search_timer.timeout.connect(self.refresh)
         self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
-                           rooms=[], contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False, socialError='',
+                           rooms=[], contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False, socialState='offline', socialError='',
                            connections=[], worlds=[], worldScanning=False, selected='', busy=False, friendBusy=False, socialLoading=False, loading=False,
                            openWorldPrompt=False, openWorldPort=0, openWorldMode='create',
                            pendingFriendInvite='', outgoingInvitations={}, friendInviteAccount='', joiningFriendAccount='',
@@ -428,9 +428,13 @@ class MultiplayerController(QObject):
                     (endpoint.room_settings or {}).get('allow_mod_transfer', False)))
                 if type(allow_mod_transfer) is not bool:
                     raise ValueError('模组共享设置无效。')
+                mod_transfer_limit_kib = data.get('modTransferLimitKib', int(
+                    (endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512)))
+                if type(mod_transfer_limit_kib) is not int or not 64 <= mod_transfer_limit_kib <= 10240:
+                    raise ValueError('模组上传限速需要在 64–10240 KiB/s 之间。')
                 self.patch(busy=True, error='', notice='')
                 self.job('configure:' + name, endpoint.update_settings(
-                    title, public, require_invite, allow_mod_transfer))
+                    title, public, require_invite, allow_mod_transfer, mod_transfer_limit_kib))
             elif action == 'dismissPublicGuide':
                 record = self.records.get(self._state['selected'])
                 if record:
@@ -1000,6 +1004,7 @@ class MultiplayerController(QObject):
                               'public': bool((endpoint.room_settings or {}).get('public', False)),
                               'requireInvite': (endpoint.room_settings or {}).get('require_invite', True),
                               'allowModTransfer': (endpoint.room_settings or {}).get('allow_mod_transfer', False),
+                              'modTransferLimitKib': int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512)),
                               'game': dict((endpoint.room_settings or {}).get('game', {})),
                               'compatibility': '',
                               'transportPolicy':endpoint.transport_policy,
@@ -1144,6 +1149,7 @@ class MultiplayerController(QObject):
             record['requireInvite'] = endpoint.room_info.get('require_invite', not record['public'])
             if endpoint.role == 'host':
                 record['allowModTransfer'] = bool((endpoint.room_settings or {}).get('allow_mod_transfer', False))
+                record['modTransferLimitKib'] = int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512))
             self.check_room_compatibility(record)
         self.offer_public_room_guide(record)
         self.publish_connections()
@@ -1366,10 +1372,11 @@ class MultiplayerController(QObject):
             self.mark_node_expired()
             return
         except Exception as error:
-            # Keep the account shortcut and the last known contacts on transient
-            # network failures; an expired local credential is handled above.
-            self.patch(socialLoading=False,
-                       socialError=str(error) if profile and profile.token.startswith('acct1.') else '')
+            # Keep the account shortcut and last contacts, while marking every
+            # failed refresh explicitly so stale presence is never presented as live.
+            contacts = [dict(item, online=False, presenceStale=True) for item in self._state['contacts']]
+            self.patch(socialLoading=False, socialState='stale', contacts=contacts,
+                       socialError='好友节点同步失败：' + str(error))
             return
         path = self.node_path
         if not self._state['socialReady']:
@@ -1489,7 +1496,7 @@ class MultiplayerController(QObject):
                     for account, item in self._state['outgoingInvitations'].items()}
         self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=invitations,
                    joinRequests=state.get('joinRequests', []), socialCapabilities=capabilities,
-                   socialReady=True, socialLoading=False, socialAccount=state['account'],
+                   socialReady=True, socialState='online', socialLoading=False, socialAccount=state['account'],
                    socialName=state['username'], socialError='', outgoingInvitations=outgoing)
         notification = self.social_notifications.update(self._state)
         if notification:
@@ -1633,7 +1640,9 @@ class MultiplayerController(QObject):
                               public=value.get('public', False),
                               requireInvite=value.get('require_invite', True),
                               allowModTransfer=bool((endpoint.room_settings or {}).get('allow_mod_transfer', False))
-                              if endpoint else False)
+                              if endpoint else False,
+                              modTransferLimitKib=int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512))
+                              if endpoint else 512)
                 record['publicGuide'] = False
                 self.publish_connections()
             self.patch(busy=False, error=error or '', notice='' if error else '房间设置已保存。')
@@ -1680,7 +1689,9 @@ class MultiplayerController(QObject):
                 outgoing = dict(self._state['outgoingInvitations'])
                 if operation == 'invite' and target in outgoing and outgoing[target].get('status') == '发送中…':
                     outgoing[target] = dict(outgoing[target], status='发送失败，重试')
-                self.patch(socialError=str(error), friendBusy=friend_busy, socialLoading=False, outgoingInvitations=outgoing,
+                contacts = [dict(item, online=False, presenceStale=True) for item in self._state['contacts']]
+                self.patch(socialError='好友节点同步失败：' + str(error), socialState='stale', contacts=contacts,
+                           friendBusy=friend_busy, socialLoading=False, outgoingInvitations=outgoing,
                            joiningFriendAccount='')
                 self.friend_finished.emit(False, str(error)) if key.startswith('socialop:') else None
                 return

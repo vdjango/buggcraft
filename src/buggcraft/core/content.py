@@ -14,6 +14,10 @@ import requests
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.curseforge import CurseForgeContentClient, fallback_url
 KINDS = {'mod': 'mods', 'resourcepack': 'resourcepacks', 'shader': 'shaderpacks', 'modpack': 'modpacks'}
+try:
+    CONTENT_DOWNLOAD_WORKERS = max(16, min(64, int(os.environ.get('BUGGCRAFT_CONTENT_DOWNLOAD_WORKERS', '32'))))
+except (TypeError, ValueError):
+    CONTENT_DOWNLOAD_WORKERS = 32
 
 
 def _json_param(value):
@@ -173,7 +177,11 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
     destination.mkdir(parents=True, exist_ok=True)
     # A version may also publish source/debug jars; install its primary artifact.
     primary = [item for item in files if isinstance(item, dict) and item.get('primary') is True]
-    if len(primary) > 1 or not primary and len(files) != 1:
+    # A multi-file content version is valid for modpacks and add-on bundles;
+    # only a single-artifact mod/resource/shader download needs a primary file.
+    if kind == 'modpack' and not primary:
+        primary = files
+    if kind != 'modpack' and (len(primary) > 1 or not primary and len(files) != 1):
         raise ValueError('项目没有唯一主文件，无法确定应安装的文件')
     jobs = []
     for item in primary or files:
@@ -199,21 +207,29 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
     downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status,
                                      file_event=file_event)
     downloader.content_source = content_source
+    # Parallel files already fill the connection budget; segment only a lone
+    # large artifact rather than multiplying every worker into four sockets.
+    downloader.parallel_content = len(jobs) == 1
     downloader.curseforge_key = os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
     downloader.curseforge_fallbacks = {}
     progress(0, 1000)
-    for index, (item, target, sha512, sha1, size) in enumerate(jobs, 1):
+    root = Path(target_root).resolve()
+    completed = 0
+    progress_lock = threading.Lock()
+
+    def fetch_one(index, item, target, sha512, sha1, size):
+        nonlocal completed
         url = item['url']
         if cancel.is_set():
             raise DownloadCancelled('内容下载已取消')
         status(f'正在下载 {target.name}')
-        if not target.resolve().is_relative_to(Path(target_root).resolve()):
+        if not target.resolve().is_relative_to(root):
             raise ValueError('内容目录超出目标实例')
         project_id, file_id = item.get('curseforge_project_id'), item.get('curseforge_file_id')
         if version.get('source') == 'CurseForge' and type(project_id) is int and type(file_id) is int:
             downloader.curseforge_fallbacks[url] = fallback_url(project_id, file_id)
         try:
-            downloader.fetch(url, target.relative_to(Path(target_root).resolve()), sha1, size, sha512=sha512,
+            downloader.fetch(url, target.relative_to(root), sha1, size, sha512=sha512,
                              file_progress=lambda done, total: progress(
                                  int(((index - 1) + (done / total if total else 0)) * 1000 / len(jobs)), 1000))
         finally:
@@ -221,6 +237,27 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
             if session is not None:
                 session.close()
                 del downloader._sessions.session
-        progress(index * 1000 // len(jobs), 1000)
+        with progress_lock:
+            completed += 1
+            progress(completed * 1000 // len(jobs), 1000)
+
+    # Modpacks contain many independent files. Keep a bounded pool so a large
+    # pack can use the CDN efficiently without opening an unbounded number of
+    # sockets. Modpack import uses the same 16-64 worker setting.
+    workers = min(CONTENT_DOWNLOAD_WORKERS, len(jobs))
+    status(f'并发下载 {workers} 路')
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='content-download') as pool:
+        futures = [pool.submit(fetch_one, index, item, target, sha512, sha1, size)
+                   for index, (item, target, sha512, sha1, size) in enumerate(jobs, 1)]
+        try:
+            for future in as_completed(futures):
+                future.result()
+                if cancel.is_set():
+                    raise DownloadCancelled('内容下载已取消')
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            cancel.set()
+            raise
     status('内容安装完成')
     return [str(path) for _, path, *_ in jobs]

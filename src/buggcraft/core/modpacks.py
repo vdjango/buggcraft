@@ -284,7 +284,8 @@ class ModpackImporter:
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         if info.source == 'Modrinth':
             downloader.file_mirrors = {item['downloads'][0]: item['downloads'][1:] for item in info.files}
-        downloader._batch(jobs, '[2/5] 正在下载并校验整合包模组和资源…')
+        from core.content import CONTENT_DOWNLOAD_WORKERS
+        downloader._batch(jobs, '[2/5] 正在下载并校验整合包模组和资源…', workers=CONTENT_DOWNLOAD_WORKERS)
         if info.source == 'Modrinth':
             for item in info.files:
                 self.check()

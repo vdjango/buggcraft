@@ -16,6 +16,7 @@ from ui.pages.qml_host import QmlPage
 class SettingsController(QObject):
     changed = Signal()
     memoryChanged = Signal()
+    tutorialTargetRequested = Signal(str)
 
     def __init__(self, parent, scope):
         super().__init__(parent)
@@ -157,8 +158,8 @@ class SettingsController(QObject):
                             ['自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI'],
                             'Minecraft 本体、assets、libraries 和加载器。BMCLAPI 优先国内镜像，失败回退官方。'),
                 self._field('settings.general.content_mirror', '模组与整合包下载源',
-                            s.get_setting('settings.general.content_mirror', 'MCIM'), ['MCIM', '官方'],
-                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。默认 MCIM，超时、持续低速或失败时自动切换原站；不影响游戏本体下载源。'),
+                            s.get_setting('settings.general.content_mirror', '自动测速'), ['自动测速', 'MCIM', '官方'],
+                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。自动测速比较 MCIM 与可信原站的短 Range 响应，每 10 分钟更新；MCIM 表示速度接近时优先镜像，官方表示只用原站。完整下载仍校验哈希并在失败时回退。'),
                 self._field('launcher.allow_multiple', '允许多开游戏',
                             bool(s.get_setting('launcher.allow_multiple', False)), kind='toggle',
                             description='首页可按版本和 PID 选择停止目标。'),

@@ -193,12 +193,14 @@ class NativeEndpoint:
             'session': self.session, 'settings': self.room_settings}))
         return dict(game)
 
-    async def update_settings(self, title, public, require_invite, allow_mod_transfer=False):
+    async def update_settings(self, title, public, require_invite, allow_mod_transfer=False,
+                              mod_transfer_limit_kib=512):
         if self.role != 'host' or not self.session:
             raise ValueError('只有在线房主可以修改房间设置。')
         settings = dict(self.room_settings, title=title, public=public,
                         require_invite=not public or require_invite,
-                        allow_mod_transfer=bool(allow_mod_transfer))
+                        allow_mod_transfer=bool(allow_mod_transfer),
+                        mod_transfer_limit_kib=int(mod_transfer_limit_kib))
         info = dict(await self._routes.request('room.configure', {
             'session': self.session, 'settings': settings}))
         self.room_settings = settings
@@ -210,9 +212,30 @@ class NativeEndpoint:
         return await self._wait_transfer(result)
 
     async def download_mod(self, item, target, cancel, progress):
-        result = await self._routes.request('mods.fetch', {
-            'session': self.session, 'item': dict(item), 'target': str(target)})
-        return await self._wait_transfer(result, cancel, progress)
+        deadline = asyncio.get_running_loop().time() + 45
+        while self.transport_state != 'p2p':
+            if cancel is not None and cancel.is_set():
+                raise InterruptedError('模组安装已取消。')
+            if not self.session or asyncio.get_running_loop().time() >= deadline:
+                raise ConnectionError('等待 45 秒仍未建立 P2P 文件直连；模组文件不会经 SSH 中转。')
+            await asyncio.sleep(.25)
+        # The file PeerConnection is negotiated independently of the game
+        # channel. A first RPC can therefore arrive while its ICE offer is
+        # still gathering; retry that transient state so the public source
+        # race can continue without exposing a P2P-specific failure.
+        while True:
+            try:
+                result = await self._routes.request('mods.fetch', {
+                    'session': self.session, 'item': dict(item), 'target': str(target)})
+                return await self._wait_transfer(result, cancel, progress)
+            except ConnectionError as error:
+                if 'P2P file channel is not connected' not in str(error):
+                    raise
+                if cancel is not None and cancel.is_set():
+                    raise InterruptedError('模组安装已取消')
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise ConnectionError('P2P 文件通道暂时不可用') from error
+                await asyncio.sleep(.35)
 
     async def _wait_transfer(self, result, cancel=None, progress=None):
         transfer = result.get('transfer')

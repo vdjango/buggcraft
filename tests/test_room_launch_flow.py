@@ -236,7 +236,7 @@ class RoomLaunchFlowTests(unittest.TestCase):
         with patch.object(self.controller, 'job', side_effect=self.run_job):
             self.controller.act('updateRoomSettings', {'title': '新的房间', 'public': True, 'requireInvite': False})
         endpoint._routes.request.assert_awaited_once_with('room.configure', {
-            'session': endpoint.session, 'settings': dict(result, allow_mod_transfer=False)})
+            'session': endpoint.session, 'settings': dict(result, allow_mod_transfer=False, mod_transfer_limit_kib=512)})
         self.assertEqual(self.controller.records['room']['title'], '新的房间')
         self.assertFalse(self.controller.records['room']['requireInvite'])
         self.assertEqual(endpoint.room_settings['game'], game)
