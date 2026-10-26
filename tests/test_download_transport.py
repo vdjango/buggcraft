@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
-from core.downloads import MinecraftDownloader, DownloadCancelled, _DownloadSession
+from core.downloads import MinecraftDownloader, DownloadCancelled, _DownloadSession, _MirrorHealth
 from utils.http_identity import USER_AGENT
 import requests
 
@@ -75,6 +75,9 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part')))
 
     def setUp(self):
+        health = patch('core.downloads._CONTENT_HEALTH', _MirrorHealth())
+        health.start()
+        self.addCleanup(health.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.payload = bytes(range(256)) * 1024
@@ -93,6 +96,25 @@ class DownloadTransportTests(unittest.TestCase):
                     self.send_response(302)
                     self.send_header('Location', '/artifact')
                     self.end_headers()
+                    return
+                if self.path in ('/segments', '/ignore-segments', '/bad-segments'):
+                    header = self.headers.get('Range')
+                    start, end = 0, len(fixture.payload) - 1
+                    if header and self.path != '/ignore-segments':
+                        start, end = map(int, header[6:].split('-'))
+                    if header and getattr(fixture, 'range_barrier', None):
+                        fixture.range_barrier.wait(timeout=5)
+                    self.send_response(206 if header and self.path != '/ignore-segments' else 200)
+                    self.send_header('Accept-Ranges', 'bytes')
+                    self.send_header('Content-Length', str(end - start + 1))
+                    if header and self.path != '/ignore-segments':
+                        reported_start = start + 1 if self.path == '/bad-segments' else start
+                        self.send_header('Content-Range', f'bytes {reported_start}-{end}/{len(fixture.payload)}')
+                    self.end_headers()
+                    try:
+                        self.wfile.write(fixture.payload[start:end + 1])
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                        pass
                     return
                 offset = 0
                 if fixture.mode and len(fixture.requests) > 1 and fixture.mode != 'ignore-range':
@@ -155,6 +177,8 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(len(self.requests), 2)
 
     def test_public_launcher_identity_survives_redirects_and_range_retries(self):
+        release = (Path(__file__).resolve().parents[1] / 'resources/app-version.txt').read_text(encoding='ascii').strip()
+        self.assertEqual(USER_AGENT, 'BUGG | ' + release)
         url = self.url.replace('/artifact', '/redirect')
         target = self.downloader.fetch(url, 'redirect.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(target.read_bytes(), self.payload)
@@ -285,6 +309,88 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(calls, [('mod.mcimirror.top', (3, 4)), ('cdn.modrinth.com', (8, 30)),
                                  ('cdn.modrinth.com', (8, 30))])
         self.assertTrue(any('切换原站' in value for value in statuses))
+
+    def test_mirror_outage_is_shared_across_independent_download_tasks(self):
+        original = _DownloadSession.get
+        hosts = []
+        def get(session, url, **kwargs):
+            hosts.append(urlsplit(url).hostname)
+            if hosts[-1] == 'mod.mcimirror.top':
+                raise requests.ReadTimeout('mirror unavailable')
+            return original(session, self.url, **kwargs)
+        with patch.object(_DownloadSession, 'get', get):
+            for name in ('first.jar', 'second.jar'):
+                downloader = MinecraftDownloader(self.temp.name)
+                downloader.content_source = 'MCIM'
+                path = downloader.fetch('https://cdn.modrinth.com/data/' + name, name,
+                                        hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+                self.assertEqual(path.read_bytes(), self.payload)
+                downloader._sessions.session.close()
+        self.assertEqual(hosts, ['mod.mcimirror.top', 'cdn.modrinth.com', 'cdn.modrinth.com'])
+
+    def test_mirror_html_error_with_success_status_is_rejected_before_streaming(self):
+        original = _DownloadSession.get
+        html = MagicMock()
+        html.__enter__.return_value = html
+        html.status_code, html.url = 200, 'https://mod.mcimirror.top/data/test.jar'
+        html.headers = {'Content-Type': 'text/html; charset=utf-8'}
+        hosts = []
+        def get(session, url, **kwargs):
+            hosts.append(urlsplit(url).hostname)
+            return html if hosts[-1] == 'mod.mcimirror.top' else original(session, self.url, **kwargs)
+        self.downloader.content_source = 'MCIM'
+        with patch.object(_DownloadSession, 'get', get):
+            path = self.downloader.fetch(html.url, 'test.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(path.read_bytes(), self.payload)
+        html.iter_content.assert_not_called()
+        self.assertEqual(hosts, ['mod.mcimirror.top', 'cdn.modrinth.com'])
+
+    def test_mirror_cooldown_expires_and_allows_a_new_probe(self):
+        health = _MirrorHealth()
+        with patch('core.downloads.time.monotonic', return_value=100):
+            health.pause()
+            self.assertTrue(health.blocked())
+        with patch('core.downloads.time.monotonic', return_value=161):
+            self.assertFalse(health.blocked())
+
+    def large_content(self, endpoint, progress):
+        self.payload = bytes(range(256)) * 32768
+        original = _DownloadSession.get
+        def get(session, url, **kwargs):
+            return original(session, self.url.replace('/artifact', endpoint), **kwargs)
+        with patch.object(_DownloadSession, 'get', get):
+            return self.downloader.fetch('https://cdn.modrinth.com/data/large.zip', 'large.zip',
+                hashlib.sha1(self.payload).hexdigest(), len(self.payload),
+                sha512=hashlib.sha512(self.payload).hexdigest(), file_progress=progress)
+
+    def test_large_resource_uses_four_concurrent_ranges_and_verifies_joined_bytes(self):
+        self.range_barrier = threading.Barrier(4)
+        progress = []
+        path = self.large_content('/segments', lambda done, total: progress.append((done, total)))
+        self.assertEqual(path.read_bytes(), self.payload)
+        self.assertEqual(len(self.requests), 5)
+        self.assertCountEqual(self.ranges, [None, 'bytes=0-2097151', 'bytes=2097152-4194303',
+                                          'bytes=4194304-6291455', 'bytes=6291456-8388607'])
+        self.assertEqual(progress[-1], (len(self.payload), len(self.payload)))
+        self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
+
+    def test_ignored_or_invalid_ranges_fall_back_to_complete_original_stream(self):
+        for endpoint in ('/ignore-segments', '/bad-segments'):
+            with self.subTest(endpoint=endpoint):
+                path = self.large_content(endpoint, lambda done, total: None)
+                self.assertEqual(path.read_bytes(), self.payload)
+                self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
+                path.unlink()
+
+    def test_cancel_parallel_resource_preserves_previous_install_and_cleans_parts(self):
+        path = Path(self.temp.name) / 'large.zip'
+        path.write_bytes(b'previous installation')
+        def cancel(done, total):
+            self.downloader.cancel.set()
+        with self.assertRaises(DownloadCancelled):
+            self.large_content('/segments', cancel)
+        self.assertEqual(path.read_bytes(), b'previous installation')
+        self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
 
     def test_slow_mirror_switches_with_range_and_verifies_complete_file(self):
         import itertools

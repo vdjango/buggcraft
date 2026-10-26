@@ -44,7 +44,8 @@ for setting, channel in [('stable', 'stable'), ('development', 'beta')]:
         app.processEvents()
         check.assert_called_once_with('1.2.3-rc.1', channel)
         assert window._update_workers == []
-        assert '1.2.3-rc.1' in window.launcher_updates.status
+        assert window.launcher_updates.currentVersion == '1.2.3-rc.1'
+        assert '最新可用版本' in window.launcher_updates.status
     window._update_check_timer.stop()
     window.deleteLater()
 app.processEvents()

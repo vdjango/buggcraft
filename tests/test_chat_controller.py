@@ -183,6 +183,8 @@ class ChatControllerTests(unittest.TestCase):
             controller.invite_friend(account)
         self.assertEqual(controller.view["page"], "create")
         self.assertEqual(controller.pending_friend_invite, (controller.social_generation, account))
+        self.assertEqual(controller.view['friendInviteFlow']['stage'], 'create')
+        self.assertIn('未发送', controller.view['friendInviteFlow']['title'])
 
         name = "new-room"
         controller.pending_friend_invite = (*controller.pending_friend_invite, name)
@@ -233,9 +235,11 @@ class ChatControllerTests(unittest.TestCase):
                     friends=[dict(account=account, username='Alice', online=True)])):
             controller.invite_friend(account)
             self.assertEqual(controller.view['outgoingInvitations'][account]['status'], '发送中…')
+            self.assertEqual(controller.view['friendInviteFlow']['stage'], 'sending')
             key, task = jobs.pop()
             controller.finish(key, asyncio.run(task), None)
             self.assertEqual(controller.view['outgoingInvitations'][account]['status'], '已发送')
+            self.assertEqual(controller.view['friendInviteFlow']['stage'], 'sent')
             self.assertTrue(outcomes[-1][0])
 
         jobs = []
@@ -248,13 +252,131 @@ class ChatControllerTests(unittest.TestCase):
                 asyncio.run(task)
             controller.finish(key, None, caught.exception)
         self.assertEqual(controller.view['outgoingInvitations'][account]['status'], '发送失败，重试')
+        self.assertEqual(controller.view['friendInviteFlow']['stage'], 'error')
         self.assertFalse(outcomes[-1][0])
+
+    def test_queued_invite_reports_waiting_world_and_cancellation_never_sends(self):
+        controller = self.controller
+        account = 'c' * 32 + '.' + 'd' * 32
+        controller.apply_social_state(self._social_state(friends=[dict(account=account, username='Alice', online=True)]))
+        controller.node_path = 'dummy-node.json'
+        controller.patch(nodeAvailable=True)
+        controller.records['first'].update(role='host', state='online', availability='waiting')
+        with patch.object(controller, 'profile', return_value=Mock()), patch.object(controller, 'social_operation') as send:
+            controller.invite_friend(account)
+            self.assertEqual(controller.view['friendInviteFlow']['stage'], 'waiting')
+            self.assertEqual(controller.view['friendInviteFlow']['step'], 1)
+            controller.act('continueFriendInvite', {})
+            self.assertEqual(controller.view['page'], 'connected')
+            self.assertEqual(controller.view['selected'], 'first')
+            controller.act('cancelFriendInvite', {})
+            self.assertEqual(controller.view['friendInviteFlow'], {})
+            controller.records['first']['availability'] = 'ready'
+            controller._dispatch_pending_friend_invite('first')
+            send.assert_not_called()
+
+    def test_invite_setup_failure_does_not_leave_sending_state(self):
+        controller = self.controller
+        account = 'c' * 32 + '.' + 'd' * 32
+        controller.apply_social_state(self._social_state(friends=[dict(account=account, username='Alice', online=True)]))
+        controller.records['first'].update(role='host', state='online', availability='ready')
+        controller.service.endpoints['first'] = Mock(connection=True, invite=Mock(room_id='room-1'))
+        with patch.object(controller, 'social_operation', side_effect=ValueError('接入码已过期')):
+            with self.assertRaisesRegex(ValueError, '接入码已过期'):
+                controller.invite_friend(account)
+        self.assertEqual(controller.view['friendInviteFlow']['stage'], 'error')
+        self.assertEqual(controller.view['friendInviteFlow']['action'], 'retry')
 
     def _social_state(self, **changes):
         state = dict(account='a' * 32 + '.' + 'b' * 32, username='local_user',
                      friends=[], requests=[], invitations=[])
         state.update(changes)
         return state
+
+    def test_multiple_queued_friends_dispatch_independently_and_cancel_one(self):
+        controller = self.controller
+        accounts = [c * 32 + '.' + 'd' * 32 for c in ('c', 'e', 'f')]
+        controller.apply_social_state(self._social_state(friends=[
+            dict(account=account, username='Friend' + str(i), online=True) for i, account in enumerate(accounts)]))
+        controller.node_path = 'dummy-node.json'
+        controller.patch(nodeAvailable=True)
+        controller.records['first'].update(role='host', state='online', availability='waiting')
+        with patch.object(controller, 'profile', return_value=Mock()):
+            for account in accounts:
+                controller.invite_friend(account)
+        self.assertEqual(controller.view['pendingFriendInviteCount'], 3)
+        self.assertEqual({pending[1] for pending in controller.pending_friend_invites.values()}, set(accounts))
+        controller.act('cancelFriendInvite', {'account':accounts[1]})
+        self.assertEqual(controller.view['pendingFriendInviteCount'], 2)
+        controller.records['first']['availability'] = 'ready'
+        controller.service.endpoints['first'] = Mock(connection=True, invite=Mock(room_id='1' * 32))
+        with patch.object(controller, 'invite_friend') as invite:
+            controller._dispatch_pending_friend_invites('first')
+        self.assertEqual([call.args[0] for call in invite.call_args_list], [accounts[0], accounts[2]])
+        self.assertFalse(controller.pending_friend_invites)
+
+    def test_concurrent_invite_failure_only_changes_its_own_friend(self):
+        controller = self.controller
+        accounts = [c * 32 + '.' + 'd' * 32 for c in ('c', 'e')]
+        controller.apply_social_state(self._social_state(friends=[
+            dict(account=account, username='Friend' + str(i), online=True) for i, account in enumerate(accounts)]))
+        controller.service.endpoints['first'] = Mock(connection=True, invite=Mock(room_id='1' * 32))
+        controller.records['first'].update(role='host', availability='ready')
+        jobs = []
+        with patch.object(controller, 'profile', return_value=Mock()), \
+                patch.object(controller, 'job', side_effect=lambda key, task: jobs.append((key, task))):
+            for account in accounts:
+                controller.invite_friend(account)
+        for _, task in jobs:
+            task.close()
+        controller.finish(jobs[0][0], None, ValueError('first request failed'))
+        self.assertEqual(controller.view['outgoingInvitations'][accounts[0]]['status'], '发送失败，重试')
+        self.assertEqual(controller.view['outgoingInvitations'][accounts[1]]['status'], '发送中…')
+        self.assertTrue(controller.view['friendBusy'])
+        controller.cancel_friend_lookup()
+        self.assertTrue(controller.view['friendBusy'])
+        controller.finish(jobs[1][0], dict(path=controller.node_path, operation='invite', target=accounts[1],
+                                          state=self._social_state()), None)
+        self.assertEqual(controller.view['outgoingInvitations'][accounts[1]]['status'], '已发送')
+        self.assertFalse(controller.view['friendBusy'])
+
+    def test_friend_room_presence_request_join_and_old_node_fallback(self):
+        controller = self.controller
+        controller.records.clear()
+        account = 'c' * 32 + '.' + 'd' * 32
+        room = dict(id='1' * 32, title='Friend world', role='host', availability='ready', can_request=True)
+        state = self._social_state(friends=[dict(account=account, username='Alice', online=True, room=room)],
+                                   capabilities=dict(room_presence=True, join_requests=True))
+        controller.apply_social_state(state)
+        self.assertEqual(controller.view['contacts'][0]['room'], room)
+        with patch.object(controller, 'social_operation') as operation:
+            controller.act('requestJoinFriend', {'account':account})
+            operation.assert_called_once_with('request_join', account, room=room['id'])
+        controller.apply_social_state(self._social_state(friends=[dict(account=account, username='Alice', online=True)]))
+        with patch.object(controller, 'social_operation') as operation:
+            controller.act('requestJoinFriend', {'account':account})
+            operation.assert_not_called()
+        self.assertIn('尚未支持', controller.view['error'])
+
+    def test_backend_emits_one_prioritized_notification_and_rearms_for_new_id(self):
+        controller = self.controller
+        emitted = []
+        controller.social_notification.connect(emitted.append)
+        account = 'c' * 32 + '.' + 'd' * 32
+        request = dict(id='1' * 32, account=account, username='Alice', incoming=True)
+        invitation = dict(id='2' * 32, account=account, username='Alice', room='3' * 32)
+        state = self._social_state(requests=[request], invitations=[invitation])
+        controller.apply_social_state(state)
+        controller.apply_social_state(state)
+        self.assertEqual(emitted, ['invite'])
+        controller.act('acknowledgeFriendHome', {})
+        self.assertFalse(controller.view['friendNotifications']['homeAttention'])
+        controller.act('readFriendNotifications', {'kind':'invitations'})
+        self.assertEqual(controller.view['friendNotifications']['requests'], 1)
+        self.assertFalse(controller.view['friendNotifications']['urgent'])
+        controller.apply_social_state(self._social_state(requests=[dict(request, id='4' * 32)]))
+        self.assertEqual(emitted, ['invite', 'request'])
+        self.assertTrue(controller.view['friendNotifications']['homeAttention'])
 
     def test_friend_lookup_sends_request_and_waits_for_consent(self):
         self._friend_node()
@@ -274,7 +396,7 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.view['friendRequests'][0]['account'], account)
         self.assertFalse(self.controller.view['friendBusy'])
 
-    def test_friend_lookup_rejects_ambiguous_or_malformed_directory_results(self):
+    def test_friend_lookup_offers_duplicate_ids_and_rejects_empty_results(self):
         self._friend_node()
         outcomes = []
         self.controller.friend_finished.connect(lambda success, message: outcomes.append((success, message)))
@@ -288,13 +410,34 @@ class ChatControllerTests(unittest.TestCase):
                     patch.object(self.controller, 'job', side_effect=lambda key, coroutine: jobs.append((key, coroutine))):
                 self.controller.lookup_friend({'identifier': 'Alice'})
                 key, task = jobs.pop()
-                with self.assertRaises(ValueError) as caught:
-                    asyncio.run(task)
-                self.controller.finish(key, None, caught.exception)
+                if value:
+                    self.controller.finish(key, asyncio.run(task), None)
+                    self.assertEqual(self.controller.view['friendLookupResults'], value)
+                else:
+                    with self.assertRaises(ValueError) as caught:
+                        asyncio.run(task)
+                    self.controller.finish(key, None, caught.exception)
                 operate.assert_not_called()
             self.assertEqual(self.controller.view['contacts'], [])
             self.assertFalse(outcomes[-1][0])
             self.assertTrue(outcomes[-1][1])
+
+    def test_friend_lookup_full_id_and_copy_preserve_identity_for_duplicate_names(self):
+        self._friend_node()
+        account = 'c' * 32 + '.' + 'd' * 32
+        response = self._social_state()
+        jobs = []
+        with patch('ui.multiplayer_controller.lookup_account', return_value=[dict(account=account, username='Alice')]) as lookup, \
+                patch('hookup.social.operate', return_value=response) as operate, \
+                patch.object(self.controller, 'job', side_effect=lambda key, coroutine: jobs.append((key, coroutine))):
+            self.controller.lookup_friend({'identifier': account})
+            key, task = jobs.pop()
+            self.controller.finish(key, asyncio.run(task), None)
+        self.assertEqual(lookup.call_args.args[1], account)
+        self.assertEqual(operate.call_args.args[1:], ('request', account))
+        with patch('ui.multiplayer_controller.QApplication.clipboard') as clipboard:
+            self.controller.act('copySocialName', {})
+            self.assertEqual(clipboard.return_value.setText.call_args.args[0], self.controller.view['socialAccount'])
 
     def test_cancelled_friend_lookup_cannot_save_late_result(self):
         self._friend_node()

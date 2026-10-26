@@ -10,17 +10,17 @@ ColumnLayout {
     property bool expanded: true
     property bool inlineControl: false
     property bool headerVisible: true
+    property bool flat: false
+    readonly property int contentInset: 18
     property Component headerControl
     default property alias body: contents.data
     spacing: 0
 
     Rectangle {
         Layout.fillWidth: true
-        implicitHeight: section.inlineControl ? 46 : 54
+        implicitHeight: section.inlineControl ? 50 : 60
         visible: section.headerVisible
-        color: "#292536"
-        border.color: "#49415c"
-        border.width: 1
+        color: section.flat ? "transparent" : "#4dbeb7ff"
         MouseArea {
             objectName: section.objectName + "-header"
             anchors.fill: parent
@@ -30,12 +30,12 @@ ColumnLayout {
         }
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 18; anchors.rightMargin: 18
+            anchors.leftMargin: section.contentInset; anchors.rightMargin: section.contentInset
             spacing: 14
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 2
-                Label { Layout.fillWidth: true; text: section.title; color: "white"; font.pixelSize: 13; font.bold: true; elide: Text.ElideRight }
+                Label { objectName: section.objectName + "-title"; Layout.fillWidth: true; text: section.title; color: "white"; font.pixelSize: 13; font.bold: true; elide: Text.ElideRight }
                 Label { Layout.fillWidth: true; visible: !!section.summary; text: section.summary; color: "#aaaaaa"; font.pixelSize: 12; elide: Text.ElideMiddle }
             }
             Loader { sourceComponent: section.headerControl; Layout.preferredWidth: item ? item.implicitWidth : 0 }
@@ -50,13 +50,12 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: contents.implicitHeight + 28
         visible: section.expanded && !section.inlineControl
-        color: "#1d1a25"
-        border.color: "#383246"
-        border.width: 1
+        color: section.flat ? "transparent" : "#33beb7ff"
         ColumnLayout {
             id: contents
             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-            anchors.margins: 18
+            anchors.leftMargin: section.contentInset; anchors.rightMargin: section.contentInset
+            anchors.topMargin: 14
             spacing: 10
         }
     }

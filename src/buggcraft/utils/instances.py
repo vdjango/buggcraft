@@ -1,9 +1,30 @@
 """Read local instance IDs without trusting a cached installation list."""
 from pathlib import Path
+import hashlib
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def lan_world_token(game_directory):
+    """Identify a new LAN opening even when Minecraft reuses its fixed port."""
+    if not game_directory:
+        return None
+    try:
+        log = Path(game_directory) / 'logs/latest.log'
+        with log.open('rb') as stream:
+            stream.seek(0, 2)
+            stream.seek(max(0, stream.tell() - 131072))
+            lines = stream.read().decode('utf-8', errors='replace').splitlines()
+        for line in reversed(lines):
+            match = re.search(r'(?:Started serving on|Local game hosted on port)\s+(\d{1,5})\b', line)
+            if match and 0 < int(match[1]) <= 65535:
+                return (int(match[1]), hashlib.sha256(line.encode('utf-8')).hexdigest())
+    except OSError:
+        pass
+    return None
 
 
 def installed_instance_ids(directory):

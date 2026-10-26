@@ -29,6 +29,24 @@ CONTENT_MIRROR = 'https://mod.mcimirror.top'
 logger = logging.getLogger(__name__)
 
 
+class _MirrorHealth:
+    """Share a short outage backoff across independent content download tasks."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.blocked_until = 0
+
+    def blocked(self):
+        with self.lock:
+            return self.blocked_until > time.monotonic()
+
+    def pause(self):
+        with self.lock:
+            self.blocked_until = time.monotonic() + 60
+
+
+_CONTENT_HEALTH = _MirrorHealth()
+
+
 class _DownloadSession(requests.Session):
     def __init__(self, curseforge_key='', curseforge_fallbacks=None):
         super().__init__()
@@ -73,12 +91,12 @@ def _download_chunks(response, mirror):
     # buffer, hiding a server that keeps the socket alive with tiny trickles.
     if mirror and isinstance(response.raw, HTTPResponse) and hasattr(response.raw, 'read1'):
         try:
-            while chunk := response.raw.read1(16 * 1024, decode_content=True):
+            while chunk := response.raw.read1(64 * 1024, decode_content=True):
                 yield chunk
         except TransportError as exc:
             raise requests.ConnectionError(exc) from exc
     else:
-        yield from response.iter_content(16 * 1024)
+        yield from response.iter_content(64 * 1024)
 
 
 def _resolved(path):
@@ -200,6 +218,75 @@ class MinecraftDownloader:
             self.file_event(dict(key=str(self.root / relative), path=path,
                                  name=self.file_names.get(path, Path(relative).name), state=state, **values))
 
+    def _parallel_content(self, url, temporary, size, headers, timeout, relative, file_progress):
+        """Use four bounded ranges for large individual files; verify after joining.
+
+        The original response remains available if a CDN lies about Range support.
+        Batch installs already parallelize files and do not enter this path.
+        """
+        parts = [temporary.with_name(temporary.name + f'.{index}') for index in range(4)]
+        received = [0] * 4
+        lock, stopped = threading.Lock(), threading.Event()
+        last_progress = 0.0
+
+        def transfer(index):
+            nonlocal last_progress
+            start, end = size * index // 4, size * (index + 1) // 4 - 1
+            request_headers = dict(headers, Range=f'bytes={start}-{end}')
+            with _DownloadSession(getattr(self, 'curseforge_key', ''),
+                                  getattr(self, 'curseforge_fallbacks', None)) as session:
+                with session.get(url, stream=True, timeout=timeout, headers=request_headers) as response:
+                    response.raise_for_status()
+                    if (response.status_code != 206 or
+                            response.headers.get('Content-Range') != f'bytes {start}-{end}/{size}' or
+                            response.headers.get('Content-Encoding', 'identity') not in ('', 'identity')):
+                        raise ValueError('下载源不支持分段下载')
+                    with parts[index].open('wb') as output:
+                        for chunk in _download_chunks(response, True):
+                            self.check_cancelled()
+                            if stopped.is_set():
+                                return
+                            if chunk:
+                                output.write(chunk)
+                                with lock:
+                                    received[index] += len(chunk)
+                                    if received[index] > end - start + 1:
+                                        raise ValueError('分段长度超出预期')
+                                    now = time.monotonic()
+                                    if now - last_progress >= 0.15:
+                                        done = sum(received)
+                                        file_progress(done, size)
+                                        self._file_event(relative, 'downloading', done=done, total=size)
+                                        last_progress = now
+                    if received[index] != end - start + 1:
+                        raise ValueError('分段下载不完整')
+
+        try:
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix='content-range') as pool:
+                futures = [pool.submit(transfer, index) for index in range(4)]
+                try:
+                    for future in as_completed(futures):
+                        future.result()
+                finally:
+                    stopped.set()
+            self.check_cancelled()
+            with temporary.open('wb') as output:
+                for part in parts:
+                    with part.open('rb') as source:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                            self.check_cancelled()
+                            output.write(chunk)
+            logger.info('download_parallel file=%s connections=4 bytes=%s', relative, size)
+            return True
+        except DownloadCancelled:
+            raise
+        except (requests.RequestException, OSError, ValueError) as exc:
+            logger.info('download_parallel_fallback file=%s reason=%s', relative, exc)
+            return False
+        finally:
+            for part in parts:
+                part.unlink(missing_ok=True)
+
     def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None):
         """Download into a temporary file; never publish truncated files."""
         target = self.inside(relative)
@@ -235,6 +322,8 @@ class MinecraftDownloader:
         for candidate in candidates:
             host = urlsplit(candidate).hostname
             content_mirror = host == urlsplit(CONTENT_MIRROR).hostname
+            if content_mirror and _CONTENT_HEALTH.blocked():
+                continue
             with self._blocked_hosts_lock:
                 if self._blocked_hosts.get(host, 0) > time.monotonic():
                     continue
@@ -264,6 +353,9 @@ class MinecraftDownloader:
                     with session.get(candidate, stream=True, timeout=timeout, headers=headers) as response:
                         response.raise_for_status()
                         final_host = urlsplit(response.url).hostname if isinstance(response.url, str) else host
+                        if content_mirror and str(response.headers.get('Content-Type', '')).split(';')[0].lower() in ('text/html', 'application/xhtml+xml'):
+                            _CONTENT_HEALTH.pause()
+                            raise ValueError('MCIM 暂时返回了网页，正在切换备用下载源')
                         if response.status_code == 206:
                             content_range = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', response.headers.get('Content-Range', ''))
                             if (not offset or not content_range or int(content_range[1]) != offset
@@ -277,8 +369,22 @@ class MinecraftDownloader:
                         last_progress = 0.0
                         transfer_started = time.monotonic()
                         window_bytes = offset
-                        with temporary.open('ab' if offset else 'wb') as output:
-                            for chunk in _download_chunks(response, content_mirror):
+                        parallel = (file_progress is not None and size is not None and size >= 8 * 1024 * 1024
+                                    and (sha1 or sha512) and not offset and response.status_code == 200
+                                    and response.headers.get('Accept-Ranges', '').lower() == 'bytes'
+                                    and host in ('mod.mcimirror.top', 'cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net')
+                                    and response.headers.get('Content-Encoding', 'identity') in ('', 'identity'))
+                        # A cache miss may redirect MCIM back to the publisher.
+                        # Reuse that resolved CDN URL rather than repeat four redirects.
+                        range_url = response.url if final_host in ('cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net') else candidate
+                        segmented = parallel and self._parallel_content(range_url, temporary, size, headers, timeout, relative, file_progress)
+                        if segmented:
+                            downloaded = size
+                            chunks = ()
+                        else:
+                            chunks = _download_chunks(response, content_mirror)
+                        with temporary.open('ab' if offset or segmented else 'wb') as output:
+                            for chunk in chunks:
                                 self.check_cancelled()
                                 if chunk:
                                     output.write(chunk)
@@ -336,6 +442,10 @@ class MinecraftDownloader:
                         if not missing:
                             with self._blocked_hosts_lock:
                                 self._blocked_hosts[host] = time.monotonic() + 60
+                            if isinstance(exc, (requests.ConnectionError, requests.Timeout)) or (
+                                    isinstance(exc, requests.HTTPError) and exc.response is not None
+                                    and exc.response.status_code in (403, 429, 500, 502, 503, 504, 567)):
+                                _CONTENT_HEALTH.pause()
                         self.status(f'镜像 {host} 暂不可用或速度过低，正在切换原站继续下载 {target.name}')
                         logger.info('download_source_switch file=%s from=%s reason=%s', relative, host, exc)
                         break

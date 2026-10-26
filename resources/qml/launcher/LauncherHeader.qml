@@ -22,11 +22,15 @@ Item {
             model: ["开始", "下载", "设置"]
             delegate: Button {
                 required property string modelData
+                objectName: modelData === "设置" ? "launcher-nav-settings" : ""
                 Layout.preferredWidth: 100; Layout.preferredHeight: 40
                 text: modelData
                 background: Image { source: root.state.resources + "images/bar/" + (root.state.active === modelData ? "menu.png" : "no-menu.png") }
                 contentItem: Text { text: modelData; color: "#f2f2f2"; font.pixelSize: 14; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                onClicked: headerModel.navigate(modelData)
+                onClicked: {
+                    headerModel.navigate(modelData)
+                    if (modelData === "设置") tutorial.action("settings")
+                }
             }
         }
         Item { Layout.fillWidth: true }

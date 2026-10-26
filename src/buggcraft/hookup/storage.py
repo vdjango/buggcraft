@@ -8,7 +8,7 @@ import tempfile
 class LobbyStore:
     def __init__(self, path):
         self.path = Path(path)
-        self.data = {'nodes': [], 'contacts': [], 'node_names': {}}
+        self.data = {'nodes': [], 'contacts': [], 'node_names': {}, 'friend_preferences': {}}
         if self.path.exists():
             loaded = json.loads(self.path.read_text(encoding='utf-8'))
             if not isinstance(loaded, dict) or any(not isinstance(loaded.get(key, []), list) for key in ('nodes', 'contacts')):
@@ -27,6 +27,28 @@ class LobbyStore:
                 raise ValueError('节点名称格式错误')
             self.data.update({key: loaded.get(key, []) for key in ('nodes', 'contacts')})
             self.data['node_names'] = names
+            preferences = loaded.get('friend_preferences', {})
+            if (not isinstance(preferences, dict) or any(
+                    not isinstance(owner, str) or not isinstance(friends, dict) or any(
+                        not isinstance(account, str) or not isinstance(fields, dict)
+                        or not isinstance(fields.get('alias', ''), str) or len(fields.get('alias', '')) > 32
+                        or type(fields.get('favorite', False)) is not bool
+                        or set(fields) - {'alias', 'favorite'}
+                        for account, fields in friends.items())
+                    for owner, friends in preferences.items())):
+                raise ValueError('好友偏好格式错误')
+            self.data['friend_preferences'] = preferences
+
+    def set_friend_preference(self, owner, account, **fields):
+        previous = self.data['friend_preferences']
+        friends = previous.get(owner, {})
+        self.data['friend_preferences'] = {
+            **previous, owner: {**friends, account: {**friends.get(account, {}), **fields}}}
+        try:
+            self.save()
+        except OSError:
+            self.data['friend_preferences'] = previous
+            raise
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)

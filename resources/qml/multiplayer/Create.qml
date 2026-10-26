@@ -9,26 +9,27 @@ ColumnLayout {
     property bool manual: false
     property bool makePublic: false
     property bool requireInvite: false
+    property bool advanced: false
     property bool gameChatEnabled: false
+    readonly property bool scanning: !!vm.worldScanning
     spacing: 10
-    Component.onCompleted: lobby.act("discover", {})
-    RowLayout {
-        Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter; spacing: 12
-        Repeater {
-            model: ["确认游戏世界", "设置房间"]
-            delegate: RowLayout {
-                required property string modelData
-                required property int index
-                Layout.fillWidth: true; spacing: 10
-                Rectangle {
-                    width: 28; height: 28; radius: 14; color: vm.step === index ? "#7859ef" : "#323142"
-                    CopyText { anchors.centerIn: parent; text: index + 1; color: "#f3efff"; font.bold: true }
-                }
-                CopyText { text: modelData; color: vm.step === index ? "#f3efff" : "#8a849e" }
-                Rectangle { Layout.fillWidth: true; Layout.leftMargin: 10; height: 1; color: "#3a354b"; visible: index === 0 }
-            }
+    FriendInviteProgress { objectName: "create-friend-invite-progress"; flow: vm.friendInviteFlow || ({}); onAction: function(name, data) { lobby.act(name, data) } }
+    function selectDiscoveredWorld() {
+        if (!vm.worlds.length) {
+            create.worldIndex = -1
+            return
         }
+        var requested = Number(vm.pendingOpenWorldPort || vm.worldPort || port.text || 0)
+        var selected = vm.worlds.findIndex(function(world) { return Number(world.port) === requested })
+        create.worldIndex = selected >= 0 ? selected : (vm.worlds.length === 1 ? 0 : -1)
+        if (create.worldIndex >= 0) port.text = String(vm.worlds[create.worldIndex].port)
     }
+    Component.onCompleted: Qt.callLater(function() {
+        if (lobby.view.page === "create") {
+            selectDiscoveredWorld()
+            lobby.act("discover", {})
+        }
+    })
     ScrollView {
         objectName: "create-world-scroll"
         Layout.fillWidth: true; Layout.fillHeight: true; clip: true
@@ -37,20 +38,30 @@ ColumnLayout {
             width: parent.width; spacing: 10
             Item { Layout.preferredHeight: 2 }
             Surface {
-                objectName: "create-game-config"
-                visible: vm.step === 0
                 Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
-                implicitHeight: gameConfig.implicitHeight + 28
+                implicitHeight: details.implicitHeight + 24
                 color: "#211d2b"; border.color: "#49415c"
-                InstancePicker {
-                    id: gameConfig
-                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-                    anchors.leftMargin: 18; anchors.rightMargin: 18; anchors.topMargin: 14
+                ColumnLayout {
+                    id: details
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
+                    spacing: 8
+                    ColumnLayout { Layout.fillWidth: true; spacing: 5
+                        RowLayout {
+                            Layout.fillWidth: true
+                            CopyText { Layout.fillWidth: true; text: "房间名称"; color: "#d5cfe3" }
+                            CopyText { text: create.makePublic ? "公开房间" : "仅邀请好友"; color: "#b6a3d7"; font.pixelSize: 11 }
+                        }
+                        InputField {
+                            id: title; objectName: "create-title"; Layout.fillWidth: true
+                            text: vm.defaultRoomTitle || "玩家的房间"; maximumLength: 80; placeholderText: "例如 周末一起盖城堡"
+                            onTextEdited: { if (vm.error) lobby.act("clearError", {}) }
+                        }
+                    }
+                    InstancePicker { objectName: "create-game-config"; Layout.fillWidth: true }
                 }
             }
             Surface {
                 objectName: "create-world-discovery"
-                visible: vm.step === 0
                 Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
                 implicitHeight: discovery.implicitHeight + 28
                 color: "#211d2b"; border.color: "#49415c"
@@ -62,12 +73,40 @@ ColumnLayout {
                     RowLayout {
                         Layout.fillWidth: true
                         CopyText { Layout.fillWidth: true; text: "局域网世界"; font.pixelSize: 14; font.bold: true; color: "#f4f0ff" }
-                        ActionButton { objectName: "discover-worlds"; text: vm.busy ? "正在查找…" : "重新查找"; enabled: !vm.busy; onClicked: { create.worldIndex = -1; lobby.act("discover", {}) } }
+                        ActionButton { objectName: "discover-worlds"; text: create.scanning ? "正在扫描…" : "重新查找"; enabled: !vm.busy; onClicked: { create.worldIndex = -1; lobby.act("discover", {}) } }
                     }
-                    CopyText { Layout.fillWidth: true; text: "打开单人世界，在暂停菜单选择“对局域网开放”。本页会自动查找，无需手动刷新。" }
+                    CopyText { Layout.fillWidth: true; text: "进入单人世界，打开暂停菜单，选择“对局域网开放”。启动器会自动找到它。" }
+                    Rectangle {
+                        objectName: "create-world-scanning"
+                        visible: create.scanning
+                        Layout.fillWidth: true; implicitHeight: scanningContent.implicitHeight + 24
+                        color: "#352947"; border.color: "#a28aef"
+                        ColumnLayout {
+                            id: scanningContent
+                            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                            anchors.margins: 12; spacing: 10
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 12
+                                BusyIndicator {
+                                    objectName: "create-world-scan-spinner"
+                                    Layout.preferredWidth: 32; Layout.preferredHeight: 32
+                                    running: create.scanning; palette.dark: "#d0bbff"
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 4
+                                    CopyText { text: "正在扫描局域网世界"; color: "#f2eaff"; font.bold: true; font.pixelSize: 14 }
+                                    CopyText { Layout.fillWidth: true; text: "请保持世界开放，通常几秒内完成。"; color: "#c6b6df"; font.pixelSize: 11 }
+                                }
+                            }
+                            ProgressBar {
+                                Layout.fillWidth: true; implicitHeight: 4
+                                indeterminate: true; palette.highlight: "#bba3ff"; palette.dark: "#514568"
+                            }
+                        }
+                    }
                     Rectangle {
                         objectName: "create-worlds-empty"
-                        visible: vm.worlds.length === 0
+                        visible: vm.worlds.length === 0 && !create.scanning
                         Layout.fillWidth: true; implicitHeight: 44
                         color: "#241e30"; border.color: "#42384f"
                         CopyText { anchors.centerIn: parent; text: vm.busy ? "正在查找本机开放的世界…" : "暂未发现开放的世界"; color: "#91899f" }
@@ -92,7 +131,7 @@ ColumnLayout {
                                     border.color: world.selected ? "#d2c4ff" : "#786b8f"
                                     Rectangle { anchors.centerIn: parent; width: 6; height: 6; radius: 3; color: "#251f35"; visible: world.selected }
                                 }
-                                CopyText { Layout.fillWidth: true; text: "Minecraft " + modelData.version; color: world.selected ? "#f2edff" : "#d5cede" }
+                                CopyText { Layout.fillWidth: true; text: "游戏世界 · " + modelData.version; color: world.selected ? "#f2edff" : "#d5cede" }
                                 CopyText { Layout.rightMargin: 10; text: "端口 " + modelData.port; font.pixelSize: 11 }
                             }
                             background: Rectangle {
@@ -109,7 +148,7 @@ ColumnLayout {
                         CopyText { Layout.fillWidth: true; text: "还没进入世界？可以先创建房间，再启动游戏并开放局域网。"; color: "#c7bdd8"; font.pixelSize: 11; wrapMode: Text.Wrap }
                     }
                     Button {
-                        visible: vm.worlds.length > 0 || create.manual
+                        visible: create.advanced && (vm.worlds.length > 0 || create.manual)
                         objectName: "show-manual"
                         implicitHeight: 28
                         text: create.manual ? "收起手动填写 ↑" : "高级选项：手动填写端口 ↓"
@@ -132,15 +171,27 @@ ColumnLayout {
                 }
             }
             Surface {
-                visible: vm.step === 1
+                visible: create.advanced
                 Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
-                implicitHeight: details.implicitHeight + 24
+                implicitHeight: chatOptions.implicitHeight + 24
                 color: "#211d2b"; border.color: "#49415c"
                 ColumnLayout {
-                    id: details
+                    id: chatOptions
                     anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
-                    spacing: 8
-                    CopyText { text: "设置房间"; font.pixelSize: 15; font.bold: true; color: "#f3efff" }
+                    spacing: 6
+                    Rectangle { Layout.fillWidth: true; height: 1; color: "#3a354b" }
+                        RoomVisibility { id: publicRoom; objectName: "create-public"; text: "在大厅公开这个房间"; checked: create.makePublic; onToggled: { create.makePublic = checked; if (typeof tutorial !== "undefined") tutorial.action("privacy") } }
+                    RoomVisibility {
+                        objectName: "create-require-invite"; Layout.leftMargin: 27
+                        visible: publicRoom.checked; text: "加入需要邀请码"
+                        checked: create.requireInvite; onToggled: create.requireInvite = checked
+                    }
+                    CopyText {
+                        objectName: "create-access-description"; Layout.fillWidth: true
+                        text: !publicRoom.checked ? "不出现在大厅，仅持有邀请码的玩家可以加入。" :
+                            create.requireInvite ? "大厅可见，玩家需填写房主提供的邀请码才能加入。" : "大厅可见，玩家可以直接加入，无需填写邀请码。"
+                        font.pixelSize: 11
+                    }
                     CopyText { text: "玩家连接方式"; color: "#d5cfe3" }
                     ChoiceBox {
                         objectName: "create-transport"
@@ -153,38 +204,6 @@ ColumnLayout {
                         Layout.fillWidth: true; font.pixelSize: 11
                         text: vm.transportPolicy === "relay" ? "房间内所有玩家使用节点中转。" : "每位玩家分别建立连接：能直连的走 P2P，失败后只让该玩家回落到中转。"
                     }
-                    ColumnLayout { Layout.fillWidth: true; spacing: 5
-                        CopyText { text: "房间名称"; color: "#d5cfe3" }
-                        InputField {
-                            id: title; objectName: "create-title"; Layout.fillWidth: true
-                            text: "好友的世界"; maximumLength: 80; placeholderText: "例如 周末一起盖城堡"
-                            onTextEdited: { if (vm.error) lobby.act("clearError", {}) }
-                        }
-                    }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: "#3a354b" }
-                    RoomVisibility { id: publicRoom; objectName: "create-public"; text: "在大厅公开这个房间"; checked: create.makePublic; onToggled: create.makePublic = checked }
-                    RoomVisibility {
-                        objectName: "create-require-invite"; Layout.leftMargin: 27
-                        visible: publicRoom.checked; text: "加入需要邀请码"
-                        checked: create.requireInvite; onToggled: create.requireInvite = checked
-                    }
-                    CopyText {
-                        objectName: "create-access-description"; Layout.fillWidth: true
-                        text: !publicRoom.checked ? "不出现在大厅，仅持有邀请码的玩家可以加入。" :
-                            create.requireInvite ? "大厅可见，玩家需填写房主提供的邀请码才能加入。" : "大厅可见，玩家可以直接加入，无需填写邀请码。"
-                        font.pixelSize: 11
-                    }
-                }
-            }
-            Surface {
-                visible: vm.step === 1
-                Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
-                implicitHeight: chatOptions.implicitHeight + 24
-                color: "#211d2b"; border.color: "#49415c"
-                ColumnLayout {
-                    id: chatOptions
-                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
-                    spacing: 6
                     RoomVisibility {
                         objectName: "create-game-chat"; text: "同步大厅与游戏聊天"
                         checked: create.gameChatEnabled; onToggled: create.gameChatEnabled = checked
@@ -221,36 +240,35 @@ ColumnLayout {
     RowLayout {
         objectName: "create-footer"
         Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
-        ActionButton { objectName: "create-back"; text: "上一步"; visible: vm.step === 1; onClicked: lobby.act("backCreate", {}) }
         ActionButton {
-            objectName: "create-before-game"
-            text: "先创建房间"; quiet: true; visible: vm.step === 0
-            enabled: !!vm.nodeAvailable && !vm.busy && !vm.instanceLoading && !!vm.version
-            ToolTip.visible: hovered
-            ToolTip.delay: 500
-            ToolTip.text: "先设置房间并邀请朋友，稍后再开放游戏世界。"
-            Accessible.description: ToolTip.text
-            onClicked: lobby.act("createWaiting", {})
+            objectName: "create-advanced"; quiet: true
+            text: create.advanced ? "收起高级选项" : "高级选项"
+            onClicked: {
+                create.advanced = !create.advanced
+                if (!create.advanced) create.manual = false
+                if (typeof tutorial !== "undefined") tutorial.action("privacy")
+            }
         }
         Item { Layout.fillWidth: true }
         ActionButton { objectName: "cancel-create"; text: "取消"; quiet: true; onClicked: lobby.act("navigate", {page:"hall"}) }
         ActionButton {
             objectName: "create-next"
-            text: vm.busy ? "正在确认…" : vm.step === 0 ? "确认世界，下一步 →" : "创建房间"
-            primary: true; enabled: !!vm.nodeAvailable && !vm.busy && !vm.instanceLoading &&
-                (vm.step === 0 ? (create.worldIndex >= 0 || (create.manual && port.acceptableInput)) : (!create.gameChatEnabled || chatName.acceptableInput))
-            onClicked: vm.step === 0 ? lobby.act("probe", {port:port.text}) : lobby.act("create", {title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, transport:vm.transportPolicy})
+            text: create.scanning ? "正在查找世界…" : vm.busy ? "正在创建…" : create.worldIndex >= 0 || (create.manual && port.acceptableInput) ? "创建房间" : vm.worlds.length > 1 ? "请选择游戏世界" : "先创建房间"
+            primary: true
+            enabled: !!vm.nodeAvailable && !vm.busy && !vm.instanceLoading && !!vm.version &&
+                (vm.worlds.length <= 1 || create.worldIndex >= 0 || (create.manual && port.acceptableInput)) &&
+                (!create.manual || port.acceptableInput) &&
+                (!create.scanning || (create.manual && port.acceptableInput)) && (!create.gameChatEnabled || chatName.acceptableInput)
+            onClicked: {
+                lobby.act("quickCreate", {port:create.worldIndex >= 0 || create.manual ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, transport:vm.transportPolicy})
+                if (typeof tutorial !== "undefined") tutorial.action("create-world")
+            }
         }
     }
     Connections {
         target: lobby
         function onChanged() {
-            if (vm.worlds.length && create.worldIndex < 0) {
-                var requested = Number(vm.pendingOpenWorldPort || vm.worldPort || 0)
-                var selected = vm.worlds.findIndex(function(world) { return Number(world.port) === requested })
-                create.worldIndex = selected >= 0 ? selected : (vm.worlds.length === 1 ? 0 : -1)
-                if (create.worldIndex >= 0) port.text = String(vm.worlds[create.worldIndex].port)
-            }
+            create.selectDiscoveredWorld()
         }
     }
 }

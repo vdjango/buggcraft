@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot
+from PySide6.QtWidgets import QApplication
 
 from config.settings import get_settings_manager
 from core.auth.microsoft import Authenticator, MinecraftSignals
@@ -26,6 +27,8 @@ class HomeController(QObject):
         self.subtitle = ''
         self.launch_enabled = True
         self.social_ready = False
+        self.friend_notifications = {}
+        self.multiplayer_action = ''
 
     @Property('QVariantMap', notify=changed)
     def view(self):
@@ -42,6 +45,9 @@ class HomeController(QObject):
                     launchTitle=self.title, launchSubtitle=self.subtitle,
                     launchEnabled=self.launch_enabled, sessions=sessions,
                     selectedSession=page.launcher.selected_id or 0, friendsVisible=self.social_ready,
+                    friendNotifications=self.friend_notifications,
+                    multiplayerTitle={'create': '创建房间', 'join': '加入房间', 'associate': '开放房间'}.get(self.multiplayer_action, '联机'),
+                    multiplayerAttention=self.multiplayer_action in ('create', 'join', 'associate'),
                     allowMultiple=bool(sessions) and page.settings_manager.get_setting('launcher.allow_multiple', False),
                     resources=QUrl.fromLocalFile(str(Path(page.resource_path).resolve()) + '/').toString())
 
@@ -143,10 +149,12 @@ class StartGamePage(QmlPage):
         self.auth_refresh_timer.timeout.connect(self.is_expired_token)
         self.auth_refresh_timer.start()
         self.refresh_game_sessions()
-        # Keep the social session alive for saved personal node profiles. This
-        # lets an incoming friend invitation surface even before the hall is
-        # opened, while anonymous-only setups incur no background work.
+        # Saved nodes also monitor opened worlds before the hall is shown.
         QTimer.singleShot(0, self._start_background_social)
+        self._quick_action_scheduled = False
+        self._handled_multiplayer_invite = ''
+        QApplication.clipboard().dataChanged.connect(self._clipboard_changed)
+        self._refresh_multiplayer_entry()
 
     @property
     def auth(self):
@@ -179,7 +187,7 @@ class StartGamePage(QmlPage):
             return
         self._launch_state('启动中…', enabled=False)
         language = self.settings_manager.get_setting('game.language', 'zh_cn')
-        self.launcher.set_language(language if language in ('zh_cn', 'zh_tw', 'en_us') else 'zh_cn')
+        self.launcher.set_language(language)
         size = self.settings_manager.get_version_setting('launcher.window_size', '默认')
         fullscreen, width, height = False, None, None
         if size == '默认':
@@ -217,6 +225,7 @@ class StartGamePage(QmlPage):
         self.instance_changed.emit()
 
     def minecraft_handle_started(self):
+        self._ensure_multiplayer_dialog()
         self.refresh_game_sessions()
 
     def minecraft_handle_stopped(self, exit_code):
@@ -229,16 +238,100 @@ class StartGamePage(QmlPage):
         self.controller.changed.emit()
 
     def show_multiplayer_dialog(self):
+        self._acknowledge_multiplayer_invite()
         self._ensure_multiplayer_dialog()
         self._multiplayer_dialog.detect_instance()
+        backend = self._multiplayer_dialog.backend
+        if (backend.view.get('openWorldPrompt') and
+                self.settings_manager.get_setting('multiplayer.quick_action', '首页提示') != '关闭'):
+            backend.act('createFromOpenWorld', {'port': backend.view['openWorldPort']})
+        self._show_multiplayer_window()
+
+    def _show_multiplayer_window(self):
         self._multiplayer_dialog.showNormal()
         self._multiplayer_dialog.raise_()
         self._multiplayer_dialog.activateWindow()
+        tutorial = getattr(self.parent, 'tutorial_controller', None)
+        if tutorial is not None:
+            tutorial.attach_lobby(self._multiplayer_dialog)
         self._social_changed()
 
     def _social_changed(self):
         self.controller.social_ready = self._multiplayer_dialog.backend.view['socialReady']
+        self.controller.friend_notifications = self._multiplayer_dialog.backend.view.get('friendNotifications', {})
+        self._refresh_multiplayer_entry()
+
+    def _clipboard_changed(self):
+        self._refresh_multiplayer_entry()
+
+    @staticmethod
+    def _clipboard_room_invite():
+        from hookup.profiles import RoomInvite
+        text = QApplication.clipboard().text().strip()
+        try:
+            RoomInvite.decode(text)
+        except ValueError:
+            return ''
+        return text
+
+    def _acknowledge_multiplayer_invite(self):
+        invite = self._clipboard_room_invite()
+        if invite:
+            self._handled_multiplayer_invite = invite
+
+    def _refresh_multiplayer_entry(self):
+        if getattr(self.parent, '_closing', False) or getattr(self.parent, '_close_after_game', False):
+            return
+        dialog = getattr(self, '_multiplayer_dialog', None)
+        state = dialog.backend.view if dialog else {}
+        invite = self._clipboard_room_invite()
+        if invite and dialog and invite == dialog.backend.consumed_clipboard_invite:
+            self._handled_multiplayer_invite = invite
+        action = 'join' if invite and invite != self._handled_multiplayer_invite else ''
+        if state.get('openWorldPrompt'):
+            action = state.get('openWorldMode', 'create')
+        elif state.get('connections'):
+            action = ''
+        if self.settings_manager.get_setting('multiplayer.quick_action', '首页提示') == '关闭':
+            action = ''
+        self.controller.multiplayer_action = action
         self.controller.changed.emit()
+        if (action in ('create', 'join', 'associate') and self.settings_manager.get_setting('multiplayer.quick_action', '首页提示') == '自动创建或加入'
+                and not self._quick_action_scheduled):
+            self._quick_action_scheduled = True
+            QTimer.singleShot(0, self._run_auto_multiplayer)
+
+    def _run_auto_multiplayer(self):
+        self._quick_action_scheduled = False
+        if (getattr(self.parent, '_closing', False) or getattr(self.parent, '_close_after_game', False) or
+                self.settings_manager.get_setting('multiplayer.quick_action', '首页提示') != '自动创建或加入'):
+            return
+        if self.controller.multiplayer_action not in ('create', 'join', 'associate'):
+            return
+        dialog = self._ensure_multiplayer_dialog()
+        backend = dialog.backend
+        if backend.closed:
+            return
+        state = backend.view
+        if state.get('openWorldPrompt'):
+            if not state['nodeAvailable'] or state['instanceLoading'] or state['busy']:
+                return
+            if state['openWorldMode'] == 'associate':
+                self._acknowledge_multiplayer_invite()
+                backend.act('createFromOpenWorld', {'port': state['openWorldPort'], 'automatic': True})
+            else:
+                port = state['openWorldPort']
+                self._acknowledge_multiplayer_invite()
+                backend.act('dismissOpenWorld', {})
+                backend.act('quickCreate', {'port': port, 'title': backend.default_room_title(), 'automatic': True})
+            self._show_multiplayer_window()
+        else:
+            if state['busy'] or state['page'] not in ('hall', 'join', 'nodes'):
+                return
+            self._acknowledge_multiplayer_invite()
+            backend.join_from_clipboard()
+            self._show_multiplayer_window()
+        self._refresh_multiplayer_entry()
 
     def show_friends_dialog(self):
         self._ensure_multiplayer_dialog()
@@ -258,17 +351,7 @@ class StartGamePage(QmlPage):
         if hasattr(self, '_multiplayer_dialog'):
             return
         try:
-            from hookup.storage import LobbyStore
-            from hookup.profiles import RelayProfile
-            store = LobbyStore(Path(self.cache_path) / 'multiplayer' / 'lobby.json')
-            for path in store.data.get('nodes', []):
-                try:
-                    if RelayProfile.load(path).token.startswith('acct1.'):
-                        dialog = self._ensure_multiplayer_dialog()
-                        dialog.backend.reload_store(select=path)
-                        break
-                except (OSError, ValueError):
-                    continue
+            self._ensure_multiplayer_dialog()
         except Exception:
             logger.debug('background social session unavailable', exc_info=True)
 

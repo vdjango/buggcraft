@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../shared" as Shared
 
 Item {
     id: root
@@ -78,8 +79,22 @@ Item {
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 8
-                    HeaderAction { objectName: "open-lobby-home"; Layout.preferredWidth: 160; Layout.preferredHeight: 35; text: "联机大厅"; artwork: root.state.resources + "images/bar/version_Settings_background.png"; onClicked: homePage.social("lobby") }
-                    HeaderAction { objectName: "open-friends-home"; visible: root.state.friendsVisible; Layout.preferredWidth: 80; Layout.preferredHeight: 35; text: "好友"; artwork: root.state.resources + "images/bar/version_Settings_background.png"; onClicked: homePage.social("friends") }
+                    HeaderAction {
+                        id: lobbyButton
+                        objectName: "open-lobby-home"; Layout.preferredWidth: 160; Layout.preferredHeight: 35
+                        text: root.state.multiplayerTitle
+                        artwork: root.state.resources + "images/bar/version_Settings_background.png"
+                        onClicked: { homePage.social("lobby"); tutorial.action("lobby") }
+                        Shared.AttentionFrame { objectName: "home-multiplayer-glow"; active: root.state.multiplayerAttention }
+                    }
+                    HeaderAction {
+                        objectName: "open-friends-home"; visible: root.state.friendsVisible
+                        Layout.preferredWidth: 92; Layout.preferredHeight: 35
+                        text: "好友"; artwork: root.state.resources + "images/bar/version_Settings_background.png"
+                        onClicked: homePage.social("friends")
+                        Shared.AttentionFrame { objectName: "home-friends-glow"; active: !!(root.state.friendNotifications || {}).homeAttention; tint: (root.state.friendNotifications || {}).urgent ? "#f283aa" : "#a68aff" }
+                        Shared.NotificationBadge { objectName: "home-friends-badge"; anchors.right: parent.right; anchors.top: parent.top; anchors.rightMargin: -5; anchors.topMargin: -6; z: 6; count: (root.state.friendNotifications || {}).total || 0; urgent: !!(root.state.friendNotifications || {}).urgent }
+                    }
                 }
                 Label { Layout.fillWidth: true; visible: !!root.state.status; text: root.state.status; color: "#dccded"; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter; font.pixelSize: 11 }
             }

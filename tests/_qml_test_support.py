@@ -12,10 +12,11 @@ os.environ.setdefault('QT_QUICK_BACKEND', 'software')
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src/buggcraft'))
 
-from PySide6.QtCore import QObject, QPoint, Qt, qInstallMessageHandler
+from PySide6.QtCore import QObject, QPoint, Qt, QUrl, qInstallMessageHandler
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQuickWidgets import QQuickWidget
+import shiboken6
 import config.settings as settings
 from windows.main_window import MinecraftLauncher
 
@@ -46,11 +47,13 @@ class LauncherQmlCase(unittest.TestCase):
             patch.object(settings, '_settings_manager_instance', self.manager),
             patch.object(settings, 'get_conf_or_cache_manager', return_value=('isolated-test', str(self.directory / 'config'))),
             patch.object(MinecraftLauncher, 'minecraft_not_java_runtime'),
+            patch('ui.pages.qml_start.StartGamePage._start_background_social'),
             patch('ui.pages.qml_games.GameCatalogueController.refresh'),
             patch('core.content.ContentCatalogue.search', return_value=[dict(project_id='fixture', title='示例项目', description='资源简介', source='Modrinth')]),
             patch('core.content.ContentCatalogue.versions', return_value=[dict(name='示例版本', files=[], source='Modrinth')]),
             patch('core.content.ContentCatalogue.project', return_value=dict(description='资源简介', body='项目介绍', game_versions=['1.20.1', '1.21.8'])),
             patch('core.loaders.available_versions', return_value=['47.4.0']),
+            patch('ui.pages.qml_lists.catalogue', return_value=[]),
         ]
         for item in self.patches:
             item.start()
@@ -66,6 +69,14 @@ class LauncherQmlCase(unittest.TestCase):
         self.window.download_page.content_page.controller.pool.waitForDone(2000)
         self.window.download_page.games_page.controller.pool.waitForDone(2000)
         self.window.close()
+        # Destroy each QQuickWidget while its QWidget parent still exists.
+        # Qt's Windows software renderer can hang when their QObject parent
+        # destroys several live scene graphs at once.
+        self.pump()
+        for quick in self.window.findChildren(QQuickWidget):
+            if shiboken6.isValid(quick):
+                quick.setSource(QUrl())
+                shiboken6.delete(quick)
         self.window.deleteLater()
         self.pump()
         qInstallMessageHandler(self.previous_handler)

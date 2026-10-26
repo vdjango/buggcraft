@@ -46,8 +46,11 @@ class DownloadWorker(QThread):
             directory = executable.parent
             if platform.system() == 'Darwin':
                 directory = next(parent for parent in executable.parents if parent.suffix == '.app').parent
-            package = download_update(self.update, directory,
-                                      lambda done, total: self.progress.emit(done, total))
+            def report(done, total):
+                if self.isInterruptionRequested():
+                    raise RuntimeError('更新下载已取消')
+                self.progress.emit(done, total)
+            package = download_update(self.update, directory, report)
             self.completed.emit(package, '')
         except Exception as exc:
             self.completed.emit(None, str(exc))
@@ -150,7 +153,7 @@ class LauncherUpdateController(QObject):
                 logger.info('Launcher update available: %s', update['version'])
                 self.offer(update, manual or pending)
             else:
-                self._set_status(f'当前已是{channel_name}通道最新可用版本（{self.version}）')
+                self._set_status(f'{channel_name}已是最新可用版本')
                 logger.info('Launcher update check complete: no newer %s release', channel)
             if pending:
                 self.changed.emit()
@@ -248,7 +251,7 @@ class LauncherUpdateController(QObject):
         dialog.controller.actionRequested.connect(action)
 
     def download(self, update):
-        if self._downloading:
+        if self._stopping or self._downloading:
             return
         self._downloading = True
         self._set_status('正在下载并校验更新…')
@@ -263,6 +266,8 @@ class LauncherUpdateController(QObject):
         worker = DownloadWorker(self, update)
         self.workers.append(worker)
         def progress(done, total):
+            if self._stopping:
+                return
             model = dialog.controller
             model.progress = min(1., done / total) if total else 0.
             model.data['progressText'] = ('正在校验安装包…' if done == total else
@@ -303,10 +308,19 @@ class LauncherUpdateController(QObject):
         QDesktopServices.openUrl(QUrl(update.get('download_page') or 'https://download.bugg.icu/'))
 
     @Slot()
-    def shutdown(self):
+    def prepare_shutdown(self):
         self._stopping = True
         self.timer.stop()
         self.startup_timer.stop()
+        for worker in self.workers:
+            worker.requestInterruption()
+        self._close_dialog()
+        return not any(worker.isRunning() for worker in self.workers)
+
+    @Slot()
+    def shutdown(self):
+        self.prepare_shutdown()
+        # Direct app.quit() also needs to retain QThreads until they finish.
+        # Normal window closes poll prepare_shutdown before reaching this hook.
         for worker in list(self.workers):
             worker.wait()
-        self._close_dialog()

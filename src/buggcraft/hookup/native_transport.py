@@ -183,6 +183,17 @@ class NativeEndpoint:
             'session': self.session, 'settings': self.room_settings}))
         return dict(game)
 
+    async def update_settings(self, title, public, require_invite):
+        if self.role != 'host' or not self.session:
+            raise ValueError('只有在线房主可以修改房间设置。')
+        settings = dict(self.room_settings, title=title, public=public,
+                        require_invite=not public or require_invite)
+        info = dict(await self._routes.request('room.configure', {
+            'session': self.session, 'settings': settings}))
+        self.room_settings = settings
+        self.room_info = info
+        return info
+
     async def mod_manifest(self):
         result = await self._routes.request('mods.manifest', {'session': self.session})
         return await self._wait_transfer(result)

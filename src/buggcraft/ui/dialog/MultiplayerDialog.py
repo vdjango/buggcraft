@@ -6,6 +6,7 @@ from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
 from ui.multiplayer_controller import MultiplayerController
+from utils.app_icon import get_app_icon
 
 
 class MultiplayerDialog(QDialog):
@@ -17,7 +18,7 @@ class MultiplayerDialog(QDialog):
         self._shutdown = False
         if parent is not None:
             parent.destroyed.connect(self.deleteLater)
-        self.setWindowTitle('Buggcraft · 一起玩')
+        self.setWindowTitle('BUGG·联机大厅')
         # Match the launcher's original collapsed canvas (926 - 205, 505).
         main_window = getattr(parent, 'parent', None)
         background = getattr(main_window, 'bg_image', None)
@@ -27,11 +28,17 @@ class MultiplayerDialog(QDialog):
         resources = Path(getattr(parent, 'resource_path', None) or
                          Path(__file__).resolve().parents[4] / 'resources')
         self.resources = resources
+        self.setWindowIcon(get_app_icon(resources))
+        from utils.windows_taskbar import install_taskbar_identity
+        install_taskbar_identity(self, resources)
         self.friends_window = None
         self.invitation_dialog = None
         self._invitation = None
         self._invitation_queue = []
         self.backend = MultiplayerController(self, storage_path)
+        from utils.social_sound import SocialSound
+        self.social_sound = SocialSound(resources)
+        self.backend.social_notification.connect(self.notify_social)
         self.backend.friend_invited.connect(self.show_friend_invitation)
         self.backend.changed.connect(self.refresh_invitation)
         if hasattr(parent, 'friends_btn'):
@@ -45,6 +52,9 @@ class MultiplayerDialog(QDialog):
         self.quick = QQuickWidget(self)
         self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
         self.quick.rootContext().setContextProperty('lobby', self.backend)
+        tutorial = getattr(getattr(parent, 'parent', None), 'tutorial_controller', None)
+        if tutorial is not None:
+            self.quick.rootContext().setContextProperty('tutorial', tutorial)
         self.quick.setSource(QUrl.fromLocalFile(str(resources / 'qml/multiplayer/Lobby.qml')))
         if self.quick.status() == QQuickWidget.Error:
             self.backend.close()
@@ -52,7 +62,7 @@ class MultiplayerDialog(QDialog):
         layout.addWidget(self.quick)
         self.timer = QTimer(self)
         self.timer.setInterval(15000)
-        self.timer.timeout.connect(lambda: self.backend.check_node() if self.isVisible() else None)
+        self.timer.timeout.connect(self.backend.check_node)
         self.timer.start()
         self.backend.detect_instance()
         self.runtime_timer = QTimer(self)
@@ -64,17 +74,32 @@ class MultiplayerDialog(QDialog):
     def detect_instance(self):
         self.backend.detect_instance()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._shutdown:
+            self.backend.join_from_clipboard()
+
     def show_friends(self, invitations=False):
         from ui.dialog.FriendsDialog import FriendsDialog
         if self.friends_window is None:
             self.friends_window = FriendsDialog(self, self.resources)
         self.friends_window.showNormal()
+        self.backend.act('acknowledgeFriendHome', {})
         if invitations:
             self.friends_window.backend.local['friendTab'] = 2
             self.friends_window.backend.changed.emit()
             self.friends_window.backend.showInvitations.emit()
         self.friends_window.raise_()
         self.friends_window.activateWindow()
+
+    def notify_social(self, priority):
+        if self._shutdown:
+            return
+        settings = getattr(self.launcher_page, 'settings_manager', None)
+        if settings is None or settings.get_setting('multiplayer.notification_sound', True):
+            self.social_sound.play(priority)
+        if priority == 'invite':
+            QApplication.alert(self.launcher_page.window() if self.launcher_page else self, 5000)
 
     def show_friend_invitation(self, invitation):
         """Keep invitations visible even when the friends window is closed."""

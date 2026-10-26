@@ -44,19 +44,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 61faab57db2d424493d41c1ec21a3909527dee26
+          ref: 2b3babafa8417e3e17a3f9ec87ed4f142caed5c6
           path: native-source
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Prepare Linux compiler dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libcurl4-openssl-dev
       - name: Prepare Windows compiler dependencies
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          vcpkg install openssl:x64-windows
+          vcpkg install openssl:x64-windows 'curl[openssl]:x64-windows'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
       - name: Prepare macOS compiler dependencies

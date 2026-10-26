@@ -4,12 +4,13 @@ import os
 import logging
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QStackedWidget, QVBoxLayout
+    QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect, QEvent, QObject
-from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor, QIcon
+from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
 
 from utils.helpers import scale_component
+from utils.app_icon import get_app_icon
 from config.javafinder import JavaPathFinder
 from config.settings import get_settings_manager, launcher_opacity
 from core.visibility import LauncherVisibilityManager
@@ -23,21 +24,6 @@ from ui.dialog.qml_dialog import DebugOutputDialog, QmlDialog
 
 import logging
 logger = logging.getLogger(__name__)
-
-
-def get_app_icon(RESOURCE_DIR) -> QIcon:
-    """获取应用程序图标"""
-
-    # 尝试从系统图标主题加载
-    icon = QIcon.fromTheme("app")
-    if icon.isNull():
-        # 如果主题中没有，则从绝对路径加载
-        icon = QIcon()
-        icon_path = os.path.abspath(os.path.join(RESOURCE_DIR, 'icons', 'app.ico'))
-        if os.path.exists(icon_path):
-            icon = QIcon(icon_path)
-
-    return icon
 
 
 class _ModpackDropFilter(QObject):
@@ -77,6 +63,7 @@ class MinecraftLauncher(QMainWindow):
         self._launch_error_dialog = None
         self._launch_error_reported = False
         self._java_install_dialog = None
+        self.setWindowTitle('BUGG启动器')
         self.setWindowIcon(get_app_icon(self.resource_path))
 
         # 窗口拖动
@@ -131,6 +118,8 @@ class MinecraftLauncher(QMainWindow):
         self.set_window_size()  # 根据背景图片尺寸设置窗口大小
         
         self.init_ui()
+        from ui.widgets.onboarding_coach import OnboardingCoach
+        self.tutorial_controller = OnboardingCoach(self)
         self.setAcceptDrops(True)
         # Receive drops above embedded QML controls as well as the window frame.
         self._modpack_drop_filter = _ModpackDropFilter(self)
@@ -148,6 +137,8 @@ class MinecraftLauncher(QMainWindow):
         self.gamed_version_full.download_signal.connect(self.on_gamed_download_signal)
         self.gamed_version_full.import_signal.connect(self.on_gamed_import_signal)
 
+        from utils.windows_taskbar import install_taskbar_identity
+        install_taskbar_identity(self, self.resource_path)
         QTimer.singleShot(500, self.minecraft_not_java_runtime)
 
     def apply_window_opacity(self):
@@ -156,11 +147,7 @@ class MinecraftLauncher(QMainWindow):
     def show_first_run_onboarding(self):
         if self._closing or self.settings_manager.get_setting('onboarding.completed', False):
             return
-        from ui.dialog.OnboardingDialog import OnboardingDialog
-        self._onboarding_dialog = OnboardingDialog(self, self.resource_path)
-        self._onboarding_dialog.show()
-        self._onboarding_dialog.raise_()
-        self._onboarding_dialog.activateWindow()
+        self.tutorial_controller.start()
 
     def _open_dropped_pack(self, archive):
         if self._closing:
@@ -247,6 +234,8 @@ class MinecraftLauncher(QMainWindow):
             resource_path=self.resource_path
         )
         self.content_stack.addWidget(self.version_page)
+        # The list reads the shared selection; notify it when the header changes it.
+        self.title_bar.version_changed.connect(lambda _: self.version_page.versions_page.controller.changed.emit())
 
         # 注册信号
         def on_directory_signal(minecraft_directory):
@@ -642,6 +631,11 @@ class MinecraftLauncher(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
+        # Hide before cancelling work: network requests and Java discovery may
+        # need time to finish, but must not leave an unresponsive window behind.
+        self.hide()
+        for dialog in self.findChildren(QDialog):
+            dialog.hide()
         # A user close must leave rooms even while the Java output worker is
         # kept alive until the independently running game exits.
         lobby = getattr(self.started_page, '_multiplayer_dialog', None)
@@ -661,29 +655,28 @@ class MinecraftLauncher(QMainWindow):
             if not self.launcher.running:
                 QTimer.singleShot(100, self.close)
             return
-        self._closing = True
-        if not self.settings_page.java_page.controller.shutdown():
-            event.ignore()
-            QTimer.singleShot(100, self.close)
-            return
-        if not self.download_page.shutdown():
-            event.ignore()
-            QTimer.singleShot(100, self.close)
-            return
+        if not self._closing:
+            self._closing = True
+            self.started_page.auth_refresh_timer.stop()
+            self.started_page.auth_manager.cancel_refresh()
+            self.started_page.login_dialog.auth.cancel_authentication()
+        # Start every cancellation together and poll without blocking Qt.
+        java_done = self.settings_page.java_page.controller.shutdown()
+        downloads_done = self.download_page.shutdown()
+        updates = getattr(self, 'launcher_updates', None)
+        updates_done = updates is None or updates.prepare_shutdown()
         search = getattr(self, 'search_thread', None)
         if search is not None and search.isRunning():
             search.requestInterruption()
             search.quit()
-            if not search.wait(100):
-                event.ignore()
-                QTimer.singleShot(100, self.close)
-                return
+        search_done = search is None or not search.isRunning()
+        if not (java_done and downloads_done and updates_done and search_done):
+            event.ignore()
+            QTimer.singleShot(100, self.close)
+            return
         if self._debug_dialog is not None:
             self._debug_dialog.shutdown()
             self._debug_dialog.close()
-        self.started_page.auth_refresh_timer.stop()
-        self.started_page.auth_manager.cancel_refresh()
-        self.started_page.login_dialog.auth.cancel_authentication()
         # Closing can originate in a QML button. Unload only after that handler
         # returns, otherwise its visual object is deleted while onClicked runs.
         QTimer.singleShot(0, self, self._release_qml)
@@ -694,6 +687,11 @@ class MinecraftLauncher(QMainWindow):
         from PySide6.QtCore import QUrl
         for quick in self.findChildren(QQuickWidget):
             quick.setSource(QUrl())
+        # An already hidden window does not emit lastWindowClosed on its final
+        # close. Finish quitting explicitly after all background work is done.
+        app = QApplication.instance()
+        if app.quitOnLastWindowClosed():
+            app.quit()
 
     # 窗口拖动功能
     def mousePressEvent(self, event: QMouseEvent):

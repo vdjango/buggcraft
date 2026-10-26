@@ -140,6 +140,32 @@ class GameSessionTests(unittest.TestCase):
         self.wait_for(lambda: not self.sessions._sessions)
         self.assertNotEqual(stopped.at(1), [0])
 
+    @unittest.skipUnless(os.name == 'nt', 'Verify Windows process priorities')
+    def test_global_and_instance_priorities_reach_real_game_processes(self):
+        import psutil
+        choices = [('游戏性能优先', psutil.HIGH_PRIORITY_CLASS),
+                   ('平衡模式', psutil.NORMAL_PRIORITY_CLASS),
+                   ('系统流畅优先', psutil.BELOW_NORMAL_PRIORITY_CLASS)]
+        for independent in (False, True):
+            self.settings.set_version_setting_enable(independent)
+            for label, expected in choices:
+                with self.subTest(independent=independent, label=label):
+                    self.settings.set_version_setting('launcher.process_priority', label)
+                    self.assertTrue(self.sessions.start())
+                    self.wait_for(lambda: self.sessions.running)
+                    self.assertEqual(psutil.Process(self.sessions.process.pid).nice(), expected)
+                    self.sessions.stop()
+                    self.wait_for(lambda: not self.sessions._sessions)
+
+    def test_selected_language_reaches_game_options(self):
+        self.sessions.set_language('ja_jp')
+        self.assertTrue(self.sessions.start())
+        self.wait_for(lambda: self.sessions.running)
+        launcher = self.sessions.selected['launcher']
+        self.assertEqual(launcher.minecraft_language, 'ja_jp')
+        options = Path(launcher.minecraft_isolation_directory) / 'options.txt'
+        self.assertIn('lang:ja_jp', options.read_text(encoding='utf-8'))
+
     def test_one_home_button_starts_multiple_games_and_menu_stops_only_selected(self):
         from PySide6.QtWidgets import QWidget
         from ui.pages.started_game import StartGamePage

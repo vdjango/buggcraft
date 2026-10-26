@@ -1,0 +1,574 @@
+{
+  "af_za": {
+    "name": "Afrikaans",
+    "region": "Suid-Afrika"
+  },
+  "ar_sa": {
+    "name": "العربية",
+    "region": "العالم العربي"
+  },
+  "ast_es": {
+    "name": "Asturianu",
+    "region": "Asturies"
+  },
+  "az_az": {
+    "name": "Azərbaycanca",
+    "region": "Azərbaycan"
+  },
+  "ba_ru": {
+    "name": "Башҡортса",
+    "region": "Башҡортостан, Рәсәй"
+  },
+  "bar": {
+    "name": "Boarisch",
+    "region": "Bayern"
+  },
+  "be_by": {
+    "name": "Беларуская",
+    "region": "Беларусь"
+  },
+  "be_latn": {
+    "name": "Biełaruskaja",
+    "region": "Biełaruś"
+  },
+  "bg_bg": {
+    "name": "Български",
+    "region": "България"
+  },
+  "br_fr": {
+    "name": "Brezhoneg",
+    "region": "Breizh"
+  },
+  "brb": {
+    "name": "Braobans",
+    "region": "Braobant"
+  },
+  "bs_ba": {
+    "name": "Bosanski",
+    "region": "Bosna i Hercegovina"
+  },
+  "ca_es": {
+    "name": "Català",
+    "region": "Catalunya"
+  },
+  "cs_cz": {
+    "name": "Čeština",
+    "region": "Česko"
+  },
+  "cv_cu": {
+    "name": "Чӑвашла",
+    "region": "Чӑваш Ен, Раҫҫей"
+  },
+  "cy_gb": {
+    "name": "Cymraeg",
+    "region": "Cymru"
+  },
+  "da_dk": {
+    "name": "Dansk",
+    "region": "Danmark"
+  },
+  "de_at": {
+    "name": "Deitsch",
+    "region": "Österreich"
+  },
+  "de_ch": {
+    "name": "Schwiizerdütsch",
+    "region": "Schwiiz"
+  },
+  "de_de": {
+    "name": "Deutsch",
+    "region": "Deutschland"
+  },
+  "el_gr": {
+    "name": "Ελληνικά",
+    "region": "Ελλάδα"
+  },
+  "en_au": {
+    "name": "English",
+    "region": "Australia"
+  },
+  "en_ca": {
+    "name": "English",
+    "region": "Canada"
+  },
+  "en_gb": {
+    "name": "English",
+    "region": "United Kingdom"
+  },
+  "en_nz": {
+    "name": "English",
+    "region": "New Zealand"
+  },
+  "en_pt": {
+    "name": "Pirate Speak",
+    "region": "The Seven Seas"
+  },
+  "en_ud": {
+    "name": "ɥsᴉꞁᵷuƎ",
+    "region": "uʍoᗡ ǝpᴉsd∩"
+  },
+  "enp": {
+    "name": "Anglish",
+    "region": "Oned Riches"
+  },
+  "enws": {
+    "name": "Shakespearean English",
+    "region": "Kingdom of England"
+  },
+  "eo_uy": {
+    "name": "Esperanto",
+    "region": "Esperantujo"
+  },
+  "es_ar": {
+    "name": "Español",
+    "region": "Argentina"
+  },
+  "es_cl": {
+    "name": "Español",
+    "region": "Chile"
+  },
+  "es_ec": {
+    "name": "Español",
+    "region": "Ecuador"
+  },
+  "es_es": {
+    "name": "Español",
+    "region": "España"
+  },
+  "es_mx": {
+    "name": "Español",
+    "region": "México"
+  },
+  "es_uy": {
+    "name": "Español",
+    "region": "Uruguay"
+  },
+  "es_ve": {
+    "name": "Español",
+    "region": "Venezuela"
+  },
+  "esan": {
+    "name": "Andalûh",
+    "region": "Andaluçía"
+  },
+  "et_ee": {
+    "name": "Eesti keel",
+    "region": "Eesti"
+  },
+  "eu_es": {
+    "name": "Euskara",
+    "region": "Euskal Herria"
+  },
+  "fa_ir": {
+    "name": "فارسی",
+    "region": "ايران"
+  },
+  "fi_fi": {
+    "name": "Suomi",
+    "region": "Suomi"
+  },
+  "fil_ph": {
+    "name": "Filipino",
+    "region": "Pilipinas"
+  },
+  "fo_fo": {
+    "name": "Føroyskt",
+    "region": "Føroyar"
+  },
+  "fr_ca": {
+    "name": "Français",
+    "region": "Canada"
+  },
+  "fr_ch": {
+    "name": "Français",
+    "region": "Suisse"
+  },
+  "fr_fr": {
+    "name": "Français",
+    "region": "France"
+  },
+  "fra_de": {
+    "name": "Fränggisch",
+    "region": "Franggn"
+  },
+  "fur_it": {
+    "name": "Furlan",
+    "region": "Friûl"
+  },
+  "fy_nl": {
+    "name": "Frysk",
+    "region": "Fryslân"
+  },
+  "ga_ie": {
+    "name": "Gaeilge",
+    "region": "Éire"
+  },
+  "gd_gb": {
+    "name": "Gàidhlig",
+    "region": "Alba"
+  },
+  "gl_es": {
+    "name": "Galego",
+    "region": "Galicia / Galiza"
+  },
+  "go_fr": {
+    "name": "Galo",
+    "region": "Bertègn"
+  },
+  "got_de": {
+    "name": "𐌲𐌿𐍄𐍂𐌰𐌶𐌳𐌰",
+    "region": "𐌲𐌿𐍄𐌸𐌹𐌿𐌳𐌰"
+  },
+  "hal_ua": {
+    "name": "Галицка",
+    "region": "Галичина, Вкраїна"
+  },
+  "haw_us": {
+    "name": "ʻŌlelo Hawaiʻi",
+    "region": "Hawaiʻi"
+  },
+  "he_il": {
+    "name": "עברית",
+    "region": "ישראל"
+  },
+  "hi_in": {
+    "name": "हिंदी",
+    "region": "भारत"
+  },
+  "hn_no": {
+    "name": "Høgnorsk",
+    "region": "Norig"
+  },
+  "hr_hr": {
+    "name": "Hrvatski",
+    "region": "Hrvatska"
+  },
+  "hu_hu": {
+    "name": "Magyar",
+    "region": "Magyarország"
+  },
+  "hy_am": {
+    "name": "Հայերեն",
+    "region": "Հայաստան"
+  },
+  "id_id": {
+    "name": "Bahasa Indonesia",
+    "region": "Indonesia"
+  },
+  "ig_ng": {
+    "name": "Igbo",
+    "region": "Naigeria"
+  },
+  "io_en": {
+    "name": "Ido",
+    "region": "Idia"
+  },
+  "is_is": {
+    "name": "Íslenska",
+    "region": "Ísland"
+  },
+  "isv": {
+    "name": "Medžuslovjansky",
+    "region": "Slovjanščina"
+  },
+  "it_it": {
+    "name": "Italiano",
+    "region": "Italia"
+  },
+  "ja_jp": {
+    "name": "日本語",
+    "region": "日本"
+  },
+  "jbo_en": {
+    "name": "la .lojban.",
+    "region": "la jbogu'e"
+  },
+  "ka_ge": {
+    "name": "ქართული",
+    "region": "საქართველო"
+  },
+  "kk_kz": {
+    "name": "Қазақша",
+    "region": "Қазақстан"
+  },
+  "kn_in": {
+    "name": "ಕನ್ನಡ",
+    "region": "ಭಾರತ"
+  },
+  "ko_kr": {
+    "name": "한국어",
+    "region": "대한민국"
+  },
+  "ksh": {
+    "name": "Kölsch/Ripoarisch",
+    "region": "Rhingland"
+  },
+  "kw_gb": {
+    "name": "Kernewek",
+    "region": "Kernow"
+  },
+  "ky_kg": {
+    "name": "Кыргызча",
+    "region": "Кыргызстан"
+  },
+  "la_la": {
+    "name": "Latina",
+    "region": "Latium"
+  },
+  "lb_lu": {
+    "name": "Lëtzebuergesch",
+    "region": "Lëtzebuerg"
+  },
+  "li_li": {
+    "name": "Limburgs",
+    "region": "Limburg"
+  },
+  "lmo": {
+    "name": "Lombard",
+    "region": "Lombardia"
+  },
+  "lo_la": {
+    "name": "ລາວ",
+    "region": "ປະເທດລາວ"
+  },
+  "lol_us": {
+    "name": "LOLCAT",
+    "region": "Kingdom of Cats"
+  },
+  "lt_lt": {
+    "name": "Lietuvių",
+    "region": "Lietuva"
+  },
+  "lv_lv": {
+    "name": "Latviešu",
+    "region": "Latvija"
+  },
+  "lzh": {
+    "name": "文言",
+    "region": "華夏"
+  },
+  "mk_mk": {
+    "name": "Македонски",
+    "region": "Северна Македонија"
+  },
+  "mn_mn": {
+    "name": "Монгол",
+    "region": "Монгол Улс"
+  },
+  "ms_my": {
+    "name": "Bahasa Melayu",
+    "region": "Malaysia"
+  },
+  "mt_mt": {
+    "name": "Malti",
+    "region": "Malta"
+  },
+  "nah": {
+    "name": "Mēxikatlahtōlli",
+    "region": "Mēxiko"
+  },
+  "nds_de": {
+    "name": "Plattdüütsch",
+    "region": "Düütschland"
+  },
+  "nl_be": {
+    "name": "Vlaams",
+    "region": "België"
+  },
+  "nl_nl": {
+    "name": "Nederlands",
+    "region": "Nederland"
+  },
+  "nn_no": {
+    "name": "Norsk nynorsk",
+    "region": "Noreg"
+  },
+  "no_no": {
+    "name": "Norsk bokmål",
+    "region": "Norge"
+  },
+  "oc_fr": {
+    "name": "Occitan",
+    "region": "Occitània"
+  },
+  "ovd": {
+    "name": "Övdalska",
+    "region": "Swerre"
+  },
+  "pl_pl": {
+    "name": "Polski",
+    "region": "Polska"
+  },
+  "pls": {
+    "name": "Ngiiwà",
+    "region": "Ndanìꞌngà"
+  },
+  "pt_br": {
+    "name": "Português",
+    "region": "Brasil"
+  },
+  "pt_pt": {
+    "name": "Português",
+    "region": "Portugal"
+  },
+  "qcb_es": {
+    "name": "Cántabru/Montañés",
+    "region": "Cantabria"
+  },
+  "qid": {
+    "name": "Bhs. Indonesia edjaän lama",
+    "region": "Indonesia tempo doeloe"
+  },
+  "qya_aa": {
+    "name": "Quenya",
+    "region": "Arda"
+  },
+  "ro_ro": {
+    "name": "Română",
+    "region": "România"
+  },
+  "rpr": {
+    "name": "Русскій дореформенный",
+    "region": "Россійская имперія"
+  },
+  "ru_ru": {
+    "name": "Русский",
+    "region": "Россия"
+  },
+  "ry_ua": {
+    "name": "Руснацькый",
+    "region": "Пудкарпатя, Украина"
+  },
+  "sah_sah": {
+    "name": "Сахалыы",
+    "region": "Cаха Сирэ"
+  },
+  "se_no": {
+    "name": "Davvisámegiella",
+    "region": "Sápmi"
+  },
+  "sk_sk": {
+    "name": "Slovenčina",
+    "region": "Slovensko"
+  },
+  "sl_si": {
+    "name": "Slovenščina",
+    "region": "Slovenija"
+  },
+  "so_so": {
+    "name": "Soomaali",
+    "region": "Soomaaliya"
+  },
+  "sq_al": {
+    "name": "Shqip",
+    "region": "Shqipëri"
+  },
+  "sr_cs": {
+    "name": "Srpski",
+    "region": "Srbija"
+  },
+  "sr_sp": {
+    "name": "Српски",
+    "region": "Србија"
+  },
+  "sv_se": {
+    "name": "Svenska",
+    "region": "Sverige"
+  },
+  "sxu": {
+    "name": "Säggs’sch",
+    "region": "Saggsn"
+  },
+  "szl": {
+    "name": "Ślōnski",
+    "region": "Gōrny Ślōnsk"
+  },
+  "ta_in": {
+    "name": "தமிழ்",
+    "region": "இந்தியா"
+  },
+  "th_th": {
+    "name": "ไทย",
+    "region": "ประเทศไทย"
+  },
+  "tl_ph": {
+    "name": "Tagalog",
+    "region": "Pilipinas"
+  },
+  "tlh_aa": {
+    "name": "tlhIngan Hol",
+    "region": "tlhIngan wo'"
+  },
+  "tok": {
+    "name": "toki pona",
+    "region": "kulupu pona"
+  },
+  "tr_tr": {
+    "name": "Türkçe",
+    "region": "Türkiye"
+  },
+  "tt_ru": {
+    "name": "Татарча",
+    "region": "Татарстан, Рәсәй"
+  },
+  "tzo_mx": {
+    "name": "Bats'i k'op",
+    "region": "Jobel"
+  },
+  "uk_ua": {
+    "name": "Українська",
+    "region": "Україна"
+  },
+  "uz_uz": {
+    "name": "O'zbekcha",
+    "region": "O'zbekiston"
+  },
+  "val_es": {
+    "name": "Català (Valencià)",
+    "region": "País Valencià"
+  },
+  "vec_it": {
+    "name": "Vèneto",
+    "region": "Veneto"
+  },
+  "vi_vn": {
+    "name": "Tiếng Việt",
+    "region": "Việt Nam"
+  },
+  "vp_vl": {
+    "name": "Viossa",
+    "region": "Vilant"
+  },
+  "vro": {
+    "name": "Võro",
+    "region": "Eesti"
+  },
+  "yi_de": {
+    "name": "ייִדיש",
+    "region": "אשכנזיש יידן"
+  },
+  "yo_ng": {
+    "name": "Yorùbá",
+    "region": "Nàìjíríà"
+  },
+  "zh_cn": {
+    "name": "简体中文",
+    "region": "中国大陆"
+  },
+  "zh_hk": {
+    "name": "繁體中文",
+    "region": "香港特別行政區"
+  },
+  "zh_tw": {
+    "name": "繁體中文",
+    "region": "台灣"
+  },
+  "zlm_arab": {
+    "name": "بهاس ملايو",
+    "region": "مليسيا"
+  },
+  "en_us": {
+    "name": "English",
+    "region": "United States"
+  }
+}

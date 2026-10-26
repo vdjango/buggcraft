@@ -57,6 +57,112 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.parent.started_game.assert_not_called()
         self.assertIn('已经运行', self.controller.view['notice'])
 
+    def test_quick_creation_uses_player_name_and_checks_world_before_hosting(self):
+        self.parent.auth_manager.current.username = '小明'
+        self.controller.game = {'version': '1.21.8'}
+        world = dict(port=51234, version='1.21.8', protocol=772)
+        bridge = SimpleNamespace(request=AsyncMock(return_value=world))
+        for port in (0, world['port']):
+            with self.subTest(port=port), patch.object(self.controller, 'profile', return_value=Mock()), \
+                    patch.object(self.controller, 'start') as start, \
+                    patch.object(self.controller, 'job', side_effect=self.run_job), \
+                    patch('ui.multiplayer_controller.native_bridge', return_value=bridge):
+                self.controller.act('quickCreate', {'port': port})
+                endpoint, title = start.call_args.args
+                self.assertEqual(title, '小明的房间')
+                self.assertEqual(endpoint.room_settings['title'], title)
+                self.assertFalse(endpoint.room_settings['public'])
+                self.assertTrue(endpoint.room_settings['require_invite'])
+        bridge.request.assert_awaited_once_with('game.status', {'port':51234, 'timeout_ms':4000})
+
+    def test_quick_creation_never_hosts_when_world_verification_fails(self):
+        self.controller.game = {'version': '1.21.8'}
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
+                    request=AsyncMock(side_effect=ValueError('world closed')))), \
+                patch.object(self.controller, 'start') as start:
+            self.controller.act('quickCreate', {'port': 51234})
+        start.assert_not_called()
+        self.assertIsNone(self.controller.quick_creation_data)
+        self.assertTrue(self.controller.view['error'])
+
+    def test_clipboard_join_validates_code_waits_for_node_and_avoids_duplicate_join(self):
+        self.controller.records.clear()
+        self.controller.patch(connections=[], page='hall', nodeAvailable=False)
+        invite = RoomInvite.create().encode()
+        QApplication.clipboard().setText(invite)
+        with patch.object(self.controller, 'join') as join:
+            self.controller.join_from_clipboard()
+            join.assert_not_called()
+            self.assertEqual(self.controller.clipboard_invite, invite)
+            self.controller.patch(nodeAvailable=True)
+            self.controller.join_from_clipboard()
+            join.assert_called_once_with(invite, room_id=None)
+            self.controller.join_from_clipboard()
+            join.assert_called_once()
+            QApplication.clipboard().setText('not an invitation')
+            self.controller.join_from_clipboard()
+            QApplication.clipboard().setText(invite)
+            self.controller.join_from_clipboard()
+            join.assert_called_once()
+            another = RoomInvite.create().encode()
+            QApplication.clipboard().setText(another)
+            self.controller.join_from_clipboard()
+            self.assertEqual(join.call_count, 2)
+            join.assert_called_with(another, room_id=None)
+        QApplication.clipboard().clear()
+
+    def test_managed_game_is_monitored_even_before_hall_is_shown(self):
+        self.parent.launcher.running = True
+        self.controller.runtime_job = True
+        world = dict(port=51234, version='1.21.8', protocol=772)
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
+                    request=AsyncMock(return_value={'worlds':[world]}))):
+            self.controller.detect_runtime()
+        self.assertFalse(self.window.isVisible())
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+
+    def test_native_scan_runs_when_process_command_line_cannot_be_identified(self):
+        self.controller.runtime_job = True
+        self.controller.patch(connections=[])
+        world = dict(port=51234, version='1.21.8')
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
+                    request=AsyncMock(return_value={'worlds': [world]}))):
+            self.controller.detect_runtime()
+        self.assertFalse(self.parent.launcher.running)
+        self.assertIsNone(self.controller.external_running)
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+
+    def test_reopening_world_on_same_port_prompts_without_a_missed_scan(self):
+        from utils.instances import lan_world_token
+        directory = Path(self.parent.launcher.minecraft_directory)
+        log = directory / 'logs/latest.log'
+        log.parent.mkdir()
+        first = '[12:00:00] [Render thread/INFO]: Started serving on 25565\n'
+        log.write_text(first, encoding='utf-8')
+        self.controller.instance_source = (str(directory), 'selected', str(directory))
+        self.controller.runtime_job = True
+        self.controller.patch(connections=[])
+        world = dict(port=25565, version='1.21.8')
+        with patch.object(self.controller, 'job', side_effect=self.run_job), \
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
+                    request=AsyncMock(return_value={'worlds': [world]}))):
+            self.controller.detect_runtime()
+            self.assertTrue(self.controller.view['openWorldPrompt'])
+            self.controller.act('dismissOpenWorld', {})
+            self.controller.detect_runtime()
+            self.assertFalse(self.controller.view['openWorldPrompt'])
+            log.write_text(first + '[12:00:09] [Render thread/INFO]: Started serving on 25565\n', encoding='utf-8')
+            self.controller.detect_runtime()
+            self.assertTrue(self.controller.view['openWorldPrompt'])
+            self.controller.act('dismissOpenWorld', {})
+            self.controller.detect_runtime()
+            self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.assertEqual(lan_world_token(directory)[0], 25565)
+        self.assertIsNone(lan_world_token(directory / 'missing'))
+
     def test_waiting_and_mismatched_clients_cannot_launch_wrong_game(self):
         record = self.controller.records['room']
         record['availability'] = 'waiting'
@@ -117,6 +223,108 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.controller.launch_room()
         self.parent.started_game.assert_called_once_with(server=None)
 
+    def test_host_settings_update_preserves_game_and_publishes_only_on_success(self):
+        from hookup.native_transport import NativeEndpoint
+        game = {'version': '1.21.8', 'mods_count': 2}
+        endpoint = NativeEndpoint(Mock(), role='host', room_settings={
+            'title': '原名称', 'public': False, 'require_invite': True, 'game': game})
+        endpoint.session = 'native-host-session'
+        result = {'title': '新的房间', 'public': True, 'require_invite': False, 'game': game}
+        endpoint._routes = SimpleNamespace(request=AsyncMock(return_value=result))
+        self.service.endpoints['room'] = endpoint
+        self.controller.records['room'].update(role='host', title='原名称')
+        with patch.object(self.controller, 'job', side_effect=self.run_job):
+            self.controller.act('updateRoomSettings', {'title': '新的房间', 'public': True, 'requireInvite': False})
+        endpoint._routes.request.assert_awaited_once_with('room.configure', {
+            'session': endpoint.session, 'settings': dict(result)})
+        self.assertEqual(self.controller.records['room']['title'], '新的房间')
+        self.assertFalse(self.controller.records['room']['requireInvite'])
+        self.assertEqual(endpoint.room_settings['game'], game)
+        endpoint._routes.request.side_effect = ConnectionError('节点不可用')
+        with patch.object(self.controller, 'job', side_effect=self.run_job):
+            self.controller.act('updateRoomSettings', {'title': '不应保存', 'public': False, 'requireInvite': True})
+        self.assertEqual(self.controller.records['room']['title'], '新的房间')
+        self.assertEqual(endpoint.room_settings['title'], '新的房间')
+        self.assertFalse(self.controller.view['busy'])
+
+    def test_guest_cannot_change_host_settings(self):
+        with patch.object(self.controller, 'job') as job:
+            self.controller.act('updateRoomSettings', {'title': '名称', 'public': True, 'requireInvite': False})
+        job.assert_not_called()
+        self.assertIn('房主', self.controller.view['error'])
+
+    def test_friend_preferences_survive_refresh_and_are_scoped_to_my_account(self):
+        from hookup.storage import LobbyStore
+        friend = dict(name='Alice', account='friend-account', online=True)
+        self.controller.patch(contacts=[friend], socialAccount='my-account')
+        self.controller.act('setFriendFavorite', {'account':friend['account'], 'favorite':True})
+        self.controller.act('setFriendAlias', {'account':friend['account'], 'alias':'一起建房子'})
+        stored = LobbyStore(self.controller.store.path)
+        self.controller.store = stored
+        self.controller.patch(contacts=[dict(friend, online=False)])
+        self.assertEqual(self.controller.view['contacts'][0]['alias'], '一起建房子')
+        self.assertTrue(self.controller.view['contacts'][0]['favorite'])
+        self.assertFalse(self.controller.view['contacts'][0]['online'])
+        self.assertEqual(self.controller.view['contacts'][0]['name'], 'Alice')
+        self.controller.patch(socialAccount='another-account')
+        self.assertNotIn('alias', self.controller.view['contacts'][0])
+        self.controller.patch(socialAccount='my-account')
+        with patch.object(stored, 'save', side_effect=OSError('磁盘不可写')):
+            self.controller.act('setFriendAlias', {'account':friend['account'], 'alias':'不应保存'})
+        self.assertEqual(self.controller.view['contacts'][0]['alias'], '一起建房子')
+        self.assertIn('磁盘', self.controller.view['error'])
+        self.controller.act('setFriendAlias', {'account':'missing', 'alias':'错的人'})
+        self.assertIn('不在列表', self.controller.view['error'])
+
+    def test_disabled_quick_mode_stops_scans_pending_prompts_and_clipboard_joins(self):
+        self.parent.settings_manager.get_setting.return_value = '关闭'
+        self.controller.runtime_job = True
+        self.controller.patch(connections=[], openWorldPrompt=True, openWorldPort=25565)
+        with patch.object(self.controller, 'job') as job, patch.object(self.controller, 'join') as join:
+            self.controller.detect_runtime()
+            job.assert_not_called()
+            self.assertFalse(self.controller.view['openWorldPrompt'])
+            self.controller.finish('auto-lan:' + self.controller.generation, [dict(port=25565)], None)
+            self.assertFalse(self.controller.view['openWorldPrompt'])
+            QApplication.clipboard().setText(RoomInvite.create().encode())
+            self.controller.join_from_clipboard()
+            join.assert_not_called()
+        QApplication.clipboard().clear()
+
+    def test_public_room_guide_waits_for_auto_host_and_is_saved_once(self):
+        from config.settings import SettingsManager
+        folder = Path(self.parent.launcher.minecraft_directory) / 'guide-settings'
+        settings = SettingsManager(folder)
+        self.parent.settings_manager = settings
+        record = self.controller.records['room']
+        record.update(role='host', state='online', availability='waiting', public=False,
+                      automaticPublicGuide=True)
+        self.controller.offer_public_room_guide(record)
+        self.assertFalse(record.get('publicGuide', False))
+        self.assertFalse(settings.get_setting('multiplayer.public_guide_seen', False))
+        record['availability'] = 'ready'
+        self.controller.update_chat('room', {'type':'room', 'state':'ready'})
+        self.assertTrue(record['publicGuide'])
+        self.assertTrue(SettingsManager(folder).get_setting('multiplayer.public_guide_seen', False))
+        self.controller.act('dismissPublicGuide', {})
+        self.assertFalse(record['publicGuide'])
+        record['automaticPublicGuide'] = True
+        self.controller.update_chat('room', {'type':'room', 'state':'ready'})
+        self.assertFalse(record['publicGuide'])
+        self.assertFalse(record['public'])
+
+    def test_manual_rooms_guests_and_public_rooms_do_not_get_public_guide(self):
+        settings = Mock()
+        settings.get_setting.return_value = False
+        self.parent.settings_manager = settings
+        base = dict(role='host', state='online', availability='ready', automaticPublicGuide=True, public=False)
+        for override in (dict(automaticPublicGuide=False), dict(role='client'),
+                         dict(state='connecting'), dict(public=True)):
+            record = dict(base, **override)
+            self.controller.offer_public_room_guide(record)
+            self.assertFalse(record.get('publicGuide', False))
+        settings.set_setting.assert_not_called()
+
     def run_job(self, key, coroutine):
         self.controller.finish(key, asyncio.run(coroutine), None)
 
@@ -130,6 +338,7 @@ class RoomLaunchFlowTests(unittest.TestCase):
             self.controller.act('discover', {})
             self.assertEqual(self.controller.view['worlds'], [world])
             self.assertFalse(self.controller.view['busy'])
+            self.assertFalse(self.controller.view['worldScanning'])
             bridge.return_value.request.assert_awaited_once_with('game.discover', {'exclude': [34567], 'duration_ms': 3000})
             self.controller.act('probe', {'port': world['port']})
         self.assertEqual(self.controller.view['step'], 1)
@@ -138,6 +347,23 @@ class RoomLaunchFlowTests(unittest.TestCase):
                 patch.object(self.controller, 'start') as start:
             self.controller.act('create', {'title': 'Already running world'})
         self.assertEqual(start.call_args.args[0].game_port, world['port'])
+
+    def test_world_scan_state_is_cleared_on_failure_and_navigation(self):
+        jobs = []
+        def hold(key, coroutine):
+            coroutine.close()
+            jobs.append(key)
+        with patch.object(self.controller, 'job', side_effect=hold):
+            self.controller.act('discover', {})
+            self.assertTrue(self.controller.view['worldScanning'])
+            self.controller.finish(jobs[-1], None, 'scan failed')
+            self.assertFalse(self.controller.view['worldScanning'])
+            self.assertFalse(self.controller.view['busy'])
+            self.controller.act('discover', {})
+            self.controller.navigate('hall')
+            self.assertFalse(self.controller.view['worldScanning'])
+            self.controller.finish(jobs[-1], [], None)
+            self.assertEqual(self.controller.view['page'], 'hall')
 
     def test_open_lan_world_is_found_automatically_and_prompts_for_a_room(self):
         world = dict(port=51234, version='1.21.8', protocol=772)
@@ -153,6 +379,41 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.controller.act('dismissOpenWorld', {})
         self.assertFalse(self.controller.view['openWorldPrompt'])
         self.assertIn(world['port'], self.controller.auto_lan_seen)
+
+    def test_world_hint_is_consumed_until_world_closes_or_a_new_port_appears(self):
+        self.controller.patch(connections=[])
+        key = 'auto-lan:' + self.controller.generation
+        world = dict(port=51234, version='1.21.8')
+        self.controller.finish(key, [world], None)
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+        self.controller.act('dismissOpenWorld', {})
+        self.controller.finish(key, [world], None)
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.controller.finish(key, None, 'temporary network failure')
+        self.controller.finish(key, [world], None)
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.controller.finish(key, [], None)
+        self.controller.finish(key, [world], None)
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.controller.finish(key, [dict(world, port=51235)], None)
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+        self.assertEqual(self.controller.view['openWorldPort'], 51235)
+        self.controller.act('dismissOpenWorld', {})
+        self.controller.finish(key, [], None)
+        self.controller.finish(key, [], None)
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.controller.finish(key, [dict(world, port=51235)], None)
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+
+    def test_pending_world_hint_is_cleared_when_world_closes_before_click(self):
+        self.controller.patch(connections=[])
+        key = 'auto-lan:' + self.controller.generation
+        self.controller.finish(key, [dict(port=51234)], None)
+        self.assertTrue(self.controller.view['openWorldPrompt'])
+        self.controller.finish(key, [], None)
+        self.controller.finish(key, [], None)
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        self.assertEqual(self.controller.view['openWorldPort'], 0)
 
     def test_open_lan_world_associates_with_a_room_created_before_game(self):
         world = dict(port=51234, version='1.21.8', protocol=772)
@@ -316,6 +577,32 @@ class RoomLaunchFlowTests(unittest.TestCase):
                 self.controller.patch(step=1)
                 self.controller.create({'title':'Path choice', 'transport':policy})
                 self.assertEqual(start.call_args.args[0].transport_policy, policy)
+
+
+class BackgroundLanMonitorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_startup_starts_hidden_monitor_without_saved_nodes(self):
+        from ui.pages.qml_start import StartGamePage
+        page = SimpleNamespace(_ensure_multiplayer_dialog=Mock())
+        StartGamePage._start_background_social(page)
+        page._ensure_multiplayer_dialog.assert_called_once_with()
+
+    def test_hidden_dialog_continues_checking_node_health(self):
+        from ui.dialog.MultiplayerDialog import MultiplayerDialog
+        with tempfile.TemporaryDirectory() as folder, \
+                patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'check_node') as check:
+            dialog = MultiplayerDialog(storage_path=Path(folder) / 'rooms.json')
+            try:
+                self.assertFalse(dialog.isVisible())
+                self.assertTrue(dialog.runtime_timer.isActive())
+                dialog.timer.timeout.emit()
+                check.assert_called_once_with()
+            finally:
+                dialog.shutdown()
 
 
 if __name__ == '__main__':

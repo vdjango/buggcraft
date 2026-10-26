@@ -6,6 +6,7 @@ from PySide6.QtCore import QUrl, Qt
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QVBoxLayout, QWidget
+import shiboken6
 
 logger = logging.getLogger(__name__)
 QQuickStyle.setStyle('Basic')
@@ -39,13 +40,16 @@ class QmlPage(QWidget):
                 self._quick.setAcceptDrops(True)
                 self._quick.installEventFilter(drop_filter)
             quick = self._quick
-            self.destroyed.connect(lambda: quick.setSource(QUrl()))
+            self.destroyed.connect(lambda: quick.setSource(QUrl()) if shiboken6.isValid(quick) else None)
         return self._quick
 
     def ensure_loaded(self):
         if not self._loaded:
             self._loaded = True
             self.quick.rootContext().setContextProperty(self._context_name, self.controller)
+            tutorial = getattr(self.window(), 'tutorial_controller', None)
+            if tutorial is not None:
+                self.quick.rootContext().setContextProperty('tutorial', tutorial)
             self.quick.setSource(self._source)
 
     def showEvent(self, event):

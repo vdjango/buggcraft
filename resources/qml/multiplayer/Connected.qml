@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../shared" as Shared
 
 ColumnLayout {
     id: connected
@@ -11,6 +12,7 @@ ColumnLayout {
     property bool directJoin: record["public"] === true && record.requireInvite === false
     property bool ended: record.state === "stopped" || record.state === "error"
     property bool waiting: online && record.availability === "waiting"
+    readonly property bool showPublicGuide: host && online && !waiting && !record["public"] && record.publicGuide === true
     property var game: record.game || ({})
     property bool preparing: !!record.preparing
     property string copiedKind: ""
@@ -23,6 +25,7 @@ ColumnLayout {
         target: lobby
         ignoreUnknownSignals: true
         function onCopied(kind) { connected.copiedKind = kind; copiedTimer.restart() }
+        function onRoomSettingsSaved() { roomSettings.close() }
         function onChanged() {
             if (!connected.host && connected.online && !connected.preparing && !!connected.record.compatibility &&
                     connected.prepareSuggestionRoom !== vm.selected) {
@@ -33,23 +36,31 @@ ColumnLayout {
     }
     Timer { id: copiedTimer; interval: 2200; onTriggered: connected.copiedKind = "" }
     spacing: 7
+    FriendInviteProgress { objectName: "room-friend-invite-progress"; flow: vm.friendInviteFlow || ({}); onAction: function(name, data) { lobby.act(name, data) } }
     Surface {
-        Layout.fillWidth: true; implicitHeight: summary.implicitHeight + 18
-        color: connected.online ? "#242c2c" : "#252431"
+        objectName: "room-summary"
+        Layout.fillWidth: true; implicitHeight: summary.implicitHeight + 24
+        color: "#211d2b"; border.color: "#49415c"
         ColumnLayout {
             id: summary
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; spacing: 5
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12; spacing: 8
             RowLayout {
                 Layout.fillWidth: true; spacing: 10
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 2
                     CopyText {
                         objectName: "connection-heading"; Layout.fillWidth: true
-                        text: connected.waiting ? (connected.host ? "世界暂未开放，房间为你保留" : "房主不在游戏内，请等待") : connected.online ? (connected.host ? (connected.directJoin ? "房间已公开，朋友可直接加入" : "房间已创建，邀请朋友吧") : "连接成功，去游戏里见吧") : connected.record.state === "error" ? "连接失败" : connected.record.state === "stopped" ? "已离开房间" : connected.record.state === "reconnecting" ? "连接中断，正在重新连接…" : "正在连接房间…"
-                        color: connected.online ? "#c1e8d2" : "#e1d5f0"; font.pixelSize: 14; font.bold: true
+                        text: connected.waiting ? (connected.host ? "等待开放世界" : "等待房主开放世界") : connected.online ? (connected.host ? "房间已创建" : "已加入房间") : connected.record.state === "error" ? "连接失败" : connected.record.state === "stopped" ? "已离开房间" : connected.record.state === "reconnecting" ? "正在重新连接…" : "正在连接房间…"
+                        color: "#eee8fa"; font.pixelSize: 15; font.bold: true
                     }
                 }
                 ActionButton { objectName: "reopen-world"; visible: connected.waiting && connected.host; text: "重新选择世界"; primary: true; implicitHeight: 30; onClicked: lobby.act("reopenWorld", {}) }
+                ActionButton {
+                    objectName: "room-settings"; visible: connected.host && connected.online
+                    text: "房间设置"; implicitHeight: 30; enabled: !vm.busy
+                    onClicked: { lobby.act("dismissPublicGuide", {}); roomSettings.open() }
+                    Shared.AttentionFrame { objectName: "room-public-guide-glow"; active: connected.showPublicGuide }
+                }
             }
             RowLayout {
                 objectName: "room-player-metrics"
@@ -82,18 +93,21 @@ ColumnLayout {
             CopyText {
                 objectName: "room-access-guidance"
                 Layout.fillWidth: true; font.pixelSize: 11
-                text: connected.waiting ? (connected.host ? "回到世界并对局域网开放；端口变化时点“重新选择世界”，邀请码不用换。" : "房主恢复世界后会通知你，请稍候再进入游戏。") : connected.online ? (connected.host ? (connected.directJoin ? "朋友可从大厅直接加入，无需邀请码；请保持游戏世界对局域网开放。" : connected.record["public"] ? "大厅可见，加入需要邀请码；把邀请码发给朋友并保持世界开放。" : "把邀请码发给朋友，并保持游戏世界对局域网开放。") : "打开游戏 → 多人游戏 → 选择房间；未显示时复制地址直接连接。") : "连接完成后会显示下一步。"
+                text: connected.waiting ? (connected.host ? "进入单人世界，选择“对局域网开放”。" : "世界开放后即可进入游戏。") : connected.online ? (connected.host ? (connected.directJoin ? "好友可从大厅直接加入，保持世界开放即可。" : "复制邀请码发给好友，保持世界开放即可。") : "启动游戏，在多人游戏中进入房间。") : ""
+                visible: text.length > 0
             }
             RowLayout {
                 objectName: "room-connection-actions"
                 visible: connected.online; Layout.fillWidth: true; spacing: 8
                 CopyText {
+                    objectName: "room-access-summary"
                     Layout.fillWidth: true; font.pixelSize: 11; color: "#a99eb6"
-                    text: connected.host ? "邀请朋友" : "游戏内未找到房间？可用地址直接连接"
+                    text: connected.host ? (connected.record["public"] ? connected.directJoin ? "公开房间 · 直接加入" : "公开房间 · 需要邀请码" : "私密房间 · 仅邀请好友") : "多人游戏中也可使用地址直连"
                 }
                 ActionButton {
                     objectName: "copy-invite"; visible: connected.host
                     text: connected.copiedKind === "invite" ? "已复制 ✓" : "复制邀请码"
+                    primary: true
                     implicitHeight: 28; implicitWidth: 104
                     onClicked: lobby.act("copyInvite", {id:vm.selected})
                 }
@@ -106,9 +120,29 @@ ColumnLayout {
             }
         }
     }
+    Surface {
+        objectName: "room-public-guide"
+        visible: connected.showPublicGuide
+        Layout.fillWidth: true; implicitHeight: 48
+        color: "#30263f"; border.color: "#a58ad7"
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 9; spacing: 10
+            CopyText { Layout.fillWidth: true; text: "让其他玩家在大厅看到这个房间？"; font.pixelSize: 12; color: "#eee2ff"; wrapMode: Text.Wrap }
+            ActionButton {
+                objectName: "room-public-guide-private"; text: "仅邀请好友"; quiet: true; implicitHeight: 28
+                onClicked: lobby.act("dismissPublicGuide", {})
+            }
+            ActionButton {
+                objectName: "room-public-guide-settings"; text: "去设置"; primary: true; implicitHeight: 28
+                enabled: !vm.busy
+                onClicked: { lobby.act("dismissPublicGuide", {}); roomSettings.open() }
+            }
+        }
+    }
     CopyText { Layout.fillWidth: true; visible: connected.online && !!connected.record.warning; text: "版本提示：" + connected.record.warning; color: "#dfbd92"; font.pixelSize: 11 }
     Surface {
         objectName: "room-game-requirements"
+        color: "#211d2b"; border.color: "#49415c"
         Layout.fillWidth: true
         visible: connected.online
         implicitHeight: requirements.implicitHeight + 16
@@ -120,7 +154,7 @@ ColumnLayout {
                 Layout.fillWidth: true; spacing: 8
                 CopyText {
                     objectName: "room-version-summary"; Layout.fillWidth: true
-                    text: "Minecraft " + (connected.game.version || "读取中…") + "  ·  " +
+                    text: (connected.game.version || "读取中…") + "  ·  " +
                         ((connected.game.loader || "vanilla") === "vanilla" ? "原版" : connected.game.loader + " " + (connected.game.loader_version || "")) +
                         "  ·  " + (connected.game.mods_count || 0) + " 个模组"
                     font.pixelSize: 11; color: "#d8cfea"; elide: Text.ElideRight; wrapMode: Text.NoWrap
@@ -161,7 +195,7 @@ ColumnLayout {
             CopyText {
                 objectName: "room-compatibility"; Layout.fillWidth: true
                 visible: !connected.host && !!connected.record.compatibility
-                text: connected.record.compatibility + "。可以选择已有配置，或新建隔离配置自动安装。"
+                text: connected.record.compatibility
                 color: "#dfbd92"; font.pixelSize: 11
             }
             CopyText {
@@ -232,7 +266,7 @@ ColumnLayout {
             spacing: 12
             CopyText { text: "更换房间游戏配置"; font.bold: true; color: "#f3efff" }
             InstancePicker { Layout.fillWidth: true }
-            CopyText { Layout.fillWidth: true; text: "选择与首页同步，房间版本和模组清单也会自动通知已加入的玩家。"; font.pixelSize: 11 }
+            CopyText { Layout.fillWidth: true; text: "房间版本与模组清单将同步更新。"; font.pixelSize: 11 }
             ActionButton { Layout.alignment: Qt.AlignRight; text: "完成"; onClicked: hostConfigPopup.close() }
         }
     }
@@ -293,7 +327,7 @@ ColumnLayout {
     Surface {
         objectName: "room-chat"; visible: connected.online
         Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 145
-        color: "#a91c1a25"
+        color: "#211d2b"; border.color: "#49415c"
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 9; spacing: 6
             RowLayout {
@@ -305,7 +339,10 @@ ColumnLayout {
             CopyText {
                 objectName: "game-chat-bridge-status"; Layout.fillWidth: true
                 text: vm.bridgeStatus; color: "#b5adc0"; font.pixelSize: 11
-                wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+                wrapMode: Text.NoWrap; maximumLineCount: 1; elide: Text.ElideRight
+                ToolTip.visible: bridgeHover.hovered
+                ToolTip.text: vm.bridgeStatus
+                HoverHandler { id: bridgeHover }
             }
             ListView {
                 id: messages; objectName: "room-chat-messages"
@@ -350,5 +387,44 @@ ColumnLayout {
         }
     }
     Item { Layout.fillHeight: true; visible: !connected.online }
-    CopyText { Layout.fillWidth: true; text: connected.waiting ? "房间聊天仍可使用；世界恢复后会自动通知，无需反复重连。" : "返回大厅前会确认断开连接；关闭窗口仍保留联机。"; font.pixelSize: 11 }
+    Popup {
+        id: roomSettings; objectName: "room-settings-dialog"
+        parent: Overlay.overlay; anchors.centerIn: parent
+        width: Math.min(420, parent.width - 40); padding: 16; modal: true; focus: true
+        closePolicy: vm.busy ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: {
+            roomTitle.text = connected.record.title || ""
+            access.currentIndex = !connected.record["public"] ? 0 : connected.record.requireInvite ? 1 : 2
+        }
+        background: Rectangle { color: "#211d2b"; border.color: "#7e699e" }
+        contentItem: ColumnLayout {
+            spacing: 12
+            CopyText { text: "房间设置"; color: "#eee8fa"; font.pixelSize: 15; font.bold: true }
+            GridLayout {
+                Layout.fillWidth: true; columns: 2; columnSpacing: 12; rowSpacing: 12
+                CopyText { text: "房间名称"; Layout.preferredWidth: 64 }
+                InputField { id: roomTitle; objectName: "room-settings-title"; Layout.fillWidth: true; maximumLength: 80; enabled: !vm.busy }
+                CopyText { text: "加入方式"; Layout.preferredWidth: 64 }
+                ChoiceBox {
+                    id: access; objectName: "room-settings-access"; Layout.fillWidth: true; enabled: !vm.busy
+                    model: ["仅邀请好友", "大厅公开，凭邀请码加入", "大厅公开，直接加入"]
+                }
+            }
+            CopyText { Layout.fillWidth: true; visible: !!vm.error; text: vm.error || ""; color: "#e8b3b3"; font.pixelSize: 11 }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 8
+                ActionButton {
+                    objectName: "room-settings-world"; text: "更换世界"; enabled: !vm.busy
+                    onClicked: { roomSettings.close(); lobby.act("reopenWorld", {}) }
+                }
+                Item { Layout.fillWidth: true }
+                ActionButton { text: "取消"; enabled: !vm.busy; onClicked: roomSettings.close() }
+                ActionButton {
+                    objectName: "save-room-settings"; text: vm.busy ? "保存中…" : "保存"; primary: true
+                    enabled: !vm.busy && roomTitle.text.trim().length > 0
+                    onClicked: lobby.act("updateRoomSettings", {title:roomTitle.text.trim(), "public":access.currentIndex > 0, requireInvite:access.currentIndex !== 2})
+                }
+            }
+        }
+    }
 }

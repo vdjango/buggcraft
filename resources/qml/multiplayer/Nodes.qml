@@ -6,6 +6,7 @@ ColumnLayout {
     id: nodesPage
     property var vm: lobby.view
     property bool removing: false
+    property bool advanced: false
     spacing: 12
     Connections {
         target: lobby
@@ -52,7 +53,6 @@ ColumnLayout {
                 }
                 RowLayout {
                     Layout.fillWidth: true; spacing: 6
-                    ActionButton { objectName: "export-node"; text: "导出配置"; Layout.fillWidth: true; implicitHeight: 28; enabled: vm.nodeIndex >= 0; quiet: true; onClicked: lobby.act("exportNode", {}) }
                     ActionButton {
                         objectName: "remove-node"; text: nodesPage.removing ? "确认移除" : "移除"; Layout.fillWidth: true; implicitHeight: 28
                         enabled: vm.nodeIndex >= 0; danger: true; quiet: true
@@ -66,26 +66,38 @@ ColumnLayout {
             color: "#c4241d32"; border.color: "#645077"
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 20; spacing: 12
-                CopyText { text: "CONNECT TOGETHER"; font.pixelSize: 10; font.letterSpacing: 2; color: "#b39bdb" }
-                CopyText { text: vm.nodeAccessExpired ? "更换过期的接入码" : "添加一个联机入口"; font.pixelSize: 21; font.bold: true; color: "#f0e8ff" }
-                CopyText { Layout.fillWidth: true; text: vm.nodeAccessExpired ? "请在原节点网页登录你的账号，重新领取个人启动器接入码。粘贴新码并通过验证后，确认更新已有节点即可恢复使用，无需删除原节点。" : "匿名联机：复制节点首页的匿名启动器接入码。\n使用账号：在节点网页登录并领取个人启动器接入码，同一联邦的其他节点会自动取回在线的加密资料；额外副本用于源节点离线时恢复登录。启动器只接收接入码，不接收账号密码。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
+                CopyText { text: vm.nodeAccessExpired ? "更换接入码" : "添加联机节点"; font.pixelSize: 20; font.bold: true; color: "#f0e8ff" }
+                CopyText { Layout.fillWidth: true; text: vm.nodeAccessExpired ? "从原节点网页领取新码，粘贴后更新即可。" : "从节点网页复制接入码，粘贴到这里即可联机。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
                 Item { Layout.fillHeight: true; Layout.minimumHeight: 0; Layout.maximumHeight: 14 }
-                CopyText { text: "节点接入码或个人启动器接入码"; font.pixelSize: 11; color: "#e2d6f2" }
+                CopyText { text: "接入码"; font.pixelSize: 12; color: "#e2d6f2" }
                 InputField {
                     objectName: "node-code"; Layout.fillWidth: true; Layout.preferredHeight: 36
-                    placeholderText: "粘贴 buggnode1- 启动器接入码"; maximumLength: 4096
+                    placeholderText: "粘贴从节点网页复制的接入码"; maximumLength: 4096
                     text: vm.nodeDraft || ""; onTextEdited: lobby.act("nodeDraft", {text:text})
                     onAccepted: { if (!vm.busy && (vm.nodeDraft || "").trim()) lobby.act("addNodeCode", {}) }
                 }
                 ActionButton {
                     objectName: "add-node-code"; Layout.fillWidth: true; implicitHeight: 36
-                    text: vm.busy ? "正在验证节点身份…" : "验证并添加 →"; primary: true
+                    text: vm.busy ? "正在验证…" : "添加节点"; primary: true
                     enabled: !vm.busy && (vm.nodeDraft || "").trim().length > 0
                     onClicked: lobby.act("addNodeCode", {})
                 }
-                ActionButton { objectName: "import-node"; text: "已有配置文件？导入 JSON"; Layout.fillWidth: true; quiet: true; enabled: !vm.busy; implicitHeight: 28; onClicked: lobby.act("importNode", {}) }
+                ActionButton {
+                    objectName: "node-advanced"; text: nodesPage.advanced ? "收起更多选项" : "更多选项"; quiet: true; implicitHeight: 28
+                    onClicked: nodesPage.advanced = !nodesPage.advanced
+                }
+                ColumnLayout {
+                    visible: nodesPage.advanced; Layout.fillWidth: true; spacing: 8
+                    Rectangle { Layout.fillWidth: true; height: 1; color: "#494056" }
+                    CopyText { Layout.fillWidth: true; text: "匿名码可直接联机；个人码还可使用好友功能。"; font.pixelSize: 11; color: "#b7a8c8" }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        ActionButton { objectName: "import-node"; text: "导入配置"; Layout.fillWidth: true; quiet: true; enabled: !vm.busy; implicitHeight: 28; onClicked: lobby.act("importNode", {}) }
+                        ActionButton { objectName: "export-node"; text: "导出配置"; Layout.fillWidth: true; implicitHeight: 28; enabled: !vm.busy && vm.nodeIndex >= 0; quiet: true; onClicked: lobby.act("exportNode", {}) }
+                    }
+                }
                 Item { Layout.fillHeight: true; Layout.minimumHeight: 0 }
-                CopyText { Layout.fillWidth: true; text: "仅从可信来源添加；启动器接入码含访问凭据。\n联机期间锁定当前节点，离开房间后可切换。"; font.pixelSize: 10; color: "#a397b4" }
+                CopyText { Layout.fillWidth: true; text: "接入码请勿公开分享。"; font.pixelSize: 11; color: "#a397b4" }
             }
         }
     }

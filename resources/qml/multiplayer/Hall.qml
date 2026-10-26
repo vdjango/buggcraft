@@ -7,25 +7,6 @@ ColumnLayout {
     property var vm: lobby.view
     property bool canUseNode: vm.nodeIndex >= 0 && !!vm.nodeAvailable
     spacing: 8
-    RowLayout {
-        Layout.fillWidth: true; spacing: 8
-        CopyText { objectName: "lobby-identity"; Layout.fillWidth: true; text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialReady ? "已登录 · " + vm.socialName : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入"); font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce" }
-        CopyText { text: "连接方式"; font.pixelSize: 11 }
-        ChoiceBox {
-            objectName: "hall-transport"
-            Layout.preferredWidth: 168; Layout.preferredHeight: 28
-            enabled: !vm.busy && vm.connections.length === 0
-            model: ["P2P 优先，自动中转", "仅通过节点中转"]
-            currentIndex: vm.transportPolicy === "relay" ? 1 : 0
-            Accessible.name: "加入房间的连接方式"
-            onActivated: function(index) { lobby.act("transport", {policy:index === 1 ? "relay" : "auto"}) }
-        }
-        ActionButton {
-            objectName: "export-diagnostics"; text: "导出日志"; quiet: true
-            Layout.preferredWidth: 80; Layout.preferredHeight: 28
-            onClicked: lobby.act("exportDiagnostics", {})
-        }
-    }
     Surface {
         objectName: "lobby-loading-status"
         Layout.fillWidth: true; Layout.preferredHeight: 46
@@ -47,17 +28,19 @@ ColumnLayout {
         id: nodeBar
         objectName: "room-node-row"
         Layout.fillWidth: true
-        Layout.preferredHeight: 42
+        Layout.preferredHeight: 84
         color: "#201c29"
         border.color: "#40384a"
         property color statusColor: vm.roomError ? "#d9aa7a" :
             vm.nodeIndex < 0 || !vm.nodeAvailable ? "#c99b74" : "#83c39f"
-        RowLayout {
+        GridLayout {
+            columns: 4; rowSpacing: 6; columnSpacing: 8
             anchors.fill: parent
             anchors.leftMargin: 9; anchors.rightMargin: 9
-            spacing: 8
             CopyText {
+                objectName: "node-picker-label"
                 text: "联机节点"
+                Layout.preferredWidth: 64; Layout.alignment: Qt.AlignVCenter
                 color: "#b9adca"; font.pixelSize: 12
             }
             ChoiceBox {
@@ -78,7 +61,7 @@ ColumnLayout {
             }
             RowLayout {
                 objectName: "node-status"
-                Layout.preferredWidth: 112
+                Layout.fillWidth: true; Layout.minimumWidth: 80
                 spacing: 6
                 Rectangle {
                     objectName: "node-status-indicator"
@@ -96,12 +79,36 @@ ColumnLayout {
                     elide: Text.ElideRight; wrapMode: Text.NoWrap
                 }
             }
-            Item { Layout.fillWidth: true }
             ActionButton {
                 objectName: "refresh-rooms"; text: vm.loading ? "检查中…" : "刷新"
                 enabled: vm.nodeIndex >= 0 && !vm.loading; quiet: true
                 Layout.preferredWidth: 72; Layout.preferredHeight: 32
                 onClicked: lobby.act("refresh", {})
+            }
+            CopyText {
+                objectName: "hall-transport-label"
+                text: "联机方式"; color: "#b9adca"; font.pixelSize: 12
+                Layout.preferredWidth: 64; Layout.alignment: Qt.AlignVCenter
+            }
+            ChoiceBox {
+                objectName: "hall-transport"
+                Layout.preferredWidth: 250; Layout.preferredHeight: 32
+                enabled: !vm.busy && vm.connections.length === 0
+                model: ["优先直连，自动中转", "仅通过节点中转"]
+                currentIndex: vm.transportPolicy === "relay" ? 1 : 0
+                Accessible.name: "加入房间的连接方式"
+                onActivated: function(index) { lobby.act("transport", {policy:index === 1 ? "relay" : "auto"}) }
+            }
+            CopyText {
+                objectName: "lobby-identity"; Layout.fillWidth: true
+                text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialReady ? "已登录 · " + vm.socialName : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入")
+                font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce"
+                wrapMode: Text.NoWrap; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight
+            }
+            ActionButton {
+                objectName: "export-diagnostics"; text: "导出日志"; quiet: true
+                Layout.preferredWidth: 72; Layout.preferredHeight: 32
+                onClicked: lobby.act("exportDiagnostics", {})
             }
         }
     }
@@ -112,7 +119,7 @@ ColumnLayout {
             objectName: "open-create"; text: "创建房间"; primary: true
             Layout.preferredWidth: 100; Layout.preferredHeight: 32
             enabled: hall.canUseNode && !vm.busy
-            onClicked: lobby.act("navigate", {page:"create"})
+            onClicked: { lobby.act("navigate", {page:"create"}); if (typeof tutorial !== "undefined") tutorial.action("create") }
         }
         ActionButton {
             objectName: "open-join"; text: "加入房间"

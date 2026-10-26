@@ -82,7 +82,7 @@ if __name__ == '__main__' and '--package-check' in sys.argv:
     from runtime_check import main as check_package
     raise SystemExit(check_package(sys.argv[sys.argv.index('--package-check') + 1]))
 
-from PySide6.QtGui import QIcon
+from utils.app_icon import get_app_icon
 from config.settings import get_conf_or_cache_manager, get_settings_manager
 
 # Global app paths
@@ -103,21 +103,6 @@ for _resource_candidate in (APP_DIR / 'resources',
     if (_resource_candidate / 'images/minecraft_bg.png').is_file():
         RESOURCE_DIR = _resource_candidate
         break
-
-def get_app_icon(RESOURCE_DIR) -> QIcon:
-    """获取应用程序图标"""
-
-    # 尝试从系统图标主题加载
-    icon = QIcon.fromTheme("app")
-    if icon.isNull():
-        # 如果主题中没有，则从绝对路径加载
-        icon = QIcon()
-        icon_path = os.path.abspath(os.path.join(RESOURCE_DIR, 'icons', 'app.ico'))
-        if os.path.exists(icon_path):
-            icon = QIcon(icon_path)
-
-    return icon
-
 
 def setup_qt_environment():
     from qt_runtime import setup_qt_environment as configure_qt
@@ -183,6 +168,8 @@ def initialize_application():
     # Do not force software OpenGL: this package intentionally omits Mesa.
 
     app = QApplication(sys.argv)
+    app.setApplicationName('BUGG启动器')
+    app.setApplicationDisplayName('BUGG启动器')
     
     app.setWindowIcon(get_app_icon(RESOURCE_DIR))
     # 设置应用样式

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import asyncssh
 from hookup.nodes import profile_data, remember
 from hookup.relay import RelayProfile
-from hookup.native_routes import NativeRoutes
+from hookup.native_routes import NativeRoutes, startup_error
 
 
 class NativeRoutesTests(unittest.IsolatedAsyncioTestCase):
@@ -72,6 +72,23 @@ class NativeRoutesTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ConnectionError, '依赖库缺失'):
                 await manager.choose(self.a)
             spawn.assert_not_called()
+
+    def test_startup_errors_distinguish_dependencies_policy_and_architecture(self):
+        for code, expected in ((126, '依赖库缺失'), (4551, 'Windows 应用控制'),
+                               (577, 'Windows 应用控制'), (193, '架构不匹配'),
+                               (5, '访问被拒绝')):
+            error = OSError('sensitive path or token must not be logged')
+            error.winerror = code
+            with self.subTest(code=code), self.assertLogs('hookup.native_routes') as logs:
+                self.assertIn(expected, str(startup_error(error, 'library')))
+            self.assertIn('code=' + str(code), str(logs.output))
+            self.assertNotIn(str(error), str(logs.output))
+
+    def test_missing_dependency_is_not_reported_as_a_windows_block(self):
+        with self.assertLogs('hookup.native_routes'):
+            message = str(startup_error(FileNotFoundError('dependency'), 'library'))
+        self.assertIn('依赖库缺失', message)
+        self.assertNotIn('阻止', message)
 
     async def test_native_choice_is_cached_and_delivers_one_short_tip(self):
         manager = NativeRoutes()

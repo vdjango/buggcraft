@@ -14,6 +14,7 @@ from ui.pages.qml_host import QmlPage
 from core.minecraft.version import open_folder
 from core.java_downloads import SOURCES, catalogue, install as install_java, register as register_java
 from core.java_runtime import java_policy
+from core.update_client import current_version
 from utils.path_helper import get_launcher_directory
 
 
@@ -64,6 +65,7 @@ class RecordController(QObject):
     @Property('QVariantMap', notify=changed)
     def view(self):
         return dict(title='Java 管理' if self.kind == 'java' else '关于',
+                    launcherVersion=current_version(self.resource_path),
                     records=self._records, status=self._status, busy=self.busy,
                     kind=self.kind,
                     resources=QUrl.fromLocalFile(str(Path(self.resource_path).resolve()) + '/').toString(),
@@ -95,11 +97,11 @@ class RecordController(QObject):
             self._records = [
                 dict(id='', title='Buggcraft', description='Minecraft 启动器 · 邀请码联机', actions=[]),
                 dict(id='', title='当前游戏实例', description=self.manager.get_setting('minecraft.version.enable') or '尚未选择', actions=[]),
-                dict(id=str(root / 'README.md'), title='开源项目与贡献者', description='项目说明、贡献方式与相关资料。', actions=['查看']),
-                dict(id=str(root / 'requirements.txt'), title='运行依赖', description='\n'.join(dependencies), actions=['查看']),
-                dict(id=str(root / 'LICENSE'), title='版权', description='项目许可与版权声明见随附 LICENSE 文件。', actions=['查看']),
-                dict(id='', title='用户协议', description='尚未提供独立的付费服务条款。', actions=[]),
-                dict(id=str(root / 'COMMUNITY_LICENSE.md'), title='开源', description='查看项目许可和社区许可文件。', actions=['查看']),
+                dict(id='https://github.com/vdjango/buggcraft', title='开源项目与贡献者', description='感谢参与开发、翻译、测试和问题反馈的每一位玩家。', actions=['查看']),
+                dict(id='https://github.com/vdjango/buggcraft/blob/main/requirements.txt', title='运行依赖', description='\n'.join(dependencies), actions=['查看']),
+                dict(id='https://github.com/vdjango/buggcraft/blob/main/LICENSE', title='开源许可', description='启动器遵循 AGPL-3.0-or-later 许可，相关依赖保留各自许可。', actions=['查看']),
+                dict(id='', title='游戏与资源版权', description='游戏、模组和整合包的版权归原作者所有，请遵守各自的使用与分发条款。', actions=[]),
+                dict(id='https://github.com/vdjango/buggcraft/blob/main/COMMUNITY_LICENSE.md', title='社区许可', description='查看社区使用和贡献相关说明。', actions=['查看']),
             ]
             for record, section, icon in zip(self._records,
                     ('关于', '关于', '鸣谢', '依赖', '法律声明', '法律声明', '法律声明'),
@@ -111,7 +113,7 @@ class RecordController(QObject):
     def action(self, identity, action):
         page = self.parent()
         if action == '查看':
-            QDesktopServices.openUrl(QUrl.fromLocalFile(identity))
+            QDesktopServices.openUrl(QUrl(identity) if identity.startswith('https://') else QUrl.fromLocalFile(identity))
         elif action == '打开目录':
             open_folder(os.path.dirname(identity))
         elif action == '移除':
@@ -190,7 +192,7 @@ class RecordController(QObject):
         self.busy = False
         self._package_records = packages or []
         self.java_packages = [package.record() for package in packages] if packages else []
-        self._status = error or (f'找到 {len(self.java_packages)} 个 Java 压缩包。选择下载后会校验文件并在启动器目录内安装。'
+        self._status = error or (f'找到 {len(self.java_packages)} 个可用版本，下载后自动校验并安装。'
                                 if packages else '没有找到可用版本。')
         self.changed.emit()
 
@@ -237,7 +239,8 @@ class RecordController(QObject):
 
     def shutdown(self):
         self.cancel.set()
-        return self.pool.waitForDone(100)
+        self.pool.clear()
+        return self.pool.waitForDone(0)
 
 
 class JavaManagementPage(QmlPage):

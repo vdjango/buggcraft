@@ -24,6 +24,24 @@ class BridgeError(ConnectionError):
         super().__init__(message)
 
 
+def startup_error(exc, component):
+    """Report loader failures without guessing that Windows blocked the bridge."""
+    code = getattr(exc, 'winerror', None) or getattr(exc, 'errno', None)
+    LOG.warning('native_bridge_start_failed component=%s reason=%s code=%s',
+                component, type(exc).__name__, code)
+    if code in (577, 4551):
+        message = 'Windows 应用控制阻止了原生联机组件，请查看 Windows 安全中心的拦截记录。'
+    elif code == 193:
+        message = '原生联机组件架构不匹配或文件损坏，请安装与系统匹配的完整运行包。'
+    elif code == 5:
+        message = '原生联机组件访问被拒绝，请检查文件权限和系统安全记录。'
+    elif isinstance(exc, FileNotFoundError) or code == 126:
+        message = '原生联机运行库不完整或依赖库缺失，请重新安装完整 native 目录。'
+    else:
+        message = '原生联机组件加载或初始化失败，请导出联机诊断日志。'
+    return ConnectionError(message)
+
+
 def executable():
     configured = os.environ.get('BUGGCRAFT_BRIDGE_EXECUTABLE')
     if configured:
@@ -157,7 +175,7 @@ class NativeRoutes:
                     pass
                 raise
             except (OSError, RuntimeError) as exc:
-                raise ConnectionError('原生联机库被系统拦截或依赖库缺失，请检查系统提示并安装完整运行库。') from exc
+                raise startup_error(exc, 'library') from exc
         else:
             if mode == 'library':
                 raise FileNotFoundError('未找到 C++ 联机动态库，请安装完整 native 目录。')
@@ -170,7 +188,7 @@ class NativeRoutes:
                     binary, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE, limit=65536, **options)
             except OSError as exc:
-                raise ConnectionError('原生联机桥被系统拦截或依赖库缺失，请检查系统提示并安装完整运行库。') from exc
+                raise startup_error(exc, 'process') from exc
             self.stderr = asyncio.create_task(self._drain_stderr(self.process))
         try:
             initialized = await self._request('bridge.initialize', {'protocol': 1})

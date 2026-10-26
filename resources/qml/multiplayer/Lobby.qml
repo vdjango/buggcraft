@@ -11,7 +11,7 @@ Rectangle {
     border.width: 2
     property var vm: lobby.view
     property string page: vm.page
-    property var titles: ({hall:"Buggcraft · 联机大厅", create:"创建房间", join:"加入房间",
+    property var titles: ({hall:"BUGG·联机大厅", create:"创建房间", join:"加入房间",
         friends:"好友", friendForm:vm.editIndex >= 0 ? "编辑好友" : "添加好友",
         connections:"我的房间", connected:"房间详情", worldPicker:"重新开放世界", nodes:"联机节点"})
     property var selectedRoom: vm.connections.find(function(c) { return c.id === vm.selected }) || ({role:"client",state:"stopped"})
@@ -32,7 +32,9 @@ Rectangle {
     WindowHeader {
         objectName: "window-header"
         x: 2; y: 2; width: parent.width - 4
-        title: root.page === "connected" ? root.selectedRoom.title || "房间详情" : root.titles[root.page] || "联机大厅"
+        title: root.page === "connected" ? root.selectedRoom.title || "房间详情" : root.titles[root.page] || "BUGG·联机大厅"
+        brandSource: root.page === "hall" ? "../../images/bugg-logo.png" : ""
+        brandTitle: "· 联机大厅"
         navigationVisible: root.page !== "hall" && root.page !== "friends"
         navigationText: "‹"
         navigationName: root.page === "connected" ? "返回并断开连接" : "返回"

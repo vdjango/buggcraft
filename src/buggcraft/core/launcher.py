@@ -148,7 +148,8 @@ class MinecraftLibLauncher(QObject):
     
     def set_language(self, language='简体中文'):
         """设置游戏语言"""
-        self.minecraft_language = self.languages.get(language, language if language in self.languages.values() else 'zh_cn')
+        from core.game_languages import normalize_language
+        self.minecraft_language = normalize_language(language)
 
     def set_options(self,
         uuid=None,

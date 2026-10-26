@@ -28,6 +28,83 @@ class LauncherUpdateTests(LauncherQmlCase):
         self.updates.shutdown()
         super().tearDown()
 
+    def test_close_hides_immediately_and_drains_pending_update_without_blocking(self):
+        from PySide6.QtCore import QTimer
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_check(*_):
+            entered.set()
+            release.wait(5)
+            return {'version': '9.0.0', 'notes': '迟到的更新结果'}
+
+        self.window.launcher_updates = self.updates
+        ticks = []
+        heartbeat = QTimer()
+        heartbeat.setInterval(10)
+        heartbeat.timeout.connect(lambda: ticks.append(True))
+        with patch.object(updater, 'check_for_update', side_effect=slow_check), \
+                patch.object(self.updates, 'offer') as offer:
+            try:
+                self.updates.check(manual=True)
+                self.wait_until(entered.is_set)
+                heartbeat.start()
+                started = time.perf_counter()
+                self.window.close()
+                self.assertLess(time.perf_counter() - started, 0.5)
+                self.assertFalse(self.window.isVisible())
+                self.assertTrue(self.updates._stopping)
+                self.assertFalse(self.updates.startup_timer.isActive())
+                self.pump(150)
+                self.assertTrue(ticks, 'Qt must keep processing events during cleanup')
+                self.assertIsNotNone(self.page.quick.rootObject())
+            finally:
+                release.set()
+                heartbeat.stop()
+            self.wait_until(lambda: not self.updates.workers)
+            self.wait_until(lambda: self.page.quick.rootObject() is None)
+            offer.assert_not_called()
+
+    def test_close_cancels_downloads_even_while_java_work_is_pending(self):
+        java = self.window.settings_page.java_page.controller
+        downloads = self.window.download_page
+        with patch.object(java, 'shutdown', return_value=False) as stop_java, \
+                patch.object(downloads, 'shutdown', return_value=False) as stop_downloads:
+            self.window.close()
+            self.assertFalse(self.window.isVisible())
+            stop_java.assert_called_once()
+            stop_downloads.assert_called_once()
+        self.window.close()
+        self.pump()
+
+    def test_pending_close_exits_event_loop_after_cleanup(self):
+        from PySide6.QtCore import QTimer
+        entered, release = threading.Event(), threading.Event()
+        self.window.launcher_updates = self.updates
+        timed_out = []
+        watchdog = QTimer()
+        watchdog.setSingleShot(True)
+        watchdog.timeout.connect(lambda: (timed_out.append(True), self.app.quit()))
+
+        def slow_check(*_):
+            entered.set()
+            release.wait(5)
+
+        with patch.object(updater, 'check_for_update', side_effect=slow_check):
+            try:
+                self.updates.check()
+                self.wait_until(entered.is_set)
+                self.app.setQuitOnLastWindowClosed(True)
+                self.window.close()
+                QTimer.singleShot(100, release.set)
+                watchdog.start(2000)
+                self.app.exec()
+                self.assertFalse(timed_out, 'Hidden launcher must exit after cleanup')
+                self.assertFalse(self.window.isVisible())
+            finally:
+                release.set()
+                watchdog.stop()
+                self.app.setQuitOnLastWindowClosed(False)
+
     def test_manual_button_shows_latest_and_channel_switch_checks_without_restart(self):
         status = self.item(self.page, 'launcher-update-status')
         self.assertIn(self.updates.version, status.property('text'))

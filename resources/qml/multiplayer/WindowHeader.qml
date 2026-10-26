@@ -7,6 +7,8 @@ Rectangle {
     height: 42
     color: "#251f30"
     property string title: ""
+    property url brandSource: ""
+    property string brandTitle: ""
     property bool navigationVisible: false
     property string navigationText: "‹"
     property string navigationName: "返回"
@@ -35,10 +37,20 @@ Rectangle {
             iconSize: 13
             onClicked: header.navigate()
         }
+        Image {
+            objectName: "window-brand-logo"
+            visible: header.brandSource.toString() !== ""
+            source: header.brandSource
+            Layout.preferredWidth: 98
+            Layout.preferredHeight: 30
+            fillMode: Image.PreserveAspectFit
+            smooth: false
+            Accessible.name: "BUGG"
+        }
         CopyText {
             objectName: "window-page-title"
             Layout.fillWidth: true
-            text: header.title
+            text: header.brandSource.toString() !== "" ? header.brandTitle : header.title
             font.pixelSize: 14; font.weight: Font.DemiBold
             color: "#eee8fa"
             wrapMode: Text.NoWrap; elide: Text.ElideRight

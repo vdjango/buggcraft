@@ -4,8 +4,9 @@ import QtQuick.Controls.Basic
 ComboBox {
     id: control
     implicitHeight: 34
-    leftPadding: 14
+    leftPadding: 10
     rightPadding: 32
+    topPadding: 0; bottomPadding: 0
     contentItem: CopyText { text: control.displayText; color: "#f4f0ff"; verticalAlignment: Text.AlignVCenter; wrapMode: Text.NoWrap; elide: Text.ElideRight }
     indicator: Item {
         x: control.width - 24; y: (control.height - height) / 2
@@ -20,8 +21,8 @@ ComboBox {
         implicitHeight: 32
         objectName: "choice-option-" + index
         property bool selectedOption: control.currentIndex === index
-        leftPadding: 14; rightPadding: 34
-        contentItem: CopyText { text: modelData; color: "#f1eaff"; wrapMode: Text.NoWrap; elide: Text.ElideRight }
+        leftPadding: 10; rightPadding: 34
+        contentItem: CopyText { text: modelData; color: "#f1eaff"; verticalAlignment: Text.AlignVCenter; wrapMode: Text.NoWrap; elide: Text.ElideRight }
         background: Rectangle {
             color: selectedOption ? (highlighted ? "#473668" : "#392b58") : (highlighted ? "#292735" : "#1d1c28")
             Rectangle { width: 3; height: parent.height - 12; y: 6; color: "#a99bf8"; visible: selectedOption }

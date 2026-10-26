@@ -47,6 +47,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_BACKEND: software
     timeout-minutes: 60
     defaults:
       run:
@@ -71,7 +73,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 61faab57db2d424493d41c1ec21a3909527dee26
+          ref: 2b3babafa8417e3e17a3f9ec87ed4f142caed5c6
           path: native-source
       - uses: actions/setup-python@v5
         with:
@@ -286,6 +288,10 @@ jobs:
 
           Windows 构建目前没有受信任的代码签名，macOS 构建使用 ad-hoc 签名且未经 Apple 公证。发布者应先完成对应系统的安装验收与签名审查，再公开此草稿。
           NOTES
+          version_notes="docs/releases/${RELEASE_TAG#v}.md"
+          if [[ -f "$version_notes" ]]; then
+            cp "$version_notes" release-notes.md
+          fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Existing release retained; retrying platform synchronization."
           else

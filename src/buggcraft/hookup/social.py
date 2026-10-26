@@ -61,5 +61,5 @@ async def operate(profile, operation, target=None, **fields):
     return result
 
 
-async def status(profile):
-    return await operate(profile, 'presence')
+async def status(profile, room_presence=None):
+    return await operate(profile, 'presence', **(room_presence or {}))

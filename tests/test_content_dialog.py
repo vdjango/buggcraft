@@ -532,7 +532,8 @@ class ContentBrowserTests(LauncherQmlCase):
         get = requests.get
         def local_get(url, **kwargs):
             self.assertTrue(url.startswith('https://mod.mcimirror.top/fixture-'))
-            self.assertTrue(kwargs['headers']['User-Agent'].startswith('Buggcraft/1.0'))
+            from utils.http_identity import USER_AGENT
+            self.assertEqual(kwargs['headers']['User-Agent'], USER_AGENT)
             return get(f'http://127.0.0.1:{server.server_port}/pack', **kwargs)
         def install_game(downloader, identity):
             target = downloader.root / 'versions' / identity / (identity + '.json')

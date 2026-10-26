@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT/'.test-tools'), str(ROOT/'minecraft-tunnel/src'), str(ROOT/'buggcraft/src/buggcraft')]
+sys.path[:0] = [str(ROOT/'.test-tools'), str(ROOT/'minecraft-tunnel-native/web'), str(ROOT/'buggcraft/src/buggcraft')]
 import asyncssh
 from aiohttp import CookieJar
 from aiohttp.test_utils import TestClient, TestServer
@@ -37,6 +37,16 @@ def key_data(key):
 def signed(key, payload):
     r,s = utils.decode_dss_signature(key.sign(payload, ec.ECDSA(hashes.SHA256())))
     return encode(r.to_bytes(32,'big')+s.to_bytes(32,'big'))
+
+
+def signed_action(profile, operation, target):
+    """Create a deliberately tampered protocol event independently of the bridge."""
+    token, secret = profile.token.split('~', 1)
+    claims = json.loads(decode(token[6:].split('.', 1)[0]))
+    key = ec.derive_private_key(int.from_bytes(decode(secret), 'big'), ec.SECP256R1())
+    action = dict(op=operation, target=target, at=time.time(), id=secrets.token_hex(16))
+    return dict(grant=claims['g'], proof=claims['s'], action=action,
+                signature=signed(key, canonical(action)))
 
 
 def routing(key, state, copies=1):
@@ -74,6 +84,8 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
             self.relays.append(relay);self.feds.append(fed);self.portals.append(portal);self.clients.append(client)
 
     async def asyncTearDown(self):
+        from hookup.native_routes import close
+        await close()
         await asyncio.gather(*(client.close() for client in self.clients))
         await asyncio.gather(*(fed.close() for fed in self.feds))
         await asyncio.gather(*(relay.close() for relay in self.relays))
@@ -148,7 +160,7 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(profile.token,self.relays[1].token)
         await probe(profile)
         self.portals[1].state['blocked_accounts']=[account]
-        with self.assertRaises(asyncssh.PermissionDenied):
+        with self.assertRaises(ConnectionError):
             await probe(profile)
         self.assertEqual((await client.get('/api/account/me')).status,401)
 
@@ -191,7 +203,7 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
     async def test_friend_directory_publishes_names_without_vaults_and_rejects_anonymous(self):
         private_account, key, private_password = await self.register(copies=0)
         async with await connect_directory(RelayProfile(**self.feds[0].profile)) as connection:
-            with self.assertRaisesRegex(ConnectionError, '匿名'):
+            with self.assertRaises(ConnectionError):
                 await request(connection, 'account_lookup', identifier='player_1')
         private = self.personal_profile(0, private_account, key)
         async with await connect_directory(private) as connection:
@@ -350,7 +362,7 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
             window.close()
 
     async def test_cross_node_friend_consent_presence_invitation_and_game_bytes(self):
-        from hookup.social import operate, signed_action
+        from hookup.social import operate
         from hookup.relay import TunnelHost, TunnelClient, RoomInvite
         alice, alice_key, _ = await self.register(copies=0, username='alice')
         self.feds[1].join(self.feds[0].invitation())
@@ -388,11 +400,18 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
         async with await connect_directory(a) as connection:
             with self.assertRaises(ConnectionError):
                 await request(connection, 'social', event=forged)
+        handshake = b'\x10\x00\xfd\x05\x09localhost\x63\xdd\x02'
         async def echo(reader, writer):
             try:
-                data = await reader.read(64)
-                writer.write(b'world:' + data)
+                first = await reader.readexactly(1)
+                if first != handshake[:1]:
+                    return  # Ignore the host's legacy Minecraft status probe.
+                data = first + await reader.readexactly(len(handshake) + 5)
+                self.assertEqual(data, handshake + b'friend')
+                writer.write(b'world:friend')
                 await writer.drain()
+            except asyncio.IncompleteReadError:
+                pass
             finally:
                 writer.close()
         world = await asyncio.start_server(echo, '127.0.0.1', 0)
@@ -401,7 +420,7 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
         async def ready(endpoint):
             tasks.append(asyncio.create_task(endpoint.run()))
             for _ in range(100):
-                if endpoint.chat_process is not None:
+                if endpoint.session is not None:
                     return
                 if tasks[-1].done():
                     await tasks[-1]
@@ -430,7 +449,7 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
             await ready(client)
             reader, writer = await asyncio.open_connection('127.0.0.1', client.listen_port)
             try:
-                writer.write(b'friend')
+                writer.write(handshake + b'friend')
                 await writer.drain()
                 self.assertEqual(await asyncio.wait_for(reader.readexactly(12), 5), b'world:friend')
             finally:
@@ -449,12 +468,16 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
             world.close()
             await world.wait_closed()
 
-    async def test_username_casefold_uniqueness_is_checked_at_connected_nodes(self):
-        await self.register(username='Alice')
+    async def test_duplicate_names_keep_distinct_ids_at_connected_nodes(self):
+        first, _, _ = await self.register(username='Alice')
         self.feds[1].join(self.feds[0].invitation())
         await self.feds[1].sync_once()
+        second, _, _ = await self.register(index=1, username='ALICE')
+        self.assertNotEqual(first, second)
+        await self.feds[0].sync_once()
         with self.assertRaises(ValueError):
-            await self.feds[1].reserve_username('ALICE', secrets.token_hex(16) + '.' + self.feds[1].id)
+            await self.portals[0].account_api.store.replication.resolve('Alice')
+        self.assertEqual((await self.portals[0].account_api.store.replication.resolve(first))['state']['account'], first)
 
     async def test_old_peer_cannot_replicate_without_signed_backup_consent(self):
         account, _, _ = await self.register(copies=0)
@@ -566,9 +589,7 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(changes), 1)
 
     async def test_proxy_entrance_is_separate_from_listen_and_no_origin_in_profile(self):
-        import importlib.util
-        spec=importlib.util.spec_from_file_location('node_init',ROOT/'minecraft-tunnel/deploy/init_node.py')
-        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        from tunnel import provisioning as module
         folder=Path(self.temporary.name)/'proxy'
         module.initialize(folder,'origin.example',3334,entry_host='protected.example',entry_port=443)
         value=json.loads((folder/'relay-profile.json').read_text())

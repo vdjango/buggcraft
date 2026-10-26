@@ -9,6 +9,7 @@ from config.javafinder import JavaPathFinder
 from config.settings import get_settings_manager, launcher_opacity
 from config.settings_scope import GlobalSettingsScope
 from core.visibility import VisibilitySettings
+from core.game_languages import available_languages
 from ui.pages.qml_host import QmlPage
 
 
@@ -58,7 +59,7 @@ class SettingsController(QObject):
         fields = {field['key']: field for field in self._fields}
         result = []
         for key, field in fields.items():
-            if key == 'memory.allocation':
+            if key in ('memory.allocation', 'translation.source'):
                 continue
             group = dict(field, summary=str(field['value']), expanded=True,
                          collapsible=True, inline=False, options=[dict(value=value, title=str(value), description='')
@@ -74,8 +75,8 @@ class SettingsController(QObject):
                              options=[dict(value='~/.buggcraft/', title='默认', description='%APPDATA%/.buggcraft/ 或 ~/.buggcraft/'),
                                       dict(value='.buggcraft/', title='当前路径', description='位于启动器路径下 (.buggcraft/)'),
                                       dict(value='custom', title='自定义', description=str(self.manager.config_path))])
-            elif key == 'language':
-                group.update(kind='choice', options=[dict(value='简体中文', title='简体中文', description='')])
+            elif key == 'game.language':
+                group.update(kind='choice', summary='', options=self._language_options)
             elif key == 'minecraft.isolation':
                 group.update(kind='radio', description='', summary='各版本独立' if field['value'] else '默认 (.minecraft/)',
                              options=[dict(value=False, title='默认 (.minecraft/)', description='资源存放在 .minecraft/'),
@@ -98,15 +99,19 @@ class SettingsController(QObject):
             elif key in ('launcher.process_priority', 'launcher.debug'):
                 group['kind'] = 'radio'
                 if key == 'launcher.process_priority':
-                    descriptions = ['为游戏分配更多系统资源，可能影响其他程序运行。',
-                                    '系统资源合理分配，推荐大多数情况使用。', '优先保证其他程序运行，可能影响游戏性能。']
+                    descriptions = ['提高游戏进程的调度优先级，可能影响其他程序。重启游戏后生效。',
+                                    '使用正常调度优先级，推荐。重启游戏后生效。', '降低游戏进程的调度优先级，优先照顾其他程序。重启游戏后生效。']
                     for option, description in zip(group['options'], descriptions):
                         option['description'] = description
             elif key == 'instance.enable':
                 group.update(kind='instance', summary=self.manager.get_setting('minecraft.directory.enable') or '',
                              collapsible=False)
-            elif key in ('launcher.allow_multiple', 'translation.enabled'):
+            elif key == 'multiplayer.quick_action':
+                group.update(kind='radio', summary='', collapsible=False)
+            elif key in ('launcher.allow_multiple', 'translation.enabled', 'multiplayer.notification_sound'):
                 group.update(kind='standalone-toggle', collapsible=False)
+                if key == 'translation.enabled':
+                    group['translationSource'] = fields['translation.source']
             elif key == 'launcher.opacity':
                 group.update(kind='opacity', collapsible=False, summary='')
             result.append(group)
@@ -135,16 +140,18 @@ class SettingsController(QObject):
     def reload(self):
         s = self.settings
         if self.scope == 'general':
+            self._language_options = available_languages(s.get_setting('minecraft.directory.enable'),
+                                                         s.get_setting('minecraft.version.enable'))
             self._fields = [
                 self._field('settings.general.update', '启动器更新', s.get_setting('settings.general.update', 'stable'),
-                            ['stable', 'development'], '启动 10 秒后检查，之后每 4 小时检查；稍后提醒间隔 24 小时。稳定版仅接收正式更新，开发版也接收测试更新。切换通道立即检查。'),
+                            ['stable', 'development'], '开发版包含测试更新，切换后自动检查。'),
                 self._field('launcher.opacity', '启动器透明度', launcher_opacity(s),
                             options=[35, 100], kind='opacity',
                             description='默认 85%，最低 35%，100% 为完全不透明。'),
                 self._field('cache', '文件缓存路径', str(self.manager.config_path),
                             description='缓存目录迁移尚未接入，当前配置保持不变。', kind='text', enabled=False),
-                self._field('language', '启动器语言', '简体中文', kind='text', enabled=False,
-                            description='目前只支持简体中文。'),
+                self._field('game.language', 'Minecraft 游戏语言', s.get_setting('game.language', 'zh_cn'),
+                            [option['value'] for option in self._language_options], '按当前游戏资源提供可选语言，重启游戏后生效。'),
                 self._field('settings.general.mirrors', '游戏与加载器下载源',
                             s.get_setting('settings.general.mirrors', '自动（官方优先，失败切换镜像）'),
                             ['自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI'],
@@ -155,6 +162,13 @@ class SettingsController(QObject):
                 self._field('launcher.allow_multiple', '允许多开游戏',
                             bool(s.get_setting('launcher.allow_multiple', False)), kind='toggle',
                             description='首页可按版本和 PID 选择停止目标。'),
+                self._field('multiplayer.quick_action', '快捷联机',
+                            s.get_setting('multiplayer.quick_action', '首页提示'),
+                            ['关闭', '首页提示', '自动创建或加入'],
+                            '关闭：仅手动联机。首页提示：高亮按钮后点击继续。自动模式：自动创建私密房间或加入邀请码对应的房间。'),
+                self._field('multiplayer.notification_sound', '好友通知声音',
+                            bool(s.get_setting('multiplayer.notification_sound', True)), kind='toggle',
+                            description='收到好友申请、联机邀请或加入申请时提醒。'),
                 self._field('translation.enabled', '自动翻译资源介绍',
                             bool(s.get_setting('translation.enabled', False)), kind='toggle',
                             description='自动翻译模组、资源包、光影和整合包的列表简介与详情。首次翻译在后台进行，不影响浏览和下载。'),
@@ -251,6 +265,13 @@ class SettingsController(QObject):
         self.reload()
         if key == 'settings.general.update' and self._updates is not None:
             self._updates.channel_changed()
+        if key == 'multiplayer.quick_action':
+            home = self.parent().window().started_page
+            dialog = getattr(home, '_multiplayer_dialog', None)
+            if value == '关闭' and dialog is not None:
+                dialog.backend.clipboard_invite = ''
+                dialog.backend.patch(openWorldPrompt=False, openWorldPort=0)
+            home._refresh_multiplayer_entry()
 
     @Slot()
     def openReleases(self):

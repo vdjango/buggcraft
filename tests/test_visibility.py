@@ -76,6 +76,7 @@ class VisibilityTests(unittest.TestCase):
             stopped = False
             def hide(self): self.visible = False
             def shutdown(self): self.stopped = True
+            def findChildren(self, _): return []
 
         window = Hideable()
         cancelled = []

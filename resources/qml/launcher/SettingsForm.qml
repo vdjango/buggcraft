@@ -77,10 +77,13 @@ ScrollView {
                         objectName: "launcher-update-status"
                         visible: group.modelData.key === "settings.general.update"
                         Layout.fillWidth: true
-                        text: "当前版本：" + settingsPage.currentVersion + "\n" + settingsPage.updateStatus
+                        text: "当前版本：" + settingsPage.currentVersion + "  ·  " + settingsPage.updateStatus
                         color: "#cce5e5ee"
                         font.pixelSize: 12
-                        wrapMode: Text.Wrap
+                        elide: Text.ElideRight
+                        HoverHandler { id: updateStatusHover }
+                        ToolTip.visible: updateStatusHover.hovered
+                        ToolTip.text: text
                     }
                     Repeater {
                         model: group.modelData.kind === "radio" ? group.modelData.options : []
@@ -96,12 +99,16 @@ ScrollView {
                         }
                     }
                     ChoiceBox {
+                        objectName: group.modelData.key === "game.language" ? "setting-select-game-language" : "setting-select-" + group.modelData.key
                         visible: group.modelData.kind === "choice" && !group.modelData.inline
                         Layout.fillWidth: true; implicitHeight: 30
                         model: group.modelData.options.map(function(option) { return option.title })
                         currentIndex: Math.max(0, group.modelData.options.findIndex(function(option) { return option.value === group.modelData.value }))
                         enabled: group.modelData.enabled
-                        onActivated: settingsPage.setValue(group.modelData.key, group.modelData.options[currentIndex].value)
+                        onActivated: {
+                            settingsPage.setValue(group.modelData.key, group.modelData.options[currentIndex].value)
+                            if (group.modelData.key === "game.language") tutorial.action("language")
+                        }
                     }
                     SettingOption {
                         visible: ["instance", "standalone-toggle", "memory"].indexOf(group.modelData.kind) >= 0
@@ -111,7 +118,10 @@ ScrollView {
                         canToggle: true
                         checked: !!group.modelData.value
                         enabled: group.modelData.enabled
-                        onChosen: settingsPage.setValue(group.modelData.key, !group.modelData.value)
+                        onChosen: {
+                            settingsPage.setValue(group.modelData.key, !group.modelData.value)
+                            if (group.modelData.key === "translation.enabled") tutorial.action("translation")
+                        }
                     }
                     RowLayout {
                         visible: group.modelData.kind === "opacity"
@@ -146,8 +156,8 @@ ScrollView {
                         property var memoryField: group.modelData.memory || ({value:2048, options:[512, 4096], enabled:false})
                         spacing: 10
                         RowLayout {
-                            Layout.fillWidth: true; Layout.leftMargin: 35; Layout.rightMargin: 3; spacing: 14
-                            Label { Layout.preferredWidth: 130; text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
+                            Layout.fillWidth: true; spacing: 14
+                            Label { objectName: "setting-memory-label"; Layout.preferredWidth: 130; text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
                             Slider {
                                 id: memory
                                 objectName: "setting-memory-slider"
@@ -171,24 +181,49 @@ ScrollView {
                                 onMoved: if (!pressed) settingsPage.setValue("memory.allocation", Math.round(value))
                                 onPressedChanged: if (!pressed && enabled) settingsPage.setValue("memory.allocation", Math.round(value))
                             }
-                            Label { text: Math.round(memory.value) + " MB"; color: "#e0d9ec"; font.pixelSize: 13 }
+                            Label { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: Math.round(memory.value) + " MB"; color: "#e0d9ec"; font.pixelSize: 13 }
                         }
                         Rectangle {
-                            Layout.fillWidth: true; Layout.leftMargin: 35; Layout.rightMargin: 3; implicitHeight: 12; color: "#4b526b"
+                            objectName: "setting-memory-bar"
+                            Layout.fillWidth: true; implicitHeight: 10; color: "#4b526b"
                             property real usedRatio: Math.min(1, (root.memoryInfo.used || 0) / Math.max(1, root.memoryInfo.total))
                             Rectangle { height: parent.height; width: parent.width * parent.usedRatio; color: "#678aff" }
                             Rectangle { x: parent.width * parent.usedRatio; height: parent.height; width: parent.width * Math.min(1 - parent.usedRatio, memory.value / Math.max(1, root.memoryInfo.total)); color: memory.enabled ? "#ffc864" : "#aaaaaa" }
                         }
                         Label {
-                            Layout.fillWidth: true; Layout.leftMargin: 35; Layout.rightMargin: 3
+                            objectName: "setting-memory-info"
+                            Layout.fillWidth: true
                             text: "设备中已使用 " + ((root.memoryInfo.used || 0) / 1024).toFixed(2) + " GB  |  设备总内存 " + ((root.memoryInfo.total || 0) / 1024).toFixed(2) + " GB  |  可用 " + ((root.memoryInfo.available || 0) / 1024).toFixed(2) + " GB"
                             color: "#ccc4d8"; font.pixelSize: 12; wrapMode: Text.Wrap
                         }
                     }
                     Label {
-                        visible: !!group.modelData.description && group.modelData.kind !== "memory"
+                        objectName: "setting-description-" + group.modelData.key
+                        visible: !!group.modelData.description && group.modelData.kind !== "memory" && group.modelData.key !== "settings.general.update"
                         Layout.fillWidth: true
                         text: group.modelData.description; color: "#b2aabd"; font.pixelSize: 12; wrapMode: Text.Wrap
+                    }
+                    RowLayout {
+                        property var sourceField: group.modelData.translationSource || ({title: "", options: [], value: "", enabled: false})
+                        visible: group.modelData.key === "translation.enabled" && !!group.modelData.value
+                        Layout.fillWidth: true
+                        spacing: 14
+                        Label {
+                            Layout.preferredWidth: 130
+                            text: parent.sourceField.title
+                            color: "white"; font.pixelSize: 13
+                        }
+                        ChoiceBox {
+                            objectName: group.modelData.key === "translation.enabled" ? "setting-select-translation.source" : ""
+                            Layout.fillWidth: true
+                            model: parent.sourceField.options
+                            currentIndex: Math.max(0, parent.sourceField.options.indexOf(parent.sourceField.value))
+                            enabled: parent.sourceField.enabled
+                            onActivated: settingsPage.setValue("translation.source", parent.sourceField.options[currentIndex])
+                            HoverHandler { id: translationSourceHover }
+                            ToolTip.visible: translationSourceHover.hovered
+                            ToolTip.text: parent.sourceField.description || ""
+                        }
                     }
                 }
             }
