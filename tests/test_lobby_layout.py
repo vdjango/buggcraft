@@ -1254,6 +1254,10 @@ class FriendWindowTests(unittest.TestCase):
         for name in ('local_user', 'Friend'):
             field.setProperty('text', name)
             self.click('save-friend')
+            for _ in range(200):
+                if not self.owner.backend.view['friendBusy']:
+                    break
+                QTest.qWait(10)
             self.assertFalse(self.owner.backend.view['friendBusy'])
             self.assertTrue(find_item(self.dialog.quick, 'friend-feedback').property('text'))
             self.assertEqual(self.owner.backend.view['friendRequests'], [])
