@@ -60,9 +60,26 @@ def platform_id(system=None, machine=None):
     return None
 
 
-def _trusted_https_url(value):
-    parsed = urllib.parse.urlparse(value)
-    return parsed.scheme == 'https' and parsed.hostname == 'download.bugg.icu'
+def _trusted_https_url(value, hosts=('download.bugg.icu',)):
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        return (parsed.scheme == 'https' and parsed.hostname in hosts
+                and parsed.username is None and parsed.password is None
+                and parsed.port in (None, 443) and not parsed.fragment)
+    except (TypeError, ValueError):
+        return False
+
+
+def _trusted_download_response_url(value):
+    return _trusted_https_url(value, ('download.bugg.icu', 'kodo.bugg.icu'))
+
+
+class _TrustedDownloadRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        target = urllib.parse.urljoin(request.full_url, new_url)
+        if not _trusted_download_response_url(target):
+            raise ValueError('Package download redirected outside trusted HTTPS hosts')
+        return super().redirect_request(request, response, code, message, headers, target)
 
 
 def check_for_update(current_version, channel='stable', target=None, timeout=8):
@@ -122,10 +139,11 @@ def download_update(update, directory, progress=None, timeout=30):
     suffix = '.zip' if asset['name'].endswith('.zip') else '.exe' if asset['name'].endswith('.exe') else ''
     destination = target / ('.buggcraft-update-' + uuid.uuid4().hex + suffix)
     request = urllib.request.Request(asset['url'], headers={'User-Agent': 'Buggcraft-Launcher'})
+    opener = urllib.request.build_opener(_TrustedDownloadRedirectHandler())
     digest, size = hashlib.sha256(), 0
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response, destination.open('xb') as output:
-            if not _trusted_https_url(response.geturl()):
+        with opener.open(request, timeout=timeout) as response, destination.open('xb') as output:
+            if not _trusted_download_response_url(response.geturl()):
                 raise ValueError('Package download redirected outside the trusted service')
             length = response.headers.get('Content-Length')
             if length is not None and int(length) != asset['size']:

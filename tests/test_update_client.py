@@ -161,23 +161,53 @@ class UpdateClientTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 update_client.check_for_update('1.3.0', target='windows-x64')
 
+        payload['asset']['url'] = 'https://kodo.bugg.icu/launcher/1.4.0/Buggcraft.exe?e=old&token=expired'
+        with mock.patch.object(update_client.urllib.request, 'urlopen',
+                               return_value=Response(json.dumps(payload).encode())):
+            with self.assertRaises(ValueError):
+                update_client.check_for_update('1.3.0', target='windows-x64')
+
     def test_download_verifies_size_hash_and_removes_bad_file(self):
         package = b'verified update bytes'
         update = {'asset': {'name': 'Buggcraft.exe', 'size': len(package),
                             'sha256': hashlib.sha256(package).hexdigest(),
                             'url': 'https://download.bugg.icu/api/launcher/assets/1.4.0/Buggcraft.exe'}}
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch.object(update_client.urllib.request, 'urlopen',
-                                   return_value=Response(package, 'https://download.bugg.icu/api/launcher/assets')):
+            opener = mock.Mock()
+            opener.open.return_value = Response(package, 'https://download.bugg.icu/api/launcher/assets')
+            with mock.patch.object(update_client.urllib.request, 'build_opener', return_value=opener):
                 destination = update_client.download_update(update, directory)
             self.assertEqual(Path(destination).read_bytes(), package)
 
             update['asset']['sha256'] = '0' * 64
-            with mock.patch.object(update_client.urllib.request, 'urlopen',
-                                   return_value=Response(package, 'https://download.bugg.icu/api/launcher/assets')):
+            opener.open.return_value = Response(package, 'https://download.bugg.icu/api/launcher/assets')
+            with mock.patch.object(update_client.urllib.request, 'build_opener', return_value=opener):
                 with self.assertRaisesRegex(ValueError, 'SHA-256'):
                     update_client.download_update(update, directory)
             self.assertEqual([path.name for path in Path(directory).iterdir()], [destination.name])
+
+    def test_delayed_update_click_fetches_a_fresh_qiniu_redirect(self):
+        package = b'freshly signed launcher package'
+        stable_url = 'https://download.bugg.icu/api/launcher/assets/1.4.0/Buggcraft.exe'
+        signed_url = 'https://kodo.bugg.icu/launcher/1.4.0/Buggcraft.exe?e=fresh&token=current'
+        update = {'asset': {'name': 'Buggcraft.exe', 'size': len(package),
+                            'sha256': hashlib.sha256(package).hexdigest(), 'url': stable_url}}
+        opener = mock.Mock()
+        opener.open.return_value = Response(package, signed_url)
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(update_client.urllib.request, 'build_opener', return_value=opener):
+            destination = update_client.download_update(update, directory)
+            request = opener.open.call_args.args[0]
+            self.assertEqual(request.full_url, stable_url)
+            self.assertEqual(Path(destination).read_bytes(), package)
+
+    def test_download_redirect_rejects_untrusted_host_and_http_downgrade(self):
+        handler = update_client._TrustedDownloadRedirectHandler()
+        request = update_client.urllib.request.Request(
+            'https://download.bugg.icu/api/launcher/assets/1.4.0/Buggcraft.exe')
+        for target in ('https://evil.example/package.exe', 'http://kodo.bugg.icu/package.exe'):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, 'trusted HTTPS'):
+                handler.redirect_request(request, None, 302, 'Found', {}, target)
 
     def test_macos_archive_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -124,6 +124,8 @@ https://download.bugg.icu/api/launcher/update?current=1.2.2&platform=windows-x64
 
 下载地址始终是平台自己的 `/api/launcher/assets/{version}/{name}`。七牛私有对象同步并校验完成后，下载站以 HTTP 302 跳转到 10 分钟有效的七牛签名 URL；对象未就绪或同步失败时，直接由已发布的本地缓存响应。公开版本列表和更新响应不会暴露七牛对象键或签名链接。撤回版本后平台立即拒绝新下载请求；已签发的七牛链接最多保留到其 10 分钟有效期结束。
 
+更新检查和更新提示只保存平台稳定地址，不保存短时签名链接；用户点击更新时才请求稳定地址，由平台为这次实际下载生成新的七牛签名链接。启动器仅接受 HTTPS 下载站与 `kodo.bugg.icu` 之间的跳转，下载结束后仍校验文件大小和 SHA-256。因此提示放置一天或更久不会让下载链接过期。
+
 ## 6. 运维与历史兼容
 
 服务单元为 `buggcraft-releases`，仅监听本机 `127.0.0.1:18449`，经下载域名的 Nginx 转发。持久化目录为 `/var/lib/buggcraft-releases`；版本、设置和审核记录位于其中的 `launcher-releases/releases.json`，同步状态位于 `launcher-releases/github-sync.json`，文件位于 `launcher-releases/assets/`。这些数据应独立备份，部署时不能覆盖。服务重启会将未完成同步标记为中断；公开版本下轮重试，草稿可重跑 Actions。
