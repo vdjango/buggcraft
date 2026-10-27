@@ -209,6 +209,45 @@ class UpdateClientTests(unittest.TestCase):
             with self.subTest(target=target), self.assertRaisesRegex(ValueError, 'trusted HTTPS'):
                 handler.redirect_request(request, None, 302, 'Found', {}, target)
 
+    def test_ticket_requested_only_on_download_and_http_digest_falls_back_to_https(self):
+        package = b'verified package'
+        stable = 'https://download.bugg.icu/api/launcher/assets/1.4.0/Buggcraft.exe'
+        http = 'http://files.bugg.icu/launcher/1.4.0/Buggcraft.exe?token=fresh'
+        asset = {'name': 'Buggcraft.exe', 'url': stable, 'ticket_url': stable + '/ticket',
+                 'size': len(package), 'sha256': hashlib.sha256(package).hexdigest()}
+        ticket = {'url': http, 'transport': 'http', 'size': asset['size'], 'sha256': asset['sha256']}
+        payload = {'update_available': True, 'version': '1.4.0', 'asset': asset}
+        with mock.patch.object(update_client.urllib.request, 'urlopen', return_value=Response(json.dumps(payload).encode())), mock.patch.object(update_client.urllib.request, 'build_opener') as build:
+            update_client.check_for_update('1.3.0', target='windows-x64')
+            build.assert_not_called()
+        for corrupt in (False, True):
+            with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as directory:
+                opener = mock.Mock()
+                responses = [Response(json.dumps(ticket).encode(), stable + '/ticket'),
+                             Response(b'x' * len(package) if corrupt else package, http)]
+                if corrupt:
+                    responses.append(Response(package, 'https://kodo.bugg.icu/launcher/package?token=new'))
+                opener.open.side_effect = responses
+                with mock.patch.object(update_client.urllib.request, 'build_opener', return_value=opener):
+                    destination = update_client.download_update({'asset': asset}, directory)
+                self.assertEqual(destination.read_bytes(), package)
+                urls = [call.args[0].full_url for call in opener.open.call_args_list]
+                self.assertEqual(urls, [stable + '/ticket', http] + ([stable] if corrupt else []))
+                self.assertEqual(len(list(Path(directory).iterdir())), 1)
+
+    def test_http_ticket_requires_matching_manifest_and_forbids_redirects(self):
+        stable = 'https://download.bugg.icu/api/launcher/assets/1.4.0/Buggcraft.exe'
+        asset = {'url': stable, 'ticket_url': stable + '/ticket', 'size': 10, 'sha256': 'a' * 64}
+        ticket = {'url': 'http://files.bugg.icu/a', 'transport': 'http', 'size': 10, 'sha256': 'b' * 64}
+        opener = mock.Mock()
+        opener.open.return_value = Response(json.dumps(ticket).encode(), stable + '/ticket')
+        with mock.patch.object(update_client.urllib.request, 'build_opener', return_value=opener):
+            with self.assertRaisesRegex(ValueError, 'manifest'):
+                update_client._download_ticket(asset, 10)
+        handler = update_client._NoRedirectHandler()
+        with self.assertRaises(ValueError):
+            handler.redirect_request(urllib_request := update_client.urllib.request.Request(ticket['url']), None, 302, 'Found', {}, 'http://evil.example/a')
+
     def test_macos_archive_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / 'bad.zip'

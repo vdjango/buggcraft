@@ -11,6 +11,7 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+import urllib.error
 import uuid
 import zipfile
 
@@ -82,6 +83,37 @@ class _TrustedDownloadRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(request, response, code, message, headers, target)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        raise ValueError('Download ticket URL must not redirect')
+
+
+def _download_ticket(asset, timeout):
+    """A fresh HTTPS response authorizes one exact CDN URL at click time."""
+    endpoint = asset.get('ticket_url')
+    if endpoint != asset['url'] + '/ticket' or not _trusted_https_url(endpoint):
+        return None
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    request = urllib.request.Request(endpoint, headers={'Accept': 'application/json', 'User-Agent': 'Buggcraft-Launcher'})
+    with opener.open(request, timeout=min(timeout, 8)) as response:
+        if response.geturl() != endpoint:
+            raise ValueError('Untrusted ticket response')
+        raw = response.read(16385)
+    if len(raw) > 16384:
+        raise ValueError('Download ticket exceeded size limit')
+    ticket = json.loads(raw)
+    url = ticket.get('url', '')
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme not in ('http', 'https') or ticket.get('transport') != parsed.scheme
+            or not parsed.hostname or parsed.username or parsed.password or parsed.fragment
+            or parsed.port not in (None, 80 if parsed.scheme == 'http' else 443)
+            or any(ord(c) < 33 for c in url)):
+        raise ValueError('Unsafe ticket URL')
+    if parsed.scheme == 'http' and (ticket.get('size') != asset['size'] or ticket.get('sha256') != asset['sha256']):
+        raise ValueError('HTTP ticket does not match HTTPS release manifest')
+    return url
+
+
 def check_for_update(current_version, channel='stable', target=None, timeout=8):
     """Return the published package for this installation, or None."""
     target = target or platform_id()
@@ -134,16 +166,34 @@ def download_update(update, directory, progress=None, timeout=30):
     asset = update['asset']
     if not _trusted_https_url(asset['url']):
         raise ValueError('Update URL is not trusted')
+    if (type(asset.get('size')) is not int or not 0 < asset['size'] <= MAX_PACKAGE_BYTES
+            or not re.fullmatch(r'[0-9a-f]{64}', asset.get('sha256', ''))):
+        raise ValueError('Invalid update digest or size')
+    ticket_url = None
+    if asset.get('ticket_url'):
+        try:
+            ticket_url = _download_ticket(asset, timeout)
+        except (OSError, ValueError, TypeError, KeyError):
+            pass  # Old services and expired tickets retain the stable HTTPS path.
+    if ticket_url:
+        try:
+            return _download_package(asset, directory, progress, timeout, ticket_url)
+        except (OSError, ValueError):
+            pass  # HTTP transport never authorizes installation without digest verification.
+    return _download_package(asset, directory, progress, timeout)
+
+
+def _download_package(asset, directory, progress, timeout, ticket_url=None):
     target = Path(directory).resolve()
     target.mkdir(parents=True, exist_ok=True)
     suffix = '.zip' if asset['name'].endswith('.zip') else '.exe' if asset['name'].endswith('.exe') else ''
     destination = target / ('.buggcraft-update-' + uuid.uuid4().hex + suffix)
-    request = urllib.request.Request(asset['url'], headers={'User-Agent': 'Buggcraft-Launcher'})
-    opener = urllib.request.build_opener(_TrustedDownloadRedirectHandler())
+    request = urllib.request.Request(ticket_url or asset['url'], headers={'User-Agent': 'Buggcraft-Launcher'})
+    opener = urllib.request.build_opener(_NoRedirectHandler() if ticket_url else _TrustedDownloadRedirectHandler())
     digest, size = hashlib.sha256(), 0
     try:
         with opener.open(request, timeout=timeout) as response, destination.open('xb') as output:
-            if not _trusted_download_response_url(response.geturl()):
+            if (response.geturl() != ticket_url if ticket_url else not _trusted_download_response_url(response.geturl())):
                 raise ValueError('Package download redirected outside the trusted service')
             length = response.headers.get('Content-Length')
             if length is not None and int(length) != asset['size']:
