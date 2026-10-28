@@ -1,0 +1,38 @@
+name: Verify alpha 1 release cache metadata
+
+on:
+  push:
+    branches: [ci/alpha1-cache-verification]
+    paths: [.github/workflows/alpha1-release-cache-verification.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read the exact built release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$GH_REPO/releases/tags/v1.0.1-alpha.1" > alpha1-release.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('alpha1-release.json').read_text())
+          assert data['tag_name'] == 'v1.0.1-alpha.1'
+          assert data['draft'] and data['prerelease']
+          assert len(data['assets']) >= 11
+          print(json.dumps({'release_id': data['id'], 'tag': data['tag_name'],
+                            'assets': [{'name': a['name'], 'size': a['size'], 'digest': a.get('digest')}
+                                       for a in data['assets']]}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alpha1-release-metadata
+          path: alpha1-release.json
+          retention-days: 3
