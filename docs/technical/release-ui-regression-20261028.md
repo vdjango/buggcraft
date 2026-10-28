@@ -21,5 +21,6 @@
 | 大厅搜索修复后的 Windows 与 Linux 定向回归 | 各 1 passed |
 | 发布文件校验、游戏进程管理和日志回归 | 23 passed，16 subtests passed |
 | Linux 首轮完整 UI 集合 | 115 passed，4 skipped，2 deselected，96 subtests passed；唯一失败是该轮运行期间修复的大厅搜索用例，后续定向复测通过 |
+| Windows 首轮完整 UI 集合 | 119 passed，2 deselected，96 subtests passed；唯一失败同上，修复后单独复测通过；该轮包含引导闭环和退出检查 |
 
 完整平台门禁以最新 `Package launcher` 运行结果为准。上述 Linux 首轮结果不记作全套通过，平台跳过项也不记作执行成功。
