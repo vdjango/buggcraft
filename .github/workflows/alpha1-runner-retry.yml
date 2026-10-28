@@ -24,7 +24,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           python3 -u - <<'PY'
-          import json, os, time
+          import json, os, sys, time
           from urllib.error import HTTPError
           from urllib.request import Request, urlopen
 
@@ -32,6 +32,17 @@ jobs:
           run_id = 40700361708
           expected_sha = 'cd0e17aa226a8fd8c1c687c07205275031acf4cd'
           base = f'https://api.github.com/repos/{repository}'
+          def report_error(kind, error, trace):
+              detail = str(error)
+              if isinstance(error, HTTPError):
+                  try:
+                      detail += ': ' + str(json.load(error).get('message', ''))
+                  except (ValueError, OSError):
+                      pass
+              detail = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Runner retry request failed::' + detail, flush=True)
+              sys.__excepthook__(kind, error, trace)
+          sys.excepthook = report_error
           def request(path, method='GET'):
               req = Request(base + path, method=method, headers={
                   'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
@@ -67,7 +78,7 @@ jobs:
                               retried.add(job['id'])
                               print('Requested early runner allocation retry for ' + job['name'], flush=True)
                           except HTTPError as error:
-                              if error.code not in (409, 422):
+                              if error.code not in (403, 409, 422):
                                   raise
                               print('GitHub requires the other jobs to finish before retrying allocation.', flush=True)
                   time.sleep(30)
