@@ -1,0 +1,27 @@
+name: Inspect alpha 1 macOS Intel package check
+on:
+  push:
+    branches: [ci/alpha1-followup-promotion]
+    paths: [.github/workflows/alpha1-package-diagnostic.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the failed package check log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/vdjango/buggcraft/actions/jobs/122961185102/logs > failed-job.log
+          python3 - <<'PY'
+          from pathlib import Path
+          log = Path('failed-job.log').read_text(encoding='utf-8', errors='replace')
+          start = log.rfind('##[group]Run python - <<')
+          detail = log[start:][-18000:]
+          print(detail)
+          message = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=macOS Intel package-check diagnostic::' + message)
+          PY
+          exit 1
