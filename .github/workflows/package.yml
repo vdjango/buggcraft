@@ -12,8 +12,11 @@ on:
       - 'requirements*.txt'
       - 'scripts/stage_release.py'
       - 'scripts/build_bridge.py'
+      - 'scripts/require_main_build.py'
+      - 'scripts/release_launcher_tag.py'
       - 'tests/**'
       - '.github/workflows/package.yml'
+      - '.github/workflows/release-launcher.yml'
   workflow_dispatch:
 
 permissions:
@@ -206,7 +209,8 @@ jobs:
                      'test_chat_controller', 'test_clipboard', 'test_friend_directory', 'test_social_diagnostics',
                      'test_friend_entry_regression', 'test_friend_entry_ui', 'test_lobby_opening', 'test_lobby_navigation',
                      'test_instance_deletion', 'test_instance_modpack_entry',
-                       'test_download_transport', 'test_installation_receipt', 'test_modrinth_import']
+                     'test_download_transport', 'test_installation_receipt', 'test_modrinth_import',
+                     'test_release_gate']
           pathlib.Path('dist').mkdir(exist_ok=True)
           # Give each module a fresh Qt/runtime lifetime. Collecting dead UI
           # objects in a later HTTP worker can otherwise crash the interpreter.
@@ -336,10 +340,15 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - name: Require successful main build for this exact launcher commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/require_main_build.py
       - name: Test platform synchronization client
         run: python -m unittest discover -s tests -p test_release_platform_sync.py -v
       - uses: actions/download-artifact@v4

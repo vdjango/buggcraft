@@ -28,6 +28,10 @@ class NavigationPolishTests(LauncherQmlCase):
         page.view_controller.setFilter('失败')
         self.pump()
         self.assertEqual(listing.property('count'), 1)
+        # QApplication.sendEvent does not run the platform mouse-focus path.
+        # Model the focus a real click gives this embedded QQuickWidget before
+        # asserting keyboard behavior inside the modal.
+        page.host.quick.setFocus(Qt.MouseFocusReason)
         self.click(page.host, 'task-log-failed-fixture')
         dialog = page.host.quick.rootObject().findChild(QObject, 'task-log-dialog')
         self.assertIsNotNone(dialog)
