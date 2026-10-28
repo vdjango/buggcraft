@@ -14,15 +14,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set +e
-          gh api repos/vdjango/buggcraft/actions/jobs/122961185102/logs > failed-job.log 2> api-error.log
-          set -e
           python3 - <<'PY'
-          from pathlib import Path
-          log = Path('failed-job.log').read_text(encoding='utf-8', errors='replace')
+          import io, json, os, re, zipfile
+          from urllib.request import Request, urlopen
+          base = 'https://api.github.com/repos/vdjango/buggcraft'
+          def get(path):
+              request = Request(base + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                                'Accept': 'application/vnd.github+json'})
+              with urlopen(request, timeout=90) as response:
+                  return response.read()
+          log = get('/actions/jobs/122961185102/logs').decode('utf-8', errors='replace')
           start = log.rfind('##[group]Run python - <<')
-          detail = (log[start:] if start >= 0 else log)[-18000:]
-          detail += '\nLog API: ' + Path('api-error.log').read_text(encoding='utf-8', errors='replace')
+          detail = (log[start:] if start >= 0 else log)[-8000:]
+          artifacts = json.loads(get('/actions/runs/40729280907/artifacts?per_page=100'))['artifacts']
+          artifact = next(item for item in artifacts if item['name'].startswith('build-diagnostics-macos-x86_64-'))
+          with zipfile.ZipFile(io.BytesIO(get('/actions/artifacts/' + str(artifact['id']) + '/zip'))) as archive:
+              for name in archive.namelist():
+                  if name.endswith('package-check.json') or name.endswith('package-check.log'):
+                      detail += '\n' + name + '\n' + archive.read(name).decode('utf-8', errors='replace')[-9000:]
+          detail = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', detail)
           print(detail)
           message = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print('::error title=macOS Intel package-check diagnostic::' + message)
