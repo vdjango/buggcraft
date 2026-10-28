@@ -30,6 +30,12 @@ jobs:
                       redirected.remove_header('Accept')
                   return redirected
           opener = build_opener(StorageRedirect())
+          def emit(title, detail):
+              detail = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', detail)
+              print(title + '\n' + detail)
+              for offset in range(0, len(detail), 2800):
+                  message = detail[offset:offset + 2800].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=' + title + ' part ' + str(offset // 2800 + 1) + '::' + message)
           base = 'https://api.github.com/repos/vdjango/buggcraft'
           def get(path):
               request = Request(base + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
@@ -37,17 +43,14 @@ jobs:
               with opener.open(request, timeout=90) as response:
                   return response.read()
           log = get('/actions/jobs/122961185102/logs').decode('utf-8', errors='replace')
-          start = log.rfind('##[group]Run python - <<')
-          detail = (log[start:] if start >= 0 else log)[-8000:]
+          start = log.rfind('Traceback (most recent call last):')
+          detail = log[max(0, start - 1000):start + 3000] if start >= 0 else log[-8000:]
+          emit('Failed package subprocess', detail)
           artifacts = json.loads(get('/actions/runs/40729280907/artifacts?per_page=100'))['artifacts']
           artifact = next(item for item in artifacts if item['name'].startswith('build-diagnostics-macos-x86_64-'))
           with zipfile.ZipFile(io.BytesIO(get('/actions/artifacts/' + str(artifact['id']) + '/zip'))) as archive:
               for name in archive.namelist():
                   if name.endswith('package-check.json') or name.endswith('package-check.log'):
-                      detail += '\n' + name + '\n' + archive.read(name).decode('utf-8', errors='replace')[-9000:]
-          detail = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', detail)
-          print(detail)
-          message = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print('::error title=macOS Intel package-check diagnostic::' + message)
+                      emit(name, archive.read(name).decode('utf-8', errors='replace')[-9000:])
           PY
           exit 1
