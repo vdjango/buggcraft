@@ -30,8 +30,9 @@ env:
   GIT_CONFIG_VALUE_0: HTTP/1.1
 
 concurrency:
-  group: package-${{ github.ref }}
-  cancel-in-progress: true
+  # A stuck runner for an older commit must not block a validated replacement.
+  group: package-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   validate:
