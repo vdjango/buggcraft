@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # GitHub requires push-level access to read unpublished release drafts.
+  contents: write
 
 jobs:
   metadata:
@@ -19,14 +20,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh api "repos/$GH_REPO/releases/tags/v1.0.1-alpha.1" > alpha1-release.json
           python - <<'PY'
-          import json
+          import json, os, subprocess
           from pathlib import Path
-          data = json.loads(Path('alpha1-release.json').read_text())
-          assert data['tag_name'] == 'v1.0.1-alpha.1'
-          assert data['draft'] and data['prerelease']
-          assert len(data['assets']) >= 11
+          response = subprocess.run(['gh', 'api', 'repos/' + os.environ['GH_REPO'] + '/releases/tags/v1.0.1-alpha.1'],
+                                    capture_output=True, text=True)
+          if response.returncode:
+              print('::error title=Draft metadata unavailable::' + response.stderr[-500:].replace('\n', '%0A'))
+              raise SystemExit(response.returncode)
+          data = json.loads(response.stdout)
+          assert data['tag_name'] == 'v1.0.1-alpha.1', 'Unexpected tag'
+          assert data['draft'] and data['prerelease'], 'Expected the alpha 1 draft prerelease'
+          assert len(data['assets']) >= 11, 'Expected all five built platforms'
+          Path('alpha1-release.json').write_text(response.stdout)
           print(json.dumps({'release_id': data['id'], 'tag': data['tag_name'],
                             'assets': [{'name': a['name'], 'size': a['size'], 'digest': a.get('digest')}
                                        for a in data['assets']]}))
