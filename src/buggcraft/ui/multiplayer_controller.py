@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 
-from PySide6.QtCore import QObject, Property, Signal, Slot, QStandardPaths, QTimer
+from PySide6.QtCore import QObject, Property, Signal, Slot, QStandardPaths, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from hookup.profiles import RelayProfile, RoomInvite
@@ -63,6 +63,8 @@ class MultiplayerController(RoomPreparation, QObject):
         self.social_path = ''
         self.social_identity = None
         self.social_failures = 0
+        self.credential_prompted_node = ''
+        self.credential_prompt_dialog = None
         self.social_generation = uuid.uuid4().hex
         self.pending_node_update = None
         self.pending_friend_invites = {}
@@ -95,7 +97,7 @@ class MultiplayerController(RoomPreparation, QObject):
                            openWorldPrompt=False, openWorldPort=0, openWorldMode='create',
                            pendingFriendInvite='', outgoingInvitations={}, friendInviteAccount='', joiningFriendAccount='',
                            joinRequests=[], socialCapabilities={}, requestedJoinAccount='',
-                           nodeAccessExpired=False, nodeAccessMessage='',
+                           nodeAccessExpired=False, nodeCredentialRequired=False, nodeAccessMessage='',
                            error='', notice='', nodeDraft='', roomError='', needsVersion=False,
                            joinRoomId='', joinRoomTitle='', invitePrompt=False,
                            transportPolicy='auto',
@@ -159,13 +161,53 @@ class MultiplayerController(RoomPreparation, QObject):
 
     def social_failure(self, source, error):
         self.social_failures += 1
+        reason = str(error).lower()
+        credential_required = any(text in reason for text in (
+            'personal launcher credential is required', 'personal credential expired',
+            'invalid personal credential', 'invalid delegated key', 'delegated key mismatch',
+            'node authentication failed', '匿名接入没有好友功能'))
         logging.getLogger('hookup.social').warning(
             'social_ui_sync_failed source=%s consecutive=%s contacts=%s ready=%s entry_available=%s',
             source, self.social_failures, len(self._state['contacts']), self._state['socialReady'],
             self.friend_entry_available())
         contacts = [dict(item, online=False, presenceStale=True) for item in self._state['contacts']]
         self.patch(socialLoading=False, socialState='stale', contacts=contacts,
-                   socialError='好友节点同步失败：' + str(error))
+                   nodeCredentialRequired=credential_required or self._state['nodeCredentialRequired'],
+                   socialError=('个人启动器接入码需要更新。请从节点账号网页重新领取接入码。'
+                                if credential_required else '好友节点同步失败：' + str(error)))
+        if credential_required:
+            self.prompt_node_credential_update()
+
+    @staticmethod
+    def operation_error(error):
+        text = str(error or '')
+        if 'room directory unavailable' in text.lower():
+            return '暂时无法连接房间目录。请刷新或切换在线节点后重试；若同时提示接入码失效，请先更换个人接入码。'
+        return text
+
+    def prompt_node_credential_update(self):
+        if not self.node_path or self.credential_prompted_node == self.node_path:
+            return
+        if self.credential_prompt_dialog is not None:
+            self.credential_prompt_dialog.close()
+        self.credential_prompted_node = self.node_path
+        path = self.node_path
+        box = QMessageBox(QMessageBox.Warning, '好友接入码需要更新',
+                          '个人启动器接入码缺失、已过期或无法通过验证。\n\n'
+                          '请在该节点网站登录账号，重新领取个人启动器接入码；然后回到启动器的“联机节点”页粘贴并确认更新。'
+                          '更新不会删除原节点配置。', QMessageBox.NoButton, self.window)
+        replace = box.addButton('前往更换接入码', QMessageBox.AcceptRole)
+        box.addButton('稍后', QMessageBox.RejectRole)
+        box.setWindowModality(Qt.NonModal)
+        self.credential_prompt_dialog = box
+        def finish(result):
+            if self.credential_prompt_dialog is box:
+                self.credential_prompt_dialog = None
+            if box.clickedButton() is replace and self.node_path == path:
+                self.act('replaceNodeCode', {})
+            box.deleteLater()
+        box.finished.connect(finish)
+        box.show()
 
     @property
     def pending_friend_invite(self):
@@ -303,6 +345,9 @@ class MultiplayerController(RoomPreparation, QObject):
                 profile is not None, len(self._state['contacts']))
             self.social_identity = identity
             self.social_failures = 0
+            self.credential_prompted_node = ''
+            if self.credential_prompt_dialog is not None:
+                self.credential_prompt_dialog.close()
             self.social_generation = uuid.uuid4().hex
             from ui.social_notifications import SocialNotifications
             self.social_notifications = SocialNotifications()
@@ -313,9 +358,11 @@ class MultiplayerController(RoomPreparation, QObject):
             self.friend_request = None
             self.social_path = new_path
             self.patch(contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False,
-                       socialError='', friendBusy=False, socialLoading=False, pendingFriendInvite='', outgoingInvitations={},
+                       socialError='', nodeCredentialRequired=self._state['nodeAccessExpired'], friendBusy=False, socialLoading=False, pendingFriendInvite='', outgoingInvitations={},
                        friendInviteAccount='', joiningFriendAccount='', joinRequests=[], socialCapabilities={}, requestedJoinAccount='')
             self.refresh_friends()
+            if self._state['nodeAccessExpired']:
+                self.mark_node_expired()
         elif new_path and profile is None:
             self.social_failure('configuration', '节点配置读取失败，请检查文件权限或重新导入接入码。')
 
@@ -794,11 +841,13 @@ class MultiplayerController(RoomPreparation, QObject):
             logging.getLogger('hookup.social').warning('social_access_expired contacts=%s', len(self._state['contacts']))
         nodes = [dict(node, codeExpired=True) if node['path'] == self.node_path else node
                  for node in self._state['nodes']]
-        self.patch(nodes=nodes, nodeAccessExpired=True, nodeAccessMessage=EXPIRED_CODE_MESSAGE,
+        self.patch(nodes=nodes, nodeAccessExpired=True, nodeCredentialRequired=True,
+                   nodeAccessMessage=EXPIRED_CODE_MESSAGE,
                    nodeAvailable=False, socialReady=False, socialLoading=False,
                    contacts=[], friendRequests=[], friendInvitations=[],
                    socialAccount='', socialName='', socialError=EXPIRED_CODE_MESSAGE,
                    roomError='个人接入码已过期，请更换后重试。', loading=False, loadingMore=False)
+        self.prompt_node_credential_update()
 
     @Slot(str, str)
     def show_route_tip(self, path, name):
@@ -1645,7 +1694,8 @@ class MultiplayerController(RoomPreparation, QObject):
         self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=invitations,
                    joinRequests=state.get('joinRequests', []), socialCapabilities=capabilities,
                    socialReady=True, socialState='online', socialLoading=False, socialAccount=state['account'],
-                   socialName=state['username'], socialError='', outgoingInvitations=outgoing)
+                   socialName=state['username'], socialError='', nodeCredentialRequired=False,
+                   outgoingInvitations=outgoing)
         notification = self.social_notifications.update(self._state)
         if notification:
             self.social_notification.emit(notification)
@@ -1682,6 +1732,8 @@ class MultiplayerController(RoomPreparation, QObject):
 
     @Slot(str, object, object)
     def finish(self, key, value, error):
+        if error:
+            error = self.operation_error(error)
         self.jobs.discard(key)
         if self.finish_room_action(key, value, error):
             return
@@ -2070,6 +2122,8 @@ class MultiplayerController(RoomPreparation, QObject):
         cancel_copy(self)
         if not self.closed:
             self.closed = True
+            if self.credential_prompt_dialog is not None:
+                self.credential_prompt_dialog.close()
             self.room_report_timer.stop()
             self.room_reports.clear()
             self.room_search_timer.stop()
