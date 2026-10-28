@@ -1,9 +1,8 @@
 """Require the latest successful five-platform launcher build for this commit."""
 import json
 import os
-from urllib.parse import quote
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -24,7 +23,7 @@ def _get_json(url, token):
 
 def require_success(repository, sha, token, get_json=_get_json):
     base = 'https://api.github.com/repos/' + repository
-    query = urlencode({'per_page': 100})
+    query = urlencode({'head_sha': sha, 'per_page': 100})
     runs = get_json(base + '/actions/runs?' + query, token).get('workflow_runs', [])
     matching = [run for run in runs if run.get('path') == '.github/workflows/package.yml'
                 and run.get('event') == 'push' and run.get('head_branch') == 'main'
@@ -40,7 +39,8 @@ def require_success(repository, sha, token, get_json=_get_json):
     # by its stable platform identifier within the full job name.
     actual = {platform for platform in PLATFORMS
               if any(platform in job.get('name', '') for job in package_jobs)}
-    if actual != PLATFORMS or any(job.get('conclusion') != 'success' for job in package_jobs):
+    if (actual != PLATFORMS or len(package_jobs) != len(PLATFORMS)
+            or any(job.get('conclusion') != 'success' for job in package_jobs)):
         missing = ', '.join(sorted(PLATFORMS - actual)) or 'a failed platform'
         raise RuntimeError('Five-platform launcher build is incomplete: ' + missing)
     return run
