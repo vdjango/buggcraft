@@ -19,6 +19,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          echo "Waiting for the commit-isolated launcher build before promotion"
           python3 -u - <<'PY'
           import json, os, time
           from urllib.error import HTTPError, URLError
