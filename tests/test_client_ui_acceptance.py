@@ -119,8 +119,35 @@ class ClientUiAcceptanceCase(LauncherQmlCase):
     def pause_ui(self):
         self.pump(self.pause)
 
+    def settled_item(self, host, name):
+        """Wait for wheel inertia and queued layout before aiming a click.
+
+        Qt Quick consumes a press during a flick to stop scrolling. Linux's
+        wheel animation can still be moving after a control enters the
+        viewport, so a fixed pause alone does not make that press a click.
+        """
+        import time
+        deadline = time.monotonic() + 5
+        previous = None
+        stable = 0
+        while time.monotonic() < deadline:
+            self.pump(20)
+            item = self.item(host, name)
+            point = item.mapToScene(item.boundingRect().center())
+            geometry = (point.x(), point.y(), item.width(), item.height())
+            moving = False
+            ancestor = item
+            while ancestor is not None:
+                moving = moving or bool(ancestor.property("moving"))
+                ancestor = ancestor.parentItem()
+            stable = stable + 1 if geometry == previous and not moving else 0
+            if stable >= 3:
+                return item
+            previous = geometry
+        self.fail("UI control keeps moving before input: " + name)
+
     def click_ui(self, host, name):
-        item = self.item(host, name)
+        item = self.settled_item(host, name)
         self.assertTrue(item.isVisible(), name)
         widget = host.quick if hasattr(host, "quick") else host
         point = item.mapToScene(item.boundingRect().center()).toPoint()
@@ -145,7 +172,7 @@ class ClientUiAcceptanceCase(LauncherQmlCase):
         self.pause_ui()
 
     def drag_ui(self, host, name):
-        item = self.item(host, name)
+        item = self.settled_item(host, name)
         widget = host.quick if hasattr(host, "quick") else host
         start = item.mapToScene(QPoint(5, int(item.height() / 2))).toPoint()
         end = item.mapToScene(QPoint(max(5, int(item.width() - 5)),
