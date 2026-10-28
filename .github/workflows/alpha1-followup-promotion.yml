@@ -12,7 +12,7 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Verify branch and main builds before requesting the exact alpha 1
         env:
@@ -26,10 +26,10 @@ jobs:
 
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          expected_sha = '066a540ccb9e5dd165f0dd388e092a9ee97018da'
-          branch_run = 40729280907
+          expected_sha = '0447d48f38bf80d52dc327c137c2af83c0441358'
+          branch_run = 40741233909
           platforms = {'windows-x64', 'linux-x86_64', 'linux-arm64', 'macos-x86_64', 'macos-arm64'}
-          deadline = time.monotonic() + 110 * 60
+          deadline = time.monotonic() + 170 * 60
 
           def request(path, payload=None):
               data = None if payload is None else json.dumps(payload).encode()
