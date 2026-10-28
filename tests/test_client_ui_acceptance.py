@@ -31,7 +31,7 @@ class ClientUiAcceptanceCase(LauncherQmlCase):
         root = Path(os.environ.get(
             "BUGGCRAFT_UI_OUTPUT",
             str(ROOT.parent / ".test-tools" / "client-ui-pytest"),
-        ))
+        )).resolve()
         self.output = root / self._testMethodName
         self.screens = self.output / "screenshots"
         self.screens.mkdir(parents=True, exist_ok=True)

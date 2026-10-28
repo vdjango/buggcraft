@@ -557,7 +557,7 @@ class HomeChecklistUiTests(_HomeCase):
         self.check(crashed.returncode == 17, "the actual abnormal exit code is retained")
         self.click_ui(self.window._launch_error_dialog, "dialog-action-0")
         self.check(self.window._debug_dialog.isVisible()
-                   and any("17" in line for line in self.window._debug_output),
+                   and any("退出代码：17" in line for line in self.window._debug_output),
                    "View log opens the production log with the abnormal exit code")
         self.screenshot_ui("home-crash-log", self.window._debug_dialog)
         self.key_ui(self.window._debug_dialog, Qt.Key_Escape, "close-crash-log")

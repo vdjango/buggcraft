@@ -470,6 +470,7 @@ class MinecraftLauncher(QMainWindow):
     def minecraft_handle_stopped(self, exit_code):
         """游戏停止处理"""
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
+        self.minecraft_handle_output(f'[退出] Minecraft 已退出，退出代码：{exit_code}。')
         self._close_java_progress()
         if self._close_after_game:
             QTimer.singleShot(100, self.close)
