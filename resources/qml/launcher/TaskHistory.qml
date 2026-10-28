@@ -46,7 +46,14 @@ Item {
         height: Math.min(root.height - 20, 530)
         modal: true
         title: taskHistory.logTitle
-        onOpened: { root.logOpen = true; root.textLog = false }
+        onOpened: {
+            root.logOpen = true
+            root.textLog = false
+            // Embedded QQuickWidget hosts can keep the previous page's focus
+            // on macOS. Explicitly focus the modal after its enter transition
+            // so Escape and keyboard navigation work consistently.
+            logDialog.forceActiveFocus()
+        }
         onClosed: {
             root.logOpen = false
             taskHistory.closeLog()
