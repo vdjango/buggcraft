@@ -9,6 +9,10 @@ permissions:
   checks: read
   contents: read
 
+concurrency:
+  group: alpha1-runner-retry
+  cancel-in-progress: true
+
 jobs:
   retry:
     runs-on: ubuntu-latest
@@ -21,6 +25,7 @@ jobs:
         run: |
           python3 -u - <<'PY'
           import json, os, time
+          from urllib.error import HTTPError
           from urllib.request import Request, urlopen
 
           repository = os.environ['GH_REPO']
@@ -38,6 +43,7 @@ jobs:
               return json.loads(data) if data else None
 
           retried = set()
+          early_checked = False
           deadline = time.monotonic() + 50 * 60
           while time.monotonic() < deadline:
               run = request(f'/actions/runs/{run_id}')
@@ -46,6 +52,24 @@ jobs:
                   raise SystemExit('Main build identity does not match; no retry requested')
               print(f"Main run {run_id}, attempt {run['run_attempt']}: {run['status']}, {run['conclusion']}", flush=True)
               if run['status'] != 'completed':
+                  if not early_checked:
+                      early_checked = True
+                      jobs = request(f'/actions/runs/{run_id}/jobs?per_page=100')['jobs']
+                      for job in jobs:
+                          if job['conclusion'] != 'cancelled' or not job['name'].startswith('package ('):
+                              continue
+                          check_id = job['check_run_url'].rsplit('/', 1)[-1]
+                          annotations = request(f'/check-runs/{check_id}/annotations?per_page=100')
+                          if not any('not acquired by Runner' in item.get('message', '') for item in annotations):
+                              continue
+                          try:
+                              request(f"/actions/jobs/{job['id']}/rerun", 'POST')
+                              retried.add(job['id'])
+                              print('Requested early runner allocation retry for ' + job['name'], flush=True)
+                          except HTTPError as error:
+                              if error.code not in (409, 422):
+                                  raise
+                              print('GitHub requires the other jobs to finish before retrying allocation.', flush=True)
                   time.sleep(30)
                   continue
               if run['conclusion'] == 'success':
