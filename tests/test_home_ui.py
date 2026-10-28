@@ -321,6 +321,13 @@ class HomeChecklistUiTests(_HomeCase):
         self.text_ui(dialog, "room-search", "Home_Room")
         self.check(backend.view["roomQuery"] == "Home_Room", "room search reaches the production controller")
         self.text_ui(dialog, "room-search", "")
+        self.wait_for(lambda: not backend.room_search_timer.isActive() and backend.view["loading"],
+                      "clearing room search dispatches its debounced directory request")
+        backend.finish("rooms:" + backend.room_generation + ":0",
+                       dict(rooms=[], next=None, total=0, node_latency_ms=12), None)
+        self.pause_ui()
+        self.check(backend.view["nodeAvailable"] and not backend.view["loading"],
+                   "successful search response restores node actions")
         for entry, expected in (("open-create", "create"), ("open-join", "join")):
             backend.patch(nodeAvailable=True, loading=False)
             self.pause_ui()
