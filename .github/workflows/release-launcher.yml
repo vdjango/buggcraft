@@ -12,6 +12,10 @@ permissions:
   actions: write
   contents: read
 
+concurrency:
+  group: launcher-release-promotion
+  cancel-in-progress: false
+
 jobs:
   tag:
     runs-on: ubuntu-latest
@@ -22,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Test launcher release gates
+        run: python -m unittest tests.test_release_gate -v
       - name: Validate the exact requested version and main build
         env:
           GH_TOKEN: ${{ github.token }}

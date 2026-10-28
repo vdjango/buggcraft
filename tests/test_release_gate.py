@@ -1,8 +1,11 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from urllib.error import HTTPError
 
 from scripts.require_main_build import PLATFORMS, release_exists, require_success
+from scripts import release_launcher_tag
 
 
 class ReleaseGateTests(unittest.TestCase):
@@ -64,14 +67,59 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_missing_release_allows_requested_tag(self):
         def missing_release(url, token):
-            raise HTTPError(url, 404, 'Not Found', {}, None)
+            if '/releases/tags/' in url:
+                raise HTTPError(url, 404, 'Not Found', {}, None)
+            return []
         self.assertFalse(release_exists('owner/repo', 'v1.0.1-alpha.1', 'test-token', missing_release))
+
+    def test_hidden_draft_release_still_blocks_retagging(self):
+        def hidden_draft(url, token):
+            if '/releases/tags/' in url:
+                raise HTTPError(url, 404, 'Not Found', {}, None)
+            return [{'tag_name': 'v1.0.1-alpha.1', 'draft': True}]
+        self.assertTrue(release_exists('owner/repo', 'v1.0.1-alpha.1', 'test-token', hidden_draft))
 
     def test_release_lookup_auth_failure_does_not_look_like_missing_release(self):
         def denied(url, token):
             raise HTTPError(url, 403, 'Forbidden', {}, None)
         with self.assertRaises(HTTPError):
             release_exists('owner/repo', 'v1.0.1-alpha.1', 'test-token', denied)
+
+    def test_tag_workflow_uses_explicit_version_lease_and_dispatches_launcher(self):
+        environment = dict(GITHUB_REF='refs/heads/main', RELEASE_VERSION='1.0.1-alpha.1',
+                           GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha', GH_TOKEN='test-token')
+        with patch.dict(os.environ, environment), \
+                patch.object(release_launcher_tag.os.path, 'isfile', return_value=True), \
+                patch.object(release_launcher_tag, 'require_success', return_value={'run_number': 47}), \
+                patch.object(release_launcher_tag, 'release_exists', return_value=False), \
+                patch.object(release_launcher_tag.subprocess, 'check_output',
+                             side_effect=['commit-sha\trefs/heads/main\n', 'old-tag-sha\trefs/tags/v1.0.1-alpha.1\n']), \
+                patch.object(release_launcher_tag.subprocess, 'run') as run:
+            release_launcher_tag.main()
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertIn(['git', 'tag', '--force', '--annotate', 'v1.0.1-alpha.1', 'commit-sha',
+                       '--message', 'Buggcraft 1.0.1-alpha.1'], commands)
+        self.assertIn(['git', 'push', '--force-with-lease=refs/tags/v1.0.1-alpha.1:old-tag-sha',
+                       'origin', 'refs/tags/v1.0.1-alpha.1'], commands)
+        self.assertEqual(commands[-1], ['gh', 'workflow', 'run', 'package.yml', '--ref', 'v1.0.1-alpha.1'])
+
+    def test_tag_workflow_does_not_tag_unvalidated_or_published_code(self):
+        environment = dict(GITHUB_REF='refs/heads/main', RELEASE_VERSION='1.0.1-alpha.1',
+                           GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha', GH_TOKEN='test-token')
+        with patch.dict(os.environ, environment), \
+                patch.object(release_launcher_tag.os.path, 'isfile', return_value=True), \
+                patch.object(release_launcher_tag.subprocess, 'check_output',
+                             return_value='commit-sha\trefs/heads/main\n'), \
+                patch.object(release_launcher_tag.subprocess, 'run') as run:
+            with patch.object(release_launcher_tag, 'require_success', side_effect=RuntimeError('main failed')):
+                with self.assertRaisesRegex(RuntimeError, 'main failed'):
+                    release_launcher_tag.main()
+            run.assert_not_called()
+            with patch.object(release_launcher_tag, 'require_success', return_value={'run_number': 47}), \
+                    patch.object(release_launcher_tag, 'release_exists', return_value=True):
+                with self.assertRaisesRegex(SystemExit, 'already has a GitHub release'):
+                    release_launcher_tag.main()
+            run.assert_not_called()
 
 
 if __name__ == '__main__':

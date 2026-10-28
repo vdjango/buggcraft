@@ -147,6 +147,56 @@ jobs:
           subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_native_bridge_runtime.py'],
                          env=environment, check=True)
           PY
+      - name: Check slim transport and rendering configuration
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess, sys
+          sys.stdout.reconfigure(encoding='utf-8')
+          modules = ['test_native_library', 'test_native_routes', 'test_native_cutover',
+                     'test_native_bridge_staging', 'test_visibility',
+                     'test_native_transport_poll',
+                     'test_slim_packaging', 'test_system_fonts', 'test_qt_runtime',
+                     'test_macos_packaging', 'test_portable_game_directory',
+                     'test_connection_diagnostics', 'test_feedback_upload', 'test_nat_probe', 'test_p2p_evidence', 'test_modpack_no_key',
+                     'test_inherited_launch', 'test_game_sessions', 'test_game_diagnostics',
+                     'test_startup_logging', 'test_startup_resource_paths', 'test_launcher_process',
+                     'test_update_client', 'test_launcher_updates', 'test_resource_translation', 'test_ui_refinements',
+                     'test_loader_catalogue', 'test_native_code_import',
+                     'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
+                     'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
+                     'test_unix_qt_trimming', 'test_room_mod_installation',
+                     'test_room_launch_flow', 'test_lobby_layout',
+                     'test_chat_controller', 'test_clipboard', 'test_friend_directory', 'test_social_diagnostics',
+                     'test_friend_entry_regression', 'test_friend_entry_ui', 'test_lobby_opening', 'test_lobby_navigation',
+                     'test_instance_deletion', 'test_instance_modpack_entry',
+                     'test_download_transport', 'test_installation_receipt', 'test_modrinth_import',
+                     'test_release_gate']
+          pathlib.Path('dist').mkdir(exist_ok=True)
+          # Give each module a fresh Qt/runtime lifetime. Collecting dead UI
+          # objects in a later HTTP worker can otherwise crash the interpreter.
+          failed = []
+          with pathlib.Path('dist/preflight.log').open('w', encoding='utf-8') as log:
+              for name in modules:
+                  result = subprocess.run([sys.executable, '-X', 'faulthandler', '-u',
+                                           '-m', 'unittest', 'tests.' + name, '-v'],
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True, encoding='utf-8', errors='replace',
+                                          env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+                  heading = f'=== {name} (exit {result.returncode}) ===\n'
+                  log.write(heading + result.stdout)
+                  log.flush()
+                  print(heading + result.stdout, flush=True)
+                  if result.returncode:
+                      failed.append(name)
+                      tail = result.stdout[-3500:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error title=Launcher preflight failed: ' + name + '::' + tail)
+          if failed:
+              print('Failed modules: ' + ', '.join(failed))
+          raise SystemExit(1 if failed else 0)
+          PY
       - name: Test client pages through local Qt input without desktop mouse control
         env:
           BUGGCRAFT_UI_OUTPUT: dist/client-ui
@@ -197,56 +247,6 @@ jobs:
               tail = result.stdout[-6000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print('::error title=Resource tests failed::' + tail)
           raise SystemExit(result.returncode)
-          PY
-      - name: Check slim transport and rendering configuration
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_QUICK_BACKEND: software
-        run: |
-          python - <<'PY'
-          import os, pathlib, subprocess, sys
-          sys.stdout.reconfigure(encoding='utf-8')
-          modules = ['test_native_library', 'test_native_routes', 'test_native_cutover',
-                     'test_native_bridge_staging', 'test_visibility',
-                     'test_native_transport_poll',
-                     'test_slim_packaging', 'test_system_fonts', 'test_qt_runtime',
-                     'test_macos_packaging', 'test_portable_game_directory',
-                     'test_connection_diagnostics', 'test_feedback_upload', 'test_nat_probe', 'test_p2p_evidence', 'test_modpack_no_key',
-                     'test_inherited_launch', 'test_game_sessions', 'test_game_diagnostics',
-                     'test_startup_logging', 'test_startup_resource_paths', 'test_launcher_process',
-                     'test_update_client', 'test_launcher_updates', 'test_resource_translation', 'test_ui_refinements',
-                     'test_loader_catalogue', 'test_native_code_import',
-                     'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
-                     'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
-                     'test_unix_qt_trimming', 'test_room_mod_installation',
-                     'test_room_launch_flow', 'test_lobby_layout',
-                     'test_chat_controller', 'test_clipboard', 'test_friend_directory', 'test_social_diagnostics',
-                     'test_friend_entry_regression', 'test_friend_entry_ui', 'test_lobby_opening', 'test_lobby_navigation',
-                     'test_instance_deletion', 'test_instance_modpack_entry',
-                     'test_download_transport', 'test_installation_receipt', 'test_modrinth_import',
-                     'test_release_gate']
-          pathlib.Path('dist').mkdir(exist_ok=True)
-          # Give each module a fresh Qt/runtime lifetime. Collecting dead UI
-          # objects in a later HTTP worker can otherwise crash the interpreter.
-          failed = []
-          with pathlib.Path('dist/preflight.log').open('w', encoding='utf-8') as log:
-              for name in modules:
-                  result = subprocess.run([sys.executable, '-X', 'faulthandler', '-u',
-                                           '-m', 'unittest', 'tests.' + name, '-v'],
-                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                          text=True, encoding='utf-8', errors='replace',
-                                          env=dict(os.environ, PYTHONIOENCODING='utf-8'))
-                  heading = f'=== {name} (exit {result.returncode}) ===\n'
-                  log.write(heading + result.stdout)
-                  log.flush()
-                  print(heading + result.stdout, flush=True)
-                  if result.returncode:
-                      failed.append(name)
-                      tail = result.stdout[-3500:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                      print('::error title=Launcher preflight failed: ' + name + '::' + tail)
-          if failed:
-              print('Failed modules: ' + ', '.join(failed))
-          raise SystemExit(1 if failed else 0)
           PY
       - name: Prepare macOS application icon
         if: runner.os == 'macOS'

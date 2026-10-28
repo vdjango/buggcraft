@@ -1,6 +1,7 @@
 """Require the latest successful five-platform launcher build for this commit."""
 import json
 import os
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -17,8 +18,17 @@ def _get_json(url, token):
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
     })
-    with urlopen(request, timeout=30) as response:
-        return json.load(response)
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except HTTPError as error:
+            if attempt == 2 or (error.code != 429 and error.code < 500):
+                raise
+        except (URLError, TimeoutError, OSError):
+            if attempt == 2:
+                raise
+        time.sleep(2 * (attempt + 1))
 
 
 def require_success(repository, sha, token, get_json=_get_json):
@@ -52,6 +62,17 @@ def release_exists(repository, tag, token, get_json=_get_json):
         get_json(url, token)
     except HTTPError as error:
         if error.code == 404:
+            # The by-tag endpoint can hide drafts. Authenticated release lists
+            # include them, and retargeting a tag with draft assets is unsafe.
+            for page in range(1, 11):
+                rows = get_json(
+                    f'https://api.github.com/repos/{repository}/releases?per_page=100&page={page}',
+                    token,
+                )
+                if any(row.get('tag_name') == tag for row in rows):
+                    return True
+                if len(rows) < 100:
+                    break
             return False
         raise
     return True
