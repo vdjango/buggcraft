@@ -1,0 +1,91 @@
+name: Promote isolated alpha 1 launcher
+on:
+  push:
+    branches: [ci/alpha1-followup-promotion]
+    paths: [.github/workflows/alpha1-followup-promotion.yml]
+permissions:
+  actions: write
+  contents: read
+concurrency:
+  group: alpha1-followup-promotion
+  cancel-in-progress: false
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Verify branch and main builds before requesting the exact alpha 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 -u - <<'PY'
+          import json, os, time
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
+          token = os.environ['GH_TOKEN']
+          expected_sha = '066a540ccb9e5dd165f0dd388e092a9ee97018da'
+          branch_run = 40729280907
+          platforms = {'windows-x64', 'linux-x86_64', 'linux-arm64', 'macos-x86_64', 'macos-arm64'}
+          deadline = time.monotonic() + 110 * 60
+
+          def request(path, payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              headers = {'Authorization': 'Bearer ' + token,
+                         'Accept': 'application/vnd.github+json',
+                         'X-GitHub-Api-Version': '2022-11-28'}
+              if data is not None:
+                  headers['Content-Type'] = 'application/json'
+              for attempt in range(3):
+                  try:
+                      with urlopen(Request(base + path, data=data, headers=headers), timeout=30) as response:
+                          body = response.read()
+                      return json.loads(body) if body else None
+                  except (HTTPError, URLError, TimeoutError) as error:
+                      if isinstance(error, HTTPError) and error.code not in (429, 500, 502, 503, 504):
+                          raise
+                      if attempt == 2:
+                          raise
+                      time.sleep(5 * (attempt + 1))
+
+          def wait_for_build(run_id, branch):
+              while time.monotonic() < deadline:
+                  run = request('/actions/runs/' + str(run_id))
+                  if (run['head_sha'] != expected_sha or run['head_branch'] != branch
+                          or run['path'] != '.github/workflows/package.yml' or run['event'] != 'push'):
+                      raise SystemExit('Build identity changed; no release requested')
+                  print(branch, run_id, run['status'], run['conclusion'], flush=True)
+                  if run['status'] != 'completed':
+                      time.sleep(30)
+                      continue
+                  if run['conclusion'] != 'success':
+                      raise SystemExit(branch + ' did not pass; no release requested')
+                  jobs = request(f'/actions/runs/{run_id}/jobs?per_page=100')['jobs']
+                  packages = [job for job in jobs if job['name'].startswith('package (')]
+                  if len(packages) != 5 or any(job['conclusion'] != 'success' for job in packages):
+                      raise SystemExit('Five-platform launcher build is incomplete')
+                  if not all(any(platform in job['name'] for job in packages) for platform in platforms):
+                      raise SystemExit('Missing launcher platform')
+                  return
+              raise SystemExit('Timed out; no release requested')
+
+          wait_for_build(branch_run, 'release/alpha1-followup')
+          while time.monotonic() < deadline:
+              runs = request('/actions/workflows/package.yml/runs?branch=main&event=push&per_page=100')['workflow_runs']
+              matching = [run for run in runs if run['head_sha'] == expected_sha]
+              if not matching:
+                  print('Waiting for the verified branch to be merged into main', flush=True)
+                  time.sleep(30)
+                  continue
+              wait_for_build(matching[0]['id'], 'main')
+              if request('/branches/main')['commit']['sha'] != expected_sha:
+                  raise SystemExit('main moved; no release requested')
+              request('/actions/workflows/release-launcher.yml/dispatches',
+                      {'ref': 'main', 'inputs': {'version': '1.0.1-alpha.1'}})
+              print('Requested v1.0.1-alpha.1 on verified main ' + expected_sha, flush=True)
+              break
+          else:
+              raise SystemExit('Timed out waiting for main; no release requested')
+          PY
