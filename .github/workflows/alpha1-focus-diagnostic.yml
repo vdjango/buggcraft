@@ -25,6 +25,7 @@ jobs:
       - name: Inspect real dialog and host focus
         run: |
           python -u - <<'PY'
+          import json
           from PySide6.QtCore import QObject, QMetaObject, Qt
           from PySide6.QtTest import QTest
           from tests.test_navigation_polish import NavigationPolishTests
@@ -35,15 +36,16 @@ jobs:
           def inspect(label):
               quick = case.window.download_page.tasks_page.host.quick
               dialog = quick.rootObject().findChild(QObject, 'task-log-dialog')
-              print(label, dict(activeWindow=case.window.isActiveWindow(), widgetFocus=quick.hasFocus(),
+              state = dict(activeWindow=case.window.isActiveWindow(), widgetFocus=quick.hasFocus(),
                     focusWidget=str(case.app.focusWidget()), focusItem=str(quick.quickWindow().activeFocusItem()),
                     opened=dialog.property('opened'), focus=dialog.property('focus'),
                     activeFocus=dialog.property('activeFocus'), popupType=dialog.property('popupType'),
-                    timer=case.window.download_page.tasks_page.view_controller._log_timer.isActive()), flush=True)
+                    timer=case.window.download_page.tasks_page.view_controller._log_timer.isActive())
+              print('::notice title=' + label + '::' + json.dumps(state, default=str), flush=True)
               return quick, dialog
           try:
               case.test_history_filters_logs_and_failed_task_action_use_shared_list()
-              print('ORIGINAL TEST PASSED')
+              print('::notice title=Original test::Passed')
           except AssertionError as error:
               print(str(error), flush=True)
               quick, dialog = inspect('initial failure')
