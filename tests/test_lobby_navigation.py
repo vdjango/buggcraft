@@ -37,7 +37,7 @@ class LobbyNavigationTests(unittest.TestCase):
     def test_diagnostic_export_action_writes_zip_and_reports_destination(self):
         from zipfile import ZipFile
         with tempfile.TemporaryDirectory() as temporary:
-            destination = str(Path(temporary) / 'support')
+            destination = str(Path(temporary).resolve() / 'support')
             def collect(key, coroutine):
                 self.controller.finish(key, asyncio.run(coroutine), None)
             with patch('ui.multiplayer_controller.QFileDialog.getSaveFileName',

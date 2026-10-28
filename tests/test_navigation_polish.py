@@ -2,7 +2,7 @@
 import json
 from unittest.mock import patch
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QObject, QPointF
 from PySide6.QtTest import QTest
 
 from _qml_test_support import LauncherQmlCase, Qt
@@ -29,6 +29,9 @@ class NavigationPolishTests(LauncherQmlCase):
         self.pump()
         self.assertEqual(listing.property('count'), 1)
         self.click(page.host, 'task-log-failed-fixture')
+        dialog = page.host.quick.rootObject().findChild(QObject, 'task-log-dialog')
+        self.assertIsNotNone(dialog)
+        self.wait_until(lambda: dialog.property('activeFocus'))
         self.assertTrue(page.view_controller._log_timer.isActive())
         self.assertIn('download failed fixture', page.view_controller.logLines)
         # Close through the real overlay, then exercise the failed-task action.

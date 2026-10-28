@@ -14,6 +14,8 @@
 - macOS 路径断言使用规范化后的临时目录，避免将 `/var` 与 `/private/var` 的同一目录误判为不同目录；日志弹窗用例等待实际关闭及计时器停止，覆盖平台关闭动画。
 - Windows Java 管理 UI 回归继续使用真实异步扫描与可执行文件版本探测，但将搜索边界限定为已安装 Java 的目录，避免扫描 CI 镜像的整个 Program Files。扫描器本身也会跳过重叠目录与重复 Java 探测；新扫描仍重新验证版本，取消仍可生效。
 - 打包预检的各测试模块使用独立 Python 进程，启用 faulthandler，并合并完整日志；单项失败或崩溃仍阻止发布，不跳过原有断言。
+- 模态对话框显式接收键盘焦点；日志回归先确认弹窗实际获得焦点，再通过 Esc 关闭并确认刷新计时器停止。解决 macOS 下原控件保留焦点导致 Esc 没有关闭日志弹窗的问题。
+- 联机诊断导出用例规范化目标目录，避免 Windows 的 `RUNNER~1` 与 `runneradmin` 两种路径写法导致文件已正确导出却断言失败。
 
 ## 本地及 Linux 测试机证据
 
@@ -27,6 +29,8 @@
 | 本轮导航与房间客户端准备回归 | 27 tests，全部通过 |
 | 本轮真实 HTTP 并发下载、取消、校验及源回退 | 27 tests，全部通过 |
 | 本轮完整独立进程打包预检（Windows） | 52 个模块、483 项，0 失败；日志见 `dist/preflight.log` |
+| `cd0e17a` 完整 Windows UI 重跑 | 120 passed，2 deselected，96 subtests passed；结果保存在 `.test-tools/release-alpha1-main-ui` |
+| 模态日志焦点、Esc 和内容确认相关定向回归 | 8 passed，40 deselected，17 subtests passed |
 | Linux 首轮完整 UI 集合 | 115 passed，4 skipped，2 deselected，96 subtests passed；唯一失败是该轮运行期间修复的大厅搜索用例，后续定向复测通过 |
 | Windows 首轮完整 UI 集合 | 119 passed，2 deselected，96 subtests passed；唯一失败同上，修复后单独复测通过；该轮包含引导闭环和退出检查 |
 

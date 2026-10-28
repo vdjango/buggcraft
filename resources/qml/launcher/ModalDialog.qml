@@ -4,6 +4,7 @@ import QtQuick.Controls
 Dialog {
     id: control
     modal: true
+    focus: true
     palette.window: "#211f2b"
     palette.windowText: "#efedf5"
     palette.text: "#efedf5"
