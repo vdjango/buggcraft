@@ -1,0 +1,82 @@
+name: Diagnose macOS Intel packaged runtime
+on:
+  push:
+    branches: [ci/alpha1-followup-promotion]
+    paths: [.github/workflows/alpha1-runtime-diagnostic.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  reproduce:
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - name: Re-run existing compiled launcher and dump hung threads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          python3 -u - <<'PY'
+          import io, json, os, pathlib, plistlib, re, signal, subprocess, sys, traceback, zipfile
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+          def emit(title, value):
+              value = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', value)
+              print(title + '\n' + value, flush=True)
+              for offset in range(0, len(value), 2800):
+                  message = value[offset:offset + 2800].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                  print('::warning title=' + title + ' part ' + str(offset // 2800 + 1) + '::' + message, flush=True)
+          def report_error(kind, error, tb):
+              emit('Runtime diagnostic failed', ''.join(traceback.format_exception(kind, error, tb)))
+          sys.excepthook = report_error
+          class StorageRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if redirected is not None:
+                      redirected.remove_header('Authorization')
+                      redirected.remove_header('Accept')
+                  return redirected
+          opener = build_opener(StorageRedirect())
+          def get(path):
+              req = Request('https://api.github.com/repos/vdjango/buggcraft' + path,
+                            headers={'Authorization':'Bearer ' + os.environ['GH_TOKEN']})
+              with opener.open(req, timeout=120) as response:
+                  return response.read()
+          artifacts = json.loads(get('/actions/runs/40718438475/artifacts?per_page=100'))['artifacts']
+          artifact = next(item for item in artifacts if item['name'].startswith('Buggcraft-macos-x86_64-'))
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'alpha1-runtime-diagnostic'
+          root.mkdir()
+          archive = root / 'Buggcraft-macos-x86_64.zip'
+          with zipfile.ZipFile(io.BytesIO(get('/actions/artifacts/' + str(artifact['id']) + '/zip'))) as outer:
+              member = next(name for name in outer.namelist() if name.endswith('Buggcraft-macos-x86_64.zip'))
+              archive.write_bytes(outer.read(member))
+          subprocess.run(['/usr/bin/ditto','-x','-k',str(archive),str(root)],check=True)
+          bundle, = root.glob('*.app')
+          info = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
+          executable = bundle / 'Contents/MacOS' / info['CFBundleExecutable']
+          for attempt in range(1,4):
+              logs = root / ('attempt-' + str(attempt))
+              logs.mkdir()
+              env = dict(os.environ, BUGGCRAFT_LOG_DIR=str(logs), PATH='/usr/bin:/bin')
+              for key in ('PYTHONPATH','PYTHONHOME','QT_PLUGIN_PATH','QT_QPA_PLATFORM_PLUGIN_PATH','QML2_IMPORT_PATH'):
+                  env.pop(key,None)
+              with (logs / 'stdout.log').open('w') as output:
+                  process = subprocess.Popen([str(executable),'--package-check',str(logs / 'package-check.json')],
+                                             cwd=root, env=env, stdout=output, stderr=subprocess.STDOUT)
+                  try:
+                      code = process.wait(timeout=90)
+                  except subprocess.TimeoutExpired:
+                      process.send_signal(signal.SIGABRT)
+                      try:
+                          code = process.wait(timeout=15)
+                      except subprocess.TimeoutExpired:
+                          process.kill()
+                          code = process.wait()
+              print('Attempt', attempt, 'exit', code, flush=True)
+              for name in ('package-check.json','buggcraft-crash.log','buggcraft-stderr.log','package-check.log','stdout.log'):
+                  path = logs / name
+                  if path.is_file():
+                      emit(str(attempt) + ' ' + name, path.read_text(encoding='utf-8',errors='replace')[-14000:])
+              if code:
+                  raise SystemExit('Reproduced packaged launcher failure')
+          PY
