@@ -78,7 +78,8 @@ jobs:
       PYTHONIOENCODING: utf-8
       QT_QPA_PLATFORM: offscreen
       QT_QUICK_BACKEND: software
-    timeout-minutes: 60
+    # Native compilation, UI acceptance and Nuitka packaging share this job.
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -299,7 +300,7 @@ jobs:
           QT_QUICK_BACKEND: software
         run: |
           python - <<'PY'
-          import os, pathlib, plistlib, subprocess, sys
+          import os, pathlib, plistlib, signal, subprocess, sys
           root = pathlib.Path.cwd()
           output = root / 'dist'
           if os.name == 'nt' or sys.platform.startswith('linux'):
@@ -313,8 +314,38 @@ jobs:
               env.pop(key, None)
           env['BUGGCRAFT_LOG_DIR'] = str(output)
           env['PATH'] = os.environ['WINDIR'] + '/System32' if os.name == 'nt' else '/usr/bin:/bin'
-          subprocess.run([str(executable), '--package-check', str(output / 'package-check.json')],
-                         cwd=output, env=env, check=True, timeout=120)
+          command = [str(executable), '--package-check', str(output / 'package-check.json')]
+          process = subprocess.Popen(command, cwd=output, env=env)
+          try:
+              try:
+                  status = process.wait(timeout=300)
+              except subprocess.TimeoutExpired:
+                  # Packaged startup enables faulthandler. Preserve the hung
+                  # threads before stopping a POSIX process, rather than only
+                  # reporting that the parent reached its deadline.
+                  if os.name == 'nt':
+                      process.terminate()
+                  else:
+                      process.send_signal(signal.SIGABRT)
+                  try:
+                      process.wait(timeout=15)
+                  except subprocess.TimeoutExpired:
+                      process.kill()
+                      process.wait()
+                  raise
+              if status:
+                  raise subprocess.CalledProcessError(status, command)
+          except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+              for name in ('package-check.json', 'package-check.log',
+                           'buggcraft-crash.log', 'buggcraft-stderr.log'):
+                  path = output / name
+                  if not path.is_file():
+                      continue
+                  detail = path.read_text(encoding='utf-8', errors='replace')[-10000:]
+                  print(name + ':\n' + detail, flush=True)
+                  annotation = detail[-3000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=Bundled launcher check: ' + name + '::' + annotation, flush=True)
+              raise
           PY
       - name: Prepare validated downloads
         run: python scripts/stage_release.py --platform "${{ matrix.platform }}"
@@ -337,6 +368,9 @@ jobs:
             dist/signing-status.json
             dist/qt-trim-report.json
             dist/package-check.*
+            dist/buggcraft.log
+            dist/buggcraft-stderr.log
+            dist/buggcraft-crash.log
             dist/build.log
             dist/preflight.log
             dist/client-ui/
