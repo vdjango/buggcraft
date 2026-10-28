@@ -1,0 +1,32 @@
+name: Check isolated macOS ARM Java dialog
+on:
+  push:
+    branches: [ci/alpha1-followup-promotion]
+    paths: [.github/workflows/alpha1-macarm-modal-check.yml]
+permissions:
+  contents: read
+jobs:
+  focused-ui:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_BACKEND: software
+      BUGGCRAFT_UI_OUTPUT: dist/client-ui-focused
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3c297672475cdbcbe93b379f09f17840ad0d5b90
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: arm64
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install launcher runtime dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Exercise real invalid Java modal and dismissal
+        timeout-minutes: 8
+        run: |
+          PYTHONPATH=tests:src/buggcraft python -X faulthandler -m unittest test_settings_ui.ClientUiSettingsTests.test_custom_java_cancel_invalid_file_and_real_runtime_registration -v
