@@ -1,0 +1,16 @@
+name: Cancel superseded alpha 1 build
+on:
+  push:
+    branches: [ci/alpha1-followup-promotion]
+    paths: [.github/workflows/alpha1-cancel-hung-build.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel the superseded unbounded UI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST repos/vdjango/buggcraft/actions/runs/40751488572/cancel
