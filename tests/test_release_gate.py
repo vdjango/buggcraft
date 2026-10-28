@@ -87,7 +87,8 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_tag_workflow_uses_explicit_version_lease_and_dispatches_launcher(self):
         environment = dict(GITHUB_REF='refs/heads/main', RELEASE_VERSION='1.0.1-alpha.1',
-                           GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha', GH_TOKEN='test-token')
+                           GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha', GH_TOKEN='test-token',
+                           GITHUB_STEP_SUMMARY='')
         with patch.dict(os.environ, environment), \
                 patch.object(release_launcher_tag.os.path, 'isfile', return_value=True), \
                 patch.object(release_launcher_tag, 'require_success', return_value={'run_number': 47}), \
@@ -105,7 +106,8 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_tag_workflow_does_not_tag_unvalidated_or_published_code(self):
         environment = dict(GITHUB_REF='refs/heads/main', RELEASE_VERSION='1.0.1-alpha.1',
-                           GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha', GH_TOKEN='test-token')
+                           GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha', GH_TOKEN='test-token',
+                           GITHUB_STEP_SUMMARY='')
         with patch.dict(os.environ, environment), \
                 patch.object(release_launcher_tag.os.path, 'isfile', return_value=True), \
                 patch.object(release_launcher_tag.subprocess, 'check_output',
