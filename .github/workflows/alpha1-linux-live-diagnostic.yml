@@ -1,0 +1,40 @@
+name: Inspect active Linux launcher UI job
+on:
+  push:
+    branches: [ci/alpha1-followup-promotion]
+    paths: [.github/workflows/alpha1-linux-live-diagnostic.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read available job output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from urllib.error import HTTPError
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+          class StorageRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if redirected is not None:
+                      redirected.remove_header('Authorization')
+                  return redirected
+          opener = build_opener(StorageRedirect())
+          req = Request('https://api.github.com/repos/vdjango/buggcraft/actions/jobs/123003114530/logs',
+                        headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN']})
+          try:
+              with opener.open(req, timeout=45) as response:
+                  detail = response.read().decode('utf-8', errors='replace')[-8000:]
+          except HTTPError as error:
+              detail = 'Live job logs: HTTP ' + str(error.code) + '\n' + error.read().decode('utf-8', errors='replace')[:1000]
+          detail = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', detail)
+          print(detail)
+          for offset in range(0, len(detail), 2800):
+              message = detail[offset:offset+2800].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::warning title=Linux UI job output ' + str(offset // 2800 + 1) + '::' + message)
+          PY
