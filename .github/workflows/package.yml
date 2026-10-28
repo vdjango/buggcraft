@@ -15,12 +15,19 @@ on:
       - 'scripts/require_main_build.py'
       - 'scripts/release_launcher_tag.py'
       - 'tests/**'
+      - 'docs/guides/launcher-release-checklist.md'
       - '.github/workflows/package.yml'
       - '.github/workflows/release-launcher.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  # Avoid hosted-runner HTTP/2 stream resets while checking out either repo.
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: http.version
+  GIT_CONFIG_VALUE_0: HTTP/1.1
 
 concurrency:
   group: package-${{ github.ref }}
