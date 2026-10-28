@@ -67,7 +67,9 @@ class LauncherQmlCase(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='buggcraft-qml-test-')
-        self.directory = Path(self.temp.name)
+        # macOS exposes temporary directories through both /var and /private/var.
+        # Use the same canonical paths as the production installers and history.
+        self.directory = Path(self.temp.name).resolve()
         self.addCleanup(self.temp.cleanup)
         self.game_dir = self.directory / 'games'
         for name in ('1.20.1', '1.21.8', '长名称测试-' + 'instance-' * 6):

@@ -14,7 +14,7 @@ from PySide6.QtCore import QPoint, QTimer, QUrl
 from PySide6.QtQuickWidgets import QQuickWidget
 import shiboken6
 
-from _qml_test_support import QTest, Qt, ROOT, qt_mouse_click
+from _qml_test_support import QTest, Qt, ROOT, qt_mouse_click, qt_mouse_move
 from test_client_ui_acceptance import ClientUiAcceptanceCase as _HomeCase
 
 
@@ -309,8 +309,14 @@ class HomeChecklistUiTests(_HomeCase):
         backend.patch(nodeAvailable=True, loading=False)
         self.pause_ui()
         self.click_ui(dialog, "node-picker")
+        self.check(self.item(dialog, "node-picker").property("tutorialPopupVisible"),
+                   "node selector opens before keyboard selection")
+        qt_mouse_move(dialog.quick, QPoint(3, 3))
+        self.pause_ui()
         self.key_ui(dialog, Qt.Key_Home, "node-list-first")
         self.key_ui(dialog, Qt.Key_Down, "node-list-second")
+        self.check(self.item(dialog, "node-picker").property("highlightedIndex") == 1,
+                   "node keyboard selection highlights the second profile")
         self.key_ui(dialog, Qt.Key_Return, "node-list-confirm")
         self.check(backend.node_path == str(second) and backend.view["nodeIndex"] == 1,
                    "node selection changes the actual selected profile")

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from _qml_test_support import Qt, qt_mouse_click
 import config.settings as settings
 
-mode, folder = sys.argv[1], Path(sys.argv[2])
+mode, folder = sys.argv[1], Path(sys.argv[2]).resolve()
 os.environ['BUGGCRAFT_LOG_DIR'] = str(folder)
 settings.get_conf_or_cache_manager = lambda: ('startup-test', str(folder / 'configuration'))
 import main as startup
@@ -40,7 +40,8 @@ else:
             if isinstance(widget, QMessageBox) and widget.isVisible():
                 timer.stop()
                 try:
-                    seen.append(dict(title=widget.windowTitle(), message=widget.text()))
+                    seen.append(dict(title=widget.windowTitle(), message=widget.text(),
+                                     critical=widget.icon() == QMessageBox.Critical))
                     widget.grab().save(str(folder / 'startup-error.png'))
                     button = widget.button(QMessageBox.Ok)
                     qt_mouse_click(button, button.rect().center())
@@ -60,7 +61,11 @@ else:
     timer.stop()
     assert not errors, errors
     assert result == 1 and len(seen) == 1
-    assert seen[0]['title'] == '启动失败' and '完整运行包' in seen[0]['message']
+    # QMessageBox deliberately ignores window titles on macOS. Verify the
+    # visible critical message and recovery instructions on every platform.
+    if sys.platform != 'darwin':
+        assert seen[0]['title'] == '启动失败', seen[0]
+    assert seen[0]['critical'] and '完整运行包' in seen[0]['message'], seen[0]
     assert ('资源缺失' if mode == 'resources' else 'Qt 运行环境初始化失败') in seen[0]['message']
     assert (folder / 'startup-error.png').stat().st_size > 0
     receipt = dict(result=result, **seen[0], qt_platform=app.platformName(),

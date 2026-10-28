@@ -173,6 +173,7 @@ ScrollView {
                         spacing: 15
                         Slider {
                             id: opacitySlider
+                            focusPolicy: Qt.StrongFocus
                             objectName: group.modelData.kind === "opacity" ? "setting-opacity-slider" : ""
                             Layout.fillWidth: true
                             from: 35; to: 100; stepSize: 1; snapMode: Slider.SnapAlways
@@ -204,6 +205,7 @@ ScrollView {
                             Label { objectName: group.modelData.kind === "memory" ? "setting-memory-label" : ""; Layout.preferredWidth: 130; text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
                             Slider {
                                 id: memory
+                                focusPolicy: Qt.StrongFocus
                                 objectName: group.modelData.kind === "memory" ? "setting-memory-slider" : ""
                                 Layout.fillWidth: true
                                 from: memoryBlock.memoryField.options[0]; to: memoryBlock.memoryField.options[1]
