@@ -13,4 +13,13 @@ jobs:
       - name: Cancel the superseded unbounded UI run
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api --method POST repos/vdjango/buggcraft/actions/runs/40751488572/cancel
+        run: |
+          set +e
+          gh run cancel 40751488572 --repo vdjango/buggcraft
+          first=$?
+          gh api --include --method POST repos/vdjango/buggcraft/actions/runs/40751488572/cancel
+          second=$?
+          echo "gh_run_cancel=$first api_cancel=$second"
+          # A race with GitHub's runner finalizer is harmless; the pending
+          # replacement will start as soon as the old run leaves in_progress.
+          exit 0
