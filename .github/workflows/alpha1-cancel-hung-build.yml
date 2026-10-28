@@ -10,14 +10,16 @@ jobs:
   cancel:
     runs-on: ubuntu-latest
     steps:
-      - name: Cancel the superseded unbounded UI run
+      - name: Cancel failed superseded launcher run after macOS ARM timeout
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          old_sha=$(gh api repos/vdjango/buggcraft/actions/runs/40759051756 --jq .head_sha)
+          test "$old_sha" = e23b6388e45aa7f132df818e1b8aeb208be5c093 || exit 1
           set +e
-          gh run cancel 40751488572 --repo vdjango/buggcraft
+          gh run cancel 40759051756 --repo vdjango/buggcraft
           first=$?
-          gh api --include --method POST repos/vdjango/buggcraft/actions/runs/40751488572/cancel
+          gh api --include --method POST repos/vdjango/buggcraft/actions/runs/40759051756/cancel
           second=$?
           echo "gh_run_cancel=$first api_cancel=$second"
           # A race with GitHub's runner finalizer is harmless; the pending
