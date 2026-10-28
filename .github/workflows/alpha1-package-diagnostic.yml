@@ -15,13 +15,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
-          import io, json, os, re, zipfile
-          from urllib.request import Request, urlopen
+          import io, json, os, re, sys, traceback, zipfile
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+          def report_error(kind, error, tb):
+              message = ''.join(traceback.format_exception(kind, error, tb))
+              message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Diagnostic retrieval failed::' + message)
+          sys.excepthook = report_error
+          class StorageRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if redirected is not None:
+                      redirected.remove_header('Authorization')
+                      redirected.remove_header('Accept')
+                  return redirected
+          opener = build_opener(StorageRedirect())
           base = 'https://api.github.com/repos/vdjango/buggcraft'
           def get(path):
               request = Request(base + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
                                 'Accept': 'application/vnd.github+json'})
-              with urlopen(request, timeout=90) as response:
+              with opener.open(request, timeout=90) as response:
                   return response.read()
           log = get('/actions/jobs/122961185102/logs').decode('utf-8', errors='replace')
           start = log.rfind('##[group]Run python - <<')
