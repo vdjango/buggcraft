@@ -23,16 +23,16 @@ jobs:
           python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          response = subprocess.run(['gh', 'api', 'repos/' + os.environ['GH_REPO'] + '/releases/tags/v1.0.1-alpha.1'],
+          response = subprocess.run(['gh', 'api', 'repos/' + os.environ['GH_REPO'] + '/releases?per_page=100'],
                                     capture_output=True, text=True)
           if response.returncode:
               print('::error title=Draft metadata unavailable::' + response.stderr[-500:].replace('\n', '%0A'))
               raise SystemExit(response.returncode)
-          data = json.loads(response.stdout)
+          data = next(row for row in json.loads(response.stdout) if row['tag_name'] == 'v1.0.1-alpha.1')
           assert data['tag_name'] == 'v1.0.1-alpha.1', 'Unexpected tag'
           assert data['draft'] and data['prerelease'], 'Expected the alpha 1 draft prerelease'
           assert len(data['assets']) >= 11, 'Expected all five built platforms'
-          Path('alpha1-release.json').write_text(response.stdout)
+          Path('alpha1-release.json').write_text(json.dumps(data))
           print(json.dumps({'release_id': data['id'], 'tag': data['tag_name'],
                             'assets': [{'name': a['name'], 'size': a['size'], 'digest': a.get('digest')}
                                        for a in data['assets']]}))
