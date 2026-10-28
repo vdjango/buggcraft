@@ -56,9 +56,13 @@ class HomeChecklistUiTests(_HomeCase):
 
     def launch_child(self, sessions, count=1):
         self.click_ui(self.window.started_page, "launch-game")
+        # The full release matrix runs several Qt/process suites in one job.
+        # Keep the functional assertion unchanged while allowing slow hosted
+        # runners to finish preparing the real child worker.
         self.wait_for(lambda: len(sessions.sessions) == count
                       and all(row["phase"] == "running" for row in sessions.sessions),
-                      "Home starts independent child processes: " + str(count))
+                      "Home starts independent child processes: " + str(count),
+                      timeout=60000)
         return sessions.selected["launcher"].process
 
     def exit_child(self, process, *, crash=False):
