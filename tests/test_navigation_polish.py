@@ -33,7 +33,7 @@ class NavigationPolishTests(LauncherQmlCase):
         self.assertIn('download failed fixture', page.view_controller.logLines)
         # Close through the real overlay, then exercise the failed-task action.
         QTest.keyClick(page.host.quick, Qt.Key_Escape)
-        self.pump()
+        self.wait_until(lambda: not page.view_controller._log_timer.isActive())
         self.assertFalse(page.view_controller._log_timer.isActive())
         with patch.object(page, 'start_install') as retry:
             self.click(page.host, 'task-action-failed-fixture')

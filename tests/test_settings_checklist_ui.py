@@ -375,9 +375,14 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                 self.check(sum(row[0] == java for row in self.manager.get_setting('java.installations')) == 1,
                            'real Java is probed, added once and deduplicated')
         self.screenshot_ui('settings-java-added')
-        # Refresh runs the production asynchronous Java scanner.
-        self.setting_click(page, 'java-action-刷新')
-        self.wait_for(lambda: not page.controller.busy, 'asynchronous Java discovery finishes', timeout=60000)
+        # Run the real asynchronous scanner and executable probe, scoped to the
+        # installed runtime instead of traversing the entire hosted CI image.
+        from config.javafinder import JavaPathFinder
+        with patch.object(JavaPathFinder, '_check_common_install_paths',
+                          lambda finder: finder._search_java_in_directory(os.path.dirname(java))), \
+                patch.object(JavaPathFinder, '_search_in_program_files'):
+            self.setting_click(page, 'java-action-刷新')
+            self.wait_for(lambda: not page.controller.busy, 'asynchronous Java discovery finishes', timeout=60000)
         self.pause_ui()  # Let the new Repeater delegates finish their layout.
         self.check(any(row['id'] == java and row['version']
                        for row in page.controller.view['records']), 'scanner finds the installed Java version')

@@ -99,7 +99,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.payload = b'mod bytes' * 20000
         self.item = dict(name='example.jar', size=len(self.payload), sha256=hashlib.sha256(self.payload).hexdigest())
         self.game = dict(version='1.20.1', loader='forge', loader_version='47.4.0',

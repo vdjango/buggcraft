@@ -17,6 +17,8 @@ class JavaPathFinder:
         self.cancelled = cancelled or (lambda: False)
         self.system = platform.system().lower()
         self.found_java_paths = []
+        self._checked_paths = set()
+        self._visited_directories = set()
         self.min_required_version = (17, 0)  # Minecraft 1.17+ 需要 Java 17+
     
     def find_all_java_installations(self) -> List[Tuple[str, str, Tuple[int, int, int]]]:
@@ -28,6 +30,8 @@ class JavaPathFinder:
                 包含(路径, 原始版本字符串, 解析后的版本元组)的列表
         """
         self.found_java_paths = []
+        self._checked_paths.clear()
+        self._visited_directories.clear()
         
         # 按优先级尝试不同的查找方法
         methods = [
@@ -59,8 +63,7 @@ class JavaPathFinder:
             if java_home and os.path.exists(java_home):
                 java_exe = self._find_java_exe_in_path(java_home)
                 if java_exe:
-                    raw_version, parsed_version = self._get_java_version(java_exe)
-                    self.found_java_paths.append((java_exe, raw_version, parsed_version))
+                    self._add_java_candidate(java_exe)
     
     def _check_common_install_paths(self):
         """检查常见的Java安装路径"""
@@ -109,8 +112,7 @@ class JavaPathFinder:
                     for line in result.stdout.strip().split('\n'):
                         java_path = line.strip()
                         if java_path and os.path.exists(java_path):
-                            raw_version, parsed_version = self._get_java_version(java_path)
-                            self.found_java_paths.append((java_path, raw_version, parsed_version))
+                            self._add_java_candidate(java_path)
             
             else:  # Linux/MacOS
                 # 使用which命令查找java
@@ -123,8 +125,7 @@ class JavaPathFinder:
                 if result.returncode == 0:
                     java_path = result.stdout.strip()
                     if java_path and os.path.exists(java_path):
-                        raw_version, parsed_version = self._get_java_version(java_path)
-                        self.found_java_paths.append((java_path, raw_version, parsed_version))
+                        self._add_java_candidate(java_path)
                         
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass  # 命令执行失败时静默处理
@@ -156,15 +157,29 @@ class JavaPathFinder:
         for root, dirs, files in os.walk(directory):
             if self.cancelled():
                 return
+            identity = os.path.normcase(os.path.realpath(root))
+            if identity in self._visited_directories:
+                dirs.clear()
+                continue
+            self._visited_directories.add(identity)
             for file in files:
                 if self.cancelled():
                     return
                 if file.lower() in ["java", "java.exe"]:
                     java_path = os.path.join(root, file)
-                    # 检查是否是真正的可执行文件
                     if self._is_valid_java_exe(java_path):
-                        raw_version, parsed_version = self._get_java_version(java_path)
-                        self.found_java_paths.append((java_path, raw_version, parsed_version))
+                        self._add_java_candidate(java_path)
+
+    def _add_java_candidate(self, java_path):
+        """Probe each runtime once even when discovery roots overlap."""
+        if self.cancelled():
+            return
+        identity = os.path.normcase(os.path.realpath(java_path))
+        if identity in self._checked_paths:
+            return
+        self._checked_paths.add(identity)
+        raw_version, parsed_version = self._get_java_version(java_path)
+        self.found_java_paths.append((java_path, raw_version, parsed_version))
     
     def _find_java_exe_in_path(self, java_home: str) -> Optional[str]:
         """在JAVA_HOME路径中查找java可执行文件"""

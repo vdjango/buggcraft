@@ -207,18 +207,28 @@ jobs:
                      'test_friend_entry_regression', 'test_friend_entry_ui', 'test_lobby_opening', 'test_lobby_navigation',
                      'test_instance_deletion', 'test_instance_modpack_entry',
                        'test_download_transport', 'test_installation_receipt', 'test_modrinth_import']
-          result = subprocess.run([sys.executable, '-u', '-m', 'unittest',
-                                   *['tests.' + name for name in modules], '-v'],
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  text=True, encoding='utf-8', errors='replace',
-                                  env=dict(os.environ, PYTHONIOENCODING='utf-8'))
           pathlib.Path('dist').mkdir(exist_ok=True)
-          pathlib.Path('dist/preflight.log').write_text(result.stdout, encoding='utf-8')
-          print(result.stdout)
-          if result.returncode:
-              tail = result.stdout[-3500:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=Launcher preflight failed::' + tail)
-          raise SystemExit(result.returncode)
+          # Give each module a fresh Qt/runtime lifetime. Collecting dead UI
+          # objects in a later HTTP worker can otherwise crash the interpreter.
+          failed = []
+          with pathlib.Path('dist/preflight.log').open('w', encoding='utf-8') as log:
+              for name in modules:
+                  result = subprocess.run([sys.executable, '-X', 'faulthandler', '-u',
+                                           '-m', 'unittest', 'tests.' + name, '-v'],
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True, encoding='utf-8', errors='replace',
+                                          env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+                  heading = f'=== {name} (exit {result.returncode}) ===\n'
+                  log.write(heading + result.stdout)
+                  log.flush()
+                  print(heading + result.stdout, flush=True)
+                  if result.returncode:
+                      failed.append(name)
+                      tail = result.stdout[-3500:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error title=Launcher preflight failed: ' + name + '::' + tail)
+          if failed:
+              print('Failed modules: ' + ', '.join(failed))
+          raise SystemExit(1 if failed else 0)
           PY
       - name: Prepare macOS application icon
         if: runner.os == 'macOS'

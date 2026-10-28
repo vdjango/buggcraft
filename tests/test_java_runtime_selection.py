@@ -128,6 +128,42 @@ class JavaRuntimeSelectionTests(unittest.TestCase):
             self.assertEqual(JavaPathFinder()._get_java_version(str(java)), (None, None))
 
 
+class JavaDiscoveryTests(unittest.TestCase):
+    def test_overlapping_roots_and_candidates_probe_each_runtime_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            vendor = root / 'vendor'
+            java = vendor / 'jdk' / 'bin' / 'java.exe'
+            java.parent.mkdir(parents=True)
+            java.write_bytes(b'runtime' * 1024)
+            finder = JavaPathFinder()
+            with patch.object(finder, '_get_java_version', return_value=('Java 21', (21, 0, 1))) as probe:
+                finder._search_java_in_directory(str(vendor))
+                finder._search_java_in_directory(str(root))
+                finder._add_java_candidate(str(java))
+            self.assertEqual(probe.call_count, 1)
+            self.assertEqual(finder._remove_duplicates_and_validate(),
+                             [(str(java.resolve()), 'Java 21', (21, 0, 1))])
+
+    def test_a_new_scan_reprobes_runtime_and_cancellation_stops_discovery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            java = Path(folder) / 'java.exe'
+            java.write_bytes(b'runtime' * 1024)
+            finder = JavaPathFinder()
+            with patch.object(finder, '_check_environment_variables',
+                              side_effect=lambda: finder._add_java_candidate(str(java))), \
+                    patch.object(finder, '_check_common_install_paths'), \
+                    patch.object(finder, '_search_with_system_command'), \
+                    patch.object(finder, '_search_in_program_files'), \
+                    patch.object(finder, '_get_java_version', return_value=('Java 21', (21, 0, 1))) as probe:
+                self.assertEqual(len(finder.find_all_java_installations()), 1)
+                self.assertEqual(len(finder.find_all_java_installations()), 1)
+                self.assertEqual(probe.call_count, 2)
+                finder.cancelled = lambda: True
+                self.assertEqual(finder.find_all_java_installations(), [])
+                self.assertEqual(probe.call_count, 2)
+
+
 class LaunchErrorQmlTests(LauncherQmlCase):
     def test_java_progress_dialog_uses_wrapped_detail_and_cancels_only_preparation(self):
         self.window.minecraft_java_install_progress('Downloading Java runtime', 5 * 1024 ** 2, 20 * 1024 ** 2)
