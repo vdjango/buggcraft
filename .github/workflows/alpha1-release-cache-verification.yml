@@ -9,6 +9,7 @@ on:
 permissions:
   # GitHub requires push-level access to read unpublished release drafts.
   contents: write
+  actions: write
 
 jobs:
   metadata:
@@ -42,3 +43,27 @@ jobs:
           name: alpha1-release-metadata
           path: alpha1-release.json
           retention-days: 3
+      - name: Retry the failed cache synchronization after verified recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          prefix = 'repos/' + os.environ['GH_REPO']
+          def read(path):
+              return json.loads(subprocess.check_output(['gh', 'api', prefix + path], text=True))
+          run = read('/actions/runs/40780633808')
+          assert run['head_sha'] == '3c297672475cdbcbe93b379f09f17840ad0d5b90'
+          assert run['head_branch'] == 'v1.0.1-alpha.1'
+          assert run['status'] == 'completed' and run['conclusion'] == 'failure'
+          jobs = read('/actions/runs/40780633808/jobs?per_page=100')['jobs']
+          packages = [j for j in jobs if j['name'].startswith('package (')]
+          assert len(packages) == 5 and all(j['conclusion'] == 'success' for j in packages)
+          failed = [j for j in jobs if j['conclusion'] == 'failure']
+          assert len(failed) == 1 and failed[0]['name'] == 'release'
+          failures = [s['name'] for s in failed[0]['steps'] if s['conclusion'] == 'failure']
+          assert failures == ['Synchronize build assets to platform cache']
+          subprocess.run(['gh', 'api', '--method', 'POST', prefix + '/actions/runs/40780633808/rerun-failed-jobs'], check=True)
+          print('Retried only the failed release synchronization job; all five successful platform packages remain validated.')
+          PY
