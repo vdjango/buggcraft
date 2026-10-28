@@ -1,0 +1,66 @@
+name: Promote validated alpha 1 launcher
+on:
+  push:
+    branches: [ci/alpha1-runner-retry]
+    paths: [.github/workflows/alpha1-promotion.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Wait for the exact main matrix and dispatch the requested version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 -u - <<'PY'
+          import json, os, sys, time
+          from urllib.request import Request, urlopen
+
+          base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
+          token = os.environ['GH_TOKEN']
+          expected_sha = '18262e1f8fafd4b409d6c4e053ccd64814e6c19c'
+          run_id = 40718438475
+          platforms = {'windows-x64', 'linux-x86_64', 'linux-arm64', 'macos-x86_64', 'macos-arm64'}
+          version = '1.0.1-alpha.1'
+          def request(path, payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              headers = {'Authorization': 'Bearer ' + token,
+                         'Accept': 'application/vnd.github+json',
+                         'X-GitHub-Api-Version': '2022-11-28'}
+              if data is not None:
+                  headers['Content-Type'] = 'application/json'
+              with urlopen(Request(base + path, data=data, headers=headers), timeout=30) as response:
+                  body = response.read()
+              return json.loads(body) if body else None
+          deadline = time.monotonic() + 50 * 60
+          while time.monotonic() < deadline:
+              run = request('/actions/runs/' + str(run_id))
+              if (run['head_sha'] != expected_sha or run['head_branch'] != 'main'
+                      or run['path'] != '.github/workflows/package.yml' or run['event'] != 'push'):
+                  raise SystemExit('Main build identity changed; no release dispatched')
+              print('Main run', run_id, run['status'], run['conclusion'], flush=True)
+              if run['status'] != 'completed':
+                  time.sleep(30)
+                  continue
+              if run['conclusion'] != 'success':
+                  raise SystemExit('Main build did not pass; no release dispatched')
+              branch = request('/branches/main')
+              if branch['commit']['sha'] != expected_sha:
+                  raise SystemExit('main moved; no release dispatched')
+              jobs = request(f'/actions/runs/{run_id}/jobs?per_page=100')['jobs']
+              packages = [job for job in jobs if job['name'].startswith('package (')]
+              if len(packages) != 5 or any(job['conclusion'] != 'success' for job in packages):
+                  raise SystemExit('Five-platform launcher matrix is incomplete')
+              if not all(any(platform in job['name'] for job in packages) for platform in platforms):
+                  raise SystemExit('One or more launcher platforms are missing')
+              request('/actions/workflows/release-launcher.yml/dispatches',
+                      {'ref': 'main', 'inputs': {'version': version}})
+              print('Dispatched Release launcher build for v' + version + ' on validated ' + expected_sha)
+              break
+          else:
+              raise SystemExit('Timed out awaiting the exact main build; no release dispatched')
+          PY
