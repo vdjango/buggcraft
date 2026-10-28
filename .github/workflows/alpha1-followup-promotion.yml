@@ -26,8 +26,7 @@ jobs:
 
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          expected_sha = '0447d48f38bf80d52dc327c137c2af83c0441358'
-          branch_run = 40741233909
+          expected_sha = '40b61cea75330bf2bf9d0ef0cd47b020c78bdb20'
           platforms = {'windows-x64', 'linux-x86_64', 'linux-arm64', 'macos-x86_64', 'macos-arm64'}
           deadline = time.monotonic() + 170 * 60
 
@@ -71,7 +70,11 @@ jobs:
                   return
               raise SystemExit('Timed out; no release requested')
 
-          wait_for_build(branch_run, 'release/alpha1-followup')
+          branch_runs = request('/actions/workflows/package.yml/runs?branch=release/alpha1-followup&event=push&per_page=20')['workflow_runs']
+          matching_branch = [run for run in branch_runs if run['head_sha'] == expected_sha]
+          if not matching_branch:
+              raise SystemExit('Updated isolated branch build has not started')
+          wait_for_build(matching_branch[0]['id'], 'release/alpha1-followup')
           while time.monotonic() < deadline:
               runs = request('/actions/workflows/package.yml/runs?branch=main&event=push&per_page=100')['workflow_runs']
               matching = [run for run in runs if run['head_sha'] == expected_sha]
