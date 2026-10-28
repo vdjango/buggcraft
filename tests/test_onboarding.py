@@ -39,7 +39,9 @@ class OnboardingCoachTests(LauncherQmlCase):
                     if step['target'] == target)
 
     def continue_past_sound_settings(self, coach):
-        self.assertEqual(coach.demoStep, 'sound-settings')
+        # Hosted release runners can take longer to deliver the preceding
+        # settings click while the real QML page is settling.
+        self.wait_until(lambda: coach.demoStep == 'sound-settings')
         QTest.keyClick(self.window.settings_page.general_page.quick, Qt.Key_Return)
         self.pump(200)
 
