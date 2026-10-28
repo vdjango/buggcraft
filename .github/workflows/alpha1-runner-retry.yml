@@ -1,0 +1,73 @@
+name: Retry alpha 1 main runner allocation
+
+on:
+  push:
+    branches: [ci/alpha1-runner-retry]
+
+permissions:
+  actions: write
+  checks: read
+  contents: read
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Retry only hosted runner allocation failures on the verified main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 -u - <<'PY'
+          import json, os, time
+          from urllib.request import Request, urlopen
+
+          repository = os.environ['GH_REPO']
+          run_id = 40700361708
+          expected_sha = 'cd0e17aa226a8fd8c1c687c07205275031acf4cd'
+          base = f'https://api.github.com/repos/{repository}'
+          def request(path, method='GET'):
+              req = Request(base + path, method=method, headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              })
+              with urlopen(req, timeout=30) as response:
+                  data = response.read()
+              return json.loads(data) if data else None
+
+          retried = set()
+          deadline = time.monotonic() + 50 * 60
+          while time.monotonic() < deadline:
+              run = request(f'/actions/runs/{run_id}')
+              if (run['head_sha'] != expected_sha or run['head_branch'] != 'main'
+                      or run['path'] != '.github/workflows/package.yml'):
+                  raise SystemExit('Main build identity does not match; no retry requested')
+              print(f"Main run {run_id}, attempt {run['run_attempt']}: {run['status']}, {run['conclusion']}", flush=True)
+              if run['status'] != 'completed':
+                  time.sleep(30)
+                  continue
+              if run['conclusion'] == 'success':
+                  print('Main validation passed. No version tag was changed by this helper.')
+                  break
+              jobs = request(f'/actions/runs/{run_id}/jobs?per_page=100')['jobs']
+              failed = [job for job in jobs if job['name'].startswith('package (')
+                        and job['conclusion'] != 'success']
+              if not failed or run['run_attempt'] >= 4:
+                  raise SystemExit('No eligible infrastructure retry remains')
+              for job in failed:
+                  if job['conclusion'] != 'cancelled' or job['id'] in retried:
+                      raise SystemExit('A test or build failed; code review is required')
+                  check_id = job['check_run_url'].rsplit('/', 1)[-1]
+                  annotations = request(f'/check-runs/{check_id}/annotations?per_page=100')
+                  if not any('not acquired by Runner' in item.get('message', '') for item in annotations):
+                      raise SystemExit('Cancellation was not a hosted runner allocation failure')
+              for job in failed:
+                  request(f"/actions/jobs/{job['id']}/rerun", 'POST')
+                  retried.add(job['id'])
+                  print('Requested runner allocation retry for ' + job['name'], flush=True)
+              time.sleep(30)
+          else:
+              raise SystemExit('Main validation still pending; no version tag was changed')
+          PY
