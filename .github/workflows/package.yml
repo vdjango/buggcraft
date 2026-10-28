@@ -133,6 +133,7 @@ jobs:
       - name: Test client pages through local Qt input without desktop mouse control
         env:
           BUGGCRAFT_UI_OUTPUT: dist/client-ui
+          BUGGCRAFT_UI_PAUSE_MS: 220
         run: |
           mkdir -p dist/client-ui
           set +e
