@@ -4,6 +4,8 @@
 
 ## 固定发布流程
 
+所有后续修复先在独立的 `release/*` 分支和工作树完成。推送该分支会运行完整的 `Package launcher` 五平台构建；分支全绿后才合入 `main`，再等待 `main` 的最终提交五平台全绿并按下面流程发布。其他并行任务使用各自工作树；若 `main` 在验证后更新，必须验证更新后的提交。
+
 1. 将完整修复推送到 `main`，等待 `Package launcher` 的 Windows x64、Linux x64 / ARM64、macOS Intel / ARM64 五个平台全绿。
 2. 在 GitHub Actions 运行 `Release launcher build`，分支选 `main`，手动填写已经确定的完整版本号。工作流会拒绝没有同一提交全绿构建、缺少发行说明或已有 GitHub Release 的请求；不会计算或递增版本号。
 3. 工作流将指定标签指向已验证提交，并显式派发 `Package launcher`。标签构建再次检查同一 SHA 的 `main` 成功记录，然后生成五个平台的启动器包、校验文件与 GitHub 草稿。

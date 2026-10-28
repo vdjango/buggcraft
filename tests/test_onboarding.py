@@ -488,7 +488,18 @@ class OnboardingCoachTests(LauncherQmlCase):
                 coach.index = self.step_index('setting-toggle-' + key)
                 coach.changed.emit()
                 coach._prepare_and_refresh()
-                self.pump(200)
+                # A newly exposed SettingsForm can need another Qt layout
+                # turn on hosted macOS. Wait for the actual control instead
+                # of accepting the preceding navigation spotlight.
+                def sound_target_ready():
+                    coach.refresh()
+                    try:
+                        return (coach._target_object is not None
+                                and coach._target_object.objectName() == 'setting-toggle-' + key
+                                and not coach._target_rect.isEmpty())
+                    except RuntimeError:
+                        return False
+                self.wait_until(sound_target_ready)
                 self.assert_visible_spotlight(coach)
                 self.assertEqual(coach._target_object.objectName(), 'setting-toggle-' + key)
                 self.assertEqual(self.manager.get_setting(key), initial)

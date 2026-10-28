@@ -2,7 +2,7 @@ name: Package launcher
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
     tags: ['v*']
     paths:
       - 'src/**'
