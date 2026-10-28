@@ -212,7 +212,12 @@ jobs:
         run: |
           mkdir -p dist/client-ui
           set +e
-          python -m pytest -q tests/test_qt_input.py tests/test_client_ui_acceptance.py tests/test_home_ui.py tests/test_coverage_gaps_ui.py tests/test_startup_errors_ui.py tests/test_download_ui.py tests/test_settings_ui.py tests/test_settings_checklist_ui.py tests/test_shared_branches_ui.py tests/test_loader_source_ui.py tests/test_onboarding.py -k "not online" --junitxml=dist/client-ui/pytest.xml 2>&1 | tee dist/client-ui/pytest.log
+          ui_command=(python -X faulthandler -m pytest -q tests/test_qt_input.py tests/test_client_ui_acceptance.py tests/test_home_ui.py tests/test_coverage_gaps_ui.py tests/test_startup_errors_ui.py tests/test_download_ui.py tests/test_settings_ui.py tests/test_settings_checklist_ui.py tests/test_shared_branches_ui.py tests/test_loader_source_ui.py tests/test_onboarding.py -k "not online" --junitxml=dist/client-ui/pytest.xml)
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            timeout --foreground --signal=ABRT --kill-after=30s 35m "${ui_command[@]}" 2>&1 | tee dist/client-ui/pytest.log
+          else
+            "${ui_command[@]}" 2>&1 | tee dist/client-ui/pytest.log
+          fi
           status=${PIPESTATUS[0]}
           if (( status != 0 )); then
             python - <<'PY'
