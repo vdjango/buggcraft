@@ -27,7 +27,7 @@ jobs:
 
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          expected_sha = 'e23b6388e45aa7f132df818e1b8aeb208be5c093'
+          expected_sha = '3c297672475cdbcbe93b379f09f17840ad0d5b90'
           platforms = {'windows-x64', 'linux-x86_64', 'linux-arm64', 'macos-x86_64', 'macos-arm64'}
           deadline = time.monotonic() + 170 * 60
 
