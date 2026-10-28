@@ -67,6 +67,24 @@ class RoomLobbyUiTests(unittest.TestCase):
         self.click('host-start-game')
         self.assertEqual(self.backend.actions[-1], ('launchRoom', {}))
 
+    def test_guest_download_room_shows_client_progress_speed_and_install_log(self):
+        """Capture the actual guest room while its launcher installs the host's config."""
+        record = self.room(preparing=True)
+        record.update(role='client', isManager=False, compatibility='正在同步房主的模组与游戏文件',
+            prepareStatus='正在下载房间客户端 · 模组与游戏资源', prepareProgress=45,
+            prepareMaximum=100, prepareFile='mods/sodium.jar', prepareFileDone=3 * 1024 * 1024,
+            prepareFileTotal=5 * 1024 * 1024, prepareSpeed='2.4 MiB/s',
+            prepareIndex=2, prepareCount=5)
+        record['lobby']['self_id'] = 'guest1'
+        self.backend.viewChanged.emit(); QTest.qWait(80)
+        self.assertTrue(find_item(self.window, 'room-install-progress').isVisible())
+        self.assertIn('sodium.jar', find_item(self.window, 'room-download-file').property('text'))
+        self.assertIn('2.4 MiB/s', find_item(self.window, 'room-download-bytes').property('text'))
+        self.assertEqual(find_item(self.window, 'room-install-progress').property('value'), 45)
+        self.save('guest-downloading-room-client')
+        self.click('room-tab-install')
+        self.save('guest-downloading-room-client-logs')
+
     def test_member_management_requires_explicit_confirmation_and_can_be_cancelled(self):
         self.room()
         self.click('room-tab-members')
