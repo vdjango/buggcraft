@@ -11,11 +11,21 @@ from unittest.mock import patch
 import zipfile
 
 from core.modpacks import CurseForgeClient, ModpackImporter, inspect_pack
-from core.downloads import _DownloadSession
+from core.downloads import MinecraftDownloader, _DownloadSession, _MirrorHealth
 
 
 class ModrinthImportTests(unittest.TestCase):
     def setUp(self):
+        # Loader fixtures create the vanilla files without network access.
+        vanilla = patch.object(ModpackImporter, '_install_vanilla', return_value=None)
+        vanilla.start()
+        self.addCleanup(vanilla.stop)
+        # This fixture tests mirror fallback, not the route speed probe. Keep
+        # requests on loopback and independent of earlier tests' outage cache.
+        for patcher in (patch('core.downloads._CONTENT_HEALTH', _MirrorHealth()),
+                        patch('core.downloads._rank_content_candidates', side_effect=lambda urls, source: urls)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -64,8 +74,10 @@ class ModrinthImportTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         original_get = _DownloadSession.get
         def local_get(session, url, **kwargs):
-            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture/', 'https://mod.mcimirror.top/files/')))
+            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture/', 'https://mod.mcimirror.top/files/',
+                                           'https://cdn.modrinth.com/fixture/')))
             return original_get(session, url.replace('https://mod.mcimirror.top',
+                         f'http://127.0.0.1:{server.server_port}').replace('https://cdn.modrinth.com',
                          f'http://127.0.0.1:{server.server_port}').replace('/fixture/', '/'), **kwargs)
         return patch.object(_DownloadSession, 'get', local_get), hits
 
@@ -101,7 +113,9 @@ class ModrinthImportTests(unittest.TestCase):
         http, hits = self.server()
         with http, patch('core.modpacks.install_loader', side_effect=self.loader):
             ModpackImporter(self.game).install(self.archive, 'Mirrors')
-        self.assertEqual(hits.count('/broken'), 1)
+        # A rejected mirror is retried once through the publisher before moving
+        # to the next URL; both routes stay inside this local HTTP fixture.
+        self.assertEqual(hits.count('/broken'), 2)
         self.assertIn('/mods/example.jar', hits)
 
     def test_zip_with_forge_cdn_files_imports_through_domestic_mirror(self):
@@ -125,6 +139,30 @@ class ModrinthImportTests(unittest.TestCase):
                 ModpackImporter(self.game).install(self.archive, 'Bad-Hash')
         loader.assert_not_called()
         self.assertFalse((self.game / 'versions/Bad-Hash').exists())
+
+    def test_game_prefetch_overlaps_modrinth_files_before_loader_installation(self):
+        self.pack()
+        http, _ = self.server()
+        vanilla_started = threading.Event()
+        mod_started = threading.Event()
+        original_fetch = MinecraftDownloader.fetch
+
+        def fetch(downloader, url, relative, *args, **kwargs):
+            if relative == 'mods/example.jar':
+                mod_started.set()
+                self.assertTrue(vanilla_started.wait(2), 'game download should start with mods')
+            return original_fetch(downloader, url, relative, *args, **kwargs)
+
+        def vanilla(_importer, _version):
+            vanilla_started.set()
+            self.assertTrue(mod_started.wait(2), 'mod download should start with game')
+
+        with (http, patch.object(ModpackImporter, '_install_vanilla', vanilla),
+              patch.object(MinecraftDownloader, 'fetch', fetch),
+              patch('core.modpacks.install_loader', side_effect=self.loader) as loader):
+            ModpackImporter(self.game).install(self.archive, 'Parallel-MR')
+        loader.assert_called_once()
+        self.assertEqual((self.game / 'versions/Parallel-MR/mods/example.jar').read_bytes(), self.payload)
 
     def test_invalid_entries_and_conflicting_loaders_are_rejected(self):
         original = copy.deepcopy(self.manifest)

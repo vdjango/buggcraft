@@ -96,7 +96,7 @@ class ContentBrowserController(QObject):
         self.selected_project = None
         self.pack_path = ""
         self.pack_name = ""
-        self.pack_summary = "支持 CurseForge ZIP 和 Modrinth ZIP / MRPACK，可拖入启动器任意页面。"
+        self.pack_summary = "支持 Buggcraft、CurseForge 和 Modrinth 整合包，可拖入启动器任意页面。"
         self.pack_error = ""
         self.view = "browse"
         self.import_directory = ""
@@ -488,11 +488,15 @@ class ContentBrowserController(QObject):
         if len(self.versions) < len(records):
             self.versions = [self._version_row(item) for item in records[:len(self.versions) + 30]]
             self.changed.emit()
-        elif self._version_has_more:
+        elif self._version_has_more or (not self._all_versions and self.status.startswith('获取失败')):
+            first_page = not self._all_versions
             self.busy = True
-            project, kind, offset = self.selected_project, self.kind, self._version_offset
+            project, kind = self.selected_project, self.kind
+            offset = 0 if first_page else self._version_offset
+            mode = 'versions' if first_page else 'versions_more'
+            self.status = '正在读取可用版本…'
             self.changed.emit()
-            self.pool.start(_SearchWorker(self.request_id, ('versions_more', lambda:
+            self.pool.start(_SearchWorker(self.request_id, (mode, lambda:
                 self.catalogue.versions(project, '', '', kind, offset=offset, page_info=True)), self._query_finished))
 
     def _filtered_versions(self):
@@ -695,7 +699,7 @@ class ContentBrowserController(QObject):
 
     @Slot()
     def choosePack(self):
-        path, _ = QFileDialog.getOpenFileName(None, "选择整合包", "", "整合包 (*.zip *.mrpack)")
+        path, _ = QFileDialog.getOpenFileName(None, "选择整合包", "", "整合包 (*.buggpack *.zip *.mrpack)")
         if path:
             self.inspectPack(path)
 
@@ -728,7 +732,7 @@ class ContentBrowserController(QObject):
         try:
             instance_name(self.pack_name)
             if not self.pack_path:
-                raise ValueError("请先选择并检查 CurseForge ZIP 或 Modrinth ZIP / MRPACK 整合包。")
+                raise ValueError("请先选择并检查 Buggcraft、CurseForge 或 Modrinth 整合包。")
             if directory and (Path(directory) / "versions" / self.pack_name).exists():
                 raise ValueError("该实例名称已存在，请更换名称。")
             if not directory:

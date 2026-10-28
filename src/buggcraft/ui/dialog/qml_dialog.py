@@ -1,8 +1,9 @@
 """Shared native dialog host with Qt Quick content."""
 from pathlib import Path
 from PySide6.QtCore import QObject, Property, QTimer, Qt, Signal, Slot
-from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QVBoxLayout
 from ui.pages.qml_host import QmlPage
+from utils.clipboard import copy_text
 
 
 class DialogController(QObject):
@@ -42,10 +43,12 @@ class DialogController(QObject):
     @Slot()
     def copyCode(self):
         if self.code:
-            QApplication.clipboard().setText(self.code)
-            self.copied = True
-            self.changed.emit()
-            self._copy_timer.start(1500)
+            copy_text(self, self.code, self._copied, self._reset_copy)
+
+    def _copied(self):
+        self.copied = True
+        self.changed.emit()
+        self._copy_timer.start(1500)
 
     def _reset_copy(self):
         self.copied = False
@@ -111,8 +114,14 @@ class QmlDialog(QDialog):
 
 class DebugOutputDialog(QmlDialog):
     def __init__(self, parent, lines):
-        super().__init__(parent, title='Minecraft · 调试输出', width=760, height=440, actions=['关闭'])
+        super().__init__(parent, title='Minecraft · 游戏日志', width=960, height=580, actions=['关闭'],
+                         source='DebugConsole.qml')
+        from .game_log import GameLogModel
+        self.logs = GameLogModel(self)
+        self.host.quick.rootContext().setContextProperty('debugLogs', self.logs)
         self._lines = list(lines)[-5000:]
+        self.logs.append(self._lines)
+        self._pending_lines = []
         self._flush_timer = QTimer(self)
         self._flush_timer.setSingleShot(True)
         self._flush_timer.setInterval(100)
@@ -122,11 +131,15 @@ class DebugOutputDialog(QmlDialog):
 
     def appendPlainText(self, text):
         self._lines.append(text)
+        self._pending_lines.append(text)
         del self._lines[:-5000]
         if not self._flush_timer.isActive():
             self._flush_timer.start()
 
     def _flush(self):
+        if self._pending_lines:
+            self.logs.append(self._pending_lines)
+            self._pending_lines.clear()
         self.controller.log = '\n'.join(self._lines) or '等待游戏输出…'
         self.controller.changed.emit()
 

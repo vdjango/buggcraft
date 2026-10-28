@@ -1,9 +1,14 @@
 """Catalogue contracts from the official Maven metadata and BMCLAPI documentation."""
+import hashlib
+import io
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 import json
+import threading
+import zipfile
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
@@ -11,6 +16,116 @@ from core import loaders
 
 
 class LoaderCatalogueTests(unittest.TestCase):
+    def test_standalone_fabric_game_and_loader_share_one_download_limit(self):
+        identity = 'fabric-loader-0.15.0-1.20.1'
+        active = peak = 0
+        lock = threading.Lock()
+
+        def transfer(_downloader, _url, relative, *_args, **_kwargs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                time.sleep(.05)
+                return Path(relative)
+            finally:
+                with lock:
+                    active -= 1
+
+        def jobs(prefix):
+            return [('https://example.test/' + prefix + str(number),
+                     prefix + str(number), None, None) for number in range(6)]
+
+        def install_game(downloader, _version):
+            downloader._batch(jobs('game-'), 'game files')
+
+        def prefetch(_loader, _game, _version, root, _callback, cancel, _source, publish):
+            self.assertFalse(publish)
+            loaders.MinecraftDownloader(root, cancel=cancel)._batch(jobs('loader-'), 'loader files')
+            return identity, {'id': identity, 'inheritsFrom': '1.20.1'}
+
+        with (tempfile.TemporaryDirectory() as root,
+              patch('core.downloads.download_concurrency', return_value=2),
+              patch.object(loaders.MinecraftDownloader, '_fetch', transfer),
+              patch.object(loaders.MinecraftDownloader, 'install', install_game),
+              patch.object(loaders, '_profile_loader', side_effect=prefetch)):
+            loaders.install_loader('Fabric', '1.20.1', '0.15.0', root, None,
+                {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
+                 'setMax': lambda _value: None}, threading.Event(), '官方')
+        self.assertEqual(peak, 2)
+        self.assertEqual(active, 0)
+
+    def test_verified_vanilla_prefetch_is_reused_by_loader_install(self):
+        identity = 'fabric-loader-0.15.0-1.20.1'
+        with (tempfile.TemporaryDirectory() as root,
+              patch.object(loaders, 'verified_installation', return_value=True),
+              patch.object(loaders.MinecraftDownloader, 'install') as install_game,
+              patch.object(loaders, '_profile_loader', return_value=(
+                  identity, {'id': identity, 'inheritsFrom': '1.20.1'}))):
+            result = loaders._install_loader('Fabric', '1.20.1', '0.15.0', root, None,
+                {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
+                 'setMax': lambda _value: None}, threading.Event(), '官方')
+            self.assertEqual(result, identity)
+            install_game.assert_not_called()
+            self.assertTrue((Path(root) / 'versions' / identity / (identity + '.json')).is_file())
+
+    def test_fabric_prefetch_overlaps_vanilla_without_early_profile(self):
+        game_started = threading.Event()
+        loader_started = threading.Event()
+        identity = 'fabric-loader-0.15.0-1.20.1'
+        metadata = {'id': identity, 'inheritsFrom': '1.20.1'}
+
+        def install_game(_downloader, _version):
+            game_started.set()
+            self.assertTrue(loader_started.wait(2), 'loader prefetch should start with the game')
+
+        def prefetch(_loader, _game, _version, root, _callback, _cancel, _source, publish):
+            self.assertFalse(publish)
+            loader_started.set()
+            self.assertTrue(game_started.wait(2))
+            self.assertFalse((Path(root) / 'versions' / identity / (identity + '.json')).exists())
+            return identity, metadata
+
+        with (tempfile.TemporaryDirectory() as root,
+              patch.object(loaders.MinecraftDownloader, 'install', install_game),
+              patch.object(loaders, '_profile_loader', side_effect=prefetch)):
+            result = loaders._install_loader('Fabric', '1.20.1', '0.15.0', root, None,
+                {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
+                 'setMax': lambda _value: None}, threading.Event(), '官方')
+            self.assertEqual(result, identity)
+            self.assertTrue((Path(root) / 'versions' / identity / (identity + '.json')).is_file())
+
+    def test_fabric_libraries_download_together_before_profile_is_published(self):
+        game_version, loader_version = '1.20.1', '0.15.0'
+        identity = f'fabric-loader-{loader_version}-{game_version}'
+        metadata = {'id': identity, 'inheritsFrom': game_version, 'libraries': [
+            {'name': f'example:library-{number}:1', 'downloads': {'artifact': {
+                'url': f'https://maven.fabricmc.net/example/library-{number}.jar'}}}
+            for number in range(2)]}
+        response = Mock()
+        response.json.return_value = metadata
+        barrier = threading.Barrier(2)
+        progress = []
+
+        def fetch(downloader, _url, relative, *_args):
+            barrier.wait(timeout=2)
+            target = downloader.inside(relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b'library')
+            return target
+
+        with (tempfile.TemporaryDirectory() as root,
+              patch.object(loaders, '_response', return_value=response),
+              patch.object(loaders.MinecraftDownloader, 'fetch', fetch)):
+            installed = loaders._profile_loader('Fabric', game_version, loader_version, root,
+                {'setStatus': lambda _message: None, 'setMax': lambda maximum: progress.append(('max', maximum)),
+                 'setProgress': lambda done: progress.append(('done', done))}, threading.Event(), '官方')
+            self.assertEqual(installed, identity)
+            self.assertTrue((Path(root) / 'versions' / identity / (identity + '.json')).is_file())
+        self.assertIn(('max', 2), progress)
+        self.assertIn(('done', 2), progress)
+
     def response(self, content=None, records=None):
         response = Mock()
         response.content = content
@@ -135,6 +250,65 @@ class LoaderCatalogueTests(unittest.TestCase):
         cancel.set()
         with self.assertRaises(InterruptedError):
             loaders._LoaderSession(session, cancel).get('https://example.org')
+
+    def test_neoforge_installer_libraries_follow_selected_source_and_verify_profile_paths(self):
+        payload = b'verified NeoForge dependency'
+        digest = hashlib.sha1(payload).hexdigest()
+        profile = {'libraries': [
+            {'name': 'net.neoforged:example:1.0', 'downloads': {'artifact': {
+                'url': 'https://maven.neoforged.net/releases/net/neoforged/example/1.0/example-1.0.jar',
+                'path': 'net/neoforged/example/1.0/example-1.0.jar', 'sha1': digest, 'size': len(payload)}}},
+            {'name': 'com.google.code.gson:gson:2.8.9', 'downloads': {'artifact': {
+                'url': 'https://libraries.minecraft.net/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar',
+                'path': 'com/google/code/gson/gson/2.8.9/gson-2.8.9.jar', 'sha1': digest, 'size': len(payload)}}},
+        ]}
+        installer = io.BytesIO()
+        with zipfile.ZipFile(installer, 'w') as archive:
+            archive.writestr('install_profile.json', json.dumps(profile))
+        installer.seek(0)
+        with tempfile.TemporaryDirectory() as temporary:
+            installer_path = Path(temporary) / 'installer.jar'
+            installer_path.write_bytes(installer.getvalue())
+            for source, mirror_first in (('自动', False), ('官方', False), ('BMCLAPI', True)):
+                root = Path(temporary) / source
+                calls = []
+                def fake_fetch(downloader, url, relative, sha1, size):
+                    candidates = downloader.urls(url)
+                    calls.append((url, relative, sha1, size, candidates))
+                    target = downloader.inside(relative)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(payload)
+                    return target
+                callback_values = []
+                callback = dict(setStatus=lambda _message: None, setMax=lambda value: callback_values.append(('max', value)),
+                                setProgress=lambda value: callback_values.append(('progress', value)))
+                with patch.object(loaders.MinecraftDownloader, 'fetch', fake_fetch):
+                    loaders._prefetch_neoforge_libraries(installer_path, root, callback,
+                                                          __import__('threading').Event(), source)
+                self.assertEqual(len(calls), 2)
+                self.assertTrue(all(root.joinpath(row[1]).read_bytes() == payload for row in calls))
+                self.assertTrue(all(row[2] == digest and row[3] == len(payload) for row in calls))
+                for url, _relative, _sha1, _size, candidates in calls:
+                    if mirror_first:
+                        self.assertIn(loaders.BMCLAPI, candidates[0])
+                        self.assertNotIn('/maven/releases/', candidates[0])
+                    elif source == '官方':
+                        self.assertEqual(candidates, [url])
+                    else:
+                        self.assertEqual(candidates[0], url)
+                        self.assertIn(loaders.BMCLAPI, candidates[1])
+                self.assertEqual(callback_values[0], ('max', 2))
+
+            malicious = dict(profile)
+            malicious['libraries'] = [dict(profile['libraries'][0], downloads={'artifact': dict(
+                profile['libraries'][0]['downloads']['artifact'], path='../escape.jar')})]
+            with zipfile.ZipFile(installer_path, 'w') as archive:
+                archive.writestr('install_profile.json', json.dumps(malicious))
+            with patch.object(loaders.MinecraftDownloader, 'fetch') as fetch:
+                with self.assertRaisesRegex(RuntimeError, '有效路径'):
+                    loaders._prefetch_neoforge_libraries(installer_path, Path(temporary) / 'unsafe', callback,
+                                                          __import__('threading').Event(), 'BMCLAPI')
+                fetch.assert_not_called()
 
 
 if __name__ == '__main__':

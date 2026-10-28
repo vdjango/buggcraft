@@ -71,7 +71,7 @@ Rectangle {
                 text: root.file.error || root.file.path || root.file.name || ""
                 textFormat: Text.PlainText; elide: Text.ElideMiddle; color: "#9e90ae"; font.pixelSize: 10
             }
-            Label { text: root.bytes(root.done) + (root.total > 0 ? " / " + root.bytes(root.total) : ""); color: "#b6a8c6"; font.pixelSize: 10 }
+            Label { text: (root.file.state === "downloading" ? root.bytes(root.file.speed || 0) + "/s · " : "") + root.bytes(root.done) + (root.total > 0 ? " / " + root.bytes(root.total) : ""); color: "#b6a8c6"; font.pixelSize: 10 }
         }
     }
 }

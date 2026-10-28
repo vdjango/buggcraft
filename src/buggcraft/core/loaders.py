@@ -1,7 +1,9 @@
 """Version discovery and installation for supported Java Edition loaders."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 import hashlib
 import logging
 import json
@@ -12,13 +14,14 @@ import subprocess
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
-from pathlib import Path
+import zipfile
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 import minecraft_launcher_lib
 import requests
 
-from core.downloads import MinecraftDownloader
+from core.downloads import MinecraftDownloader, use_download_budget, verified_installation
 from utils.download_locks import download_lock
 from utils.http_identity import USER_AGENT
 
@@ -273,7 +276,12 @@ def _maven_mirror_url(url):
         "minecraft.net", "minecraftforge.net", "fabricmc.net", "quiltmc.org",
         "neoforged.net",
     )):
-        return _MAVEN_MIRROR + parsed.path + (("?" + parsed.query) if parsed.query else "")
+        path = parsed.path
+        # BMCLAPI exposes Maven coordinates below /maven directly; the
+        # NeoForge/Forge publishers include /releases in their public URL.
+        if path.startswith('/releases/'):
+            path = path[len('/releases'):]
+        return _MAVEN_MIRROR + path + (("?" + parsed.query) if parsed.query else "")
     return None
 
 
@@ -375,7 +383,7 @@ def _file_sha1(path):
     return digest.hexdigest()
 
 
-def _profile_loader(loader, minecraft_version, loader_version, directory, callback, cancel, source):
+def _profile_loader(loader, minecraft_version, loader_version, directory, callback, cancel, source, publish=True):
     """Install Fabric/Quilt from their launcher metadata without a second JVM install."""
     root = Path(directory).resolve()
     api, host, mirror_name = ('v2', 'meta.fabricmc.net', 'fabric-meta') if loader == 'Fabric' else (
@@ -396,6 +404,8 @@ def _profile_loader(loader, minecraft_version, loader_version, directory, callba
         raise ValueError('加载器安装信息与所选版本不一致')
     downloader = MinecraftDownloader(root, source=source, cancel=cancel, status=callback['setStatus'],
                                      file_event=callback.get('fileEvent'))
+    downloader.urls = lambda address: _download_urls(address, source)
+    jobs = []
     for index, item in enumerate(metadata.get('libraries', [])):
         if cancel.is_set():
             raise InterruptedError('安装已取消')
@@ -408,22 +418,16 @@ def _profile_loader(loader, minecraft_version, loader_version, directory, callba
         artifact_info = item.get('downloads', {}).get('artifact', {})
         url = artifact_info.get('url') or item.get('url', 'https://libraries.minecraft.net/').rstrip('/') + '/' + relative
         digest = artifact_info.get('sha1') or item.get('sha1')
-        # Route loader Maven hosts through the chosen source, as for Forge.
-        candidates = _download_urls(url, source)
-        last_error = None
-        for candidate in candidates:
-            try:
-                callback['setStatus']('安装 ' + loader + ' 依赖：' + filename)
-                downloader.fetch(candidate, 'libraries/' + relative, digest,
-                                 artifact_info.get('size', item.get('size')))
-                last_error = None
-                break
-            except Exception as exc:
-                last_error = exc
-        if last_error:
-            raise last_error
-        callback['setMax'](len(metadata['libraries']))
-        callback['setProgress'](index + 1)
+        jobs.append((url, 'libraries/' + relative, digest, artifact_info.get('size', item.get('size'))))
+    callback['setMax'](len(jobs))
+    downloader.progress = lambda done, total: callback['setProgress'](done)
+    downloader._batch(jobs, '正在并行下载 ' + loader + ' 依赖…')
+    if not publish:
+        return identity, metadata
+    return _publish_profile(root, identity, metadata)
+
+
+def _publish_profile(root, identity, metadata):
     path = root / 'versions' / identity / (identity + '.json')
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.json.part')
@@ -459,8 +463,52 @@ def _use_download_source(source, cancel=None, file_event=None):
                 module.download_file = original
 
 
+def _prefetch_neoforge_libraries(installer, root, callback, cancel, source):
+    try:
+        with zipfile.ZipFile(installer) as archive:
+            profile = json.loads(archive.read('install_profile.json'))
+    except (KeyError, OSError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
+        raise RuntimeError('NeoForge 安装器缺少有效的 install_profile.json') from exc
+    libraries = profile.get('libraries') if isinstance(profile, dict) else None
+    if not isinstance(libraries, list) or not libraries:
+        raise RuntimeError('NeoForge 安装器没有可下载的依赖列表')
+
+    downloader = MinecraftDownloader(root, source=source, cancel=cancel,
+                                     status=callback['setStatus'],
+                                     file_event=callback.get('fileEvent'))
+    downloader.urls = lambda url: _download_urls(url, source)
+    callback['setMax'](len(libraries))
+    jobs = []
+    for index, library in enumerate(libraries):
+        if cancel.is_set():
+            raise InterruptedError('安装已取消')
+        artifact = (library.get('downloads') or {}).get('artifact') if isinstance(library, dict) else None
+        library_name = library.get('name', 'unknown') if isinstance(library, dict) else 'unknown'
+        if not isinstance(artifact, dict):
+            raise RuntimeError('NeoForge 依赖缺少 artifact 信息：' + str(library_name))
+        url = artifact.get('url', '')
+        parsed = urlsplit(url)
+        if parsed.scheme != 'https' or parsed.hostname not in ('maven.neoforged.net', 'libraries.minecraft.net'):
+            raise RuntimeError('NeoForge 依赖地址不受支持：' + str(url))
+        digest = artifact.get('sha1', '')
+        size = artifact.get('size')
+        artifact_path = artifact.get('path', '')
+        if not isinstance(artifact_path, str):
+            raise RuntimeError('NeoForge 依赖路径无效：' + str(library_name))
+        relative = PurePosixPath(artifact_path)
+        if (not re.fullmatch(r'[0-9a-fA-F]{40}', digest) or not isinstance(size, int) or size < 0
+                or not relative.parts or relative.is_absolute() or '..' in relative.parts):
+            raise RuntimeError('NeoForge 依赖缺少有效路径、SHA-1 或文件大小：' + str(library_name))
+        target = 'libraries/' + relative.as_posix()
+        downloader.inside(target)
+        jobs.append((url, target, digest, size))
+    downloader.progress = lambda done, total: callback['setProgress'](done)
+    downloader._batch(jobs, '正在并行下载 NeoForge 依赖…')
+
+
 def _neo_forge(version, directory, java, callback, cancel, source):
     root = Path(directory).resolve()
+    budget = MinecraftDownloader(root, source=source, cancel=cancel).budget
     official = f"https://maven.neoforged.net/releases/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar"
     mirror = f"{_MAVEN_MIRROR}/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar"
     root.mkdir(parents=True, exist_ok=True)
@@ -475,25 +523,26 @@ def _neo_forge(version, directory, java, callback, cancel, source):
         for installer_url in _source_urls(source, official, mirror):
             callback["setStatus"]("正在下载 NeoForge 安装器…")
             try:
-                response = requests.get(installer_url, stream=True, timeout=(8, 30),
-                                        headers={"User-Agent": USER_AGENT})
-                response.raise_for_status()
-                total = int(response.headers.get("Content-Length", "0") or 0)
-                callback["setMax"](total)
-                current = 0
-                report_file('downloading', done=0, total=total)
-                last_report = 0
-                with response, installer.open("wb") as output:
-                    for block in response.iter_content(128 * 1024):
-                        if cancel.is_set():
-                            raise InterruptedError("安装已取消")
-                        if block:
-                            output.write(block)
-                            current += len(block)
-                            callback["setProgress"](current)
-                            if current - last_report >= 256 * 1024:
-                                report_file('downloading', done=current, total=total)
-                                last_report = current
+                with budget.reserve(cancel) if budget else nullcontext():
+                    response = requests.get(installer_url, stream=True, timeout=(8, 30),
+                                            headers={"User-Agent": USER_AGENT})
+                    response.raise_for_status()
+                    total = int(response.headers.get("Content-Length", "0") or 0)
+                    callback["setMax"](total)
+                    current = 0
+                    report_file('downloading', done=0, total=total)
+                    last_report = 0
+                    with response, installer.open("wb") as output:
+                        for block in response.iter_content(128 * 1024):
+                            if cancel.is_set():
+                                raise InterruptedError("安装已取消")
+                            if block:
+                                output.write(block)
+                                current += len(block)
+                                callback["setProgress"](current)
+                                if current - last_report >= 256 * 1024:
+                                    report_file('downloading', done=current, total=total)
+                                    last_report = current
                 if total and current != total:
                     raise ValueError('NeoForge 安装器下载不完整')
                 report_file('verified', done=current, total=current)
@@ -510,7 +559,21 @@ def _neo_forge(version, directory, java, callback, cancel, source):
             raise RuntimeError("NeoForge 安装器下载失败：" + "；".join(errors))
         if cancel.is_set():
             raise InterruptedError("安装已取消")
-        command = [java, "-jar", str(installer), "--installClient", "--installDir", str(root)]
+        # The third-party installer uses hard-coded Maven URLs and ignores
+        # the launcher's selected source. Populate its verified library cache
+        # through the normal source router before invoking it.
+        _prefetch_neoforge_libraries(installer, root, callback, cancel, source)
+        # The official client installer requires a vanilla launcher profile
+        # even for a fresh third-party launcher root. Seed only an absent
+        # profile; existing vanilla/Microsoft Store profiles belong to users.
+        profiles = root / 'launcher_profiles.json'
+        if not profiles.exists() and not (root / 'launcher_profiles_microsoft_store.json').exists():
+            with profiles.open('x', encoding='utf-8') as profile_file:
+                json.dump({'profiles': {}, 'settings': {}}, profile_file)
+        # Forge's client installer accepts the target directory as the
+        # argument of --installClient. --installDir is a server/legacy flag
+        # and makes current NeoForge installers fail before doing any work.
+        command = [java, "-jar", str(installer), "--installClient", str(root)]
         callback["setStatus"]("正在运行 NeoForge 安装器…")
         process = subprocess.Popen(command, cwd=str(root), stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
@@ -533,6 +596,10 @@ def _neo_forge(version, directory, java, callback, cancel, source):
                     process.wait(timeout=5)
             if process.stdout:
                 process.stdout.close()
+        installer_log = root / '.buggcraft-downloads' / ('neoforge-' + version + '-installer.log')
+        installer_log.parent.mkdir(parents=True, exist_ok=True)
+        installer_log.write_text(output, encoding='utf-8')
+        callback["setStatus"]('NeoForge 安装器日志：' + str(installer_log))
         for line in output.splitlines()[-30:]:
             callback["setStatus"](line[:500])
         if process.returncode:
@@ -553,8 +620,9 @@ def install_loader(loader, minecraft_version, loader_version, directory, java, c
     # Installers also write shared profiles and extract native files, outside
     # fetch(). Serialize this mutation phase per game root; resource downloads
     # and modpack file batches remain parallel.
-    with download_lock(Path(directory) / '.buggcraft-loader-install', cancel):
-        return _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source)
+    with use_download_budget():
+        with download_lock(Path(directory) / '.buggcraft-loader-install', cancel):
+            return _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source)
 
 
 def _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source):
@@ -578,11 +646,43 @@ def _install_loader(loader, minecraft_version, loader_version, directory, java, 
         progress=lambda current, maximum: (monitored["setMax"](maximum),
                                             monitored["setProgress"](current)),
     )
-    downloader.install(minecraft_version)
+    def ensure_vanilla():
+        if not verified_installation(directory, minecraft_version):
+            downloader.install(minecraft_version)
+        elif cancel.is_set():
+            raise InterruptedError("安装已取消")
+
+    if loader in ('Fabric', 'Quilt'):
+        # Metadata and Maven artifacts need only the selected version. Fetch
+        # them while the vanilla client, libraries and assets are downloading,
+        # but publish the loader profile only after both sides succeed.
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix='loader-prefetch') as pool:
+            future = pool.submit(copy_context().run, _profile_loader, loader, minecraft_version,
+                                 loader_version, directory, monitored, cancel, source, False)
+            errors = []
+
+            def stop_on_failure(completed):
+                try:
+                    completed.result()
+                except BaseException as exc:
+                    errors.append(exc)
+                    cancel.set()
+
+            future.add_done_callback(stop_on_failure)
+            try:
+                ensure_vanilla()
+                if cancel.is_set():
+                    raise InterruptedError("安装已取消")
+                identity, metadata = future.result()
+            except BaseException:
+                cancel.set()
+                if errors:
+                    raise errors[0]
+                raise
+        return _publish_profile(Path(directory).resolve(), identity, metadata)
+    ensure_vanilla()
     if cancel.is_set():
         raise InterruptedError("安装已取消")
-    if loader in ('Fabric', 'Quilt'):
-        return _profile_loader(loader, minecraft_version, loader_version, directory, monitored, cancel, source)
     if loader == "NeoForge":
         return _neo_forge(loader_version, directory, java, callback, cancel, source)
     with _use_download_source(source, cancel, callback.get('fileEvent')):

@@ -27,6 +27,7 @@ class HomeController(QObject):
         self.subtitle = ''
         self.launch_enabled = True
         self.social_ready = False
+        self.friend_entry_available = False
         self.friend_notifications = {}
         self.multiplayer_action = ''
 
@@ -44,7 +45,7 @@ class HomeController(QObject):
                     avatar=QUrl.fromLocalFile(str(avatar)).toString(), status=self.status,
                     launchTitle=self.title, launchSubtitle=self.subtitle,
                     launchEnabled=self.launch_enabled, sessions=sessions,
-                    selectedSession=page.launcher.selected_id or 0, friendsVisible=self.social_ready,
+                    selectedSession=page.launcher.selected_id or 0, friendsVisible=self.friend_entry_available,
                     friendNotifications=self.friend_notifications,
                     multiplayerTitle={'create': '创建房间', 'join': '加入房间', 'associate': '开放房间'}.get(self.multiplayer_action, '联机'),
                     multiplayerAttention=self.multiplayer_action in ('create', 'join', 'associate'),
@@ -258,6 +259,7 @@ class StartGamePage(QmlPage):
 
     def _social_changed(self):
         self.controller.social_ready = self._multiplayer_dialog.backend.view['socialReady']
+        self.controller.friend_entry_available = self._multiplayer_dialog.backend.view['friendEntryAvailable']
         self.controller.friend_notifications = self._multiplayer_dialog.backend.view.get('friendNotifications', {})
         self._refresh_multiplayer_entry()
 
@@ -303,6 +305,9 @@ class StartGamePage(QmlPage):
 
     def _run_auto_multiplayer(self):
         self._quick_action_scheduled = False
+        tutorial = getattr(self.parent, 'tutorial_controller', None)
+        if tutorial is not None and tutorial.visible:
+            return
         if (getattr(self.parent, '_closing', False) or getattr(self.parent, '_close_after_game', False) or
                 self.settings_manager.get_setting('multiplayer.quick_action', '首页提示') != '自动创建或加入'):
             return
@@ -335,7 +340,7 @@ class StartGamePage(QmlPage):
 
     def show_friends_dialog(self):
         self._ensure_multiplayer_dialog()
-        if not self._multiplayer_dialog.backend.view['socialReady']:
+        if not self._multiplayer_dialog.backend.view['friendEntryAvailable']:
             self.show_multiplayer_dialog()
             return
         self._multiplayer_dialog.show_friends()
@@ -351,7 +356,13 @@ class StartGamePage(QmlPage):
         if hasattr(self, '_multiplayer_dialog'):
             return
         try:
-            self._ensure_multiplayer_dialog()
+            dialog = self._ensure_multiplayer_dialog()
+            nodes = dialog.backend.view.get('nodes', [])
+            selected = next((node for node in nodes if node['path'] == dialog.backend.node_path), {})
+            if not selected.get('personalCode'):
+                personal = next((node for node in nodes if node.get('personalCode')), None)
+                if personal is not None:
+                    dialog.backend.reload_store(select=personal['path'])
         except Exception:
             logger.debug('background social session unavailable', exc_info=True)
 

@@ -24,7 +24,7 @@ Item {
     signal queryEdited(string query)
     signal searchRequested(string query)
     signal filterSelected(string value)
-    signal retryRequested()
+    signal retryRequested(string query)
     signal moreRequested()
     signal rowClicked(int index, var record)
 
@@ -74,7 +74,7 @@ Item {
                 Layout.fillWidth: true; text: root.statusText || "正在获取内容…"
                 color: "#bfb4d8"; wrapMode: Text.Wrap
             }
-            ActionButton { text: "重试"; visible: !root.busy; onClicked: root.retryRequested() }
+            ActionButton { objectName: "catalogue-retry"; text: "重试"; visible: !root.busy; onClicked: root.retryRequested(queryField.text) }
         }
         PagedListView {
             id: list

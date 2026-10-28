@@ -14,6 +14,18 @@ CATALOGUE_SEARCH = ContentCatalogue.search
 
 
 class ContentBrowserTests(LauncherQmlCase):
+    def setUp(self):
+        super().setUp()
+        from core.downloads import _MirrorHealth
+        # These cases verify the UI and real downloads from a loopback server.
+        # Mirror ranking has separate tests; never probe public hosts here.
+        for patcher in (
+            patch('core.downloads._CONTENT_HEALTH', _MirrorHealth()),
+            patch('core.downloads._rank_content_candidates', side_effect=lambda urls, source: urls),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def confirm_download(self, controller, instance=None):
         dialog = controller._download_dialog
         self.assertIsNotNone(dialog)
@@ -531,7 +543,8 @@ class ContentBrowserTests(LauncherQmlCase):
         self.addCleanup(server.shutdown)
         get = requests.get
         def local_get(url, **kwargs):
-            self.assertTrue(url.startswith('https://mod.mcimirror.top/fixture-'))
+            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture-',
+                                            'https://cdn.modrinth.com/fixture-')))
             from utils.http_identity import USER_AGENT
             self.assertEqual(kwargs['headers']['User-Agent'], USER_AGENT)
             return get(f'http://127.0.0.1:{server.server_port}/pack', **kwargs)

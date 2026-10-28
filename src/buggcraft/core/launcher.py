@@ -214,6 +214,16 @@ class MinecraftLibLauncher(QObject):
             if not os.path.exists(self.minecraft_directory):
                 os.makedirs(self.minecraft_directory, exist_ok=True)
 
+            metadata_path = Path(self.minecraft_directory) / 'versions' / self.minecraft_version / (self.minecraft_version + '.json')
+            if not metadata_path.is_file():
+                raise ValueError(f'游戏版本文件缺失，请重新下载或修复该实例。\n文件：{metadata_path}')
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding='utf8'))
+                if not isinstance(metadata, dict):
+                    raise ValueError('版本信息必须是对象')
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise ValueError(f'游戏版本文件无法读取或已损坏，请重新下载或修复该实例。\n文件：{metadata_path}\n原因：{exc}') from exc
+
             # 确保游戏语言设置文件正确配置
             self._ensure_language_setting()
 
@@ -293,8 +303,6 @@ class MinecraftLibLauncher(QObject):
             }
             
             if self.uuid: options['uuid'] = self.uuid
-            metadata_path = Path(self.minecraft_directory) / 'versions' / self.minecraft_version / (self.minecraft_version + '.json')
-            metadata = json.loads(metadata_path.read_text(encoding='utf8')) if metadata_path.is_file() else {}
             if isinstance(metadata.get('buggcraftRoom'), dict) or isinstance(metadata.get('buggcraftModpack'), dict):
                 native_version = metadata.get('jar', self.minecraft_version)
                 if not isinstance(native_version, str) or Path(native_version).name != native_version:

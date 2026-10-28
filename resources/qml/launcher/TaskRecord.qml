@@ -42,6 +42,7 @@ ListRow {
             RowLayout {
                 Layout.fillWidth: true
                 Label { Layout.fillWidth: true; text: root.modelData.error || root.modelData.status || ""; color: root.modelData.error ? "#ff9b91" : "#b3ffffff"; font.pixelSize: 11; elide: Text.ElideRight }
+                Label { objectName: "task-speed-" + root.modelData.id; visible: root.active; text: (root.modelData.speed || 0) >= 1048576 ? (root.modelData.speed / 1048576).toFixed(2) + " MiB/s" : ((root.modelData.speed || 0) / 1024).toFixed(1) + " KiB/s"; color: "#b9d5c5"; font.pixelSize: 11 }
                 Label { objectName: "task-progress-" + root.modelData.id; text: root.active && root.modelData.maximum > 0 ? "阶段进度 " + Math.max(0, Math.min(100, Math.round((root.modelData.progress || 0) * 100 / root.modelData.maximum))) + "%" : (root.modelData.created_at || "").substring(0, 10); color: "#a99fb8"; font.pixelSize: 11 }
             }
             ProgressBar {

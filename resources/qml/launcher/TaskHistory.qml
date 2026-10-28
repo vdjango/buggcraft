@@ -7,13 +7,19 @@ Item {
     property bool logOpen: false
     property bool textLog: false
     property var filters: ["全部记录", "进行中", "已完成", "失败", "已取消", "已中断"]
+    function showTaskLog(taskId) {
+        // showLog refreshes the task model and can destroy the calling row.
+        // Finish the operation in this persistent page's context.
+        taskHistory.showLog(taskId)
+        root.logOpen = true
+    }
     ColumnLayout {
         anchors.fill: parent; anchors.topMargin: 10; spacing: 8
         RowLayout {
             Layout.fillWidth: true; Layout.leftMargin: 15; Layout.rightMargin: 15
             Label { text: "下载记录"; color: "#f2f2f2"; font.pixelSize: 14; font.bold: true }
             Item { Layout.fillWidth: true }
-            ActionButton { text: "清除已结束记录"; enabled: taskHistory.canClear; onClicked: taskHistory.clearCompleted() }
+            ActionButton { objectName: "task-clear-ended"; text: "清除已结束记录"; enabled: taskHistory.canClear; onClicked: taskHistory.clearCompleted() }
         }
         CatalogueList {
             listObjectName: "download-history-list"
@@ -26,7 +32,7 @@ Item {
             onSearchRequested: query => taskHistory.setQuery(query)
             onFilterSelected: value => taskHistory.setFilter(value)
             rowDelegate: Component {
-                TaskRecord { onViewLog: taskId => { taskHistory.showLog(taskId); root.logOpen = true } }
+                TaskRecord { onViewLog: taskId => root.showTaskLog(taskId) }
             }
         }
     }
@@ -79,6 +85,7 @@ Item {
                 visible: root.textLog; clip: true
                 contentWidth: availableWidth
                 TextArea {
+                    objectName: "task-log-text"
                     readOnly: true; selectByMouse: true
                     text: taskHistory.logLines.join("\n")
                     color: "#e8e1ef"; font.family: "Consolas"; font.pixelSize: 11
@@ -89,7 +96,7 @@ Item {
         }
         footer: Item {
             implicitHeight: 46
-            ActionButton { anchors.right: parent.right; anchors.rightMargin: 12; text: "关闭"; onClicked: logDialog.close() }
+            ActionButton { objectName: "task-log-close"; anchors.right: parent.right; anchors.rightMargin: 12; text: "关闭"; onClicked: logDialog.close() }
         }
     }
 

@@ -29,7 +29,7 @@ Item {
                     InputField {
                         Layout.fillWidth: true; readOnly: true
                         text: root.state.pack_path ? root.state.pack_path.replace(/\\/g, "/").split("/").pop() : ""
-                        placeholderText: "选择 ZIP / MRPACK 整合包"
+                        placeholderText: "选择 BUGGPACK / ZIP / MRPACK 整合包"
                     }
                     ActionButton { objectName: "choose-pack-file"; text: "选择文件"; onClicked: contentController.choosePack() }
                 }
@@ -48,7 +48,7 @@ Item {
                         onTextEdited: contentController.setPackName(text)
                     }
                 }
-                Label { text: root.state.pack_error; color: "#ff9b91"; Layout.fillWidth: true; wrapMode: Text.Wrap; visible: !!text }
+                Label { objectName: "pack-import-error"; text: root.state.pack_error; color: "#ff9b91"; Layout.fillWidth: true; wrapMode: Text.Wrap; visible: !!text }
                 RowLayout {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }

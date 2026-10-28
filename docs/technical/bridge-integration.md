@@ -48,7 +48,7 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 
 `transport` 默认为 `auto`，先尝试 P2P；指定 `relay` 只使用中转。一个房间的不同访客可以使用不同路径。`room.host` 可传入 `settings`，`room.configure` 更新房间设置，`room.retarget` 切换实际游戏端口；`room.join` 使用邀请码。扩展接口还包括 `game.discover/status`、`mods.*`、`chat.*` 和 `session.events`，完整参数以原生仓库接口文档为准，调用前检查初始化返回的方法清单。
 
-同一房间的直连对端会得知网络地址，需隐藏对端地址时选择中转。已建立的游戏 TCP 连接不能在网络断开后无损迁移；断线后需重新连接。公开节点协议和服务配置见[节点文档](https://github.com/vdjango/minecraft-tunnel/blob/main/PROTOCOL_STANDARD.md)。
+同一房间的直连对端会得知网络地址，需隐藏对端地址时选择中转。已建立的游戏 TCP 连接不能在网络断开后无损迁移；断线后需重新连接。公开节点协议和服务配置见[节点文档](https://github.com/vdjango/minecraft-tunnel-native/blob/main/README.md)。
 
 请求最长 8192 字节（含换行），最多 16 个节点、8 个房间会话。请求不带 id 时为通知，无响应；不建议将创建会话作为通知发送，否则无法取得句柄。节点操作可能需要等待连接超时；应用应为建房/加入预留至少 30 秒，同时保持界面响应。正常退出先关闭会话，再关闭 stdin；超时后由宿主结束子进程，不能依赖强杀完成远端即时清理。
 
@@ -58,8 +58,10 @@ Buggcraft bridge 是运行在玩家电脑上的独立连接程序。第三方启
 
 原生源码位于 [minecraft-tunnel-native](https://github.com/vdjango/minecraft-tunnel-native)，CI 固定源码提交后构建，避免启动器与组件版本漂移。在目标系统准备 CMake、C++20 编译器和 OpenSSL 3，执行 `python scripts/build_bridge.py --native-source ../minecraft-tunnel-native --output dist/bridge-build`。Python 只编排构建步骤，组件运行时不需要 Python，也不安装启动器 UI 依赖或 aiortc/AsyncSSH。发行目录附带原生组件许可，压缩包旁提供 SHA-256。当前没有受信任的代码签名或 Apple 公证。
 
-Windows CI 使用 vcpkg OpenSSL，macOS 使用 Homebrew OpenSSL，Linux 使用系统开发包；构建脚本收集组件实际需要的动态库。打包后的用户不需要这些构建工具。Linux/macOS 复制发行目录时须保留可执行权限与符号链接，发行文件因此采用 tar.gz。旧 Python 传输实现仅作为 `compatibility/legacy_hookup/` 中的历史参考，不进入正式运行包。
+Windows CI 使用 vcpkg OpenSSL，macOS 使用 Homebrew OpenSSL，Linux 使用系统开发包；构建脚本收集组件实际需要的动态库。打包后的用户不需要这些构建工具。Linux/macOS 复制发行目录时须保留可执行权限与符号链接，发行文件因此采用 tar.gz。旧 Python 传输实现、兼容目录及依赖其接口的测试已删除。`hookup` 是启动器调用 C++ Bridge 的适配层，不包含 Python 联机传输实现。
 
-先运行原生仓库的 `ctest --test-dir build --build-config Release --output-on-failure`，再安装该仓库测试依赖并运行 `python -m unittest tests.test_bridge_library tests.test_player_logs -v`。使用 `BUGGCRAFT_BRIDGE_PACKAGE`、`BUGGCRAFT_BRIDGE_LIBRARY`、`BUGGCRAFT_BRIDGE_EXECUTABLE`、`BUGGCRAFT_NATIVE_CORE` 指定同一 CMake 安装树中的文件。当前 CI 验证 C ABI、可执行程序互通、P2P/中转混合路径、控制与游戏数据并行、模组哈希校验下载、身份/好友与玩家日志留存。启动器成品另以清除开发路径的 `--package-check` 验证实际加载原生库、页面与诊断导出；旧 Python 传输专项用例不能替代原生组件验收。
+注意两个仓库的边界：启动器不导入 `tunnel`、AsyncSSH 或 Python WebRTC。原生仓库的 `web/tunnel` 仍是当前节点的账号、房间和社交策略管理层；它调用 C++ 核心，不能按旧客户端传输代码删除。`tests/test_native_bridge_services.py` 在独立子进程中运行该仓库的实际节点验收，管理层测试依赖不加入启动器运行依赖。
+
+先运行原生仓库的 `ctest --test-dir build --build-config Release --output-on-failure`，再安装该仓库测试依赖并运行 `python -m unittest tests.test_bridge_library tests.test_player_logs -v`。使用 `BUGGCRAFT_BRIDGE_PACKAGE`、`BUGGCRAFT_BRIDGE_LIBRARY`、`BUGGCRAFT_BRIDGE_EXECUTABLE`、`BUGGCRAFT_NATIVE_CORE` 指定同一 CMake 安装树中的文件。当前 CI 验证 C ABI、可执行程序互通、P2P/中转混合路径、控制与游戏数据并行、模组哈希校验下载、身份/好友与玩家日志留存。启动器成品另以清除开发路径的 `--package-check` 验证实际加载原生库、页面与诊断导出。启动器仓库的 `python -m pytest -q tests/test_native_bridge_runtime.py` 通过生产适配层分别加载真实 DLL 和 EXE，核对 C++ 实现、方法清单、错误后继续请求及关闭重启。缺少原生组件时明确跳过，不能记为通过。
 
 本机 P2P 测试不代表覆盖所有公网 NAT；跨运营商、对称 NAT、UDP 阻断仍需不同网络的设备验收。CI 只有测试通过才上传对应平台发行包。

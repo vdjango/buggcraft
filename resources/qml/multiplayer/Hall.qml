@@ -47,11 +47,17 @@ ColumnLayout {
                 objectName: "node-picker"
                 enabled: vm.connections.length === 0
                 Layout.preferredWidth: 250; Layout.preferredHeight: 32
+                tutorialHighlight: typeof tutorial !== "undefined" && tutorial.demoStep === "node"
+                tutorialLockedIndex: typeof tutorial !== "undefined" && tutorial.demoStep === "node" ? vm.nodes.length : -1
                 model: vm.nodes.map(function(node) { return node.title }).concat(["＋ 添加与管理节点"])
                 currentIndex: vm.nodeIndex
                 displayText: vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] ? vm.nodes[vm.nodeIndex].title : "＋ 添加联机节点"
                 Accessible.name: "切换节点或添加与管理节点"
                 onActivated: function(index) {
+                    if (typeof tutorial !== "undefined" && tutorial.demoStep === "node") {
+                        currentIndex = Qt.binding(function() { return vm.nodeIndex })
+                        return
+                    }
                     if (index < vm.nodes.length) lobby.act("node", {index:index})
                     else {
                         currentIndex = Qt.binding(function() { return vm.nodeIndex })
@@ -128,6 +134,13 @@ ColumnLayout {
             onClicked: lobby.act("navigate", {page:"join"})
         }
         ActionButton {
+            objectName: "submit-diagnostics"; text: "提交诊断"; quiet: true
+            Layout.preferredWidth: 76; Layout.preferredHeight: 32
+            enabled: vm.socialReady && !vm.busy
+            Accessible.name: "提交联机诊断日志到当前节点反馈系统"
+            onClicked: lobby.act("submitDiagnostics", {})
+        }
+        ActionButton {
             objectName: "current-room-entry"
             visible: vm.connections.length > 0
             property var currentRoom: vm.connections[0] || ({})
@@ -190,8 +203,10 @@ ColumnLayout {
             }
             ScrollBar.vertical: ScrollBar { id: roomScroll }
             delegate: Rectangle {
+                id: roomRow
                 required property var modelData
                 required property int index
+                readonly property string worldState: modelData.availability || ""
                 width: rooms.width; height: 58
                 color: index % 2 ? "#282530" : "#24222c"
                 border.color: "#3f3949"
@@ -199,7 +214,7 @@ ColumnLayout {
                     anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 9; spacing: 9
                     Rectangle {
                         width: 3; height: 32
-                        color: "#75b995"
+                        color: roomRow.worldState === "waiting" ? "#d0b895" : roomRow.worldState === "ready" ? "#75b995" : "#aaa4b3"
                     }
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 2
@@ -208,12 +223,27 @@ ColumnLayout {
                             wrapMode: Text.NoWrap; elide: Text.ElideRight
                             font.pixelSize: 14; font.bold: true; color: "#f2edff"
                         }
-                        CopyText {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: (modelData.game.version || "版本未知") + "  ·  " +
-                                (({vanilla:"原版",fabric:"Fabric",forge:"Forge",quilt:"Quilt",neoforge:"NeoForge"})[modelData.game.loader] || modelData.game.loader || "原版") + "  ·  " + (typeof modelData.members === "number" ? modelData.members + " / " + modelData.capacity + " 人在房间" : "人数暂未知")
-                            font.pixelSize: 11; color: "#aaa4b3"
-                            elide: Text.ElideRight; wrapMode: Text.NoWrap
+                            spacing: 8
+                            CopyText {
+                                objectName: "room-availability-" + index
+                                text: roomRow.worldState === "waiting" ? "准备中" : roomRow.worldState === "ready" ? "世界已开放" : "状态未知"
+                                color: roomRow.worldState === "waiting" ? "#d0b895" : roomRow.worldState === "ready" ? "#a7c9b5" : "#aaa4b3"
+                                font.pixelSize: 11
+                                wrapMode: Text.NoWrap
+                                Accessible.name: text
+                                ToolTip.visible: roomStateHover.hovered
+                                ToolTip.text: roomRow.worldState === "waiting" ? "房间已创建，世界尚未开放；可以先加入聊天、下载和准备客户端。" : roomRow.worldState === "ready" ? "世界已开放；加入房间并准备好客户端后即可进入游戏。" : "节点尚未提供世界状态，请刷新后重试。"
+                                HoverHandler { id: roomStateHover }
+                            }
+                            CopyText {
+                                Layout.fillWidth: true
+                                text: (modelData.game.version || "版本未知") + "  ·  " +
+                                    (({vanilla:"原版",fabric:"Fabric",forge:"Forge",quilt:"Quilt",neoforge:"NeoForge"})[modelData.game.loader] || modelData.game.loader || "原版") + "  ·  " + (typeof modelData.members === "number" ? modelData.members + " / " + modelData.capacity + " 人在房间" : "人数暂未知")
+                                font.pixelSize: 11; color: "#aaa4b3"
+                                elide: Text.ElideRight; wrapMode: Text.NoWrap
+                            }
                         }
                     }
                     CopyText {
@@ -274,7 +304,11 @@ ColumnLayout {
                 Layout.alignment: Qt.AlignHCenter
                 visible: vm.nodeIndex < 0
                 text: "添加联机节点"; implicitHeight: 30; primary: true
-                onClicked: lobby.act("navigate", {page:"nodes"})
+                enabled: !(typeof tutorial !== "undefined" && tutorial.demoStep === "node")
+                onClicked: {
+                    if (typeof tutorial !== "undefined" && tutorial.demoStep === "node") return
+                    lobby.act("navigate", {page:"nodes"})
+                }
             }
         }
     }

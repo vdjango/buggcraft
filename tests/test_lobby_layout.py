@@ -8,11 +8,12 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault('QT_QUICK_BACKEND', 'software')
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src' / 'buggcraft'))
-from PySide6.QtCore import Property, QObject, QPointF, Qt, Signal, Slot, QUrl, QTimer
+from PySide6.QtCore import Property, QObject, QPointF, Qt, Signal, Slot, QUrl, QTimer, QEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from PySide6.QtQuick import QQuickView, QQuickItem
 from PySide6.QtQuickWidgets import QQuickWidget
+from _qml_test_support import qt_mouse_click, qt_mouse_drag
 
 
 class LobbyBackend(QObject):
@@ -30,7 +31,7 @@ class LobbyBackend(QObject):
             'nodes': [{'title': 'Local relay'}], 'nodeAvailable':True, 'selected': '', 'connections': [],
             'editIndex': -1, 'error': '', 'notice': '',
             'contacts': [{'index': 0, 'name': 'Friend', 'invite': 'secret'}],
-            'socialReady': True, 'socialName': 'local_user', 'socialError': '',
+            'socialReady': True, 'friendEntryAvailable': True, 'socialName': 'local_user', 'socialError': '',
             'friendRequests': [], 'friendInvitations': [],
             'step':0, 'worlds':[], 'worldScanning':False, 'instances':[], 'instanceId':'', 'instanceLoading':False,
             'instanceError':'', 'instanceLocked':False, 'version':'', 'loader':'vanilla',
@@ -104,7 +105,13 @@ class LobbyLayoutTests(unittest.TestCase):
                          '\n'.join(error.toString() for error in self.window.errors()))
         self.window.show()
         QTest.qWait(80)
-        self.addCleanup(self.window.close)
+        self.addCleanup(self.dispose_window)
+
+    def dispose_window(self):
+        self.window.close()
+        self.window.setSource(QUrl())
+        self.window.deleteLater()
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def click(self, object_name):
         item = find_item(self.window, object_name)
@@ -120,7 +127,7 @@ class LobbyLayoutTests(unittest.TestCase):
                 break
             ancestor = ancestor.parentItem()
         point = item.mapToScene(QPointF(item.width() / 2, item.height() / 2)).toPoint()
-        QTest.mouseClick(self.window, Qt.LeftButton, Qt.NoModifier, point)
+        qt_mouse_click(self.window, point)
         QTest.qWait(30)
         return item
 
@@ -130,6 +137,13 @@ class LobbyLayoutTests(unittest.TestCase):
         except AssertionError:
             return
         self.assertFalse(item.isVisible(), name)
+
+    def snapshot(self, name):
+        folder = os.environ.get('BUGGCRAFT_QML_SNAPSHOTS')
+        if folder:
+            target = Path(folder)
+            target.mkdir(parents=True, exist_ok=True)
+            self.assertTrue(self.window.grabWindow().save(str(target / (name + '.png'))))
 
     def open_nodes(self):
         self.click('node-picker')
@@ -305,6 +319,8 @@ class LobbyLayoutTests(unittest.TestCase):
         self.click('back-hall')
         self.click('open-create')
         self.assertIn(('navigate', {'page': 'create'}), self.backend.actions)
+        self.assertFalse(any(action == 'discover' for action, _ in self.backend.actions))
+        self.click('create-mode-world')
         self.assertEqual(self.backend.actions[-1], ('discover', {}))
 
     def test_open_lan_world_prompt_is_chinese_and_offers_one_clear_action(self):
@@ -325,11 +341,14 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertEqual(action.property('text'), '先创建房间')
         self.assertFalse(find_item(self.window, 'create-game-chat').isVisible())
         self.assertFalse(find_item(self.window, 'create-transport').isVisible())
+        self.snapshot('create-preparation-room')
         self.click('create-next')
         self.assertEqual(self.backend.actions[-1][0], 'quickCreate')
         self.assertEqual(self.backend.actions[-1][1]['port'], 0)
         self.assertTrue(self.backend.actions[-1][1]['requireInvite'])
-        for values in ({'worldScanning':True}, {'worldScanning':False, 'busy':True},
+        self.assertFalse(find_item(self.window, 'create-world-discovery').isVisible())
+        self.assertFalse(any(action == 'discover' for action, _ in self.backend.actions))
+        for values in ({'busy':True},
                        {'busy':False, 'instanceLoading':True}, {'instanceLoading':False, 'version':''}):
             self.backend._view.update(values)
             self.backend.viewChanged.emit()
@@ -344,6 +363,62 @@ class LobbyLayoutTests(unittest.TestCase):
         self.backend.viewChanged.emit()
         QTest.qWait(60)
         self.assertTrue(find_item(self.window, 'rooms-empty').isVisible())
+
+    def test_waiting_world_allows_client_installation_but_never_connects_early(self):
+        record = dict(id='room', role='client', state='online', availability='waiting',
+            title='Waiting room', compatibility='模组集合不一致', game=dict(version='1.21.8', mods_count=2))
+        self.backend._view.update(page='connected', selected='room', connections=[record])
+        self.backend.viewChanged.emit()
+        QTest.qWait(50)
+        self.assertEqual(self.backend._view['page'], 'connected')
+        self.assertFalse(self.window.rootObject().findChild(QObject, 'leave-room-dialog').property('visible'))
+        self.assertEqual(find_item(self.window, 'room-quick-launch').property('text'), '同步安装')
+        self.assertTrue(find_item(self.window, 'room-quick-launch').isEnabled())
+        self.click('room-quick-launch')
+        self.assertTrue(self.window.rootObject().findChild(QObject, 'prepare-room-dialog').property('visible'))
+        self.click('confirm-room-install')
+        self.assertEqual(self.backend.actions[-1], ('prepareRoom', {'mode': 'fresh'}))
+        record['compatibility'] = ''
+        self.backend.viewChanged.emit()
+        QTest.qWait(40)
+        self.assertEqual(find_item(self.window, 'room-quick-launch').property('text'), '启动到主菜单')
+        self.assertTrue(find_item(self.window, 'room-quick-launch').isEnabled())
+        self.click('room-quick-launch')
+        self.assertEqual(self.backend.actions[-1], ('launchRoom', {}))
+
+    def test_preparation_mode_ignores_discovered_worlds_until_explicitly_selected(self):
+        self.backend._view.update(version='1.21.8', instances=['1.21.8'], instanceId='1.21.8',
+            worlds=[dict(version='1.21.8', port=51001), dict(version='1.21.8', port=51002)])
+        self.click('open-create')
+        self.assertTrue(find_item(self.window, 'create-next').isEnabled())
+        self.click('create-next')
+        self.assertEqual(self.backend.actions[-1][1]['port'], 0)
+        self.click('create-mode-world')
+        self.assertTrue(find_item(self.window, 'create-world-discovery').isVisible())
+        self.assertFalse(find_item(self.window, 'create-next').isEnabled())
+        self.click('world-1')
+        self.click('create-next')
+        self.assertEqual(self.backend.actions[-1][1]['port'], '51002')
+        self.click('create-mode-prepare')
+        self.assertFalse(find_item(self.window, 'create-world-discovery').isVisible())
+        self.click('create-next')
+        self.assertEqual(self.backend.actions[-1][1]['port'], 0)
+
+    def test_open_world_entry_keeps_explicit_world_selection(self):
+        self.backend._view.update(version='1.21.8', pendingOpenWorldPort=51001,
+            worlds=[dict(version='1.21.8', port=51001)])
+        self.click('open-create')
+        self.assertTrue(find_item(self.window, 'create-world-discovery').isVisible())
+        self.assertTrue(find_item(self.window, 'world-0').property('selected'))
+        self.click('create-next')
+        self.assertEqual(self.backend.actions[-1][1]['port'], '51001')
+        self.click('create-mode-prepare')
+        self.backend._view.update(notice='Another room event')
+        self.backend.viewChanged.emit()
+        QTest.qWait(30)
+        self.assertFalse(find_item(self.window, 'create-world-discovery').isVisible())
+        self.click('create-next')
+        self.assertEqual(self.backend.actions[-1][1]['port'], 0)
 
     def test_unavailable_and_checking_nodes_disable_all_hall_room_actions(self):
         for index, loading in ((-1, False), (0, True), (0, False)):
@@ -412,6 +487,7 @@ class LobbyLayoutTests(unittest.TestCase):
 
     def test_world_scan_has_visible_activity_and_clears_when_finished(self):
         self.click('open-create')
+        self.click('create-mode-world')
         self.backend._view = {**self.backend._view, 'busy':True, 'worldScanning':True}
         self.backend.viewChanged.emit()
         QTest.qWait(40)
@@ -438,6 +514,7 @@ class LobbyLayoutTests(unittest.TestCase):
             'instances':['1.21.8'], 'instanceId':'1.21.8'}
         self.click('open-create')
         config = find_item(self.window, 'create-game-config')
+        self.click('create-mode-world')
         discovery = find_item(self.window, 'create-world-discovery')
         self.assertLess(config.mapToScene(QPointF(0, config.height())).y(), discovery.mapToScene(QPointF()).y())
         self.assertTrue(find_item(self.window, 'create-worlds-empty').isVisible())
@@ -452,6 +529,7 @@ class LobbyLayoutTests(unittest.TestCase):
         self.click('world-1')
         self.assertTrue(find_item(self.window, 'world-1').property('selected'))
         self.assertFalse(find_item(self.window, 'world-0').property('selected'))
+        self.snapshot('create-linked-world')
         self.click('create-next')
         self.assertEqual(self.backend.actions[-1][0], 'quickCreate')
         self.assertEqual(self.backend.actions[-1][1]['port'], '51002')
@@ -567,6 +645,41 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertEqual(self.backend.actions[-1], ('cancelInvite', {}))
         self.assertEqual(self.backend.view['page'], 'hall')
 
+    def test_hall_shows_preparation_and_open_worlds_with_same_join_policies(self):
+        for required in (False, True):
+            with self.subTest(require_invite=required):
+                self.backend._view.update(rooms=[
+                    dict(id='preparing', title='一起下载客户端', availability='waiting',
+                         require_invite=required, members=3, capacity=4,
+                         game=dict(version='1.21.8', loader='vanilla')),
+                    dict(id='playing', title='世界已开放的房间', availability='ready',
+                         require_invite=required, members=2, capacity=4,
+                         game=dict(version='1.20.1', loader='fabric'))])
+                self.backend.viewChanged.emit(); QTest.qWait(40)
+                for index, state in enumerate(('准备中', '世界已开放')):
+                    status = find_item(self.window, 'room-availability-' + str(index))
+                    self.assertTrue(status.isVisible())
+                    self.assertEqual(status.property('text'), state)
+                    self.assertEqual(find_item(self.window, 'room-access-' + str(index)).property('text'),
+                                     '需要邀请码' if required else '直接加入')
+                    self.assertTrue(find_item(self.window, 'join-public-' + str(index)).isEnabled())
+                    self.click('join-public-' + str(index))
+                    self.assertEqual(self.backend.actions[-1],
+                                     ('joinPublic', {'id': 'preparing' if index == 0 else 'playing'}))
+                self.snapshot('hall-waiting-ready-' + ('invite' if required else 'direct'))
+
+    def test_hall_world_state_changes_without_losing_room_or_join_action(self):
+        room = dict(id='same-room', title='一起准备再进入世界', availability='waiting',
+                    require_invite=False, game=dict(version='1.21.8', loader='vanilla'))
+        for state, label in (('waiting', '准备中'), ('ready', '世界已开放'),
+                             ('waiting', '准备中'), (None, '状态未知')):
+            with self.subTest(availability=state):
+                self.backend._view.update(rooms=[dict(room, availability=state)])
+                self.backend.viewChanged.emit(); QTest.qWait(40)
+                self.assertEqual(find_item(self.window, 'room-availability-0').property('text'), label)
+                self.click('join-public-0')
+                self.assertEqual(self.backend.actions[-1], ('joinPublic', {'id': 'same-room'}))
+
     def test_created_room_guidance_matches_public_join_policy(self):
         for public, required, expected in ((True, False, '直接加入'),
                 (True, True, '需要邀请码'), (False, True, '仅邀请好友')):
@@ -577,8 +690,10 @@ class LobbyLayoutTests(unittest.TestCase):
                     'chatState':'在线', 'chatMessages':[], 'chatDraft':'', 'chatError':'',
                     'chatSending':False, 'bridgeStatus':'游戏聊天未开启'}
                 self.backend.viewChanged.emit(); QTest.qWait(35)
+                self.click('room-details')
                 self.assertIn(expected, find_item(self.window, 'room-access-summary').property('text'))
                 self.assertLess(len(find_item(self.window, 'room-access-guidance').property('text')), 40)
+                QTest.keyClick(self.window, Qt.Key_Escape); QTest.qWait(30)
 
     def test_node_and_transport_labels_and_fields_share_alignment(self):
         node = find_item(self.window, 'node-picker')
@@ -607,7 +722,8 @@ class LobbyLayoutTests(unittest.TestCase):
         access.setProperty('currentIndex', 2)
         self.click('save-room-settings')
         self.assertEqual(self.backend.actions[-1], ('updateRoomSettings', {
-            'title':'New Friends', 'public':True, 'requireInvite':False}))
+            'title':'New Friends', 'public':True, 'requireInvite':False,
+            'allowModTransfer':False, 'modTransferLimitKib':512}))
         self.assertTrue(dialog.property('visible'))
         self.backend.roomSettingsSaved.emit(); QTest.qWait(30)
         self.assertFalse(dialog.property('visible'))
@@ -806,6 +922,7 @@ class LobbyLayoutTests(unittest.TestCase):
             'chatSending':False, 'bridgeStatus':'游戏聊天已同步'}
         self.backend.viewChanged.emit()
         QTest.qWait(40)
+        self.click('room-details')
         for name, expected in [('room-member-count','房间内 4 / 10 人'),
                 ('game-player-count','游戏内 2 人'), ('game-latency','游戏延迟 57 ms')]:
             item = find_item(self.window, name)
@@ -821,6 +938,7 @@ class LobbyLayoutTests(unittest.TestCase):
             'chatMessages':[], 'chatDraft':'', 'chatError':'', 'chatSending':False}
         self.backend.viewChanged.emit()
         QTest.qWait(40)
+        self.click('room-details')
         self.assertEqual(find_item(self.window, 'game-latency').property('text'), '游戏延迟 0 ms · 本地')
 
     def test_room_exit_is_in_title_bar_and_waiting_guidance_keeps_chat(self):
@@ -836,13 +954,13 @@ class LobbyLayoutTests(unittest.TestCase):
                 self.assertTrue(exit_button.property('backArrow'))
                 self.assertLess(exit_button.mapToScene(QPointF(0, exit_button.height())).y(), 44)
                 self.assertTrue(find_item(self.window, 'room-chat').isVisible())
-                self.assertIn('等待开放世界' if role == 'host' else '等待房主开放世界',
+                self.assertIn('等待世界开放',
                               find_item(self.window, 'connection-heading').property('text'))
                 if role == 'client':
-                    self.assertFalse(find_item(self.window, 'copy-address').isEnabled())
+                    self.assertFalse(find_item(self.window, 'copy-address').isVisible())
                 else:
-                    self.click('reopen-world')
-                    self.assertEqual(self.backend.actions[-1][0], 'reopenWorld')
+                    self.assertFalse(find_item(self.window, 'choose-detected-world').isVisible())
+                    self.assertIn('自动连接', find_item(self.window, 'room-access-guidance').property('text'))
                 self.click('back-hall')
                 self.assertTrue(find_item(self.window, 'confirm-leave-room').isVisible())
                 self.assertFalse(any(action == 'stop' for action, _ in self.backend.actions))
@@ -873,20 +991,14 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertGreater(start.x(), self.window.width() - 100)
         self.assertGreater(start.y(), self.window.height() - 100)
         before = len(self.backend.actions)
-        QTest.mousePress(self.window, Qt.LeftButton, Qt.NoModifier, start)
-        QTest.mouseMove(self.window, start - QPointF(30, 30).toPoint(), 25)
-        QTest.mouseMove(self.window, start - QPointF(140, 90).toPoint(), 25)
-        QTest.mouseRelease(self.window, Qt.LeftButton, Qt.NoModifier, start - QPointF(140, 90).toPoint())
+        qt_mouse_drag(self.window, start, start - QPointF(140, 90).toPoint())
         QTest.qWait(30)
         self.assertLess(button.x(), 600)
         self.assertEqual(len(self.backend.actions), before, 'Dragging must not open the friends window')
         self.assertGreaterEqual(button.x(), 14)
         self.assertGreaterEqual(button.y(), 100)
         start = button.mapToScene(QPointF(button.width() / 2, button.height() / 2)).toPoint()
-        QTest.mousePress(self.window, Qt.LeftButton, Qt.NoModifier, start)
-        QTest.mouseMove(self.window, start - QPointF(25, 25).toPoint(), 25)
-        QTest.mouseMove(self.window, QPointF(-100, -100).toPoint(), 25)
-        QTest.mouseRelease(self.window, Qt.LeftButton, Qt.NoModifier, QPointF(-100, -100).toPoint())
+        qt_mouse_drag(self.window, start, QPointF(-100, -100).toPoint())
         QTest.qWait(30)
         self.assertGreaterEqual(button.x(), button.property('minimumX'))
         self.assertGreaterEqual(button.y(), button.property('minimumY'))
@@ -902,10 +1014,7 @@ class LobbyLayoutTests(unittest.TestCase):
         start = button.mapToScene(QPointF(button.width() / 2, button.height() / 2)).toPoint()
         # Dragging removes the initial position binding; later notices must still
         # keep the button clear of feedback and its dismiss action.
-        QTest.mousePress(self.window, Qt.LeftButton, Qt.NoModifier, start)
-        QTest.mouseMove(self.window, start - QPointF(25, 0).toPoint(), 25)
-        QTest.mouseMove(self.window, start - QPointF(50, 0).toPoint(), 25)
-        QTest.mouseRelease(self.window, Qt.LeftButton, Qt.NoModifier, start - QPointF(50, 0).toPoint())
+        qt_mouse_drag(self.window, start, start - QPointF(50, 0).toPoint())
         self.backend._view = {**self.backend._view, 'notice': 'Connected'}
         self.backend.viewChanged.emit()
         QTest.qWait(60)
@@ -1020,7 +1129,7 @@ class FriendWindowTests(unittest.TestCase):
     def click(self, name):
         item = find_item(self.dialog.quick, name)
         point = item.mapToScene(QPointF(item.width() / 2, item.height() / 2)).toPoint()
-        QTest.mouseClick(self.dialog.quick, Qt.LeftButton, Qt.NoModifier, point)
+        qt_mouse_click(self.dialog.quick, point)
         QTest.qWait(40)
 
     def test_friends_window_is_separate_and_can_close_independently(self):

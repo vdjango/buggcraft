@@ -27,9 +27,14 @@ class LobbyOpeningTests(unittest.TestCase):
         self.page = QDialog()
         from unittest.mock import Mock
         self.page._social_changed = Mock()
+        self.page.settings_manager = Mock()
+        self.page.settings_manager.get_setting.side_effect = lambda key, default=None: default
         self.addCleanup(self.page.close)
         self.dialog = MultiplayerDialog(self.page, Path(self.temporary.name) / 'lobby.json')
         self.page._multiplayer_dialog = self.dialog
+        self.page._ensure_multiplayer_dialog = lambda: self.dialog
+        self.page._acknowledge_multiplayer_invite = Mock()
+        self.page._show_multiplayer_window = lambda: StartGamePage._show_multiplayer_window(self.page)
         self.addCleanup(self.dialog.shutdown)
 
     def test_home_entry_restores_minimized_lobby_without_replacing_it(self):

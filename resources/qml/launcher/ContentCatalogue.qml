@@ -21,7 +21,7 @@ Item {
             onQueryEdited: query => contentController.setQuery(query)
             onSearchRequested: query => contentController.search(query)
             onFilterSelected: value => contentController.setSource(value)
-            onRetryRequested: contentController.search(root.state.query)
+            onRetryRequested: query => contentController.search(query)
             onMoreRequested: contentController.loadMore()
             onRowClicked: (index, record) => contentController.chooseProject(index)
         }

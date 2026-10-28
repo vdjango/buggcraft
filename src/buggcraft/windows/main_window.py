@@ -38,7 +38,7 @@ class _ModpackDropFilter(QObject):
             if len(urls) == 1 and urls[0].isLocalFile():
                 from pathlib import Path
                 path = Path(urls[0].toLocalFile())
-                if path.suffix.lower() in ('.zip', '.mrpack') and path.is_file():
+                if path.suffix.lower() in ('.zip', '.mrpack', '.buggpack') and path.is_file():
                     event.setDropAction(Qt.CopyAction)
                     event.accept()
                     if event.type() == QEvent.Drop:
@@ -356,6 +356,9 @@ class MinecraftLauncher(QMainWindow):
         """Java搜索完成处理"""
         if self._closing:
             return
+        # Refresh marks the list busy. Clear that state before refresh_list(),
+        # which deliberately ignores refreshes while a worker is still active.
+        self.settings_page.java_page.set_status('')
         print('java_installations', java_installations)
         if java_installations:
             # 自动选择推荐的Java

@@ -15,9 +15,10 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / '.test-tools'), str(ROOT / 'buggcraft/src/buggcraft')]
 from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtTest import QTest
 from ui.multiplayer_controller import MultiplayerController
-import asyncssh
-from hookup.relay import RelayProfile
+from tests.native_fixtures import ssh_public_key
+from hookup.profiles import RelayProfile
 from hookup.nodes import remember, candidates, save_json, profile_data
 from hookup.social import ExpiredNodeCredential, credential_expiry
 
@@ -60,7 +61,7 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(controller.view['chatError'], '')
 
     def test_verified_node_add_persists_fallbacks_and_deduplicates(self):
-        key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        key = ssh_public_key()
         profile = RelayProfile('127.0.0.1', 3333, 'a' * 48, key)
         backup = dict(server_host='127.0.0.1', server_port=3334, token='b' * 48, server_public_key=key)
         remember(profile, [backup])
@@ -81,7 +82,7 @@ class ChatControllerTests(unittest.TestCase):
         self.assertTrue(Path(saved._source).name.endswith('.json'))
 
     def test_personal_code_replaces_anonymous_credentials_for_same_node(self):
-        key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        key = ssh_public_key()
         anonymous = RelayProfile('127.0.0.1', 3333, 'a' * 48, key)
         personal = RelayProfile('127.0.0.1', 3333, 'acct1.' + 'b' * 48, key)
         controller = self.controller
@@ -110,7 +111,7 @@ class ChatControllerTests(unittest.TestCase):
     def test_room_refresh_updates_saved_node_name_without_changing_selection(self):
         controller = self.controller
         path = Path(self.temporary.name) / 'node.json'
-        key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        key = ssh_public_key()
         save_json(path, profile_data(RelayProfile('127.0.0.1', 3333, 'a' * 48, key)))
         controller.store.add_node(str(path))
         controller.node_path = str(path.resolve())
@@ -131,7 +132,7 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(messages[1]['identityLabel'], '未验证账号')
 
     def _friend_node(self):
-        key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        key = ssh_public_key()
         path = Path(self.temporary.name) / 'friend-node.json'
         save_json(path, profile_data(RelayProfile('127.0.0.1', 3333, 'a' * 48, key)))
         self.controller.store.add_node(str(path))
@@ -140,7 +141,7 @@ class ChatControllerTests(unittest.TestCase):
         self.controller.apply_social_state(self._social_state())
 
     def test_expired_personal_code_is_visible_and_can_be_replaced(self):
-        key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode()
+        key = ssh_public_key()
         path = Path(self.temporary.name) / "expiring-node.json"
 
         def personal_code(expiry):
@@ -215,6 +216,22 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(controller.view['friendInvitations'], [invitation])
         controller.apply_social_state(self._social_state(invitations=[]))
         self.assertEqual(controller.view['friendInvitations'], [])
+
+    def test_transient_friend_status_failure_keeps_login_shortcut_and_last_contacts(self):
+        controller = self.controller
+        friend = dict(account='c' * 32 + '.' + 'd' * 32, username='Alice', online=True)
+        controller.apply_social_state(self._social_state(friends=[friend]))
+        generation = controller.social_generation
+        controller.finish('socialstatus:' + generation + ':fixture-node', None,
+                          ConnectionError('temporary node timeout'))
+        self.assertTrue(controller.view['socialReady'])
+        self.assertEqual(controller.view['socialAccount'], 'a' * 32 + '.' + 'b' * 32)
+        self.assertEqual(controller.view['contacts'][0]['name'], 'Alice')
+        self.assertEqual(controller.view['contacts'][0]['account'], friend['account'])
+        self.assertFalse(controller.view['contacts'][0]['online'])
+        self.assertTrue(controller.view['contacts'][0]['presenceStale'])
+        self.assertEqual(controller.view['socialState'], 'stale')
+        self.assertIn('temporary node timeout', controller.view['socialError'])
 
     def test_friend_room_invite_reports_success_and_failure_for_retry(self):
         controller = self.controller
@@ -422,6 +439,31 @@ class ChatControllerTests(unittest.TestCase):
             self.assertFalse(outcomes[-1][0])
             self.assertTrue(outcomes[-1][1])
 
+    def test_short_friend_code_display_and_copy_keep_full_identity_internally(self):
+        def copied(expected):
+            # Windows/OLE publishes QClipboard changes through its event loop.
+            for _ in range(100):
+                self.app.processEvents()
+                if self.app.clipboard().text() == expected:
+                    break
+                QTest.qWait(5)
+            self.assertEqual(self.app.clipboard().text(), expected)
+
+        self._friend_node()
+        account = 'a' * 32 + '.' + 'b' * 32
+        self.controller.patch(socialReady=True, socialAccount=account,
+                              socialCapabilities={'friend_code': True},
+                              contacts=[dict(account=account, name='Alice')])
+        self.assertEqual(self.controller.view['socialFriendCode'], 'REAJ-WVMV-6ICI')
+        self.controller.act('copySocialName', {})
+        copied('REAJ-WVMV-6ICI')
+        self.controller.act('copyFriendName', {'account': account})
+        copied('REAJ-WVMV-6ICI')
+        self.assertEqual(self.controller.view['contacts'][0]['account'], account)
+        self.controller.patch(socialCapabilities={})
+        self.controller.act('copySocialName', {})
+        copied(account)
+
     def test_friend_lookup_full_id_and_copy_preserve_identity_for_duplicate_names(self):
         self._friend_node()
         account = 'c' * 32 + '.' + 'd' * 32
@@ -491,7 +533,7 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(controller.store.data['nodes'], [])
 
     def test_json_import_requires_verification_and_copies_the_verified_profile(self):
-        key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        key = ssh_public_key()
         profile = RelayProfile('127.0.0.1', 3333, 'a' * 48, key)
         source = Path(self.temporary.name) / 'downloaded.json'
         save_json(source, profile_data(profile))

@@ -3,11 +3,48 @@ import json
 import threading
 from unittest.mock import Mock, patch
 
-from _qml_test_support import LauncherQmlCase, QQuickWidget, QTest, Qt
+from _qml_test_support import LauncherQmlCase, QQuickWidget, QTest, Qt, qt_mouse_click
 from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
 class AllLauncherPagesTests(LauncherQmlCase):
+    def test_enabling_notification_sound_can_preview_a_chime(self):
+        from utils.social_sound import SocialSound
+        controller = self.window.settings_page.general_page.controller
+        controller.setValue('multiplayer.notification_sound', False)
+        with patch.object(SocialSound, 'play', return_value=True) as chime:
+            self.assertFalse(controller.previewNotificationSound())
+            controller.setValue('multiplayer.notification_sound', True)
+            self.assertTrue(controller.previewNotificationSound())
+            self.assertEqual([call.args[0] for call in chime.call_args_list], ['request', 'request'])
+
+    def test_sound_setting_immediately_controls_friend_and_room_notifications(self):
+        from ui.multiplayer_controller import MultiplayerController
+        from utils.social_sound import SocialSound
+        page = self.window.started_page
+        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'job', side_effect=lambda key, task: task.close()), \
+                patch.object(SocialSound, 'play') as chime, \
+                patch('ui.dialog.MultiplayerDialog.QApplication.alert'):
+            dialog = page._ensure_multiplayer_dialog()
+            controller = self.window.settings_page.general_page.controller
+            for enabled in (False, True, False):
+                with self.subTest(enabled=enabled):
+                    controller.setValue('multiplayer.notification_sound', enabled)
+                    self.assertEqual(self.manager.get_setting('multiplayer.notification_sound'), enabled)
+                    chime.reset_mock()
+                    dialog.notify_social('request')
+                    dialog.notify_social('invite')
+                    self.assertEqual([call.args[0] for call in chime.call_args_list],
+                                     ['request', 'invite'] if enabled else [])
+            dialog.close()
+            controller.setValue('multiplayer.notification_sound', True)
+            chime.reset_mock()
+            dialog.notify_social('invite')
+            chime.assert_called_once_with('invite')
+            self.assertFalse(dialog.isVisible())
+            self.assertFalse(dialog.backend.closed)
+
     def test_home_friend_notifications_propagate_and_read_only_opened_tab(self):
         from ui.multiplayer_controller import MultiplayerController
         from PySide6.QtWidgets import QApplication
@@ -36,7 +73,7 @@ class AllLauncherPagesTests(LauncherQmlCase):
             from PySide6.QtCore import QPointF
             tab = find_item(friends.quick, 'friends-tab-1')
             point = tab.mapToScene(QPointF(tab.width()/2, tab.height()/2)).toPoint()
-            QTest.mouseClick(friends.quick, Qt.LeftButton, Qt.NoModifier, point)
+            qt_mouse_click(friends.quick, point)
             self.pump()
             self.assertEqual(page.controller.view['friendNotifications']['requests'], 0)
             self.assertFalse(find_item(friends.quick, 'friends-tab-1').property('attention'))

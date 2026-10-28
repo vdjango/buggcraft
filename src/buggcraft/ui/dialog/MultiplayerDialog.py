@@ -1,9 +1,9 @@
 """QML multiplayer window embedded in the existing launcher."""
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
 from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QInputDialog, QMessageBox, QVBoxLayout, QWidget, QSystemTrayIcon
 
 from ui.multiplayer_controller import MultiplayerController
 from utils.app_icon import get_app_icon
@@ -36,14 +36,17 @@ class MultiplayerDialog(QDialog):
         self._invitation = None
         self._invitation_queue = []
         self.backend = MultiplayerController(self, storage_path)
+        QApplication.instance().installEventFilter(self)
         from utils.social_sound import SocialSound
         self.social_sound = SocialSound(resources)
         self.backend.social_notification.connect(self.notify_social)
+        self.backend.room_notification.connect(self.notify_room)
         self.backend.friend_invited.connect(self.show_friend_invitation)
         self.backend.changed.connect(self.refresh_invitation)
         if hasattr(parent, 'friends_btn'):
-            self.backend.changed.connect(lambda: parent.friends_btn.setVisible(self.backend.view['socialReady']))
-            parent.friends_btn.setVisible(self.backend.view['socialReady'])
+            visible = lambda: self.backend.view['friendEntryAvailable']
+            self.backend.changed.connect(lambda: parent.friends_btn.setVisible(visible()))
+            parent.friends_btn.setVisible(visible())
         if parent is not None and hasattr(parent, 'instance_changed'):
             parent.instance_changed.connect(self.backend.detect_instance)
         self.service = self.backend.service
@@ -74,9 +77,29 @@ class MultiplayerDialog(QDialog):
     def detect_instance(self):
         self.backend.detect_instance()
 
+    def eventFilter(self, watched, event):
+        # QQuickWidget's Escape shortcut can otherwise consume the key before
+        # a native child dialog receives it, closing the lobby behind the
+        # still-open confirmation. Let the active native dialog handle Escape
+        # through its normal keyPressEvent (No/cancel), without rejecting it
+        # or modifying the lobby's room/connection state ourselves.
+        if event.type() == QEvent.ShortcutOverride and event.key() == Qt.Key_Escape:
+            modal = QApplication.activeModalWidget()
+            if isinstance(watched, QWidget) and isinstance(modal, (QMessageBox, QInputDialog, QFileDialog)):
+                # QWidget.isAncestorOf stops at a native window boundary;
+                # these dialogs are windows owned by, not inside, the lobby.
+                owner = modal.parentWidget()
+                while owner is not None and owner is not self:
+                    owner = owner.parentWidget()
+                if owner is self and (watched is modal or modal.isAncestorOf(watched)):
+                    event.accept()
+                    return True
+        return super().eventFilter(watched, event)
+
     def showEvent(self, event):
         super().showEvent(event)
-        if not self._shutdown:
+        tutorial = getattr(getattr(self.launcher_page, 'parent', None), 'tutorial_controller', None)
+        if not self._shutdown and not (tutorial is not None and tutorial.visible):
             self.backend.join_from_clipboard()
 
     def show_friends(self, invitations=False):
@@ -91,6 +114,17 @@ class MultiplayerDialog(QDialog):
             self.friends_window.backend.showInvitations.emit()
         self.friends_window.raise_()
         self.friends_window.activateWindow()
+
+    def notify_room(self, message):
+        self.notify_social('invite')
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            tray = getattr(self, '_room_tray', None)
+            if tray is None:
+                tray = self._room_tray = QSystemTrayIcon(self.windowIcon(), self)
+                tray.setToolTip('Buggcraft · 房间准备')
+                tray.activated.connect(lambda _: self.show())
+                tray.show()
+            tray.showMessage('房间准备', message, QSystemTrayIcon.Information, 6000)
 
     def notify_social(self, priority):
         if self._shutdown:

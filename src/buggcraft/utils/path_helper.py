@@ -3,6 +3,13 @@ import os
 from pathlib import Path
 
 
+def filesystem_path(path):
+    """Use Windows extended paths for filesystem operations on long instances."""
+    value = str(Path(path).absolute())
+    if os.name == 'nt' and not value.startswith('\\\\?\\'):
+        value = '\\\\?\\UNC\\' + value[2:] if value.startswith('\\\\') else '\\\\?\\' + value
+    return Path(value)
+
 
 def get_launcher_directory():
     """Return the deployed launcher location, independent of its working directory."""

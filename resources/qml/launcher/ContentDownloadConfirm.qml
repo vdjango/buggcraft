@@ -150,7 +150,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             Item { Layout.fillWidth: true }
-            ActionButton { text: "取消"; implicitWidth: 82; implicitHeight: 34; onClicked: dialogModel.action("取消") }
+            ActionButton { objectName: "content-download-cancel"; text: "取消"; implicitWidth: 82; implicitHeight: 34; onClicked: dialogModel.action("取消") }
             ActionButton { objectName: "content-download-confirm"; text: "确认下载"; implicitWidth: 104; implicitHeight: 34; primary: true; enabled: !!root.info.targetValid && !root.state.working; onClicked: dialogModel.action("确认下载") }
         }
     }

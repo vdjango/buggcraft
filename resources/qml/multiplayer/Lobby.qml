@@ -15,6 +15,7 @@ Rectangle {
         friends:"好友", friendForm:vm.editIndex >= 0 ? "编辑好友" : "添加好友",
         connections:"我的房间", connected:"房间详情", worldPicker:"重新开放世界", nodes:"联机节点"})
     property var selectedRoom: vm.connections.find(function(c) { return c.id === vm.selected }) || ({role:"client",state:"stopped"})
+    property bool managingRoom: selectedRoom.isManager !== undefined ? selectedRoom.isManager : selectedRoom.role === "host"
     function goBack() {
         if (root.page === "connected") leavePopup.open()
         else lobby.act("navigate", {page:root.page === "friendForm" ? "friends" : root.page === "worldPicker" ? "connected" : "hall"})
@@ -109,10 +110,10 @@ Rectangle {
         background: Surface { color: "#251f30"; border.color: "#7e699e" }
         contentItem: ColumnLayout {
             spacing: 14
-            CopyText { text: root.selectedRoom.role === "host" ? "关闭房间并返回？" : "断开连接并返回？"; font.pixelSize: 16; font.bold: true; color: "#f3efff" }
+            CopyText { text: root.managingRoom ? "关闭房间并返回？" : "断开连接并返回？"; font.pixelSize: 16; font.bold: true; color: "#f3efff" }
             CopyText {
                 Layout.fillWidth: true
-                text: root.selectedRoom.role === "host" ? "关闭房间会断开所有朋友的联机连接。" : "返回大厅会断开当前房间的游戏连接和聊天。"
+                text: root.managingRoom ? "关闭房间会断开所有朋友的联机连接。" : root.selectedRoom.role === "host" ? "世界将停止开放，准备房间由新房主继续管理。" : "返回大厅会断开当前房间的游戏连接和聊天。"
                 font.pixelSize: 12
             }
             RowLayout {
@@ -120,7 +121,7 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 ActionButton { objectName: "cancel-leave-room"; text: "留在房间"; onClicked: leavePopup.close() }
                 ActionButton {
-                    objectName: "confirm-leave-room"; text: root.selectedRoom.role === "host" ? "关闭房间" : "断开连接"; danger: true
+                    objectName: "confirm-leave-room"; text: root.managingRoom ? "关闭房间" : "断开连接"; danger: true
                     onClicked: { leavePopup.close(); lobby.act("stop", {id:vm.selected}) }
                 }
             }
@@ -203,7 +204,7 @@ Rectangle {
     FloatingFriends {
         id: friendsFloat
         objectName: "open-friends-window"
-        visible: root.page === "hall" && !!vm.socialReady
+        visible: root.page === "hall" && !!vm.friendEntryAvailable
         x: root.width - width - 25; y: maximumY - 11
         maximumX: root.width - width - 14
         minimumY: 160

@@ -3,14 +3,16 @@ import json
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QFileDialog
 
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
+from core.modpacks import export_pack
 from ui.dialog.qml_dialog import QmlDialog
 from ui.pages.qml_host import QmlPage
 from utils.instances import installed_instance_ids
+from utils.path_helper import filesystem_path
 
 
 class MinecraftSettingSignals(QObject):
@@ -36,7 +38,7 @@ class _DeleteWorker(QRunnable):
                 deleted = delete_minecraft_directory(identity, raise_errors=True)
             else:
                 for version in installed_instance_ids(directory):
-                    metadata = json.loads((Path(directory) / 'versions' / version / (version + '.json')).read_text(encoding='utf-8'))
+                    metadata = json.loads(filesystem_path(Path(directory) / 'versions' / version / (version + '.json')).read_text(encoding='utf-8'))
                     if not isinstance(metadata, dict):
                         raise ValueError(f'{version} 的版本信息格式无效，无法安全检查依赖。')
                     room = metadata.get('buggcraftRoom')
@@ -65,6 +67,7 @@ class InstancesController(QObject):
         self._pending = {}
         self._delete_dialog = None
         self._delete_worker = None
+        self._export_dialog = None
 
     @Property('QVariantMap', notify=changed)
     def view(self):
@@ -90,7 +93,7 @@ class InstancesController(QObject):
         self._versions = []
         for identity in identities:
             try:
-                metadata = json.loads((Path(directory) / 'versions' / identity / (identity + '.json')).read_text(encoding='utf-8'))
+                metadata = json.loads(filesystem_path(Path(directory) / 'versions' / identity / (identity + '.json')).read_text(encoding='utf-8'))
                 description = str(metadata.get('type', 'release')) + ' · ' + str(metadata.get('releaseTime', '未知日期'))[:10]
             except (OSError, ValueError, TypeError):
                 description = '无法读取版本信息'
@@ -139,6 +142,35 @@ class InstancesController(QObject):
             if not open_folder(str(Path(directory) / 'versions' / identity)):
                 self._status = '无法打开版本文件夹。'
                 self.changed.emit()
+        elif action == 'export':
+            directory = self.settings.get_setting('minecraft.directory.enable') or ''
+            if not directory or not any(item['version'] == identity for item in self._versions):
+                self._status = '实例不在当前目录中，无法导出。'
+                self.changed.emit()
+                return
+            if self._export_dialog is not None:
+                self._export_dialog.raise_()
+                self._export_dialog.activateWindow()
+                return
+            dialog = QmlDialog(
+                self.page, title='导出整合包', message='选择导出方式',
+                detail='精简：文件更小，导入更快。\n'
+                       '常规：包含完整内容，适合分享和长期存档。',
+                actions=['精简导出', '常规导出', '取消'], width=560, height=250,
+                primary_action='精简导出')
+            self._export_dialog = dialog
+            dialog.controller.actionRequested.connect(
+                lambda label: self._export_action(identity, label))
+            dialog.finished.connect(self._finish_export_dialog, Qt.QueuedConnection)
+            dialog.open()
+
+        elif action in ('exportCompact', 'exportStandard'):
+            # Kept for automation and keyboard-driven callers. The visible UI
+            # uses the mode dialog above.
+            self._choose_export(identity, 'compact' if action == 'exportCompact' else 'standard')
+
+        elif action == 'exportFile':
+            return
         elif action in ('deleteVersion', 'deleteDirectory'):
             if self._delete_dialog is not None:
                 self._delete_dialog.raise_()
@@ -176,6 +208,46 @@ class InstancesController(QObject):
             dialog.shutdown()
             dialog.deleteLater()
         self._pending = {}
+        self.changed.emit()
+
+    @Slot(int)
+    def _finish_export_dialog(self, result):
+        dialog, self._export_dialog = self._export_dialog, None
+        if dialog is not None:
+            dialog.shutdown()
+            dialog.deleteLater()
+
+    def _export_action(self, identity, label):
+        if label == '取消':
+            if self._export_dialog is not None:
+                self._export_dialog.reject()
+            return
+        mode = {'精简导出': 'compact', '常规导出': 'standard'}.get(label)
+        if not mode or self._export_dialog is None:
+            return
+        dialog = self._export_dialog
+        dialog.hide()
+        dialog.shutdown()
+        self._export_dialog = None
+        dialog.deleteLater()
+        QTimer.singleShot(0, lambda: self._choose_export(identity, mode))
+
+    def _choose_export(self, identity, mode):
+        directory = self.settings.get_setting('minecraft.directory.enable') or ''
+        default = identity + ('-compact' if mode == 'compact' else '-standard') + '.buggpack'
+        destination, _ = QFileDialog.getSaveFileName(
+            self.page, '导出整合包', default,
+            'Buggcraft 整合包 (*.buggpack);;ZIP 文件 (*.zip)')
+        if not destination:
+            return
+        try:
+            game_directory = self.settings.get_minecraft_isolation_directory(directory=directory, version=identity)
+            result = export_pack(directory, identity, destination, mode=mode, game_directory=game_directory)
+        except (OSError, ValueError) as exc:
+            self._status = '导出失败：' + str(exc)
+        else:
+            label = '精简' if mode == 'compact' else '常规'
+            self._status = f"{label}整合包已导出：{Path(result['path']).name}"
         self.changed.emit()
 
     @Slot(str)

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / '.test-tools'), str(ROOT / 'buggcraft/src/buggcraft')]
 from hookup.rooms import lookup_account
+from hookup.friend_codes import friend_code
 
 
 class FriendDirectoryTests(unittest.IsolatedAsyncioTestCase):
@@ -33,6 +34,15 @@ class FriendDirectoryTests(unittest.IsolatedAsyncioTestCase):
                          [valid, valid], [valid] * 9):
             with self.subTest(accounts=accounts), self.assertRaises(ValueError):
                 await self.query({'accounts': accounts})
+
+    async def test_short_code_resolves_only_matching_full_identity(self):
+        account = 'a' * 32 + '.' + 'b' * 32
+        self.assertEqual(friend_code(account), 'REAJ-WVMV-6ICI')
+        result = {'accounts': [{'account': account, 'username': 'Alice'}]}
+        for code in ('REAJ-WVMV-6ICI', 'reaj-wvmv-6ici', 'reajwvmv6ici'):
+            self.assertEqual(await self.query(result, code), result['accounts'])
+        with self.assertRaises(ValueError):
+            await self.query(result, 'AAAA-BBBB-CCCC')
 
 
 if __name__ == '__main__':

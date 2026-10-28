@@ -14,6 +14,7 @@ Item {
         anchors.rightMargin: 11
         spacing: 5
         Button {
+            objectName: "toggle-launcher-sidebar"
             Layout.preferredWidth: 40; Layout.preferredHeight: 30
             background: Image { source: root.state.resources + "images/bar/" + (root.state.collapsed ? "toggle-left.png" : "toggle-right.png"); fillMode: Image.PreserveAspectFit }
             onClicked: headerModel.toggleMenu()
@@ -22,7 +23,7 @@ Item {
             model: ["开始", "下载", "设置"]
             delegate: Button {
                 required property string modelData
-                objectName: modelData === "设置" ? "launcher-nav-settings" : ""
+                objectName: modelData === "设置" ? "launcher-nav-settings" : modelData === "下载" ? "launcher-nav-download" : "launcher-nav-home"
                 Layout.preferredWidth: 100; Layout.preferredHeight: 40
                 text: modelData
                 background: Image { source: root.state.resources + "images/bar/" + (root.state.active === modelData ? "menu.png" : "no-menu.png") }
@@ -64,6 +65,7 @@ Item {
             onClicked: headerModel.navigate("实例")
         }
         Button {
+            objectName: "minimize-launcher"
             Layout.preferredWidth: 30; Layout.preferredHeight: 30
             background: Image { source: root.state.resources + "images/bar/min.png" }
             onClicked: headerModel.minimize()

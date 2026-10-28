@@ -28,6 +28,9 @@ class LauncherProcessTests(unittest.TestCase):
         self.work = Path(self.temporary.name)
         self.root = self.work / 'minecraft'
         self.root.mkdir()
+        metadata = self.root / 'versions/fixture/fixture.json'
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({'id': 'fixture', 'javaVersion': {'majorVersion': 21}}), encoding='utf-8')
         self.manager = SettingsManager(str(self.work / 'config'))
         for guard in (
                 patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('Java 21 fixture', (21, 0, 1))),
@@ -150,7 +153,6 @@ class LauncherProcessTests(unittest.TestCase):
 
     def test_java_requirement_from_metadata_rejects_old_java_before_spawning(self):
         metadata = self.root / 'versions/fixture/fixture.json'
-        metadata.parent.mkdir(parents=True)
         metadata.write_text(json.dumps({'id': 'fixture', 'javaVersion': {'majorVersion': 25}}), encoding='utf-8')
         with patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('21', (21, 0, 8))):
             with self.assertRaisesRegex(ValueError, 'Java 25'):
@@ -162,7 +164,6 @@ class LauncherProcessTests(unittest.TestCase):
 
     def test_configured_java_25_is_passed_to_command_without_overwriting_selected_java(self):
         metadata = self.root / 'versions/fixture/fixture.json'
-        metadata.parent.mkdir(parents=True)
         metadata.write_text(json.dumps({'javaVersion': {'majorVersion': 25}}), encoding='utf-8')
         java25 = self.work / 'java25.exe'
         java25.touch()
@@ -177,7 +178,6 @@ class LauncherProcessTests(unittest.TestCase):
     def test_missing_java_is_installed_and_selected_before_game_launch(self):
         from types import SimpleNamespace
         metadata = self.root / 'versions/fixture/fixture.json'
-        metadata.parent.mkdir(parents=True)
         metadata.write_text(json.dumps({'javaVersion': {'majorVersion': 25}}), encoding='utf-8')
         runtime = self.work / 'managed-java.exe'
         runtime.touch()

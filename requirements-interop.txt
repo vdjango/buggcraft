@@ -1,4 +1,0 @@
-# Optional development-only compatibility tests against the previous transport.
-# These media dependencies are NOT installed or bundled for launcher releases.
-aiortc==1.15.0
-av==16.1.0

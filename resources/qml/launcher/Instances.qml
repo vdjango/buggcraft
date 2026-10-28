@@ -36,6 +36,7 @@ Item {
                     ScrollBar.vertical: ScrollBar {}
                     delegate: Rectangle {
                         required property var modelData
+                        objectName: "instance-directory-" + modelData.path
                         width: directories.width - 6
                         height: 64
                         color: root.state.directory === modelData.path ? "#292536" : "transparent"
@@ -54,11 +55,11 @@ Item {
                             }
                         }
                         MouseArea { anchors.fill: parent; onClicked: instancesPage.selectDirectory(modelData.path) }
-                        IconButton { anchors.right: parent.right; anchors.top: parent.top; width: 24; height: 24; text: "移除目录"; source: "../../images/version/close.png"; onClicked: instancesPage.action(modelData.path, "deleteDirectory") }
+                        IconButton { objectName: "instance-remove-directory-" + modelData.path; anchors.right: parent.right; anchors.top: parent.top; width: 24; height: 24; text: "移除目录"; source: "../../images/version/close.png"; onClicked: instancesPage.action(modelData.path, "deleteDirectory") }
                     }
                 }
-                ActionButton { Layout.fillWidth: true; text: "添加游戏文件夹"; onClicked: instancesPage.addDirectory() }
-                ActionButton { Layout.fillWidth: true; text: "安装新游戏"; primary: true; onClicked: instancesPage.action("", "download") }
+                ActionButton { objectName: "instance-add-directory"; Layout.fillWidth: true; text: "添加游戏文件夹"; onClicked: instancesPage.addDirectory() }
+                ActionButton { objectName: "instance-install-game"; Layout.fillWidth: true; text: "安装新游戏"; primary: true; onClicked: instancesPage.action("", "download") }
             }
         }
         ColumnLayout {
@@ -68,6 +69,14 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Label { objectName: "instance-heading"; Layout.fillWidth: true; text: "游戏实例"; font.pixelSize: 14; font.weight: Font.DemiBold; color: "#f2edf8" }
+            }
+            Label {
+                objectName: "instance-status"
+                Layout.fillWidth: true
+                visible: !!root.state.status
+                text: root.state.status
+                color: root.state.status.indexOf("失败") >= 0 || root.state.status.indexOf("无法") >= 0 ? "#ff9b91" : "#b9a8e8"
+                elide: Text.ElideMiddle
             }
             ListView {
                 id: versions
@@ -80,6 +89,7 @@ Item {
                 delegate: ListRow {
                     id: instanceRow
                     required property var modelData
+                    objectName: "instance-row-" + modelData.version
                     width: versions.width; height: 68
                     title: "版本号：" + modelData.version
                     description: modelData.description
@@ -88,9 +98,10 @@ Item {
                     actions: Component {
                         RowLayout {
                             spacing: 8
-                            IconButton { text: "设置"; source: "../../images/version/setting.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "settings") }
-                            IconButton { text: "目录"; source: "../../images/version/folder.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "folder") }
-                            IconButton { text: "删除"; source: "../../images/version/delete.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "deleteVersion") }
+                            ActionButton { objectName: "instance-export-" + instanceRow.modelData.version; text: "导出"; implicitWidth: 52; implicitHeight: 30; onClicked: instancesPage.action(instanceRow.modelData.version, "export") }
+                            IconButton { objectName: "instance-settings-" + instanceRow.modelData.version; text: "设置"; source: "../../images/version/setting.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "settings") }
+                            IconButton { objectName: "instance-folder-" + instanceRow.modelData.version; text: "目录"; source: "../../images/version/folder.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "folder") }
+                            IconButton { objectName: "instance-delete-" + instanceRow.modelData.version; text: "删除"; source: "../../images/version/delete.png"; onClicked: instancesPage.action(instanceRow.modelData.version, "deleteVersion") }
                         }
                     }
                 }

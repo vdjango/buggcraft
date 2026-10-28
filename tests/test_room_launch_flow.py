@@ -12,8 +12,9 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / '.test-tools'), str(ROOT / 'buggcraft/src/buggcraft')]
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtTest import QTest
 from ui.multiplayer_controller import MultiplayerController
-from hookup.relay import RoomInvite
+from hookup.profiles import RoomInvite
 
 
 class RoomLaunchFlowTests(unittest.TestCase):
@@ -86,11 +87,52 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.assertIsNone(self.controller.quick_creation_data)
         self.assertTrue(self.controller.view['error'])
 
+    def test_preparation_room_creates_without_probing_and_keeps_host_launch_available(self):
+        self.parent.auth_manager.current = SimpleNamespace(username='Host')
+        self.controller.game = {'version': '1.21.8'}
+        with patch.object(self.controller, 'profile', return_value=Mock()), \
+                patch.object(self.controller, 'probe') as probe:
+            self.controller.act('quickCreate', {'port': 0, 'title': 'Preparation room'})
+        probe.assert_not_called()
+        endpoint = self.service.add.call_args.args[1]
+        name = self.service.add.call_args.args[0]
+        self.service.endpoints[name] = endpoint
+        self.assertEqual(endpoint.game_port, 0)
+        self.assertEqual(self.controller.records[name]['availability'], 'waiting')
+        self.controller.update_status(name, 'online', '')
+        self.assertEqual(self.controller.records[name]['availability'], 'waiting')
+        self.assertEqual(self.controller.records[name]['state'], 'online')
+        self.controller.launch_room()
+        self.parent.started_game.assert_called_once_with(server=None)
+
+    def test_native_room_snapshot_is_preserved_at_start(self):
+        from hookup.native_transport import NativeEndpoint
+        self.parent.auth_manager.current = SimpleNamespace(username='Host')
+        for role, port, info, expected in (
+                ('host', 0, {}, 'waiting'), ('host', 51001, {}, 'ready'),
+                ('client', 0, {'availability': 'waiting'}, 'waiting'),
+                ('host', 0, {'availability': 'ready'}, 'ready')):
+            with self.subTest(role=role, port=port, info=info):
+                endpoint = NativeEndpoint(Mock(), role=role, game_port=port)
+                endpoint.room_info = info
+                name = self.controller.start(endpoint, 'Room state')
+                self.assertEqual(self.controller.records[name]['availability'], expected)
+
     def test_clipboard_join_validates_code_waits_for_node_and_avoids_duplicate_join(self):
         self.controller.records.clear()
         self.controller.patch(connections=[], page='hall', nodeAvailable=False)
+        def set_clipboard(value):
+            # Preparing external clipboard input may encounter a busy Windows
+            # clipboard (for example, while remote desktop reads it).
+            for _ in range(100):
+                QApplication.clipboard().setText(value)
+                self.app.processEvents()
+                if QApplication.clipboard().text() == value:
+                    break
+                QTest.qWait(5)
+            self.assertEqual(QApplication.clipboard().text(), value)
         invite = RoomInvite.create().encode()
-        QApplication.clipboard().setText(invite)
+        set_clipboard(invite)
         with patch.object(self.controller, 'join') as join:
             self.controller.join_from_clipboard()
             join.assert_not_called()
@@ -100,13 +142,13 @@ class RoomLaunchFlowTests(unittest.TestCase):
             join.assert_called_once_with(invite, room_id=None)
             self.controller.join_from_clipboard()
             join.assert_called_once()
-            QApplication.clipboard().setText('not an invitation')
+            set_clipboard('not an invitation')
             self.controller.join_from_clipboard()
-            QApplication.clipboard().setText(invite)
+            set_clipboard(invite)
             self.controller.join_from_clipboard()
             join.assert_called_once()
             another = RoomInvite.create().encode()
-            QApplication.clipboard().setText(another)
+            set_clipboard(another)
             self.controller.join_from_clipboard()
             self.assertEqual(join.call_count, 2)
             join.assert_called_with(another, room_id=None)
@@ -166,8 +208,9 @@ class RoomLaunchFlowTests(unittest.TestCase):
     def test_waiting_and_mismatched_clients_cannot_launch_wrong_game(self):
         record = self.controller.records['room']
         record['availability'] = 'waiting'
-        with self.assertRaisesRegex(ValueError, '请等待'):
-            self.controller.launch_room()
+        self.controller.launch_room()
+        self.parent.started_game.assert_called_once_with(server=None)
+        self.parent.started_game.reset_mock()
         record.update(availability='ready', compatibility='模组集合不同')
         with self.assertRaisesRegex(ValueError, '配置与房间不符'):
             self.controller.launch_room()
@@ -193,25 +236,39 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.controller.launch_room()
         self.parent.started_game.assert_called_once_with(server='127.0.0.1:34567')
 
-    def test_prepared_game_waits_for_selected_metadata_verification_before_launch(self):
+    def test_prepared_game_waits_for_verification_then_requires_explicit_launch(self):
         game = dict(version='1.20.1', loader='forge', loader_version='47.4.0', mods_hash='a')
         self.controller.records['room']['game'] = game
         self.controller.records['room']['preparing'] = True
-        self.controller.prepared_launch = None
+        self.controller.pending_preparation_check = None
         with patch.object(self.controller, 'detect_instance'), patch.object(self.controller, 'select_instance') as select:
             self.controller.finish('prepare:room', 'room-prepared', None)
         select.assert_called_once_with('room-prepared')
         self.parent.started_game.assert_not_called()
-        self.assertEqual(self.controller.prepared_launch, ('room','room-prepared'))
+        self.assertEqual(self.controller.pending_preparation_check, ('room','room-prepared'))
         self.controller.instance_job = 'instance:verified'
         self.controller.patch(instanceId='room-prepared')
         self.controller.finish('instance:verified', game, None)
+        self.parent.started_game.assert_not_called()
+        self.assertIn('已准备好', self.controller.records['room']['prepareStatus'])
+        self.controller.launch_room()
         self.parent.started_game.assert_called_once_with(server='127.0.0.1:34567')
+
+    def test_preparation_completion_in_waiting_room_does_not_launch_or_claim_world_is_ready(self):
+        game = dict(version='1.20.1', loader='forge', mods_hash='a')
+        self.controller.records['room'].update(game=game, availability='waiting')
+        self.controller.pending_preparation_check = ('room', 'room-prepared')
+        self.controller.instance_job = 'instance:verified'
+        self.controller.patch(instanceId='room-prepared')
+        self.controller.finish('instance:verified', game, None)
+        self.parent.started_game.assert_not_called()
+        self.assertIn('等待房主开放世界', self.controller.records['room']['prepareStatus'])
+        self.assertEqual(self.controller.records['room']['availability'], 'waiting')
 
     def test_prepared_game_never_launches_when_final_metadata_reports_vanilla(self):
         game = dict(version='1.20.1', loader='forge', loader_version='47.4.0', mods_hash='a')
         self.controller.records['room']['game'] = game
-        self.controller.prepared_launch = ('room','room-prepared')
+        self.controller.pending_preparation_check = ('room','room-prepared')
         self.controller.instance_job = 'instance:verified'
         self.controller.patch(instanceId='room-prepared')
         self.controller.finish('instance:verified', dict(game, loader='vanilla'), None)
@@ -236,7 +293,7 @@ class RoomLaunchFlowTests(unittest.TestCase):
         with patch.object(self.controller, 'job', side_effect=self.run_job):
             self.controller.act('updateRoomSettings', {'title': '新的房间', 'public': True, 'requireInvite': False})
         endpoint._routes.request.assert_awaited_once_with('room.configure', {
-            'session': endpoint.session, 'settings': dict(result)})
+            'session': endpoint.session, 'settings': dict(result, allow_mod_transfer=False, mod_transfer_limit_kib=512)})
         self.assertEqual(self.controller.records['room']['title'], '新的房间')
         self.assertFalse(self.controller.records['room']['requireInvite'])
         self.assertEqual(endpoint.room_settings['game'], game)
@@ -246,6 +303,24 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.assertEqual(self.controller.records['room']['title'], '新的房间')
         self.assertEqual(endpoint.room_settings['title'], '新的房间')
         self.assertFalse(self.controller.view['busy'])
+
+    def test_live_transport_poll_updates_the_room_path_badge(self):
+        from hookup.native_transport import NativeEndpoint
+        endpoint = NativeEndpoint(Mock(), role='client')
+        events = []
+        endpoint.on_chat = events.append
+
+        endpoint._set_transport('relay', force=True)
+        endpoint._set_transport('p2p')
+        endpoint._set_transport('p2p')
+
+        self.assertEqual(events, [
+            {'type': 'transport', 'transport': 'relay'},
+            {'type': 'transport', 'transport': 'p2p'},
+        ])
+        for event in events:
+            self.controller.update_chat('room', event)
+        self.assertEqual(self.controller.records['room']['transport'], 'p2p')
 
     def test_guest_cannot_change_host_settings(self):
         with patch.object(self.controller, 'job') as job:
@@ -426,11 +501,10 @@ class RoomLaunchFlowTests(unittest.TestCase):
         with patch.object(self.controller, 'job', side_effect=self.run_job), \
                 patch('ui.multiplayer_controller.native_bridge', return_value=bridge):
             self.controller.detect_runtime()
-            self.assertEqual(self.controller.view['openWorldMode'], 'associate')
-            self.controller.act('createFromOpenWorld', {'port':world['port']})
+            self.assertFalse(self.controller.view['openWorldPrompt'])
         endpoint.retarget_world.assert_awaited_once_with(world['port'])
         self.assertFalse(self.controller.view['openWorldPrompt'])
-        self.assertEqual(self.controller.view['page'], 'connected')
+        self.assertIn('自动连接', self.controller.view['notice'])
 
     def test_waiting_host_can_discover_and_reselect_world_after_starting_game(self):
         world = dict(port=51234, version='1.21.8', protocol=772)
@@ -472,6 +546,19 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.assertEqual(self.controller.view['instanceId'], 'running-version')
         self.assertTrue(self.controller.view['instanceLocked'])
         self.assertEqual(self.controller.instance_source, self.parent.running_instance)
+
+    def test_forced_instance_scan_refreshes_mod_metadata_for_same_selected_configuration(self):
+        directory = self.parent.launcher.minecraft_directory
+        self.controller.instance_source = (directory, 'selected', directory)
+        scanner = Mock(side_effect=lambda key, coroutine: coroutine.close())
+        with patch.object(self.controller, 'job', scanner), \
+                patch('ui.multiplayer_controller.installed_instance_ids', return_value=['selected']):
+            self.controller.detect_instance()
+            scanner.assert_not_called()
+            self.controller.detect_instance(force=True)
+        scanner.assert_called_once()
+        self.assertTrue(scanner.call_args.args[0].startswith('instance:'))
+        self.assertTrue(self.controller.view['instanceLoading'])
 
     def test_waiting_host_metadata_refresh_updates_room_for_joined_players(self):
         self.controller.records['room'].update(role='host', availability='waiting', game={'version':'old'})
@@ -586,7 +673,8 @@ class BackgroundLanMonitorTests(unittest.TestCase):
 
     def test_startup_starts_hidden_monitor_without_saved_nodes(self):
         from ui.pages.qml_start import StartGamePage
-        page = SimpleNamespace(_ensure_multiplayer_dialog=Mock())
+        page = SimpleNamespace(_ensure_multiplayer_dialog=Mock(
+            return_value=SimpleNamespace(backend=SimpleNamespace(view={'nodes': []}, node_path=''))))
         StartGamePage._start_background_social(page)
         page._ensure_multiplayer_dialog.assert_called_once_with()
 

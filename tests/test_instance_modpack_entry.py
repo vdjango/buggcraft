@@ -1,8 +1,57 @@
 from unittest.mock import patch
+import json
+import zipfile
 from _qml_test_support import LauncherQmlCase
 
 
 class InstanceModpackEntryTests(LauncherQmlCase):
+    def test_buggpack_drag_drop_opens_actual_import_form(self):
+        from PySide6.QtCore import QMimeData, QPoint, QPointF, QUrl, Qt
+        from PySide6.QtGui import QDragEnterEvent, QDropEvent
+        from PySide6.QtWidgets import QApplication
+        from core.modpacks import export_pack
+        archive = self.directory / 'dropped.buggpack'
+        export_pack(self.game_dir, '1.21.8', archive)
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(archive))])
+        enter = QDragEnterEvent(QPoint(100, 100), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        drop = QDropEvent(QPointF(100, 100), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(self.window.started_page.quick, enter)
+        self.assertTrue(enter.isAccepted())
+        QApplication.sendEvent(self.window.started_page.quick, drop)
+        self.pump(100)
+        controller = self.window.download_page.content_page.controller
+        self.assertEqual(controller.pack_path, str(archive.resolve()))
+        self.assertEqual(controller.view, 'import')
+        self.assert_no_qml_errors()
+
+    def test_export_button_writes_buggcraft_pack_from_real_instance_row(self):
+        instance = self.game_dir / 'versions' / '1.21.8'
+        metadata = json.loads((instance / '1.21.8.json').read_text(encoding='utf-8'))
+        metadata.update(clientVersion='1.21.8', buggcraftModpack={
+            'name': 'UI 导出包', 'version': '1', 'minecraft': '1.21.8',
+            'loader': '', 'loaderVersion': '',
+        })
+        (instance / '1.21.8.json').write_text(json.dumps(metadata), encoding='utf-8')
+        (instance / 'config').mkdir()
+        (instance / 'config' / 'ui-export.json').write_text('{"ok":true}', encoding='utf-8')
+        archive = self.directory / 'ui-export.buggpack'
+        self.window.switch_pages('实例')
+        page = self.window.version_page.versions_page
+        self.pump()
+        with patch('ui.pages.qml_instances.QFileDialog.getSaveFileName',
+                   return_value=(str(archive), 'Buggcraft package')):
+            self.assertIsNotNone(self.item(page, 'instance-export-1.21.8'))
+            self.click(page, 'instance-export-1.21.8')
+            dialog = page.controller._export_dialog
+            self.assertIsNotNone(dialog)
+            self.click(dialog.host, 'dialog-action-0')
+        self.assertTrue(archive.is_file())
+        with zipfile.ZipFile(archive) as packaged:
+            self.assertIn('buggcraft.pack.json', packaged.namelist())
+            self.assertEqual(packaged.read('files/config/ui-export.json'), b'{"ok":true}')
+        self.assertIn('整合包已导出', page.controller.view['status'])
+
     def test_import_uses_selected_directory_after_each_directory_change(self):
         page = self.window.version_page.versions_page
         empty = self.directory / 'empty'

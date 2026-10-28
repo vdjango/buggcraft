@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
 from PySide6.QtTest import QTest
-from _qml_test_support import LauncherQmlCase, Qt
+from _qml_test_support import LauncherQmlCase, Qt, qt_mouse_click
 from PySide6.QtCore import QPoint
 
 
@@ -19,10 +19,10 @@ class UiRefinementTests(LauncherQmlCase):
         dialog = controller._delete_dialog
         move = Mock()
         with patch.object(dialog, 'windowHandle', return_value=SimpleNamespace(startSystemMove=move)):
-            QTest.mouseClick(dialog.quick, Qt.LeftButton, Qt.NoModifier, QPoint(30, 15))
-            QTest.mouseClick(dialog.quick, Qt.LeftButton, Qt.NoModifier, QPoint(130, 35))
+            qt_mouse_click(dialog.quick, QPoint(30, 15))
+            qt_mouse_click(dialog.quick, QPoint(130, 35))
             self.assertEqual(move.call_count, 2)
-            QTest.mouseClick(dialog.quick, Qt.LeftButton, Qt.NoModifier, QPoint(120, 110))
+            qt_mouse_click(dialog.quick, QPoint(120, 110))
             self.assertEqual(move.call_count, 2)
         self.click(dialog.host, 'dialog-action-0')
         self.assert_no_qml_errors()

@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+from utils.path_helper import filesystem_path
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def installed_instance_ids(directory):
     if not directory:
         return []
     try:
-        versions = Path(directory) / 'versions'
+        versions = filesystem_path(Path(directory) / 'versions')
         result = []
         for folder in versions.iterdir():
             metadata = folder / (folder.name + '.json')

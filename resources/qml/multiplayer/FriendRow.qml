@@ -33,10 +33,11 @@ Rectangle {
                 CopyText { visible: row.mode === 0 && !!row.person.favorite; text: "★"; color: "#d7b582"; font.pixelSize: 11 }
             }
             CopyText {
+                objectName: "friend-presence-" + (row.person.index || 0)
                 Layout.fillWidth: true; font.pixelSize: 11; wrapMode: Text.NoWrap; elide: Text.ElideRight
                 color: row.mode === 0 && row.person.online ? "#a8cbb4" : "#a79bae"
                 text: row.mode === 0 ? (row.inviteState ? row.inviteState.status :
-                    !row.person.online ? "离线" : row.room.id ? (row.room.role === "host" ? "房主 · " : "联机中 · ") + (row.room.title || "好友的房间") + (row.room.availability === "waiting" ? " · 等待世界开放" : "") : "在线，可以一起玩") :
+                    row.person.presenceStale ? "在线状态未知" : !row.person.online ? "离线" : row.room.id ? (row.room.role === "host" ? "房主 · " : "联机中 · ") + (row.room.title || "好友的房间") + (row.room.availability === "waiting" ? " · 等待世界开放" : "") : "在线，可以一起玩") :
                     row.mode === 1 ? (row.person.incoming ? "想添加你为好友" : "申请已发送，等待回应") : row.mode === 3 ? "想加入你的房间 · 同意后自动发送邀请" : row.joining ? "正在接受邀请并连接房间…" : "邀请你一起联机 · 接受后自动连接"
             }
         }

@@ -74,9 +74,9 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true; spacing: 20
             Label { Layout.fillWidth: true; text: root.state.installView === "components" ? root.state.loaderStatus : ""; color: "#e5b59c"; wrapMode: Text.Wrap; font.pixelSize: 12 }
-            ActionButton { visible: root.state.installView === "versions" && !root.state.loaderBusy; text: "重新加载"; onClicked: gameCatalogue.openComponent(root.state.pendingComponent) }
+            ActionButton { objectName: "component-reload"; visible: root.state.installView === "versions" && !root.state.loaderBusy; text: "重新加载"; onClicked: gameCatalogue.openComponent(root.state.pendingComponent) }
             ActionButton { objectName: "install-selected-game"; visible: root.state.installView === "components"; text: "安装"; primary: true; implicitWidth: 72; implicitHeight: 35; onClicked: gameCatalogue.install() }
-            ActionButton { text: root.state.installView === "versions" ? "返回" : "取消"; implicitWidth: 72; implicitHeight: 35; onClicked: root.state.installView === "versions" ? gameCatalogue.backToComponents() : gameCatalogue.backToGames() }
+            ActionButton { objectName: "game-install-cancel"; text: root.state.installView === "versions" ? "返回" : "取消"; implicitWidth: 72; implicitHeight: 35; onClicked: root.state.installView === "versions" ? gameCatalogue.backToComponents() : gameCatalogue.backToGames() }
         }
     }
 }

@@ -29,7 +29,7 @@ class CurseForgeTests(unittest.TestCase):
         response.status_code = 200
         response.__enter__.return_value = response
         response.json.return_value = {'data': data}
-        response.iter_content.return_value = [self.payload]
+        response.iter_content.side_effect = lambda size: iter([self.payload])
         return response
 
     def test_default_gateway_never_receives_a_key_and_own_key_goes_only_to_official_api(self):

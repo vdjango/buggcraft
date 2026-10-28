@@ -1,7 +1,7 @@
 """Guard the launcher boundary: Python only controls the native subprocess."""
 import ast
 import asyncio
-import importlib
+import importlib.util
 from pathlib import Path
 import sys
 import unittest
@@ -17,7 +17,7 @@ from hookup.profiles import RelayProfile, RoomInvite
 class NativeBoundaryTests(unittest.TestCase):
     def test_runtime_has_no_python_multiplayer_network_implementation(self):
         forbidden = {'asyncssh', 'socket', 'aioice', 'aiortc', 'zstandard', 'cryptography'}
-        for file in (ROOT / 'src' / 'buggcraft' / 'hookup').glob('*.py'):
+        for file in (ROOT / 'src' / 'buggcraft' / 'hookup').rglob('*.py'):
             tree = ast.parse(file.read_text(encoding='utf-8'))
             imports = []
             for node in ast.walk(tree):
@@ -26,8 +26,23 @@ class NativeBoundaryTests(unittest.TestCase):
                 elif isinstance(node, ast.ImportFrom) and node.module:
                     imports.append(node.module.split('.')[0])
             self.assertFalse(forbidden.intersection(imports), file.name)
-        module = importlib.import_module('hookup.relay')
-        self.assertIs(module.TunnelHost, TunnelHost)
+        for module in ('hookup.relay', 'hookup.host', 'hookup.client', 'tunnel'):
+            self.assertIsNone(importlib.util.find_spec(module), module)
+
+    def test_tests_and_tools_do_not_reintroduce_the_retired_python_stack(self):
+        forbidden = {'tunnel', 'asyncssh', 'aioice', 'aiortc', 'hookup._rtc',
+                     'hookup.peer', 'hookup.ice', 'hookup.game_chat', 'hookup.legacy_chat',
+                     'hookup.relay', 'hookup.host', 'hookup.client'}
+        for folder in ('tests', 'scripts'):
+            for file in (ROOT / folder).rglob('*.py'):
+                tree = ast.parse(file.read_text(encoding='utf-8-sig'))
+                for node in ast.walk(tree):
+                    imports = ([alias.name for alias in node.names] if isinstance(node, ast.Import)
+                               else [node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+                    for name in imports:
+                        self.assertFalse(any(name == old or name.startswith(old + '.')
+                                             for old in forbidden), f'{file.name}: {name}')
+        self.assertFalse(any((ROOT / 'compatibility').rglob('*.py')))
 
 
 class NativeEndpointTests(unittest.IsolatedAsyncioTestCase):

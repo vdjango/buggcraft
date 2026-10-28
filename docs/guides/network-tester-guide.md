@@ -36,10 +36,14 @@
 
 ## 开发者复测
 
-`tests.test_peer_transport` 使用真实本机 ICE / DTLS / SCTP / SSH 套接字，覆盖并发、2 MiB 传输、仅中继、协商超时及直连失败后新连接降级。
+联机底层测试在 `minecraft-tunnel-native` 中执行，先运行 `ctest --test-dir build --build-config Release --output-on-failure`。启动器仓库使用以下 pytest 用例验证原生调用边界和真实界面：
 
-`tests.test_service_shutdown` 验证真实本机 SSH 节点上的房主、访客退出，以及退出房间与关闭服务重叠的清理。`tests.test_game_chat.RealGameChatTests.test_p2p_game_counts_do_not_depend_on_relay_streams_or_lobby_members` 验证真实 Minecraft 服务端在零游戏中继流量时仍上报人数，并区分退出游戏与退出房间。运行前需要相邻的 `minecraft-tunnel` 源码和测试依赖；游戏测试还需要本机 Java、服务端及 Mineflayer 测试环境。
+```powershell
+.build-venv/Scripts/python.exe -m pytest -q tests/test_native_bridge_runtime.py tests/test_native_bridge_services.py tests/test_native_cutover.py tests/test_native_routes.py tests/test_native_transport_poll.py
+$env:QT_QPA_PLATFORM = 'windows'
+.build-venv/Scripts/python.exe -m pytest -s -q tests/test_client_ui_acceptance.py tests/test_friend_entry_ui.py
+```
 
-`scripts/validate_local_multiplayer.py` 可启动隔离的本机 Minecraft 服务端和三个图形客户端，对比 P2P、强制中继与失败降级，保存每端日志和 JSON 结果；需要事先安装的游戏文件、Java 和相邻的 `minecraft-tunnel` 源码。只访问本机临时世界，测试过程会打开游戏窗口。
+`test_native_bridge_runtime.py` 使用真实 C++ Bridge DLL / EXE；`test_native_bridge_services.py` 在隔离进程中执行原生仓库的本机节点验收，缺少构建或测试依赖时明确跳过。UI 用例通过 Qt 鼠标键盘事件操作生产页面，联机服务响应使用隔离夹具。Minecraft 进程和公网连接需按 [联机回归用例](../technical/multiplayer-regression-cases.md) 另行记录。旧 Python SSH/ICE 测试和脚本已移除。
 
 本机自连验证实现和真实游戏流量，不能证明跨家庭宽带、校园网、移动网络或对称 NAT 的打洞成功率。不同网络的测试结果需分开记录。

@@ -53,8 +53,9 @@ class NativeDirectoryConnection:
 
 async def lookup_account(profile, identifier):
     """Resolve a public account identity across the selected node's federation."""
+    from .friend_codes import matches_account
     if not isinstance(identifier, str) or not 1 <= len(identifier.strip()) <= 65:
-        raise ValueError('请输入用户名或完整账号 ID')
+        raise ValueError('请输入好友码、用户名或完整账号 ID')
     identifier = identifier.strip()
     async with await connect_directory(profile) as connection:
         result = await request(connection, 'account_lookup', identifier=identifier)
@@ -68,7 +69,7 @@ async def lookup_account(profile, identifier):
         account, username = item.get('account'), item.get('username')
         if (not isinstance(account, str) or not re.fullmatch(r'[0-9a-f]{32}\.[0-9a-f]{32}', account) or
                 not isinstance(username, str) or not re.fullmatch('[A-Za-z0-9_-]{3,32}', username) or
-                (identifier != account and identifier.casefold() != username.casefold()) or account in seen):
+                not matches_account(identifier, account, username) or account in seen):
             raise ValueError('节点返回的账号信息与查询不符')
         seen.add(account)
     return accounts
@@ -213,6 +214,23 @@ def validate_room(value):
         raise ValueError('节点模组列表无效')
     if type(game.get('mods_count', 0)) is not int or not 0 <= game.get('mods_count', 0) <= 10000:
         raise ValueError('节点模组数量无效')
+    resources = game.get('resources', [])
+    if (not isinstance(resources, list) or len(resources) > 24 or
+            any(not isinstance(item, dict) or
+                not isinstance(item.get('name'), str) or len(item['name']) > 240 or
+                not isinstance(item.get('path'), str) or
+                not item['path'].startswith(('resourcepacks/', 'shaderpacks/')) or
+                Path(item['path']).name != item['name'] or item['path'].count('/') != 1 or
+                not isinstance(item.get('sha256'), str) or
+                not re.fullmatch(r'[0-9a-f]{64}', item['sha256']) or
+                type(item.get('size')) is not int or not 0 <= item['size'] <= 2147483647
+                for item in resources)):
+        raise ValueError('Room resource list is invalid')
+    for key in ('resources_hash',):
+        if not isinstance(game.get(key, ''), str) or len(game.get(key, '')) > 128:
+            raise ValueError('Room resource hash is invalid')
+    if type(game.get('resources_count', 0)) is not int or not 0 <= game.get('resources_count', 0) <= 2000:
+        raise ValueError('Room resource count is invalid')
     return value
 
 
@@ -250,10 +268,11 @@ def metadata_loader(metadata):
 
 
 def instance_metadata(directory, version, game_directory=None):
-    """Inspect installed version inheritance and byte hashes of instance mod jars."""
+    """Inspect required mods and optional resource/shader files for a room."""
     base = Path(directory)
     result = {'version': '', 'protocol': None, 'loader': 'vanilla', 'loader_version': '',
-              'mods_hash': '', 'mods_count': 0, 'mods': []}
+              'mods_hash': '', 'mods_count': 0, 'mods': [],
+              'resources_hash': '', 'resources_count': 0, 'resources': []}
     current, seen = version, set()
     while current and current not in seen:
         seen.add(current)
@@ -283,6 +302,26 @@ def instance_metadata(directory, version, game_directory=None):
             result['mods'].append({'name': jar.name, 'sha256': digest.hexdigest(),
                                    'size': jar.stat().st_size})
     result['mods_hash'] = hashlib.sha256('\n'.join(sorted(hashes)).encode()).hexdigest()
+    game_root = Path(game_directory or base)
+    resource_hashes = []
+    for folder in ('resourcepacks', 'shaderpacks'):
+        resource_directory = game_root / folder
+        if not resource_directory.is_dir():
+            continue
+        for item in sorted(resource_directory.iterdir(), key=lambda value: value.name.casefold()):
+            if not item.is_file() or item.is_symlink():
+                continue
+            digest = hashlib.sha256()
+            with item.open('rb') as source:
+                for block in iter(lambda: source.read(1024 * 1024), b''):
+                    digest.update(block)
+            value = digest.hexdigest()
+            resource_hashes.append(value)
+            if len(result['resources']) < 24 and len(item.name) <= 240:
+                result['resources'].append({'name': item.name, 'path': f'{folder}/{item.name}',
+                                            'sha256': value, 'size': item.stat().st_size})
+    result['resources_count'] = len(resource_hashes)
+    result['resources_hash'] = hashlib.sha256('\n'.join(sorted(resource_hashes)).encode()).hexdigest()
     if result['loader'] == 'forge' and result['loader_version'].startswith(result['version'] + '-'):
         result['loader_version'] = result['loader_version'][len(result['version']) + 1:]
     return result

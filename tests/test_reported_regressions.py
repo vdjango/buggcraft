@@ -308,12 +308,38 @@ class ReportedUiTests(LauncherQmlCase):
         self.assert_no_qml_errors()
 
     def test_personal_node_starts_background_friend_reception_without_opening_hall(self):
+        from hookup.nodes import profile_data, save_json
+        from hookup.profiles import RelayProfile
+        from hookup.storage import LobbyStore
+        from ui.multiplayer_controller import MultiplayerController
+        from tests.native_fixtures import ssh_public_key, personal_access_token
+
         start = self.window.started_page
-        store = Mock(data={'nodes': ['anonymous.json', 'personal.json']})
-        dialog = Mock()
-        with patch('hookup.storage.LobbyStore', return_value=store), \
-                patch('hookup.profiles.RelayProfile.load', side_effect=[Mock(token='guest'), Mock(token='acct1.fixture')]), \
-                patch.object(start, '_ensure_multiplayer_dialog', return_value=dialog):
+        store = LobbyStore(self.directory / 'background-lobby.json')
+        for name, token in (('anonymous', 'a' * 48), ('personal', personal_access_token())):
+            path = self.directory / (name + '.json')
+            save_json(path, profile_data(RelayProfile('127.0.0.1', 3333, token, ssh_public_key())))
+            store.add_node(str(path))
+        # The generic UI fixture suppresses startup I/O; restore this method so
+        # this regression executes the production background startup path.
+        next(patcher for patcher in self.patches if patcher.attribute == '_start_background_social').stop()
+        jobs = []
+        def schedule(key, task):
+            jobs.append(key)
+            task.close()
+        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch('ui.multiplayer_controller.LobbyStore', return_value=store), \
+                patch.object(MultiplayerController, 'job', side_effect=schedule):
             start._start_background_social()
-        dialog.backend.reload_store.assert_called_once_with(select='personal.json')
-        dialog.show.assert_not_called()
+            dialog = start._multiplayer_dialog
+            self.assertEqual(dialog.backend.node_path, str(self.directory / 'personal.json'))
+            self.assertTrue(dialog.backend.view['friendEntryAvailable'])
+            self.assertTrue(dialog.backend.friend_timer.isActive())
+            self.assertTrue(any(key.startswith('socialstatus:') for key in jobs))
+            self.assertFalse(dialog.isVisible())
+            generation = dialog.backend.social_generation
+            start._start_background_social()
+            self.assertIs(start._multiplayer_dialog, dialog)
+            self.assertEqual(dialog.backend.social_generation, generation)
+            dialog.shutdown()
+        self.assert_no_qml_errors()

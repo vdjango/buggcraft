@@ -36,8 +36,8 @@ Rectangle {
                 width: messageScroll.availableWidth; spacing: 14
                 Label { objectName: "dialog-message"; Layout.fillWidth: true; text: root.state.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#e0e0e8"; font.pixelSize: 15; font.bold: true }
                 Label { objectName: "dialog-detail"; Layout.fillWidth: true; text: root.state.detail; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#c0c0d0"; font.pixelSize: 13 }
-                Label { Layout.fillWidth: true; visible: !!root.state.code; text: root.state.code; font.pixelSize: 26; font.bold: true; color: "#b7abff"; horizontalAlignment: Text.AlignHCenter }
-                Label { Layout.fillWidth: true; visible: !!root.state.uri; text: root.state.uri; color: "#bfc4d5"; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter }
+                Label { objectName: "login-device-code"; Layout.fillWidth: true; visible: !!root.state.code; text: root.state.code; font.pixelSize: 26; font.bold: true; color: "#b7abff"; horizontalAlignment: Text.AlignHCenter }
+                Label { objectName: "login-verification-uri"; Layout.fillWidth: true; visible: !!root.state.uri; text: root.state.uri; color: "#bfc4d5"; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter }
             }
         }
         ScrollView {

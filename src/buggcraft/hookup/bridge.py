@@ -1,4 +1,4 @@
-"""Compatibility command that replaces itself with the native stdio bridge."""
+"""CLI entry that delegates stdin/stdout directly to the C++ bridge."""
 import os
 import asyncio
 import subprocess

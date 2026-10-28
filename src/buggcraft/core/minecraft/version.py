@@ -207,9 +207,11 @@ def open_folder(path):
         
         # Windows 系统
         if system == "windows":
-            # 使用 explorer 命令打开文件夹
-            # /select 参数会选中指定文件，如果传入文件夹则打开该文件夹
-            subprocess.Popen(f'explorer /select,"{os.path.normpath(path)}"')
+            # /select opens the parent and selects its child. Directories must
+            # be passed directly so an instance/Java "open folder" opens it.
+            target = os.path.normpath(path)
+            subprocess.Popen(['explorer.exe', target] if os.path.isdir(path)
+                             else ['explorer.exe', '/select,' + target])
             return True
         
         # macOS 系统

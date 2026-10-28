@@ -10,11 +10,14 @@ import re
 import threading
 import time
 import zipfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
+from config.downloads import download_concurrency, normalize_concurrency
 from urllib3.exceptions import HTTPError as TransportError
 from urllib3.response import HTTPResponse
 
@@ -45,6 +48,69 @@ class _MirrorHealth:
 
 
 _CONTENT_HEALTH = _MirrorHealth()
+_CONTENT_ROUTE_CACHE = {}
+_CONTENT_ROUTE_LOCK = threading.Lock()
+_CONTENT_PROBE_LOCK = threading.Lock()
+_CONTENT_ROUTE_TTL = 600
+_CONTENT_PROBE_BYTES = 64 * 1024
+
+
+def _measure_content_route(url):
+    started = time.monotonic()
+    try:
+        with requests.get(url, stream=True, timeout=(3, 5), allow_redirects=True,
+                          headers={'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity',
+                                   'Range': f'bytes=0-{_CONTENT_PROBE_BYTES - 1}'}) as response:
+            response.raise_for_status()
+            if str(response.headers.get('Content-Type', '')).split(';')[0].lower() in ('text/html', 'application/xhtml+xml'):
+                return 0.0
+            chunk = next(response.iter_content(_CONTENT_PROBE_BYTES), b'')
+            if not chunk:
+                return 0.0
+            return len(chunk) / max(time.monotonic() - started, 0.001)
+    except (requests.RequestException, OSError, ValueError):
+        return 0.0
+
+
+def _rank_content_candidates(candidates, preference='自动测速'):
+    # Concurrent files share one measurement per host and cache lifetime.
+    with _CONTENT_PROBE_LOCK:
+        return _rank_content_candidates_locked(candidates, preference)
+
+
+def _rank_content_candidates_locked(candidates, preference):
+    """Rank trusted public content routes by a bounded, cached range probe."""
+    candidates = list(dict.fromkeys(candidates))
+    if len(candidates) < 2:
+        return candidates
+    hosts = {candidate: urlsplit(candidate).hostname for candidate in candidates}
+    pending = {}
+    now = time.monotonic()
+    with _CONTENT_ROUTE_LOCK:
+        for candidate, host in hosts.items():
+            cached = _CONTENT_ROUTE_CACHE.get(host)
+            if cached and cached[1] > now:
+                pending[candidate] = cached[0]
+    missing = [candidate for candidate in candidates if candidate not in pending]
+    if missing:
+        with ThreadPoolExecutor(max_workers=min(4, len(missing))) as pool:
+            measured = dict(zip(missing, pool.map(_measure_content_route, missing)))
+        with _CONTENT_ROUTE_LOCK:
+            for candidate, speed in measured.items():
+                host = hosts[candidate]
+                _CONTENT_ROUTE_CACHE[host] = (speed, time.monotonic() + _CONTENT_ROUTE_TTL)
+                pending[candidate] = speed
+    ranked = sorted(candidates, key=lambda candidate: pending.get(candidate, 0), reverse=True)
+    if preference == 'MCIM':
+        mirror_host = urlsplit(CONTENT_MIRROR).hostname
+        mirror = next((candidate for candidate in ranked if hosts[candidate] == mirror_host), None)
+        if mirror and pending.get(mirror, 0) >= pending.get(ranked[0], 0) * 0.85:
+            ranked.remove(mirror)
+            ranked.insert(0, mirror)
+    logger.info('content_routes_ranked routes=%s', [
+        {'host': hosts[candidate], 'bytes_per_second': round(pending.get(candidate, 0))}
+        for candidate in ranked])
+    return ranked
 
 
 class _DownloadSession(requests.Session):
@@ -82,6 +148,43 @@ class DownloadCancelled(Exception):
     pass
 
 
+_CURRENT_DOWNLOAD_BUDGET = ContextVar('buggcraft_download_budget', default=None)
+
+
+class DownloadBudget:
+    """One task-wide slot pool shared by game and content downloaders."""
+
+    def __init__(self, workers):
+        self.workers = normalize_concurrency(workers)
+        self.slots = threading.BoundedSemaphore(self.workers)
+
+    @contextmanager
+    def reserve(self, cancel):
+        while True:
+            if cancel.is_set():
+                raise DownloadCancelled('下载已取消')
+            if self.slots.acquire(timeout=0.1):
+                break
+        try:
+            yield
+        finally:
+            self.slots.release()
+
+
+@contextmanager
+def use_download_budget(workers=None):
+    existing = _CURRENT_DOWNLOAD_BUDGET.get()
+    if existing is not None and workers is None:
+        yield existing
+        return
+    budget = DownloadBudget(download_concurrency() if workers is None else workers)
+    token = _CURRENT_DOWNLOAD_BUDGET.set(budget)
+    try:
+        yield budget
+    finally:
+        _CURRENT_DOWNLOAD_BUDGET.reset(token)
+
+
 class _SlowMirror(requests.ConnectionError):
     """Keep verified-size partial data when switching away from a slow mirror."""
 
@@ -89,7 +192,7 @@ class _SlowMirror(requests.ConnectionError):
 def _download_chunks(response, mirror):
     # read1 yields currently available bytes. iter_content waits to fill its
     # buffer, hiding a server that keeps the socket alive with tiny trickles.
-    if mirror and isinstance(response.raw, HTTPResponse) and hasattr(response.raw, 'read1'):
+    if isinstance(response.raw, HTTPResponse) and hasattr(response.raw, 'read1'):
         try:
             while chunk := response.raw.read1(64 * 1024, decode_content=True):
                 yield chunk
@@ -123,6 +226,10 @@ def verified_installation(directory, version):
         if receipt.get('version') != version or not receipt.get('files'):
             return False
         for item in receipt['files']:
+            # Old receipts accidentally included JNA's randomly named temporary
+            # DLLs. JNA removes these on exit; they are not installation assets.
+            if _temporary_jna_native(item['path'], version):
+                continue
             target = _resolved(root / item['path'])
             if not target.is_relative_to(root) or not target.is_file():
                 return False
@@ -133,11 +240,19 @@ def verified_installation(directory, version):
         return False
 
 
+def _temporary_jna_native(relative, version):
+    parts = str(relative).replace('\\', '/').split('/')
+    return (len(parts) == 4 and parts[:3] == ['versions', version, 'natives']
+            and re.fullmatch(r'jna[0-9]+\.dll(?:\.x)?', parts[3]) is not None)
+
+
 class MinecraftDownloader:
-    def __init__(self, directory, source="自动", cancel=None, status=None, progress=None, file_event=None):
+    def __init__(self, directory, source="自动", cancel=None, status=None, progress=None, file_event=None, workers=None):
         self.root = _resolved(directory)
         self.source = source
         self.content_source = None
+        self.budget = _CURRENT_DOWNLOAD_BUDGET.get()
+        self.workers = (self.budget.workers if self.budget is not None else download_concurrency()) if workers is None else normalize_concurrency(workers)
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda message: None)
         self.progress = progress or (lambda current, maximum: None)
@@ -204,7 +319,10 @@ class MinecraftDownloader:
         self._file_event(relative, 'pending', total=size or 0)
         try:
             with download_lock(self.inside(relative), self.cancel):
-                return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress)
+                if self.budget is None:
+                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress)
+                with self.budget.reserve(self.cancel):
+                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress)
         except (DownloadCancelled, InterruptedError):
             self._file_event(relative, 'cancelled')
             raise
@@ -219,19 +337,22 @@ class MinecraftDownloader:
                                  name=self.file_names.get(path, Path(relative).name), state=state, **values))
 
     def _parallel_content(self, url, temporary, size, headers, timeout, relative, file_progress):
-        """Use four bounded ranges for large individual files; verify after joining.
+        """Use bounded ranges for large individual files; verify after joining.
 
         The original response remains available if a CDN lies about Range support.
         Batch installs already parallelize files and do not enter this path.
         """
-        parts = [temporary.with_name(temporary.name + f'.{index}') for index in range(4)]
-        received = [0] * 4
+        count = min(4, self.workers)
+        if count < 2:
+            return False
+        parts = [temporary.with_name(temporary.name + f'.{index}') for index in range(count)]
+        received = [0] * count
         lock, stopped = threading.Lock(), threading.Event()
         last_progress = 0.0
 
         def transfer(index):
             nonlocal last_progress
-            start, end = size * index // 4, size * (index + 1) // 4 - 1
+            start, end = size * index // count, size * (index + 1) // count - 1
             request_headers = dict(headers, Range=f'bytes={start}-{end}')
             with _DownloadSession(getattr(self, 'curseforge_key', ''),
                                   getattr(self, 'curseforge_fallbacks', None)) as session:
@@ -262,8 +383,8 @@ class MinecraftDownloader:
                         raise ValueError('分段下载不完整')
 
         try:
-            with ThreadPoolExecutor(max_workers=4, thread_name_prefix='content-range') as pool:
-                futures = [pool.submit(transfer, index) for index in range(4)]
+            with ThreadPoolExecutor(max_workers=count, thread_name_prefix='content-range') as pool:
+                futures = [pool.submit(transfer, index) for index in range(count)]
                 try:
                     for future in as_completed(futures):
                         future.result()
@@ -276,7 +397,7 @@ class MinecraftDownloader:
                         for chunk in iter(lambda: source.read(1024 * 1024), b''):
                             self.check_cancelled()
                             output.write(chunk)
-            logger.info('download_parallel file=%s connections=4 bytes=%s', relative, size)
+            logger.info('download_parallel file=%s connections=%s bytes=%s', relative, count, size)
             return True
         except DownloadCancelled:
             raise
@@ -316,9 +437,10 @@ class MinecraftDownloader:
         temporary = target.with_name(target.name + ".buggcraft-part")
         candidates = list(dict.fromkeys(candidate for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
                                         for candidate in self.urls(address)))
-        if (self.content_source or self.source) != '官方':
-            # Try all supplied domestic mirrors before falling back overseas.
-            candidates.sort(key=lambda value: urlsplit(value).hostname != urlsplit(CONTENT_MIRROR).hostname)
+        content_source = self.content_source or self.source
+        if content_source != '官方' and any(urlsplit(candidate).hostname == urlsplit(CONTENT_MIRROR).hostname
+                                           for candidate in candidates):
+            candidates = _rank_content_candidates(candidates, content_source)
         for candidate in candidates:
             host = urlsplit(candidate).hostname
             content_mirror = host == urlsplit(CONTENT_MIRROR).hostname
@@ -369,7 +491,8 @@ class MinecraftDownloader:
                         last_progress = 0.0
                         transfer_started = time.monotonic()
                         window_bytes = offset
-                        parallel = (file_progress is not None and size is not None and size >= 8 * 1024 * 1024
+                        parallel = (self.workers > 1 and getattr(self, 'parallel_content', True) and file_progress is not None
+                                    and size is not None and size >= 8 * 1024 * 1024
                                     and (sha1 or sha512) and not offset and response.status_code == 200
                                     and response.headers.get('Accept-Ranges', '').lower() == 'bytes'
                                     and host in ('mod.mcimirror.top', 'cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net')
@@ -497,22 +620,43 @@ class MinecraftDownloader:
             allowed = rule.get("action") == "allow"
         return allowed
 
-    def _batch(self, jobs, label):
+    def _batch(self, jobs, label, *, workers=None):
         # Dedupe shared objects before scheduling to avoid competing file writers.
         jobs = list({str(job[1]): job for job in jobs}.values())
         self.status(label)
         self.progress(0, len(jobs))
         if not jobs:
             return
-        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="minecraft-download") as pool:
-            futures = [pool.submit(self.fetch, *job) for job in jobs]
+        workers = self.workers if workers is None else normalize_concurrency(workers)
+        # Batch workers already parallelize files; do not multiply each worker
+        # into additional range transfers.
+        self.parallel_content = False
+        with ThreadPoolExecutor(max_workers=min(workers, len(jobs)), thread_name_prefix="minecraft-download") as pool:
+            remaining = iter(jobs)
+            pending = set()
+
+            def refill():
+                try:
+                    job = next(remaining)
+                except StopIteration:
+                    return
+                pending.add(pool.submit(self.fetch, *job))
+
+            for _ in range(min(workers, len(jobs))):
+                refill()
             try:
-                for completed, future in enumerate(as_completed(futures), 1):
-                    future.result()
-                    self.check_cancelled()
-                    self.progress(completed, len(jobs))
+                completed = 0
+                while pending:
+                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        pending.remove(future)
+                        future.result()
+                        self.check_cancelled()
+                        completed += 1
+                        self.progress(completed, len(jobs))
+                        refill()
             except BaseException:
-                for future in futures:
+                for future in pending:
                     future.cancel()
                 self.cancel.set()
                 raise
@@ -541,14 +685,14 @@ class MinecraftDownloader:
         if metadata.get('id') != version or not metadata.get('downloads', {}).get('client'):
             raise ValueError('实例缺少游戏核心下载信息')
 
-        jobs, natives = [], []
+        library_jobs, natives = [], []
         for library in metadata.get("libraries", []):
             if not self.allowed(library.get("rules")):
                 continue
             downloads = library.get("downloads", {})
             artifact = downloads.get("artifact")
             if artifact and artifact.get("url"):
-                jobs.append((artifact["url"], "libraries/" + artifact["path"], artifact.get("sha1"), artifact.get("size")))
+                library_jobs.append((artifact["url"], "libraries/" + artifact["path"], artifact.get("sha1"), artifact.get("size")))
             classifier = library.get("natives", {}).get(self.system)
             if classifier:
                 classifier = classifier.replace("${arch}", "64" if platform.architecture()[0] == "64bit" else "32")
@@ -556,27 +700,35 @@ class MinecraftDownloader:
                 if not native:
                     raise ValueError(f"缺少本机依赖：{library.get('name')}")
                 relative = "libraries/" + native["path"]
-                jobs.append((native["url"], relative, native.get("sha1"), native.get("size")))
+                library_jobs.append((native["url"], relative, native.get("sha1"), native.get("size")))
                 natives.append(relative)
         client = metadata["downloads"]["client"]
-        jobs.append((client["url"], f"versions/{version}/{version}.jar", client.get("sha1"), client.get("size")))
+        jobs = [(client["url"], f"versions/{version}/{version}.jar", client.get("sha1"), client.get("size"))]
         logging = metadata.get("logging", {}).get("client", {}).get("file")
         if logging:
             jobs.append((logging["url"], "assets/log_configs/" + logging["id"], logging.get("sha1"), logging.get("size")))
-        self._batch(jobs, "正在下载游戏客户端和依赖库…")
-
         index = metadata.get("assetIndex")
+        asset_jobs = []
         if index:
             index_path = self.fetch(index["url"], "assets/indexes/" + index["id"] + ".json", index.get("sha1"), index.get("size"))
             assets = json.loads(index_path.read_text(encoding="utf-8"))
             objects = assets["objects"]
             self.file_names.update({f"assets/objects/{obj['hash'][:2]}/{obj['hash']}": name
                                     for name, obj in objects.items()})
-            self._batch([
+            asset_jobs = [
                 (f"https://resources.download.minecraft.net/{obj['hash'][:2]}/{obj['hash']}",
                  f"assets/objects/{obj['hash'][:2]}/{obj['hash']}", obj["hash"], obj.get("size"))
                 for obj in objects.values()
-            ], "正在下载游戏资源…")
+            ]
+        # Interleave both hosts so the first 32 slots include game, libraries
+        # and assets instead of letting a long library list starve assets.
+        for position in range(max(len(library_jobs), len(asset_jobs))):
+            if position < len(library_jobs):
+                jobs.append(library_jobs[position])
+            if position < len(asset_jobs):
+                jobs.append(asset_jobs[position])
+        self._batch(jobs, "正在并行下载游戏核心、依赖库和资源…")
+        if index:
             # Early Minecraft versions look up assets by their logical names.
             if assets.get("virtual") or assets.get("map_to_resources"):
                 import shutil
@@ -601,7 +753,7 @@ class MinecraftDownloader:
         natives_root = self.inside(f"versions/{version}/natives")
         if natives_root.is_dir():
             for path in natives_root.rglob('*'):
-                if path.is_file():
+                if path.is_file() and not _temporary_jna_native(str(path.relative_to(self.root)), version):
                     self._verified[str(path.relative_to(self.root))] = _sha1(path)
         self.check_cancelled()
         # Publish the version only after every required file has passed validation.

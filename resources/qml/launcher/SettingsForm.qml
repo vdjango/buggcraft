@@ -10,11 +10,45 @@ ScrollView {
     clip: true
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+    function revealTutorialTarget(targetName) {
+        for (var i = 0; i < settingsGroups.count; ++i) {
+            var section = settingsGroups.itemAt(i)
+            if (section && (targetName === "setting-group-" + section.modelData.key ||
+                            targetName === (section.modelData.key === "game.language" ? "setting-select-game-language" : "setting-select-" + section.modelData.key) ||
+                            targetName === "setting-toggle-" + section.modelData.key))
+                section.expanded = true
+        }
+        Qt.callLater(function() {
+            function find(item) {
+                if (item.objectName === targetName && item.visible && item.width > 0 && item.height > 0)
+                    return item
+                for (var j = 0; j < item.children.length; ++j) {
+                    var match = find(item.children[j])
+                    if (match) return match
+                }
+                return null
+            }
+            var control = find(root.contentItem)
+            if (!control) return
+            var position = control.mapToItem(root.contentItem.contentItem, 0, 0)
+            var top = position.y - 16
+            var bottom = position.y + control.height + 16
+            var flick = root.contentItem
+            var maximum = Math.max(0, flick.contentHeight - flick.height)
+            if (top < flick.contentY || bottom > flick.contentY + flick.height)
+                flick.contentY = Math.max(0, Math.min(maximum, top - (flick.height - control.height) / 2))
+        })
+    }
+    Connections {
+        target: settingsPage
+        function onTutorialTargetRequested(targetName) { root.revealTutorialTarget(targetName) }
+    }
     ColumnLayout {
         width: root.availableWidth
         spacing: 10
         Item { Layout.preferredHeight: 5 }
         Repeater {
+            id: settingsGroups
             model: settingsPage.groups
             delegate: SettingsSection {
                 id: group
@@ -33,6 +67,7 @@ ScrollView {
                 Component {
                     id: inlineChoice
                     ChoiceBox {
+                        objectName: "setting-select-" + group.modelData.key
                         implicitWidth: 280; implicitHeight: 28
                         model: group.modelData.options.map(function(option) { return option.title })
                         currentIndex: Math.max(0, group.modelData.options.findIndex(function(option) { return option.value === group.modelData.value }))
@@ -95,19 +130,25 @@ ScrollView {
                             text: modelData.title; description: modelData.description
                             checked: group.modelData.value === modelData.value
                             enabled: group.modelData.enabled
-                            onChosen: settingsPage.setValue(group.modelData.key, modelData.value)
+                            onChosen: {
+                                if (group.modelData.key === "multiplayer.quick_action") tutorial.action("quick_action")
+                                settingsPage.setValue(group.modelData.key, modelData.value)
+                            }
                         }
                     }
                     ChoiceBox {
-                        objectName: group.modelData.key === "game.language" ? "setting-select-game-language" : "setting-select-" + group.modelData.key
+                        objectName: group.modelData.kind === "choice" && !group.modelData.inline ? (group.modelData.key === "game.language" ? "setting-select-game-language" : "setting-select-" + group.modelData.key) : ""
                         visible: group.modelData.kind === "choice" && !group.modelData.inline
                         Layout.fillWidth: true; implicitHeight: 30
+                        tutorialHighlight: group.modelData.key === "game.language" && typeof tutorial !== "undefined" && tutorial.demoStep === "language"
                         model: group.modelData.options.map(function(option) { return option.title })
                         currentIndex: Math.max(0, group.modelData.options.findIndex(function(option) { return option.value === group.modelData.value }))
                         enabled: group.modelData.enabled
                         onActivated: {
-                            settingsPage.setValue(group.modelData.key, group.modelData.options[currentIndex].value)
-                            if (group.modelData.key === "game.language") tutorial.action("language")
+                            var key = group.modelData.key
+                            var value = group.modelData.options[currentIndex].value
+                            if (key === "game.language") tutorial.action("language")
+                            settingsPage.setValue(key, value)
                         }
                     }
                     SettingOption {
@@ -119,8 +160,11 @@ ScrollView {
                         checked: !!group.modelData.value
                         enabled: group.modelData.enabled
                         onChosen: {
-                            settingsPage.setValue(group.modelData.key, !group.modelData.value)
-                            if (group.modelData.key === "translation.enabled") tutorial.action("translation")
+                            var key = group.modelData.key
+                            var value = !group.modelData.value
+                            if (key === "translation.enabled") tutorial.action("translation")
+                            if (key === "multiplayer.quick_action") tutorial.action("quick_action")
+                            settingsPage.setValue(key, value)
                         }
                     }
                     RowLayout {
@@ -132,7 +176,7 @@ ScrollView {
                             objectName: group.modelData.kind === "opacity" ? "setting-opacity-slider" : ""
                             Layout.fillWidth: true
                             from: 35; to: 100; stepSize: 1; snapMode: Slider.SnapAlways
-                            value: group.modelData.kind === "opacity" ? group.modelData.value : 85
+                            value: group.modelData.kind === "opacity" ? settingsPage.sliderValues.opacity : 85
                             implicitHeight: 26
                             background: Rectangle {
                                 x: opacitySlider.leftPadding; y: (opacitySlider.height - height) / 2
@@ -157,10 +201,10 @@ ScrollView {
                         spacing: 10
                         RowLayout {
                             Layout.fillWidth: true; spacing: 14
-                            Label { objectName: "setting-memory-label"; Layout.preferredWidth: 130; text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
+                            Label { objectName: group.modelData.kind === "memory" ? "setting-memory-label" : ""; Layout.preferredWidth: 130; text: "游戏内存分配"; color: "white"; font.pixelSize: 13 }
                             Slider {
                                 id: memory
-                                objectName: "setting-memory-slider"
+                                objectName: group.modelData.kind === "memory" ? "setting-memory-slider" : ""
                                 Layout.fillWidth: true
                                 from: memoryBlock.memoryField.options[0]; to: memoryBlock.memoryField.options[1]
                                 stepSize: 512; snapMode: Slider.SnapAlways
@@ -176,7 +220,7 @@ ScrollView {
                                     width: 12; height: 12; radius: 6
                                     color: "#cc7492f6"; border.color: "#e6ffffff"
                                 }
-                                value: memoryBlock.memoryField.value
+                                value: settingsPage.sliderValues.memory
                                 enabled: memoryBlock.memoryField.enabled
                                 onMoved: if (!pressed) settingsPage.setValue("memory.allocation", Math.round(value))
                                 onPressedChanged: if (!pressed && enabled) settingsPage.setValue("memory.allocation", Math.round(value))
@@ -184,14 +228,14 @@ ScrollView {
                             Label { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: Math.round(memory.value) + " MB"; color: "#e0d9ec"; font.pixelSize: 13 }
                         }
                         Rectangle {
-                            objectName: "setting-memory-bar"
+                            objectName: group.modelData.kind === "memory" ? "setting-memory-bar" : ""
                             Layout.fillWidth: true; implicitHeight: 10; color: "#4b526b"
                             property real usedRatio: Math.min(1, (root.memoryInfo.used || 0) / Math.max(1, root.memoryInfo.total))
                             Rectangle { height: parent.height; width: parent.width * parent.usedRatio; color: "#678aff" }
                             Rectangle { x: parent.width * parent.usedRatio; height: parent.height; width: parent.width * Math.min(1 - parent.usedRatio, memory.value / Math.max(1, root.memoryInfo.total)); color: memory.enabled ? "#ffc864" : "#aaaaaa" }
                         }
                         Label {
-                            objectName: "setting-memory-info"
+                            objectName: group.modelData.kind === "memory" ? "setting-memory-info" : ""
                             Layout.fillWidth: true
                             text: "设备中已使用 " + ((root.memoryInfo.used || 0) / 1024).toFixed(2) + " GB  |  设备总内存 " + ((root.memoryInfo.total || 0) / 1024).toFixed(2) + " GB  |  可用 " + ((root.memoryInfo.available || 0) / 1024).toFixed(2) + " GB"
                             color: "#ccc4d8"; font.pixelSize: 12; wrapMode: Text.Wrap

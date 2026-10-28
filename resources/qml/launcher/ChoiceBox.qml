@@ -1,8 +1,11 @@
 import QtQuick
 import QtQuick.Controls
+import "../shared" as Shared
 
 ComboBox {
     id: control
+    property bool tutorialHighlight: false
+    readonly property bool tutorialPopupVisible: control.popup.visible
     implicitHeight: 36
     implicitWidth: 240
     font.pixelSize: 12
@@ -30,6 +33,12 @@ ComboBox {
         border.width: control.activeFocus || (control.popup && control.popup.visible) ? 1 : 0
         border.color: control.activeFocus || (control.popup && control.popup.visible) ? "#a99bf8" : "#625277"
     }
+    Shared.AttentionFrame {
+        objectName: "choice-tutorial-glow"
+        active: control.tutorialHighlight
+        tint: "#a99bf8"
+    }
+    onTutorialHighlightChanged: if (!tutorialHighlight) control.popup.close()
     delegate: ItemDelegate {
         required property int index
         required property var modelData
@@ -54,8 +63,9 @@ ComboBox {
         y: control.height + 3
         width: control.width
         padding: 4
-        implicitHeight: Math.min(contentItem.implicitHeight + 8, 270)
+        implicitHeight: Math.min(contentItem.implicitHeight + 8, 192)
         contentItem: ListView {
+            objectName: control.objectName + "-popup"
             clip: true
             implicitHeight: count > 0 ? contentHeight : 44
             currentIndex: control.highlightedIndex
@@ -69,6 +79,9 @@ ComboBox {
                 font.pixelSize: 12
             }
         }
-        background: Rectangle { color: "#211f2b"; radius: 5; border.color: "#71658a"; border.width: 1 }
+        background: Rectangle {
+            color: "#211f2b"; radius: 5; border.color: "#71658a"; border.width: 1
+            Shared.AttentionFrame { active: control.tutorialHighlight; tint: "#a99bf8" }
+        }
     }
 }

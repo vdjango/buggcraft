@@ -26,6 +26,9 @@ class GameSessionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        metadata = self.root / 'game/versions/fixture/fixture.json'
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({'id': 'fixture', 'javaVersion': {'majorVersion': 21}}), encoding='utf-8')
         self.settings = SettingsManager(str(self.root / 'config'))
         probe = patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('Java 21 fixture', (21, 0, 1)))
         probe.start()

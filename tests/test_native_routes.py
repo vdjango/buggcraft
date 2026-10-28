@@ -1,4 +1,4 @@
-"""Launcher glue for native route decisions and a safe old-runtime fallback."""
+"""Launcher glue for C++ bridge route decisions and failure handling."""
 import asyncio
 import hashlib
 import json
@@ -7,15 +7,53 @@ import os
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
-import asyncssh
+from tests.native_fixtures import ssh_public_key
 from hookup.nodes import profile_data, remember
-from hookup.relay import RelayProfile
-from hookup.native_routes import NativeRoutes, startup_error
+from hookup.profiles import RelayProfile
+from hookup.native_routes import BridgeError, NativeRoutes, startup_error
 
 
 class NativeRoutesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_storage_failures_reach_launcher_without_forwarding_arbitrary_stderr(self):
+        process = SimpleNamespace(stderr=SimpleNamespace(readline=AsyncMock(side_effect=[
+            b'bridge journal write failed (4); game forwarding continues\n',
+            b'bridge journal cleanup failed (5); game forwarding continues\r\n',
+            b'private-credential-or-SDP-must-not-be-forwarded\n', b''])))
+        with self.assertLogs('hookup.native_routes', level='WARNING') as logs:
+            await NativeRoutes()._drain_stderr(process)
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn('operation=write failures=4', logs.output[0])
+        self.assertIn('operation=cleanup failures=5', logs.output[1])
+        self.assertNotIn('private', str(logs.output))
+
+    async def test_diagnostic_export_never_starts_or_interrupts_a_busy_bridge(self):
+        from hookup.native_routes import diagnostic_snapshot
+        loop = asyncio.get_running_loop()
+        manager = NativeRoutes()
+        manager.library = Mock()
+        manager._request = AsyncMock(return_value={'flushed': True, 'pending_events': 0})
+        with patch('hookup.native_routes._managers', {}), \
+                patch('hookup.native_routes.manager') as create:
+            self.assertEqual((await diagnostic_snapshot())['status'], 'not_running')
+            create.assert_not_called()
+        with patch('hookup.native_routes._managers', {loop: manager}):
+            self.assertEqual((await diagnostic_snapshot())['status'], 'unsupported')
+            manager._request.assert_not_awaited()
+            manager.diagnostic_support = True
+            await manager.request_lock.acquire()
+            try:
+                self.assertEqual((await diagnostic_snapshot())['status'], 'busy')
+                manager._request.assert_not_awaited()
+                manager.library.close.assert_not_called()
+            finally:
+                manager.request_lock.release()
+            result = await diagnostic_snapshot()
+            self.assertEqual(result['status'], 'collected')
+            self.assertTrue(result['flushed'])
+            manager._request.assert_awaited_once_with('bridge.diagnostics', {})
+
     def setUp(self):
-        self.key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        self.key = ssh_public_key()
         self.a = RelayProfile('a.example', 3333, secrets.token_urlsafe(48), self.key)
         self.b = RelayProfile('b.example', 3333, secrets.token_urlsafe(48), self.key)
         remember(self.a, [profile_data(self.b)])
@@ -112,3 +150,55 @@ class NativeRoutesTests(unittest.IsolatedAsyncioTestCase):
         await manager.failed(self.a, self.b)
         self.assertNotIn(self.identity, manager.cached)
         manager._request.assert_awaited_once_with('node.failed', dict(node='opaque-handle', profile=profile_data(self.b)))
+
+    async def test_node_error_keeps_shared_bridge_and_other_node_handles(self):
+        for method in ('node.add', 'node.selected'):
+            with self.subTest(method=method):
+                manager = NativeRoutes()
+                manager.library = Mock()
+                if method == 'node.selected':
+                    manager.handles[self.identity] = 'opaque-handle'
+                manager.handles[b'other-node'] = 'active-room-node'
+                manager._request = AsyncMock(side_effect=BridgeError(-32000, 'No reachable node'))
+                with self.assertRaises(BridgeError):
+                    await manager.choose(self.a)
+                manager.library.close.assert_not_called()
+                self.assertEqual(manager.handles[b'other-node'], 'active-room-node')
+
+    async def test_cancelled_route_waiting_for_rpc_keeps_active_bridge(self):
+        manager = NativeRoutes()
+        library = manager.library = Mock()
+        manager.handles[self.identity] = 'opaque-handle'
+        await manager.request_lock.acquire()
+        try:
+            pending = asyncio.create_task(manager.choose(self.a))
+            await asyncio.sleep(0)
+            pending.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await pending
+            self.assertIs(manager.library, library)
+            library.close.assert_not_called()
+            self.assertEqual(manager.handles[self.identity], 'opaque-handle')
+        finally:
+            manager.request_lock.release()
+
+    async def test_bad_route_result_does_not_close_other_rooms(self):
+        manager = NativeRoutes()
+        library = manager.library = Mock()
+        manager.handles[self.identity] = 'opaque-handle'
+        manager._request = AsyncMock(return_value={'profile': {'invalid': True}})
+        with self.assertRaises(ConnectionError):
+            await manager.choose(self.a)
+        self.assertIs(manager.library, library)
+        library.close.assert_not_called()
+
+    async def test_broken_rpc_response_still_closes_shared_bridge(self):
+        manager = NativeRoutes()
+        library = manager.library = Mock()
+        manager.handles[self.identity] = 'opaque-handle'
+        library.exchange.return_value = b'{invalid-json'
+        with self.assertRaisesRegex(ConnectionError, 'invalid JSON'):
+            await manager.choose(self.a)
+        self.assertIsNone(manager.library)
+        self.assertEqual(manager.handles, {})
+        library.close.assert_called_once()

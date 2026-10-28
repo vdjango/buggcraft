@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,13 +13,50 @@ os.environ.setdefault('QT_QUICK_BACKEND', 'software')
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src/buggcraft'))
 
-from PySide6.QtCore import QObject, QPoint, Qt, QUrl, qInstallMessageHandler
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QUrl, qInstallMessageHandler
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQuickWidgets import QQuickWidget
 import shiboken6
 import config.settings as settings
 from windows.main_window import MinecraftLauncher
+
+
+def send_mouse_event(widget, event_type, pos, *, button=Qt.NoButton,
+                     buttons=Qt.NoButton, modifiers=Qt.NoModifier):
+    """Deliver a Qt mouse event directly without moving the desktop cursor."""
+    local = QPointF(pos)
+    global_pos = QPointF(widget.mapToGlobal(pos))
+    event = QMouseEvent(event_type, local, global_pos, button, buttons, modifiers)
+    event.setTimestamp(int(time.monotonic() * 1000))
+    QApplication.sendEvent(widget, event)
+    return event
+
+
+def qt_mouse_move(widget, pos):
+    return send_mouse_event(widget, QEvent.MouseMove, pos)
+
+
+def qt_mouse_click(widget, pos, *, button=Qt.LeftButton, modifiers=Qt.NoModifier):
+    qt_mouse_move(widget, pos)
+    send_mouse_event(widget, QEvent.MouseButtonPress, pos, button=button,
+                     buttons=button, modifiers=modifiers)
+    return send_mouse_event(widget, QEvent.MouseButtonRelease, pos, button=button,
+                            modifiers=modifiers)
+
+
+def qt_mouse_drag(widget, start, end, *, button=Qt.LeftButton, modifiers=Qt.NoModifier):
+    qt_mouse_move(widget, start)
+    send_mouse_event(widget, QEvent.MouseButtonPress, start, button=button,
+                     buttons=button, modifiers=modifiers)
+    for fraction in (.25, .5, .75, 1):
+        point = start + (end - start) * fraction
+        send_mouse_event(widget, QEvent.MouseMove, point, buttons=button,
+                         modifiers=modifiers)
+        QApplication.processEvents()
+    return send_mouse_event(widget, QEvent.MouseButtonRelease, end, button=button,
+                            modifiers=modifiers)
 
 
 class LauncherQmlCase(unittest.TestCase):
@@ -65,6 +103,11 @@ class LauncherQmlCase(unittest.TestCase):
         self.pump()
 
     def tearDown(self):
+        # An unfinished coach installs an application-wide event filter. End it
+        # before the next case can create a window and receive mouse events.
+        coach = self.window.tutorial_controller
+        if coach.visible:
+            coach.finish()
         # All expected requests in this fixture are local stubs.
         self.window.download_page.content_page.controller.pool.waitForDone(2000)
         self.window.download_page.games_page.controller.pool.waitForDone(2000)
@@ -79,11 +122,19 @@ class LauncherQmlCase(unittest.TestCase):
                 shiboken6.delete(quick)
         self.window.deleteLater()
         self.pump()
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
         qInstallMessageHandler(self.previous_handler)
 
     def pump(self, milliseconds=30):
-        QTest.qWait(milliseconds)
-        self.app.processEvents()
+        # qWait retains the Python GIL on Windows. Pump Qt in short intervals
+        # while releasing it, so real asset hashing / discovery workers can run.
+        deadline = time.monotonic() + milliseconds / 1000
+        while True:
+            self.app.processEvents()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.01, remaining))
 
     def wait_until(self, condition):
         for _ in range(200):
@@ -113,7 +164,7 @@ class LauncherQmlCase(unittest.TestCase):
         item = self.item(page, name)
         self.assertTrue(item.isVisible(), name)
         point = item.mapToScene(item.boundingRect().center()).toPoint()
-        QTest.mouseClick(page.quick, Qt.LeftButton, Qt.NoModifier, point)
+        qt_mouse_click(page.quick, point)
         self.pump()
 
     def assert_no_qml_errors(self):

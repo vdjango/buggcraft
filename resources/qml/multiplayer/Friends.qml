@@ -59,19 +59,24 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true; spacing: 12
-        FriendAvatar { name: vm.socialName || "我"; online: !!vm.socialReady; Layout.preferredWidth: 38; Layout.preferredHeight: 38 }
+        FriendAvatar { name: vm.socialName || "我"; online: !!vm.socialReady && vm.socialState !== "stale"; Layout.preferredWidth: 38; Layout.preferredHeight: 38 }
         ColumnLayout {
             Layout.fillWidth: true; spacing: 3
             CopyText {
                 objectName: "friend-access-mode"; Layout.fillWidth: true
-                text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialLoading ? "正在连接好友服务…" : vm.socialReady ? vm.socialName : "匿名接入"
+                text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialLoading ? "正在连接好友服务…" : vm.socialReady ? vm.socialName : vm.friendEntryAvailable ? "好友服务未连接" : "匿名接入"
                 font.pixelSize: 14; font.bold: true; color: "#e9e1f2"; wrapMode: Text.NoWrap; elide: Text.ElideRight
             }
-            CopyText { Layout.fillWidth: true; text: vm.socialReady ? root.onlineCount + " 位在线 · " + (vm.contacts || []).length + " 位好友" : "连接账号后，和朋友一起玩"; font.pixelSize: 11; color: "#a99bb6" }
+            CopyText { Layout.fillWidth: true; text: vm.socialReady ? "好友码 " + vm.socialFriendCode : "连接账号后，和朋友一起玩"; font.pixelSize: 11; color: "#a99bb6"; elide: Text.ElideRight }
         }
-        HeaderAction { objectName: "copy-social-name"; iconName: "copy"; label: "复制我的账号 ID"; visible: !!vm.socialReady; onClicked: lobby.act("copySocialName", {}) }
+        HeaderAction { objectName: "copy-social-name"; iconName: "copy"; label: "复制我的好友码"; visible: !!vm.socialReady; onClicked: lobby.act("copySocialName", {}) }
         HeaderAction { objectName: "refresh-friends"; iconName: "refresh"; label: "刷新好友"; visible: !!vm.socialReady; enabled: !vm.friendBusy; onClicked: lobby.act("refreshFriends", {}) }
         ActionButton { objectName: "add-friend"; text: "添加好友"; visible: !!vm.socialReady; primary: true; implicitHeight: 32; onClicked: lobby.act("navigate", {page:"friendForm"}) }
+    }
+    Surface {
+        objectName: "friends-stale-state"; visible: !!vm.socialReady && vm.socialState === "stale"
+        Layout.fillWidth: true; implicitHeight: 54; color: "#3b2b25"; border.color: "#a9764d"
+        CopyText { anchors.fill: parent; anchors.margins: 10; text: (vm.socialError || "好友节点暂时不可达") + "\n显示上次同步的联系人，在线状态未知。"; color: "#ffd7b0"; font.pixelSize: 11; wrapMode: Text.Wrap; verticalAlignment: Text.AlignVCenter }
     }
     Surface {
         objectName: "friends-sign-in"; visible: !vm.socialReady
@@ -84,7 +89,7 @@ ColumnLayout {
                 Layout.fillWidth: true; text: vm.socialError || (vm.socialLoading ? "请稍候，好友列表会自动更新。" : "添加节点的个人接入码，即可查看好友和发送联机邀请。")
                 font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
             }
-            ActionButton { objectName: "friends-replace-node-code"; Layout.alignment: Qt.AlignHCenter; text: vm.nodeAccessExpired ? "更换接入码" : "连接好友服务"; primary: true; visible: !vm.socialLoading; onClicked: lobby.act("replaceNodeCode", {}) }
+            ActionButton { objectName: "friends-replace-node-code"; Layout.alignment: Qt.AlignHCenter; text: vm.nodeAccessExpired ? "更换接入码" : vm.friendEntryAvailable ? "重试连接" : "连接好友服务"; primary: true; visible: !vm.socialLoading; onClicked: lobby.act(vm.friendEntryAvailable && !vm.nodeAccessExpired ? "refreshFriends" : "replaceNodeCode", {}) }
         }
     }
     FriendInviteProgress {
@@ -172,7 +177,7 @@ ColumnLayout {
         delegate: FriendMenuItem {}
         FriendMenuItem { objectName: "friend-toggle-favorite"; text: root.selectedFriend.favorite ? "取消收藏" : "收藏好友"; onTriggered: lobby.act("setFriendFavorite", {account:root.selectedFriend.account, favorite:!root.selectedFriend.favorite}) }
         FriendMenuItem { objectName: "friend-edit-alias"; text: "设置备注"; onTriggered: root.handleAction("editAlias", root.selectedFriend) }
-        FriendMenuItem { objectName: "friend-copy-name"; text: "复制账号 ID"; onTriggered: lobby.act("copyFriendName", {account:root.selectedFriend.account}) }
+        FriendMenuItem { objectName: "friend-copy-name"; text: "复制好友码"; onTriggered: lobby.act("copyFriendName", {account:root.selectedFriend.account}) }
         MenuSeparator { padding: 4; contentItem: Rectangle { implicitHeight: 1; color: "#594365" } }
         FriendMenuItem { objectName: "friend-remove"; destructive: true; text: "移除好友…"; onTriggered: root.handleAction("confirmRemove", root.selectedFriend) }
     }

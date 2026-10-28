@@ -30,7 +30,7 @@ ScrollView {
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 5
                     Label { text: "Buggcraft"; color: "#f2edfc"; font.pixelSize: 18; font.bold: true }
-                    Label { Layout.fillWidth: true; text: "版本 " + root.state.launcherVersion + "  ·  实例管理 · 资源下载 · 好友联机"; color: "#b8afc9"; font.pixelSize: 12; wrapMode: Text.Wrap }
+                    Label { objectName: "about-launcher-version"; Layout.fillWidth: true; text: "版本 " + root.state.launcherVersion + "  ·  实例管理 · 资源下载 · 好友联机"; color: "#b8afc9"; font.pixelSize: 12; wrapMode: Text.Wrap }
                     Label { Layout.fillWidth: true; text: "让安装、管理和一起游玩都在一个地方完成。"; color: "#897f9a"; font.pixelSize: 11; wrapMode: Text.Wrap }
                 }
             }
@@ -46,6 +46,7 @@ ScrollView {
                 ]
                 ActionButton {
                     required property var modelData
+                    objectName: "about-quick-link-" + modelData.title
                     Layout.fillWidth: true; text: modelData.title
                     onClicked: recordPage.action(modelData.url, "查看")
                 }
@@ -65,6 +66,7 @@ ScrollView {
                         model: root.state.javaCatalogOpen ? [] : root.state.actions
                         delegate: ActionButton {
                             required property string modelData
+                            objectName: "java-action-" + modelData
                             text: modelData; implicitWidth: 60; implicitHeight: 30
                             enabled: !root.state.busy
                             onClicked: recordPage.action("", modelData)
@@ -102,8 +104,8 @@ ScrollView {
                             Layout.fillWidth: true
                             Label { Layout.preferredWidth: 170; text: modelData.title; color: "#eee9f7"; font.pixelSize: 13; font.bold: true; elide: Text.ElideMiddle }
                             Label { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "版本 " + modelData.version + "   ·   " + modelData.vendor; color: "#aaa2bb"; font.pixelSize: 11; elide: Text.ElideRight }
-                            IconButton { text: "打开目录"; source: "../../images/version/folder.png"; onClicked: recordPage.action(modelData.id, "打开目录") }
-                            IconButton { text: "移除"; source: "../../images/version/delete.png"; onClicked: recordPage.action(modelData.id, "移除") }
+                            IconButton { objectName: "java-folder-" + modelData.id; text: "打开目录"; source: "../../images/version/folder.png"; onClicked: recordPage.action(modelData.id, "打开目录") }
+                            IconButton { objectName: "java-remove-" + modelData.id; text: "移除"; source: "../../images/version/delete.png"; onClicked: recordPage.action(modelData.id, "移除") }
                         }
                         Label { Layout.fillWidth: true; text: modelData.description; color: "#8f879e"; font.pixelSize: 11; elide: Text.ElideMiddle }
                     }
@@ -164,7 +166,7 @@ ScrollView {
                                     Label { Layout.fillWidth: true; Layout.minimumWidth: 0; text: modelData.title; color: "#eee9f7"; font.pixelSize: 13; font.bold: true; wrapMode: Text.Wrap }
                                     Label { Layout.fillWidth: true; Layout.minimumWidth: 0; text: modelData.description + " · " + modelData.sizeText; color: "#aaa2bb"; font.pixelSize: 11; wrapMode: Text.Wrap }
                                 }
-                                ActionButton { text: "下载并安装"; enabled: !root.state.busy; onClicked: recordPage.download_java(modelData.id) }
+                                ActionButton { objectName: "java-install-" + modelData.id; text: "下载并安装"; enabled: !root.state.busy; onClicked: recordPage.download_java(modelData.id) }
                             }
                         }
                     }
@@ -181,6 +183,7 @@ ScrollView {
             model: root.state.kind === "about" ? root.state.sections : []
             delegate: SettingsSection {
                 required property var modelData
+                objectName: "about-section-" + modelData.title
                 Layout.fillWidth: true; Layout.leftMargin: 15; Layout.rightMargin: 15
                 flat: true
                 title: modelData.title
@@ -214,10 +217,10 @@ ScrollView {
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 4
-                                Label { Layout.fillWidth: true; text: modelData.title; color: "white"; font.pixelSize: 13; font.bold: true }
-                                Label { Layout.fillWidth: true; text: modelData.description; color: "#bcb4ca"; font.pixelSize: 12; wrapMode: Text.Wrap }
+                                Label { objectName: "about-title-" + modelData.title; Layout.fillWidth: true; text: modelData.title; color: "white"; font.pixelSize: 13; font.bold: true }
+                                Label { objectName: "about-description-" + modelData.title; Layout.fillWidth: true; text: modelData.description; color: "#bcb4ca"; font.pixelSize: 12; wrapMode: Text.Wrap }
                             }
-                            ActionButton { visible: modelData.actions.length > 0; text: "查看"; implicitHeight: 28; onClicked: recordPage.action(modelData.id, "查看") }
+                            ActionButton { objectName: "about-link-" + modelData.title; visible: modelData.actions.length > 0; text: "查看"; implicitHeight: 28; onClicked: recordPage.action(modelData.id, "查看") }
                         }
                     }
                 }

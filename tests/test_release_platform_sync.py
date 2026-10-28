@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 spec=importlib.util.spec_from_file_location('sync_platform_release',Path(__file__).resolve().parents[1]/'scripts/sync_platform_release.py')
 sync=importlib.util.module_from_spec(spec)
@@ -49,6 +49,27 @@ class ReleasePlatformSyncTests(unittest.TestCase):
         self.assertNotIn('temporary-job-token',output)
         self.assertNotIn('signed-identity',output)
         self.assertIn('retrying',output)
+
+    def test_http_errors_report_status_without_exposing_url_or_credentials(self):
+        error=HTTPError('https://platform.example/secret-token',403,'Forbidden',{},None)
+        requests,output=self.run_sync(iter([
+            {'value':'signed-identity'},error,
+            {'value':'replacement-identity'},{'sync':{'status':'running'}},
+            {'sync':{'status':'success','items':[{'tag':'v1.2.3','result':'imported'}]}},
+        ]))
+        self.assertIn('HTTP 403',output)
+        self.assertNotIn('secret-token',output)
+        self.assertNotIn('temporary-job-token',output)
+        self.assertEqual(requests[2].get_header('Authorization'),'Bearer identity-request-token')
+
+    def test_platform_failure_message_exposes_github_status_for_diagnosis(self):
+        _,output=self.run_sync(iter([{'value':'identity'},
+            {'sync':{'status':'running'}},
+            {'sync':{'status':'failed','message':'GitHub 返回 403'}},
+            {'sync':{'status':'running'}},
+            {'sync':{'status':'success','items':[{'tag':'v1.2.3','result':'existing'}]}},
+        ]))
+        self.assertIn('GitHub 返回 403',output)
 
     def test_failed_import_does_not_report_success(self):
         with self.assertRaisesRegex(SystemExit,'did not confirm'):

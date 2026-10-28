@@ -364,6 +364,7 @@ class DownloadTransportTests(unittest.TestCase):
                 sha512=hashlib.sha512(self.payload).hexdigest(), file_progress=progress)
 
     def test_large_resource_uses_four_concurrent_ranges_and_verifies_joined_bytes(self):
+        self.downloader.workers = 8
         self.range_barrier = threading.Barrier(4)
         progress = []
         path = self.large_content('/segments', lambda done, total: progress.append((done, total)))
@@ -373,6 +374,19 @@ class DownloadTransportTests(unittest.TestCase):
                                           'bytes=4194304-6291455', 'bytes=6291456-8388607'])
         self.assertEqual(progress[-1], (len(self.payload), len(self.payload)))
         self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
+
+    def test_single_download_setting_disables_ranges_and_two_limits_segments(self):
+        for workers in (1, 2):
+            with self.subTest(workers=workers):
+                self.downloader.workers = workers
+                self.requests.clear()
+                self.ranges.clear()
+                path = self.large_content('/segments', lambda done, total: None)
+                self.assertEqual(path.read_bytes(), self.payload)
+                self.assertEqual(len(self.requests), 1 if workers == 1 else 3)
+                self.assertEqual(sum(value is not None for value in self.ranges), 0 if workers == 1 else 2)
+                self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
+                path.unlink()
 
     def test_ignored_or_invalid_ranges_fall_back_to_complete_original_stream(self):
         for endpoint in ('/ignore-segments', '/bad-segments'):

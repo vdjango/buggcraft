@@ -9,9 +9,12 @@
 - [联机与节点使用](guides/relay-usage.md)
 - [联机测试、网络快照与日志导出](guides/network-tester-guide.md)
 - [Windows 故障排查](guides/windows-diagnostics.md)
+- [游戏日志搜索、分类与高亮](guides/game-log-console.md)
 
 ## 技术说明
 
+- [启动器功能覆盖核对清单（按操作顺序）](technical/launcher-function-coverage-checklist.md)
+- [房间准备、玩家进度与管理：功能方案及验收清单](technical/room-preparation-workflow.md)
 - [BMCLAPI 下载源接入](technical/bmclapi-downloads.md)
 - [CurseForge 多源与资源服务](technical/content-gateway.md)
 - [资源翻译平台规划与开放接口草案](technical/resource-translation-platform.md)

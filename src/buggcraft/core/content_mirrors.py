@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def configured_source(settings):
-    return settings.get_setting('settings.general.content_mirror', 'MCIM')
+    return settings.get_setting('settings.general.content_mirror', '自动测速')
 
 
 def cached_dates(payload):
@@ -34,7 +34,7 @@ def cached_dates(payload):
 
 
 def get_modrinth(path, params, cancel, source):
-    endpoints = ([CONTENT_MIRROR + '/modrinth/v2'] if source == 'MCIM' else []) + ['https://api.modrinth.com/v2']
+    endpoints = ([CONTENT_MIRROR + '/modrinth/v2'] if source != '官方' else []) + ['https://api.modrinth.com/v2']
     cached = None
     for endpoint in endpoints:
         if cancel.is_set():

@@ -21,6 +21,7 @@ Item {
             delegate: Button {
                 required property int index
                 required property string modelData
+                objectName: "navigation-option-" + index
                 width: 155; height: 44
                 text: modelData
                 background: Item {

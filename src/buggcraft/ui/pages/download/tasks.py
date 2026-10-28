@@ -8,6 +8,7 @@ import os
 import tempfile
 import threading
 import uuid
+import time
 from datetime import datetime, timezone
 
 from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, QTimer, Signal, Slot
@@ -18,10 +19,11 @@ from PySide6.QtWidgets import (
 
 from config.settings import get_settings_manager
 from ui.pages.qml_host import QmlPage
-from utils.path_helper import get_default_minecraft_dir
+from utils.path_helper import get_default_minecraft_dir, filesystem_path
 from core.downloads import DownloadCancelled, MinecraftDownloader
 from core.loaders import install_loader
 from core.modpacks import suggested_name
+from core.transfer_metrics import TransferMeter
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,8 @@ class TaskHistoryController(QObject):
     @Property("QVariantList", notify=changed)
     def tasks(self):
         query = self._query.casefold()
-        return [{key: value for key, value in task.items() if key not in ('files', 'logs', '_last_status')} for task in self._tasks
+        return [dict({key: value for key, value in task.items() if key not in ('files', 'logs', '_last_status')},
+                     speed=task.get('speed', 0) if task.get('state') in TasksPage.ACTIVE and time.monotonic() - task.get('_speedAt', 0) < 3 else 0) for task in self._tasks
                 if query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
                              " ".join(item.get('name', '') for item in task.get('files', []))).casefold()
                 and (self._filter == "全部记录" or task.get("state") == self._filter
@@ -184,7 +187,8 @@ class DownloadWorker(QRunnable):
             progress = lambda current, maximum: self.signals.progress.emit(
                 self.task_id, int(current), int(maximum)
             )
-            file_event = lambda event: self.signals.file_event.emit(self.task_id, event)
+            meter = TransferMeter()
+            file_event = lambda event: self.signals.file_event.emit(self.task_id, meter.feed(event))
             status = lambda value: self.signals.status.emit(self.task_id, str(value))
             if self.addons:
                 from core.loader_rules import incompatibility
@@ -238,7 +242,7 @@ class DownloadWorker(QRunnable):
                 downloader.install(self.version)
             if not self.content or self.modpack:
                 version_json = os.path.join(self.game_dir, "versions", self.version, f"{self.version}.json")
-                if not os.path.isfile(version_json):
+                if not filesystem_path(version_json).is_file():
                     raise RuntimeError("下载结束，但版本文件没有生成")
             if self.addons:
                 from core.content import download_content
@@ -475,9 +479,13 @@ class TasksPage(QWidget):
             return
         kind = event.get('kind')
         if kind == 'manifest':
-            task['files'] = [dict(item, state='pending') for item in event['files']]
+            task['files'] = [dict(item, state='pending') for item in event['files'] + event.get('resources', [])]
             self._log(task, f"已收到 {len(task['files'])} 个模组，来源：房主，下载后逐个校验 SHA-256。")
+        elif kind == 'download':
+            self.update_file_event(task_id, event)
         elif kind in ('file', 'progress'):
+            if 'task_speed' in event:
+                task.update(speed=event['task_speed'], _speedAt=time.monotonic())
             for item in task.get('files', []):
                 if item['name'] == event['name']:
                     item.update({key: value for key, value in event.items() if key != 'kind'})
@@ -623,6 +631,8 @@ class TasksPage(QWidget):
             files.append(entry)
             index[key] = entry
         entry.update(event)
+        task.update(speed=event.get('task_speed', 0), _speedAt=time.monotonic())
+        self._update_row(task)
         # Only the open detail view needs byte updates; avoid rebuilding every
         # task row for each chunk of thousands of assets.
         self._schedule_save()

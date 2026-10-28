@@ -8,10 +8,10 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
-import asyncssh
+from tests.native_fixtures import ssh_public_key
 from PySide6.QtWidgets import QApplication, QDialog
 from hookup.nodes import node_identity, profile_data, save_json
-from hookup.relay import RelayProfile
+from hookup.profiles import RelayProfile
 from ui.multiplayer_controller import MultiplayerController
 
 
@@ -20,7 +20,7 @@ class NodeIdentityUpgradeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setQuitOnLastWindowClosed(False)
-        cls.key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        cls.key = ssh_public_key()
 
     def setUp(self):
         work = tempfile.TemporaryDirectory()
@@ -105,7 +105,7 @@ class NodeIdentityUpgradeTests(unittest.TestCase):
         self.assertTrue(other.is_file())
 
     def test_changed_key_at_same_address_is_rejected_without_overwrite(self):
-        other_key = asyncssh.generate_private_key('ssh-ed25519').export_public_key().decode()
+        other_key = ssh_public_key('other-node')
         self.verified(self.profile(key=other_key))
         self.assertIn('公钥发生变化', self.controller.view['error'])
         self.assertEqual(RelayProfile.load(self.path).server_public_key, self.key)

@@ -115,10 +115,28 @@ jobs:
         run: |
           python scripts/build_bridge.py --native-source native-source --output dist/native-runtime --log dist/native-build.log
           ctest --test-dir native-source/build --build-config Release --output-on-failure
+      - name: Test launcher against installed C++ bridge DLL and executable
+        run: |
+          python -m pip install pytest
+          python - <<'PY'
+          import os, pathlib, subprocess, sys
+          package = pathlib.Path('dist/native-runtime').resolve()
+          library = 'buggcraft_bridge.dll' if os.name == 'nt' else (
+              'libbuggcraft_bridge.dylib' if sys.platform == 'darwin' else 'libbuggcraft_bridge.so')
+          environment = dict(os.environ,
+              BUGGCRAFT_BRIDGE_LIBRARY=str(package / ('bin' if os.name == 'nt' else 'lib') / library),
+              BUGGCRAFT_BRIDGE_EXECUTABLE=str(package / 'bin' / ('buggcraft-bridge.exe' if os.name == 'nt' else 'buggcraft-bridge')))
+          environment['PATH'] = str(package / 'bin') + os.pathsep + environment['PATH']
+          subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_native_bridge_runtime.py'],
+                         env=environment, check=True)
+          PY
+      - name: Test client pages through local Qt input without desktop mouse control
+        env:
+          BUGGCRAFT_UI_OUTPUT: dist/client-ui
+        run: python -m pytest -q tests/test_qt_input.py tests/test_client_ui_acceptance.py tests/test_home_ui.py tests/test_coverage_gaps_ui.py tests/test_startup_errors_ui.py tests/test_download_ui.py tests/test_settings_ui.py tests/test_settings_checklist_ui.py tests/test_shared_branches_ui.py tests/test_loader_source_ui.py tests/test_onboarding.py -k "not online"
       - name: Test resource catalogues and gateway
         run: |
           python -m pip install -r packaging/content-gateway-requirements.txt
-          python -m pip install asyncssh==2.23.0
           python - <<'PY'
           import os, pathlib, subprocess, sys
           modules = ['test_curseforge', 'test_content_download', 'test_content_dialog',
@@ -145,9 +163,10 @@ jobs:
           sys.stdout.reconfigure(encoding='utf-8')
           modules = ['test_native_library', 'test_native_routes', 'test_native_cutover',
                      'test_native_bridge_staging', 'test_visibility',
+                     'test_native_transport_poll',
                      'test_slim_packaging', 'test_system_fonts', 'test_qt_runtime',
                      'test_macos_packaging', 'test_portable_game_directory',
-                     'test_connection_diagnostics', 'test_modpack_no_key',
+                     'test_connection_diagnostics', 'test_feedback_upload', 'test_nat_probe', 'test_p2p_evidence', 'test_modpack_no_key',
                      'test_inherited_launch', 'test_game_sessions', 'test_game_diagnostics',
                      'test_startup_logging', 'test_startup_resource_paths', 'test_launcher_process',
                      'test_update_client', 'test_launcher_updates', 'test_resource_translation', 'test_ui_refinements',
@@ -156,8 +175,10 @@ jobs:
                      'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
                      'test_unix_qt_trimming', 'test_room_mod_installation',
                      'test_room_launch_flow', 'test_lobby_layout',
+                     'test_chat_controller', 'test_clipboard', 'test_friend_directory', 'test_social_diagnostics',
+                     'test_friend_entry_regression', 'test_friend_entry_ui', 'test_lobby_opening', 'test_lobby_navigation',
                      'test_instance_deletion', 'test_instance_modpack_entry',
-                     'test_download_transport', 'test_modrinth_import']
+                       'test_download_transport', 'test_installation_receipt', 'test_modrinth_import']
           result = subprocess.run([sys.executable, '-u', '-m', 'unittest',
                                    *['tests.' + name for name in modules], '-v'],
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -255,6 +276,7 @@ jobs:
             dist/package-check.*
             dist/build.log
             dist/preflight.log
+            dist/client-ui/
             dist/resource-tests.log
             dist/native-build.log
             native-source/build/Testing/Temporary/LastTest.log

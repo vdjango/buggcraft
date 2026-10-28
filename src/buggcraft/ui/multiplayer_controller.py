@@ -1,6 +1,7 @@
 """Qt presentation state; all multiplayer I/O belongs to the C++ bridge."""
 import asyncio
 import hashlib
+import logging
 import math
 from pathlib import Path
 import re
@@ -9,19 +10,22 @@ import time
 import uuid
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, QStandardPaths, QTimer
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from hookup.profiles import RelayProfile, RoomInvite
 from hookup.native_transport import TunnelHost, TunnelClient, TunnelService
 from hookup.native_routes import manager as native_bridge
 from hookup.rooms import instance_metadata, list_room_page, resolve_room, compatibility, lookup_account
+from hookup.friend_codes import friend_code
 from hookup.storage import LobbyStore
 from hookup.nodes import probe, save_json, profile_data, remember, node_identity
 from hookup.social import check_expiry, credential_expiry, ExpiredNodeCredential, EXPIRED_CODE_MESSAGE
 from utils.instances import installed_instance_ids, running_games, lan_world_token
+from utils.clipboard import cancel_copy, copy_text
+from ui.room_preparation import RoomPreparation
 
 
-class MultiplayerController(QObject):
+class MultiplayerController(RoomPreparation, QObject):
     changed = Signal()
     completed = Signal(str, object, object)
     status = Signal(str, str, str)
@@ -35,6 +39,7 @@ class MultiplayerController(QObject):
     social_notification = Signal(str)
     route_changed = Signal(str, str)
     roomSettingsSaved = Signal()
+    room_notification = Signal(str)
 
     def __init__(self, window, storage_path=None):
         super().__init__(window)
@@ -57,6 +62,7 @@ class MultiplayerController(QObject):
         self.friend_request = None
         self.social_path = ''
         self.social_identity = None
+        self.social_failures = 0
         self.social_generation = uuid.uuid4().hex
         self.pending_node_update = None
         self.pending_friend_invites = {}
@@ -69,7 +75,7 @@ class MultiplayerController(QObject):
         self.instance_source = None
         self.preparations = {}
         self.preparation_tasks = {}
-        self.prepared_launch = None
+        self.pending_preparation_check = None
         self.external_running = None
         self.runtime_job = False
         self.auto_lan_job = False
@@ -82,8 +88,9 @@ class MultiplayerController(QObject):
         self.room_search_timer.setSingleShot(True)
         self.room_search_timer.setInterval(300)
         self.room_search_timer.timeout.connect(self.refresh)
+        self.init_preparation()
         self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
-                           rooms=[], contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False, socialError='',
+                           rooms=[], contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False, socialState='offline', socialError='',
                            connections=[], worlds=[], worldScanning=False, selected='', busy=False, friendBusy=False, socialLoading=False, loading=False,
                            openWorldPrompt=False, openWorldPort=0, openWorldMode='create',
                            pendingFriendInvite='', outgoingInvitations={}, friendInviteAccount='', joiningFriendAccount='',
@@ -130,10 +137,35 @@ class MultiplayerController(QObject):
                     for contact in self._state['contacts']]
         pending = self.pending_friend_invite
         pending_name = next((c.get('alias') or c['name'] for c in contacts if pending and c['account'] == pending[1]), '')
-        return dict(self._state, contacts=contacts, friendInviteFlow=self.friend_invite_flow(contacts),
+        short_codes = self._state.get('socialCapabilities', {}).get('friend_code') is True
+        contacts = [dict(c, friendCode=friend_code(c['account']) if short_codes else c['account']) for c in contacts]
+        candidates = [dict(c, friendCode=friend_code(c['account'])) if short_codes else c
+                      for c in self._state.get('friendLookupResults', [])]
+        account = self._state.get('socialAccount', '')
+        return dict(self._state, contacts=contacts, friendLookupResults=candidates,
+                    friendEntryAvailable=self.friend_entry_available(),
+                    socialFriendCode=friend_code(account) if account and short_codes else account,
+                    friendInviteFlow=self.friend_invite_flow(contacts),
                     pendingFriendInvite=pending_name, pendingFriendInviteCount=len(self.pending_friend_invites),
                     socialMutationBusy=bool(self.friend_request) or any(item[0] != 'invite' for item in self.social_operations.values()),
                     friendNotifications=self.social_notifications.view(self._state))
+
+    def friend_entry_available(self):
+        # A configured personal account has an entry even before its first
+        # successful request. Availability of the service is reported separately.
+        selected = next((node for node in self._state['nodes'] if node['path'] == self.node_path), {})
+        return bool(selected.get('personalCode') or self._state['socialAccount'] or
+                    self._state['socialReady'] or self._state['socialLoading'])
+
+    def social_failure(self, source, error):
+        self.social_failures += 1
+        logging.getLogger('hookup.social').warning(
+            'social_ui_sync_failed source=%s consecutive=%s contacts=%s ready=%s entry_available=%s',
+            source, self.social_failures, len(self._state['contacts']), self._state['socialReady'],
+            self.friend_entry_available())
+        contacts = [dict(item, online=False, presenceStale=True) for item in self._state['contacts']]
+        self.patch(socialLoading=False, socialState='stale', contacts=contacts,
+                   socialError='好友节点同步失败：' + str(error))
 
     @property
     def pending_friend_invite(self):
@@ -224,17 +256,27 @@ class MultiplayerController(QObject):
 
     def reload_store(self, select=None, refresh_identity=False):
         nodes = []
+        profiles = {}
+        previous = {node['path']: node for node in self._state['nodes']}
         for path in self.store.data['nodes'] if self.store else []:
             personal_code = False
             expired = False
             try:
                 profile = RelayProfile.load(path)
+                profiles[path] = profile
                 title = self.store.data['node_names'].get(path, '社区节点')
                 personal_code = profile.token.startswith('acct1.')
                 expiry = credential_expiry(profile)
                 expired = expiry is not None and expiry <= time.time()
-            except Exception:
+            except (OSError, ValueError, TypeError) as exc:
                 title = '配置不可用 · ' + Path(path).name
+                # A failed read does not establish a new identity. Retain the
+                # last verified capability until the configuration can be read.
+                personal_code = previous.get(path, {}).get('personalCode', False)
+                expired = previous.get(path, {}).get('codeExpired', False)
+                logging.getLogger('hookup.social').warning(
+                    'social_profile_read_failed error_type=%s selected=%s retained_identity=%s',
+                    type(exc).__name__, path == self.node_path, path in previous)
             nodes.append({'title': title, 'path': path, 'personalCode': personal_code, 'codeExpired': expired})
         paths = [node['path'] for node in nodes]
         target = select or self.node_path
@@ -247,12 +289,20 @@ class MultiplayerController(QObject):
             self.node_path = new_path
             self.patch(rooms=[], roomError='', nodeAvailable=False)
             self.refresh()
-        try:
-            identity = (new_path, hashlib.sha256(RelayProfile.load(new_path).token.encode()).hexdigest()) if new_path else None
-        except (OSError, ValueError):
-            identity = (new_path, None)
-        if identity != self.social_identity or refresh_identity:
+        profile = profiles.get(new_path)
+        if not new_path:
+            identity = None
+        elif profile is not None:
+            identity = (new_path, hashlib.sha256(profile.token.encode()).hexdigest())
+        else:
+            identity = self.social_identity if new_path == self.social_path else (new_path, None)
+        if identity != self.social_identity or (refresh_identity and profile is not None):
+            logging.getLogger('hookup.social').info(
+                'social_identity_reset reason=%s profile_read=%s contacts=%s',
+                'explicit_refresh' if refresh_identity else 'verified_identity_change',
+                profile is not None, len(self._state['contacts']))
             self.social_identity = identity
+            self.social_failures = 0
             self.social_generation = uuid.uuid4().hex
             from ui.social_notifications import SocialNotifications
             self.social_notifications = SocialNotifications()
@@ -266,6 +316,8 @@ class MultiplayerController(QObject):
                        socialError='', friendBusy=False, socialLoading=False, pendingFriendInvite='', outgoingInvitations={},
                        friendInviteAccount='', joiningFriendAccount='', joinRequests=[], socialCapabilities={}, requestedJoinAccount='')
             self.refresh_friends()
+        elif new_path and profile is None:
+            self.social_failure('configuration', '节点配置读取失败，请检查文件权限或重新导入接入码。')
 
     def job(self, key, coroutine):
         if self.closed or key in self.jobs:
@@ -282,12 +334,33 @@ class MultiplayerController(QObject):
                 self.completed.emit(key, value, error)
         future.add_done_callback(done)
 
+    def copy_failed(self):
+        self.patch(error='剪贴板暂时不可用，请再次点击复制。')
+
     @Slot(str, 'QVariantMap')
     def act(self, action, data):
         try:
-            if action == 'exportDiagnostics':
+            if action == 'moreMembers':
+                self.more_members()
+            elif action in ('requestMemberLogs', 'answerLogRequest', 'revokeLogAccess', 'viewMemberLogs'):
+                self.log_action(action, data)
+            elif action in ('kickMember', 'unblockMember', 'offerOwner', 'cancelOwner', 'answerOwner'):
+                self.member_action(action, data)
+            elif action == 'copyPrepareLog':
+                record = self.records.get(self._state['selected'], {})
+                text = '\n'.join(row['time'] + ' [' + row['category'] + '] ' + row['text']
+                    for row in record.get('remoteLogs' if data.get('remote') else 'prepareLogs', []))
+                copy_text(self, text, lambda: self.patch(notice='安装日志已复制。'), self.copy_failed)
+            elif action == 'exportPrepareLog':
+                path, _ = QFileDialog.getSaveFileName(self.window, '保存安装日志', 'room-install.log', '日志 (*.log)')
+                if path:
+                    record = self.records.get(self._state['selected'], {})
+                    Path(path).write_text('\n'.join(row['time'] + ' [' + row['category'] + '] ' + row['text']
+                        for row in record.get('remoteLogs' if data.get('remote') else 'prepareLogs', [])), encoding='utf-8')
+                    self.patch(notice='安装日志已保存。')
+            elif action == 'exportDiagnostics':
                 from datetime import datetime
-                from utils.diagnostics import export_diagnostics
+                from utils.diagnostics import export_connection_diagnostics
                 path, _ = QFileDialog.getSaveFileName(self.window, '导出联机诊断日志',
                     'Buggcraft-diagnostics-' + datetime.now().strftime('%Y%m%d-%H%M%S') + '.zip',
                     'ZIP (*.zip)')
@@ -295,14 +368,38 @@ class MultiplayerController(QObject):
                     if not path.lower().endswith('.zip'):
                         path += '.zip'
                     self.patch(notice='正在采集网络拓扑与游戏诊断日志…')
-                    self.job('diagnostics', asyncio.to_thread(export_diagnostics, path))
+                    self.job('diagnostics', export_connection_diagnostics(path))
+            elif action == 'submitDiagnostics':
+                if 'feedback-upload' in self.jobs:
+                    return
+                if not self.node_path or not self._state['socialReady']:
+                    raise ValueError('请先选择节点并使用个人账号登录')
+                title, accepted = QInputDialog.getText(self.window, '提交联机诊断', '问题标题（最多 120 字）：')
+                if not accepted:
+                    return
+                description, accepted = QInputDialog.getMultiLineText(
+                    self.window, '提交联机诊断', '问题描述（最多 4000 字）：')
+                if not accepted:
+                    return
+                answer = QMessageBox.question(self.window, '确认上传诊断日志',
+                    '将采集网络地址、节点和 ICE 连接记录、启动器及游戏日志，并提交到当前节点反馈系统。\n'
+                    '附件供节点反馈管理员排查；节点联邦同步可能复制给其他受信任节点管理员。\n'
+                    '日志不包含存档，仍可能包含本机路径、聊天内容和网络地址。是否现在上传？',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if answer != QMessageBox.Yes:
+                    return
+                profile = self.profile()
+                from utils.feedback_upload import submit_diagnostics
+                self.patch(notice='正在采集并上传诊断日志…', error='')
+                self.job('feedback-upload', submit_diagnostics(
+                    profile, title, description, consent=True))
             elif action == 'clearError':
                 record = self.records.get(self._state['selected'])
                 if record:
                     record['chatError'] = ''
                 self.patch(error='', chatError='')
             elif action == 'openFriends':
-                if not self._state['socialReady']:
+                if not self.friend_entry_available():
                     raise ValueError('当前为匿名或未验证状态，请先添加个人接入码。')
                 self.window.show_friends()
             elif action == 'navigate':
@@ -414,7 +511,7 @@ class MultiplayerController(QObject):
                 name = self._state['selected']
                 record = self.records.get(name, {})
                 endpoint = self.service.endpoints.get(name)
-                if not endpoint or record.get('role') != 'host' or record.get('state') != 'online':
+                if not endpoint or not record.get('isManager', record.get('role') == 'host') or record.get('state') != 'online':
                     raise ValueError('只有在线房主可以修改房间设置。')
                 if self._state['busy']:
                     return
@@ -424,15 +521,24 @@ class MultiplayerController(QObject):
                     raise ValueError('房间名称需要 1–80 个字符。')
                 if type(public) is not bool or type(require_invite) is not bool:
                     raise ValueError('请选择房间的加入方式。')
+                allow_mod_transfer = data.get('allowModTransfer', bool(
+                    (endpoint.room_settings or {}).get('allow_mod_transfer', False)))
+                if type(allow_mod_transfer) is not bool:
+                    raise ValueError('模组共享设置无效。')
+                mod_transfer_limit_kib = data.get('modTransferLimitKib', int(
+                    (endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512)))
+                if type(mod_transfer_limit_kib) is not int or not 64 <= mod_transfer_limit_kib <= 10240:
+                    raise ValueError('模组上传限速需要在 64–10240 KiB/s 之间。')
                 self.patch(busy=True, error='', notice='')
-                self.job('configure:' + name, endpoint.update_settings(title, public, require_invite))
+                self.job('configure:' + name, endpoint.update_settings(
+                    title, public, require_invite, allow_mod_transfer, mod_transfer_limit_kib))
             elif action == 'dismissPublicGuide':
                 record = self.records.get(self._state['selected'])
                 if record:
                     record['publicGuide'] = False
                     self.publish_connections()
             elif action == 'prepareRoom':
-                self.prepare_room()
+                self.prepare_room(data.get('mode', 'fresh'))
             elif action == 'cancelPreparation':
                 cancel = self.preparations.get(self._state['selected'])
                 if cancel:
@@ -450,13 +556,13 @@ class MultiplayerController(QObject):
             elif action == 'copyInvite':
                 endpoint = self.service.endpoints.get(data['id'])
                 if endpoint and self.records[data['id']]['state'] == 'online':
-                    QApplication.clipboard().setText(endpoint.invite.encode())
-                    self.copied.emit('invite')
+                    copy_text(self, endpoint.invite.encode(), lambda: self.copied.emit('invite'),
+                              self.copy_failed)
             elif action == 'copyAddress':
                 endpoint = self.service.endpoints.get(data['id'])
                 if endpoint and endpoint.role == 'client' and endpoint.listener:
-                    QApplication.clipboard().setText(f'127.0.0.1:{endpoint.listen_port}')
-                    self.copied.emit('address')
+                    copy_text(self, f'127.0.0.1:{endpoint.listen_port}', lambda: self.copied.emit('address'),
+                              self.copy_failed)
             elif action == 'stop':
                 name = data['id']
                 self.forget_room(name, '房间已关闭。' if self.records.get(name, {}).get('role') == 'host' else '已退出房间。')
@@ -497,14 +603,17 @@ class MultiplayerController(QObject):
             elif action == 'copySocialName':
                 if not self._state['socialReady']:
                     raise ValueError('好友服务连接成功后才能复制账号 ID。')
-                QApplication.clipboard().setText(self._state['socialAccount'])
-                self.patch(error='', notice='账号 ID 已复制，发给好友即可准确添加。')
+                account = self._state['socialAccount']
+                copy_text(self, friend_code(account) if self._state.get('socialCapabilities', {}).get('friend_code') else account,
+                          lambda: self.patch(error='', notice='好友码已复制，发给好友即可添加。'),
+                          self.copy_failed)
             elif action == 'copyFriendName':
                 friend = next((c for c in self._state['contacts'] if c['account'] == data.get('account')), None)
                 if not friend:
                     raise ValueError('好友已不在列表中，请刷新后重试。')
-                QApplication.clipboard().setText(friend['account'])
-                self.patch(error='', notice='好友账号 ID 已复制。')
+                account = friend['account']
+                copy_text(self, friend_code(account) if self._state.get('socialCapabilities', {}).get('friend_code') else account,
+                          lambda: self.patch(error='', notice='好友码已复制。'), self.copy_failed)
             elif action == 'joinFriend':
                 self.require_available_node()
                 if any(record.get('state') not in ('stopped', 'error') for record in self.records.values()):
@@ -651,7 +760,8 @@ class MultiplayerController(QObject):
     def navigate(self, page):
         if page not in ('hall', 'create', 'join', 'friends', 'friendForm', 'connections', 'connected', 'nodes'):
             return
-        if page in ('friends', 'friendForm') and not self._state['socialReady']:
+        if (page == 'friends' and not self.friend_entry_available() or
+                page == 'friendForm' and not self._state['socialReady']):
             raise ValueError('匿名接入没有好友功能，请先领取个人接入码。')
         if page in ('create', 'join'):
             self.require_available_node()
@@ -680,6 +790,8 @@ class MultiplayerController(QObject):
         return profile
 
     def mark_node_expired(self):
+        if not self._state['nodeAccessExpired'] or self._state['socialReady']:
+            logging.getLogger('hookup.social').warning('social_access_expired contacts=%s', len(self._state['contacts']))
         nodes = [dict(node, codeExpired=True) if node['path'] == self.node_path else node
                  for node in self._state['nodes']]
         self.patch(nodes=nodes, nodeAccessExpired=True, nodeAccessMessage=EXPIRED_CODE_MESSAGE,
@@ -838,7 +950,7 @@ class MultiplayerController(QObject):
             popup.set_selected(version)
         page.set_minecraft_version(version)
 
-    def detect_instance(self):
+    def detect_instance(self, force=False):
         if self.closed:
             return
         page = self.launcher_page
@@ -855,7 +967,7 @@ class MultiplayerController(QObject):
         directory, version, game_directory = source
         installed = installed_instance_ids(directory)
         self.patch(instances=installed, instanceId=version or '', instanceLocked=bool(running))
-        if source == self.instance_source and not self._state['instanceError']:
+        if not force and source == self.instance_source and not self._state['instanceError']:
             return
         self.instance_source = source
         self.game = {}
@@ -879,10 +991,13 @@ class MultiplayerController(QObject):
             self.job('runtime', asyncio.to_thread(running_games, launcher.minecraft_directory))
         # The native scanner already probes Java listeners. Process command-line
         # detection must not prevent discovery (other launchers can hide it).
-        quick_enabled = not page or page.settings_manager.get_setting('multiplayer.quick_action', '首页提示') != '关闭'
+        waiting_hosts = [record for record in self.records.values()
+                         if record.get('role') == 'host' and record.get('state') == 'online'
+                         and record.get('availability') == 'waiting']
+        quick_enabled = bool(waiting_hosts) or not page or page.settings_manager.get_setting('multiplayer.quick_action', '首页提示') != '关闭'
         if not quick_enabled and self._state['openWorldPrompt']:
             self.patch(openWorldPrompt=False, openWorldPort=0)
-        if (quick_enabled and launcher and len(getattr(launcher, 'sessions', [])) <= 1 and not self.closed and not self.auto_lan_job
+        if (quick_enabled and launcher and (waiting_hosts or len(getattr(launcher, 'sessions', [])) <= 1) and not self.closed and not self.auto_lan_job
                 and (not self._state['connections'] or any(record.get('role') == 'host' and record.get('availability') == 'waiting'
                                                           for record in self.records.values()))):
             source = getattr(launcher, 'running_instance', None) or self.external_running or self.instance_source
@@ -994,6 +1109,8 @@ class MultiplayerController(QObject):
                               'state': 'connecting', 'detail': '', 'warning': '',
                               'public': bool((endpoint.room_settings or {}).get('public', False)),
                               'requireInvite': (endpoint.room_settings or {}).get('require_invite', True),
+                              'allowModTransfer': (endpoint.room_settings or {}).get('allow_mod_transfer', False),
+                              'modTransferLimitKib': int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512)),
                               'game': dict((endpoint.room_settings or {}).get('game', {})),
                               'compatibility': '',
                               'transportPolicy':endpoint.transport_policy,
@@ -1004,7 +1121,12 @@ class MultiplayerController(QObject):
                               'chatSending': False, 'chatDraft': '', 'chatError': '',
                               'bridgeStatus': endpoint.bridge_status if endpoint.role == 'host' else
                                               '正在读取房主的游戏聊天设置…'}
-        self.records[name]['availability'] = 'ready'
+        # A room may exist before its Minecraft world is open. Preserve the
+        # native snapshot; a new host without a game port starts out waiting.
+        self.records[name]['availability'] = (endpoint.room_info or {}).get('availability') or (
+            'waiting' if endpoint.role == 'host' and not endpoint.game_port else 'ready')
+        if endpoint.role == 'host':
+            self.records[name]['lockedSource'] = self.instance_source
         page = self.launcher_page
         current = getattr(getattr(page, 'auth_manager', None), 'current', None)
         nickname = getattr(current, 'username', '') or '玩家'
@@ -1042,7 +1164,17 @@ class MultiplayerController(QObject):
         record = self.records.get(name)
         if not record or not isinstance(event, dict):
             return
-        if event.get('type') == 'room':
+        if event.get('type') == 'members' and isinstance(event.get('snapshot'), dict):
+            self.apply_members(name, event['snapshot'])
+            return
+        elif event.get('type') == 'removed':
+            self.forget_room(name, '你已被房主移出房间。')
+            return
+        elif event.get('type') == 'transport':
+            transport = event.get('transport')
+            if transport in ('p2p', 'relay', 'auto'):
+                record['transport'] = transport
+        elif event.get('type') == 'room':
             if event.get('state') == 'closed':
                 self.forget_room(name, str(event.get('reason') or '房主已结束联机，房间已关闭。'))
                 return
@@ -1127,16 +1259,21 @@ class MultiplayerController(QObject):
                 record['chatState'] = '已断开'
         endpoint = self.service.endpoints.get(name)
         if endpoint and endpoint.room_info:
+            if endpoint.room_info.get('lobby'):
+                self.apply_members(name, endpoint.room_info['lobby'])
             record['availability'] = endpoint.room_info.get('availability', record.get('availability', 'ready'))
             record['title'] = endpoint.room_info.get('title', record['title'])
             record['game'] = endpoint.room_info.get('game', record.get('game', {}))
             record['public'] = endpoint.room_info.get('public', False)
             record['requireInvite'] = endpoint.room_info.get('require_invite', not record['public'])
+            if endpoint.role == 'host':
+                record['allowModTransfer'] = bool((endpoint.room_settings or {}).get('allow_mod_transfer', False))
+                record['modTransferLimitKib'] = int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512))
             self.check_room_compatibility(record)
         self.offer_public_room_guide(record)
         self.publish_connections()
 
-        if state == 'online' and record.get('availability', 'ready') == 'ready':
+        if state == 'online':
             self._dispatch_pending_friend_invites(name)
 
     def _dispatch_pending_friend_invite(self, name):
@@ -1150,8 +1287,7 @@ class MultiplayerController(QObject):
         record = self.records.get(name, {})
         endpoint = self.service.endpoints.get(name)
         if not (record.get('state') == 'online' and
-                record.get('role') == 'host' and endpoint and getattr(endpoint, 'connection', None) and getattr(endpoint, 'invite', None) and
-                record.get('availability', 'ready') == 'ready'):
+                record.get('isManager', record.get('role') == 'host') and endpoint and getattr(endpoint, 'connection', None) and getattr(endpoint, 'invite', None)):
             return
         pending_accounts = [account for account, pending in self.pending_friend_invites.items()
                             if pending[0] == self.social_generation and pending[2:] == (name,)]
@@ -1179,21 +1315,22 @@ class MultiplayerController(QObject):
             if (record.get('state') == 'online' and record.get('role') in ('host', 'client') and
                     endpoint and endpoint.connection and endpoint.invite):
                 availability = record.get('availability', 'ready')
-                return dict(room=endpoint.invite.room_id, room_role=record['role'],
+                return dict(room=endpoint.invite.room_id, room_role='host' if record.get('isManager', record['role'] == 'host') else 'client',
                             room_title=record.get('title', '好友的世界')[:80],
                             room_state=availability if availability in ('ready', 'waiting') else 'waiting')
         return None
 
     def check_room_compatibility(self, record):
         remote = record.get('game') or {}
+        local = record.get('preparedGame') or self.game
         record['loaderWarning'] = ''
         if record.get('role') == 'host' or not remote.get('version'):
             record['compatibility'] = ''
             return
-        if not self.game.get('version'):
+        if not local.get('version'):
             record['compatibility'] = '还没有选择游戏配置'
             return
-        errors, warnings = compatibility(self.game, remote)
+        errors, warnings = compatibility(local, remote)
         record['compatibility'] = '、'.join(errors or [item for item in warnings if item != '加载器版本不一致'])
         record['loaderWarning'] = '加载器版本与房主不同，已保持同类型；若游戏拒绝连接，请使用房主的版本。' if '加载器版本不一致' in warnings else ''
 
@@ -1204,16 +1341,19 @@ class MultiplayerController(QObject):
         page = self.launcher_page
         if not record or not endpoint or record['state'] != 'online':
             raise ValueError('房间尚未连接。')
-        if record.get('availability') == 'waiting' and record['role'] != 'host':
-            raise ValueError('房主不在游戏内，请等待世界重新开放。')
-        if record.get('compatibility'):
+        pinned = record.get('lockedSource') or record.get('preparedSource')
+        if pinned:
+            actual = instance_metadata(*pinned)
+            if compatibility(actual, record.get('game', {}))[0]:
+                raise ValueError('锁定配置的文件已改变，请重新同步房间配置。')
+        if not pinned and record.get('compatibility'):
             raise ValueError('游戏配置与房间不符；请选择匹配配置或准备新配置。')
         if record['role'] == 'client' and (record.get('game', {}).get('mods_count') or
                 record.get('game', {}).get('loader', 'vanilla') != 'vanilla'):
-            if self._state['instanceLoading']:
+            if self._state['instanceLoading'] and not pinned:
                 raise ValueError('正在核对游戏加载器，请稍候再启动。')
             expected = record['game'].get('loader', 'vanilla')
-            if expected == 'vanilla' or self.game.get('loader', 'vanilla') != expected:
+            if expected == 'vanilla' or (actual if pinned else self.game).get('loader', 'vanilla') != expected:
                 raise ValueError('当前实例没有与房主一致的加载器，请先准备房间配置。')
         if page.current_client or self.external_running or getattr(page.launcher, 'running', False):
             self.patch(notice='游戏已经运行。请进入世界并对局域网开放。' if record['role'] == 'host' else
@@ -1221,8 +1361,14 @@ class MultiplayerController(QObject):
             return
         if not page.auth_manager.is_authenticated():
             raise ValueError('请先在首页设置正版或离线角色，然后启动游戏。')
-        page.started_game(server=f'127.0.0.1:{endpoint.listen_port}' if record['role'] == 'client' else None)
-        self.patch(notice='游戏正在启动，将自动进入房间。' if record['role'] == 'client' else
+        if pinned:
+            page.launcher.minecraft_directory = pinned[0]
+            page.launcher.minecraft_version = pinned[1]
+            page.launcher.minecraft_isolation_directory = pinned[2]
+        joining = record['role'] == 'client' and record.get('availability') != 'waiting'
+        page.started_game(server=f'127.0.0.1:{endpoint.listen_port}' if joining else None)
+        self.report_room_state(name, 'starting')
+        self.patch(notice='游戏正在启动，将自动进入房间。' if joining else
                    '游戏正在启动。进入世界后对局域网开放，即可让朋友加入。')
 
     def sync_room_version(self):
@@ -1234,10 +1380,11 @@ class MultiplayerController(QObject):
         if self._state['instanceLocked']:
             raise ValueError('正在运行的游戏版本不能更改。')
         self.require_instance()
-        self.job('syncgame:' + name, endpoint.update_game(self.game))
+        record['_pendingSource'] = self.instance_source
+        self.job('syncgame:' + name, endpoint.update_game(self.game, self.instance_source[2] if self.instance_source else None))
         self.patch(busy=True)
 
-    def prepare_room(self):
+    def prepare_room(self, mode='fresh'):
         name = self._state['selected']
         record = self.records.get(name)
         endpoint = self.service.endpoints.get(name)
@@ -1248,6 +1395,10 @@ class MultiplayerController(QObject):
             raise ValueError('请先退出正在运行的游戏，再准备新的游戏配置。')
         if record['preparing']:
             return
+        if mode not in ('fresh', 'existing'):
+            raise ValueError('请选择全新配置或已有配置。')
+        if mode == 'existing' and not self.instance_source:
+            raise ValueError('请先选择一个已安装的游戏配置。')
         settings = page.settings_manager
         directory = settings.get_setting('minecraft.directory.enable')
         if not directory:
@@ -1262,13 +1413,22 @@ class MultiplayerController(QObject):
         record.update(preparing=True, prepareStatus='正在核对房间文件…', prepareProgress=0,
                       prepareMaximum=0, prepareFile='', prepareFileDone=0, prepareFileTotal=0,
                       prepareIndex=0, prepareCount=0, prepareSpeed='', modError='')
+        record.update(prepareTask=uuid.uuid4().hex, prepareLogs=[])
+        self.add_prepare_log(record, '开始核对房间配置', 'configuration')
+        self.report_room_state(name, 'checking', 'configuration')
         self.publish_connections()
+        preparation_task = record['prepareTask']
         def report(status, done, total):
-            self.preparation_progress.emit(name, str(status)[:160], done, total)
+            self.preparation_event.emit(name, dict(kind='status', task=preparation_task,
+                status=str(status)[:160], done=done, total=total))
         java = settings.get_version_setting('java.path', None)
         source = settings.get_setting('settings.general.mirrors', '自动')
+        existing_instance = ({'version': self.instance_source[1], 'game_directory': self.instance_source[2]}
+                             if mode == 'existing' else None)
         self.job('prepare:' + name, prepare_configuration(endpoint, directory, java, source, cancel, report,
-                 event=lambda event: self.preparation_event.emit(name, event)))
+                 event=lambda event: self.preparation_event.emit(name, dict(event, task=preparation_task)),
+                 existing_instance=existing_instance,
+                 content_source=settings.get_setting('settings.general.content_mirror', '自动测速')))
 
     def preparation_history(self):
         parent = getattr(self.launcher_page, 'parent', None)
@@ -1282,18 +1442,26 @@ class MultiplayerController(QObject):
 
     @Slot(str, object)
     def update_preparation_event(self, name, event):
+        record = self.records.get(name)
+        if not record or not record.get('preparing') or event.get('task', record.get('prepareTask')) != record.get('prepareTask'):
+            return
+        if event.get('kind') == 'status':
+            self.update_preparation(name, event['status'], event['done'], event['total'])
+            return
         task_id = self.preparation_tasks.get(name)
         history = self.preparation_history()
         if task_id and history:
             history.room_preparation_event(task_id, event)
-        record = self.records.get(name)
-        if not record or not record.get('preparing'):
-            return
         kind = event.get('kind')
         if kind == 'manifest':
             record.update(mods=[dict(item, state='pending') for item in event['files']],
                           prepareCount=len(event['files']), modLoading=False)
         elif kind == 'file':
+            self.add_prepare_log(record, event['name'] + ' · ' + {
+                'downloading': '开始下载', 'verified': '校验完成', 'failed': '下载失败',
+                'skipped': '可选内容已跳过'}.get(event['state'], event['state']) +
+                ((' · ' + str(event['error'])) if event.get('error') else ''),
+                event.get('content', 'mods'), 'error' if event['state'] == 'failed' else 'info')
             record['mods'] = [dict(item, state=event['state']) if item['name'] == event['name'] else item
                               for item in record.get('mods', [])]
             if event['state'] == 'downloading':
@@ -1302,11 +1470,14 @@ class MultiplayerController(QObject):
                               _downloadStarted=time.monotonic(), prepareSpeed='')
             elif event['state'] == 'verified' and record.get('prepareFile') == event['name']:
                 record['prepareFileDone'] = event['size']
-        elif kind == 'progress':
-            elapsed = max(.001, time.monotonic() - record.get('_downloadStarted', time.monotonic()))
-            record.update(prepareFile=event['name'], prepareFileDone=event['done'],
-                          prepareFileTotal=event['total'], prepareIndex=event['index'],
-                          prepareCount=event['count'], prepareSpeed=f"{event['done'] / elapsed / 1048576:.2f} MiB/s")
+        elif kind in ('progress', 'download'):
+            from core.transfer_metrics import speed_label
+            record.update(prepareFile=event['name'], prepareFileDone=event.get('done', 0),
+                          prepareFileTotal=event.get('total', 0), prepareIndex=event.get('index', 0),
+                          prepareCount=event.get('count', 0), prepareSpeed=speed_label(event.get('task_speed', 0)))
+            self.report_room_state(name, 'downloading', record.get('prepareStage', 'game'),
+                done=record.get('prepareProgress', 0), total=record.get('prepareMaximum', 0),
+                speed=event.get('task_speed', 0))
         self.publish_connections()
 
     @Slot(str, str, object, object)
@@ -1318,8 +1489,14 @@ class MultiplayerController(QObject):
             history.update_progress(task_id, done, total)
         record = self.records.get(name)
         if record and record.get('preparing'):
+            stage = next((key for word, key in [('Java', 'java'), ('资源', 'assets'), ('模组', 'mods'),
+                ('加载器', 'loader'), ('校验', 'verify'), ('配置', 'configuration'), ('库', 'libraries')] if word in status), 'game')
+            record['prepareStage'] = stage
+            self.add_prepare_log(record, status, stage)
             record.update(prepareStatus=status, prepareProgress=max(0, min(done, total)) if total > 0 else 0,
                           prepareMaximum=max(0, total))
+            self.report_room_state(name, 'verifying' if stage == 'verify' else 'installing' if stage in ('game', 'loader', 'java') else 'downloading',
+                                   stage, done=max(0, done), total=max(0, total))
             self.publish_connections()
 
     def forget_room(self, name, notice):
@@ -1327,6 +1504,7 @@ class MultiplayerController(QObject):
         if cancel:
             cancel.set()
         self.records.pop(name, None)
+        self.room_reports.pop(name, None)
         if name in self.service.endpoints:
             self.service.remove(name)
         if self._state['selected'] == name:
@@ -1347,9 +1525,7 @@ class MultiplayerController(QObject):
             self.mark_node_expired()
             return
         except Exception as error:
-            self.patch(contacts=[], friendRequests=[], friendInvitations=[], socialReady=False,
-                       socialAccount='', socialName='', socialLoading=False,
-                       socialError=str(error) if profile and profile.token.startswith('acct1.') else '')
+            self.social_failure('credential', error)
             return
         path = self.node_path
         if not self._state['socialReady']:
@@ -1387,8 +1563,7 @@ class MultiplayerController(QObject):
         if not friend or not friend['online']:
             raise ValueError('好友当前不在线，请在对方上线后邀请。')
         candidates = [name for name, record in self.records.items()
-                      if record.get('role') == 'host' and record['state'] == 'online'
-                      and record.get('availability', 'ready') == 'ready']
+                      if record.get('isManager', record.get('role') == 'host') and record['state'] == 'online']
         selected = self._state['selected']
         name = selected if selected in candidates else next(iter(candidates), '')
         endpoint = self.service.endpoints.get(name)
@@ -1452,7 +1627,7 @@ class MultiplayerController(QObject):
                     raise ValueError('好友加入申请无效，请刷新列表。')
         capabilities = state.get('capabilities', {})
         if not isinstance(capabilities, dict) or any(type(capabilities.get(k, False)) is not bool
-                for k in ('room_presence', 'join_requests')):
+                for k in ('room_presence', 'join_requests', 'friend_code')):
             raise ValueError('好友服务功能信息无效。')
         contacts = [dict(name=c['username'], account=c['account'], online=c.get('online') is True,
                          room=c.get('room'), index=i) for i,c in enumerate(state['friends'])]
@@ -1469,7 +1644,7 @@ class MultiplayerController(QObject):
                     for account, item in self._state['outgoingInvitations'].items()}
         self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=invitations,
                    joinRequests=state.get('joinRequests', []), socialCapabilities=capabilities,
-                   socialReady=True, socialLoading=False, socialAccount=state['account'],
+                   socialReady=True, socialState='online', socialLoading=False, socialAccount=state['account'],
                    socialName=state['username'], socialError='', outgoingInvitations=outgoing)
         notification = self.social_notifications.update(self._state)
         if notification:
@@ -1482,7 +1657,7 @@ class MultiplayerController(QObject):
             raise ValueError('匿名接入没有好友功能，请在节点网页登录并领取个人接入码。')
         identifier = str(data.get('identifier', '')).strip()
         if not re.fullmatch(r'(?:[A-Za-z0-9_-]{3,32}|[0-9a-f]{32}\.[0-9a-f]{32})', identifier):
-            raise ValueError('请输入用户名或完整账号 ID。')
+            raise ValueError('请输入好友码、用户名或完整账号 ID。')
         path, profile = self.node_path, self.profile()
         key = 'friendlookup:' + uuid.uuid4().hex
         self.friend_request = dict(key=key, node=path)
@@ -1490,7 +1665,7 @@ class MultiplayerController(QObject):
         async def lookup_and_request():
             values = await lookup_account(profile, identifier)
             if not values:
-                raise ValueError('找不到匹配的账号，请核对完整账号 ID 后重试。')
+                raise ValueError('找不到匹配的账号，请核对好友码或用户名后重试。')
             if len(values) > 1:
                 return {'candidates': values}
             if values[0]['account'] == self._state.get('socialAccount'):
@@ -1508,6 +1683,14 @@ class MultiplayerController(QObject):
     @Slot(str, object, object)
     def finish(self, key, value, error):
         self.jobs.discard(key)
+        if self.finish_room_action(key, value, error):
+            return
+        if key == 'feedback-upload':
+            if error:
+                self.patch(error=error, notice='上传未完成，请先在节点反馈页检查已有反馈；也可使用“导出日志”保存到本机。')
+            else:
+                self.patch(error='', notice='反馈已提交，编号：' + str((value or {}).get('issue', '未知')))
+            return
         if key == 'diagnostics':
             self.patch(error='日志导出失败：' + error if error else '',
                        notice='' if error else '网络与游戏诊断日志已导出：' + str(value))
@@ -1527,7 +1710,10 @@ class MultiplayerController(QObject):
             self.auto_lan_job = False
             if key != 'auto-lan:' + self.generation or error:
                 return
-            if self.launcher_page and self.launcher_page.settings_manager.get_setting('multiplayer.quick_action', '首页提示') == '关闭':
+            waiting = [(name, record) for name, record in self.records.items()
+                       if record.get('role') == 'host' and record.get('state') == 'online'
+                       and record.get('availability') == 'waiting']
+            if not waiting and self.launcher_page and self.launcher_page.settings_manager.get_setting('multiplayer.quick_action', '首页提示') == '关闭':
                 self.patch(openWorldPrompt=False, openWorldPort=0)
                 return
             ports = {int(world.get('port') or 0) for world in value}
@@ -1537,17 +1723,39 @@ class MultiplayerController(QObject):
                                       for port in previous - ports - {0}}
             self.auto_lan_seen.difference_update(port for port, misses in self.auto_lan_absences.items() if misses >= 2)
             if len(value) != 1:
+                for name, record in waiting:
+                    record['worldChoiceRequired'] = len(value) > 1
+                if waiting:
+                    self.publish_connections()
                 if (self._state['openWorldPrompt'] and
                         (ports or self.auto_lan_absences.get(self._state['openWorldPort'], 0) >= 2)):
                     self.patch(openWorldPrompt=False, openWorldPort=0)
                 return
             port = int(value[0].get('port') or 0)
-            waiting_host = any(record.get('role') == 'host' and record.get('availability') == 'waiting'
-                               for record in self.records.values())
-            if port > 0 and port not in self.auto_lan_seen and waiting_host:
-                self.patch(openWorldPrompt=True, openWorldPort=port, openWorldMode='associate')
+            if port > 0 and port not in self.auto_lan_seen and len(waiting) == 1:
+                name, record = waiting[0]
+                endpoint = self.service.endpoints.get(name)
+                detected_version = value[0].get('version')
+                if detected_version and detected_version != record.get('game', {}).get('version'):
+                    self.patch(notice='发现的世界版本与房间配置不同，请启动房间中选择的游戏。')
+                    return
+                record['worldChoiceRequired'] = False
+                if endpoint and 'auto-world:' + name not in self.jobs:
+                    self.job('auto-world:' + name, endpoint.retarget_world(port))
             elif port > 0 and port not in self.auto_lan_seen and not self._state['connections']:
                 self.patch(openWorldPrompt=True, openWorldPort=port, openWorldMode='create')
+            return
+        if key.startswith('auto-world:'):
+            record = self.records.get(key[11:])
+            if record:
+                if error:
+                    record['worldChoiceRequired'] = True
+                    self.patch(notice='世界暂未连接成功，将自动重试；也可以选择世界。')
+                else:
+                    record['worldChoiceRequired'] = False
+                    self.patch(openWorldPrompt=False, openWorldPort=0,
+                               notice='世界已自动连接，朋友现在可以进入游戏。')
+                self.publish_connections()
             return
         if key.startswith('manifest:'):
             record = self.records.get(key[9:])
@@ -1563,6 +1771,7 @@ class MultiplayerController(QObject):
             record = self.records.get(key[9:])
             if record and not error:
                 record['game'] = value
+                record['lockedSource'] = record.pop('_pendingSource', record.get('lockedSource'))
             self.patch(busy=False, error=error or '', notice='' if error else '房间版本已同步，玩家已收到更新。')
             self.publish_connections()
             return
@@ -1577,21 +1786,27 @@ class MultiplayerController(QObject):
             record = self.records.get(name)
             if record:
                 record['preparing'] = False
-                record['prepareStatus'] = error or '配置已安装，正在启动游戏…'
+                record['prepareStatus'] = error or '配置已安装，正在复核加载器和模组…'
                 self.publish_connections()
             if error:
+                if record:
+                    self.add_prepare_log(record, error, 'configuration', 'error')
+                    self.report_room_state(name, 'cancelled' if cancel and cancel.is_set() else 'failed',
+                                           code='cancelled' if cancel and cancel.is_set() else 'install_failed')
                 self.patch(error='配置准备失败：' + error)
                 return
             try:
                 if not record:
                     return
                 self.detect_instance()
-                self.prepared_launch = (name, value)
+                self.pending_preparation_check = (name, value)
                 self.select_instance(value)
-                self.detect_instance()
+                # The room install has just written its mod directory. Force a
+                # metadata scan even when the selected source tuple is unchanged.
+                self.detect_instance(force=True)
                 self.patch(notice='配置已准备完成，正在复核加载器和模组…')
             except Exception as exc:
-                self.prepared_launch = None
+                self.pending_preparation_check = None
                 self.patch(error=str(exc))
             return
         if key.startswith('retarget:'):
@@ -1606,9 +1821,14 @@ class MultiplayerController(QObject):
             if not record:
                 return
             if not error:
+                endpoint = self.service.endpoints.get(key[10:])
                 record.update(title=value.get('title', record.get('title', '房间')),
                               public=value.get('public', False),
-                              requireInvite=value.get('require_invite', True))
+                              requireInvite=value.get('require_invite', True),
+                              allowModTransfer=bool((endpoint.room_settings or {}).get('allow_mod_transfer', False))
+                              if endpoint else False,
+                              modTransferLimitKib=int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512))
+                              if endpoint else 512)
                 record['publicGuide'] = False
                 self.publish_connections()
             self.patch(busy=False, error=error or '', notice='' if error else '房间设置已保存。')
@@ -1655,15 +1875,14 @@ class MultiplayerController(QObject):
                 outgoing = dict(self._state['outgoingInvitations'])
                 if operation == 'invite' and target in outgoing and outgoing[target].get('status') == '发送中…':
                     outgoing[target] = dict(outgoing[target], status='发送失败，重试')
-                self.patch(socialError=str(error), friendBusy=friend_busy, socialLoading=False, outgoingInvitations=outgoing,
+                self.social_failure('request', error)
+                self.patch(friendBusy=friend_busy, outgoingInvitations=outgoing,
                            joiningFriendAccount='')
-                if key.startswith('socialstatus:'):
-                    self.patch(socialReady=False, socialAccount='', socialName='', contacts=[], friendRequests=[], friendInvitations=[], joinRequests=[])
                 self.friend_finished.emit(False, str(error)) if key.startswith('socialop:') else None
                 return
-            if value['path'] != self.node_path:
-                return
             try:
+                if value['path'] != self.node_path:
+                    return
                 if value.get('operation') == 'join':
                     self.join(value['state']['invite'])
                     self.patch(joiningFriendAccount='')
@@ -1676,6 +1895,11 @@ class MultiplayerController(QObject):
                     self.window.activateWindow()
                 else:
                     self.apply_social_state(value['state'])
+                    if self.social_failures:
+                        logging.getLogger('hookup.social').info(
+                            'social_ui_sync_recovered failures=%s contacts=%s',
+                            self.social_failures, len(self._state['contacts']))
+                        self.social_failures = 0
                 self.patch(friendBusy=friend_busy)
                 if key.startswith('socialop:'):
                     if value.get('operation') == 'invite':
@@ -1698,6 +1922,8 @@ class MultiplayerController(QObject):
                 for name in list(self.records):
                     self._dispatch_pending_friend_invites(name)
             except Exception as exc:
+                if key.startswith('socialstatus:'):
+                    self.social_failure('response', exc)
                 if (operation == 'invite' and target in self._state['outgoingInvitations'] and
                         self._state['outgoingInvitations'][target].get('status') == '发送中…'):
                     outgoing = dict(self._state['outgoingInvitations'])
@@ -1760,27 +1986,31 @@ class MultiplayerController(QObject):
             if not error and self.instance_source:
                 for name, endpoint in list(self.service.endpoints.items()):
                     record = self.records.get(name)
-                    if (record and endpoint.role == 'host' and record.get('availability') == 'waiting'
+                    if (record and not record.get('lockedSource') and endpoint.role == 'host' and record.get('availability') == 'waiting'
                             and record.get('game') != self.game):
                         self.job('syncgame:' + name, endpoint.update_game(self.game, self.instance_source[2]))
             self.publish_connections()
-            if self.prepared_launch:
-                name, version = self.prepared_launch
-                self.prepared_launch = None
+            if self.pending_preparation_check:
+                name, version = self.pending_preparation_check
+                self.pending_preparation_check = None
                 record = self.records.get(name)
-                page = self.launcher_page
                 if record and self._state['instanceId'] == version:
                     if error or record.get('compatibility'):
-                        self.patch(error='房间配置复核失败：' + (error or record['compatibility']))
+                        detail = '房间配置复核失败：' + (error or record['compatibility'])
+                        record['prepareStatus'] = detail
+                        self.patch(error=detail)
                     elif record.get('availability') == 'waiting':
-                        self.patch(notice='配置已准备完成。等待房主开放世界后，可以快速启动。')
-                    elif not page.auth_manager.is_authenticated():
-                        self.patch(notice='配置已准备完成。请在首页设置角色后点击快速启动。')
-                    elif self._state['selected'] == name:
-                        try:
-                            self.launch_room()
-                        except Exception as exc:
-                            self.patch(error=str(exc))
+                        record['prepareStatus'] = '已准备好，等待房主开放世界。'
+                        self.patch(notice=record['prepareStatus'])
+                    else:
+                        record['prepareStatus'] = '已准备好，点击“进入游戏”即可加入，也可以继续等待。'
+                        self.patch(notice=record['prepareStatus'])
+                    if not error and not record.get('compatibility'):
+                        record['preparedSource'] = self.instance_source
+                        record['preparedGame'] = dict(self.game)
+                        self.report_room_state(name, 'ready')
+                        self.add_prepare_log(record, '配置复核完成，已准备好', 'verify')
+                    self.publish_connections()
             if self.pending:
                 self.patch(busy=False)
                 if self.game.get('version'):
@@ -1837,8 +2067,11 @@ class MultiplayerController(QObject):
 
     @Slot()
     def close(self):
+        cancel_copy(self)
         if not self.closed:
             self.closed = True
+            self.room_report_timer.stop()
+            self.room_reports.clear()
             self.room_search_timer.stop()
             self.friend_timer.stop()
             for cancel in self.preparations.values():

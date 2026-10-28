@@ -80,13 +80,22 @@ class NativeEndpoint:
                 method = 'room.join'
             result = await self._routes.request(method, params)
             self.session = result['session']
+            # Capture at connection time as well as export time; ICE and game
+            # forwarding never wait for route, DNS or STUN diagnostics.
+            from utils.diagnostics import connection_session_directory
+            directory = connection_session_directory()
+            if directory:
+                from utils.network_diagnostics import capture_session_network
+                probe = asyncio.create_task(asyncio.to_thread(
+                    capture_session_network, directory, self.session))
+                probe.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
             if self.role == 'host' and result.get('invite'):
                 self.invite = RoomInvite.decode(result['invite'])
             address = result.get('address') or ''
             if ':' in address:
                 self.listen_port = int(address.rsplit(':', 1)[1])
             self.room_info = dict(result.get('info') or {})
-            self._transport = result.get('transport', 'relay')
+            self._set_transport(result.get('transport', 'relay'), force=True)
             self.bridge_status = 'Native bridge controls this room'
             self.connection = self
             self.listener = self.role == 'client'
@@ -108,7 +117,7 @@ class NativeEndpoint:
                         detail = current.get('reason', 'Room disconnected') if current else 'Room disconnected'
                         await self._emit('closed', detail)
                         break
-                    self._transport = current.get('transport', self._transport)
+                    self._set_transport(current.get('transport', self._transport))
                     self.room_info.update(current.get('info') or {})
                     state = current.get('state', 'online')
                     if state != self.room_state:
@@ -127,19 +136,31 @@ class NativeEndpoint:
             self.listener = False
 
     def _apply_event(self, event):
-        if event.get('type') == 'room':
+        if event.get('type') == 'members' and isinstance(event.get('snapshot'), dict):
+            self.room_info['lobby'] = event['snapshot']
+        elif event.get('type') == 'room':
             self.room_info.update(event)
             if event.get('state') in ('ready', 'waiting', 'closed'):
                 self.room_info['availability'] = event['state']
             transport = event.get('transport')
             if transport:
-                self._transport = transport
+                self._set_transport(transport, notify=False)
+        elif event.get('type') == 'transport':
+            self._set_transport(event.get('transport'), notify=False)
         elif event.get('type') == 'bridge':
             self.bridge_status = str(event.get('status', self.bridge_status))[:160]
         elif event.get('type') == 'latency':
             value = event.get('latency_ms')
             self.room_info['latency_ms'] = value if type(value) is int and 0 <= value <= 1000000 else None
             self.room_info['latency_state'] = event.get('state', 'unavailable')
+
+    def _set_transport(self, transport, *, force=False, notify=True):
+        if transport not in ('p2p', 'relay', 'auto'):
+            return
+        changed = transport != self._transport
+        self._transport = transport
+        if notify and self.on_chat and (changed or force):
+            self.on_chat({'type': 'transport', 'transport': transport})
 
     async def stop(self):
         self._stopped = True
@@ -183,30 +204,71 @@ class NativeEndpoint:
             'session': self.session, 'settings': self.room_settings}))
         return dict(game)
 
-    async def update_settings(self, title, public, require_invite):
-        if self.role != 'host' or not self.session:
+    async def update_settings(self, title, public, require_invite, allow_mod_transfer=False,
+                              mod_transfer_limit_kib=512):
+        lobby = self.room_info.get('lobby', {})
+        if not self.session or (self.role != 'host' and lobby.get('self_id') != lobby.get('manager_id')):
             raise ValueError('只有在线房主可以修改房间设置。')
+        if self.role != 'host':
+            info = await self.lobby_request('configure', title=title, public=public,
+                require_invite=not public or require_invite)
+            self.room_info.update(info)
+            return info
         settings = dict(self.room_settings, title=title, public=public,
-                        require_invite=not public or require_invite)
+                        require_invite=not public or require_invite,
+                        allow_mod_transfer=bool(allow_mod_transfer),
+                        mod_transfer_limit_kib=int(mod_transfer_limit_kib))
         info = dict(await self._routes.request('room.configure', {
             'session': self.session, 'settings': settings}))
         self.room_settings = settings
         self.room_info = info
         return info
 
-    async def mod_manifest(self):
-        result = await self._routes.request('mods.manifest', {'session': self.session})
+    async def lobby_request(self, op, **fields):
+        if not self.session or 'room-lobby-v1' not in self.room_info.get('capabilities', []):
+            raise ValueError('当前节点需要升级，才能使用成员准备和管理功能。')
+        return await self._routes.request('room.request', {
+            'session': self.session, 'request': dict(op=op, **fields)})
+
+    async def mod_manifest(self, kind='mods'):
+        if kind not in ('mods', 'resources'):
+            raise ValueError('Invalid room content kind')
+        result = await self._routes.request('mods.manifest', {'session': self.session, 'kind': kind})
         return await self._wait_transfer(result)
 
     async def download_mod(self, item, target, cancel, progress):
-        result = await self._routes.request('mods.fetch', {
-            'session': self.session, 'item': dict(item), 'target': str(target)})
-        return await self._wait_transfer(result, cancel, progress)
+        if self.transport_state != 'p2p':
+            raise ConnectionError('当前未建立 P2P 直连，禁止从房主传输文件。请优先使用下载源。')
+        deadline = asyncio.get_running_loop().time() + 45
+        # The file PeerConnection is negotiated independently of the game
+        # channel. A first RPC can therefore arrive while its ICE offer is
+        # still gathering; retry that transient state so the public source
+        # race can continue without exposing a P2P-specific failure.
+        while True:
+            if self.transport_state != 'p2p' or not self.session:
+                raise ConnectionError('P2P 直连已断开，文件传输已停止。')
+            if cancel is not None and cancel.is_set():
+                raise InterruptedError('模组安装已取消。')
+            try:
+                result = await self._routes.request('mods.fetch', {
+                    'session': self.session, 'item': dict(item), 'target': str(target),
+                    'kind': 'resources' if item.get('path') else 'mods'})
+                return await self._wait_transfer(result, cancel, progress)
+            except ConnectionError as error:
+                if 'P2P file channel is not connected' not in str(error):
+                    raise
+                if cancel is not None and cancel.is_set():
+                    raise InterruptedError('模组安装已取消')
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise ConnectionError('P2P 文件通道暂时不可用') from error
+                await asyncio.sleep(.35)
 
     async def _wait_transfer(self, result, cancel=None, progress=None):
         transfer = result.get('transfer')
         try:
             while result.get('state') != 'complete':
+                if progress is not None and self.transport_state != 'p2p':
+                    raise ConnectionError('P2P 直连已断开，文件传输已停止。')
                 if result.get('state') == 'error':
                     raise ConnectionError(result.get('error', 'Native transfer failed'))
                 if cancel is not None and cancel.is_set():
@@ -220,7 +282,7 @@ class NativeEndpoint:
                 return result
             items = list(result['items'])
             total = result.get('total', len(items))
-            if type(total) is not int or not 0 <= total <= 1000:
+            if type(total) is not int or not 0 <= total <= 2000:
                 raise ValueError('Native bridge returned an invalid manifest total')
             while len(items) < total:
                 page = await self._routes.request('mods.status' if transfer else 'mods.manifest', {

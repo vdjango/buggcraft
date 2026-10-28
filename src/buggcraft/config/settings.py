@@ -139,6 +139,7 @@ class SettingsManager:
             "memory": {
                 "allocation": 1024,
             },
+            "downloads": {"concurrency": 32},
             "game": {
                 "language": "zh_cn",
                 "launch_jvm_args": "",

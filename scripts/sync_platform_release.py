@@ -3,7 +3,7 @@ import json
 import os
 import time
 from urllib.parse import urlencode
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ENDPOINT = 'https://download.bugg.icu/api/launcher/github-sync'
@@ -47,8 +47,18 @@ def main():
                     print(f'{tag}: 平台已缓存，按后台审核设置处理。')
                     return
                 if state.get('status') in ('failed', 'interrupted'):
-                    print(f'Platform sync attempt {attempt + 1} failed; retrying.')
+                    message = state.get('message', '')
+                    if isinstance(message, str) and message.startswith('GitHub 返回 ') and message[10:].isdigit():
+                        print(f'Platform sync attempt {attempt + 1} failed: {message}; retrying.')
+                    else:
+                        print(f'Platform sync attempt {attempt + 1} failed; retrying.')
                     break
+        except HTTPError as error:
+            # HTTPError is a URLError subclass. Include only its numeric status,
+            # never its URL, headers or response body, which can contain secrets.
+            print(f'Platform returned HTTP {error.code}; retrying.')
+            if error.code in (401, 403):
+                identity_until = 0
         except (URLError, OSError, ValueError, KeyError):
             # Do not print request URLs, headers or credentials in build logs.
             print(f'Platform connection attempt {attempt + 1} failed; retrying.')

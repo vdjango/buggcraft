@@ -1,4 +1,4 @@
-"""Native Python room client: python -m buggcraft.hookup."""
+"""Room CLI backed by the C++ bridge: python -m buggcraft.hookup."""
 import argparse
 import asyncio
 import logging

@@ -6,12 +6,15 @@ ColumnLayout {
     id: create
     property var vm: lobby.view
     property int worldIndex: -1
+    readonly property int requestedWorldPort: Number(vm.pendingOpenWorldPort || 0)
+    property bool prepareOnly: !requestedWorldPort
     property bool manual: false
     property bool makePublic: false
     property bool requireInvite: false
     property bool advanced: false
     property bool gameChatEnabled: false
     readonly property bool scanning: !!vm.worldScanning
+    onRequestedWorldPortChanged: if (requestedWorldPort) create.prepareOnly = false
     spacing: 10
     FriendInviteProgress { objectName: "create-friend-invite-progress"; flow: vm.friendInviteFlow || ({}); onAction: function(name, data) { lobby.act(name, data) } }
     function selectDiscoveredWorld() {
@@ -25,9 +28,9 @@ ColumnLayout {
         if (create.worldIndex >= 0) port.text = String(vm.worlds[create.worldIndex].port)
     }
     Component.onCompleted: Qt.callLater(function() {
-        if (lobby.view.page === "create") {
+        if (lobby.view.page === "create" && !(typeof tutorial !== "undefined" && tutorial.demoStep === "create")) {
             selectDiscoveredWorld()
-            lobby.act("discover", {})
+            if (!create.prepareOnly) lobby.act("discover", {})
         }
     })
     ScrollView {
@@ -58,10 +61,39 @@ ColumnLayout {
                         }
                     }
                     InstancePicker { objectName: "create-game-config"; Layout.fillWidth: true }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        ActionButton {
+                            objectName: "create-mode-prepare"; Layout.fillWidth: true
+                            text: "先开房，稍后进入游戏"
+                            primary: create.prepareOnly; quiet: !create.prepareOnly
+                            enabled: !vm.busy
+                            onClicked: create.prepareOnly = true
+                        }
+                        ActionButton {
+                            objectName: "create-mode-world"; Layout.fillWidth: true
+                            text: "关联已开放的世界"
+                            primary: !create.prepareOnly; quiet: create.prepareOnly
+                            enabled: !vm.busy
+                            onClicked: {
+                                create.prepareOnly = false
+                                create.selectDiscoveredWorld()
+                                if (!(typeof tutorial !== "undefined" && tutorial.demoStep === "create-world"))
+                                    lobby.act("discover", {})
+                            }
+                        }
+                    }
+                    CopyText {
+                        objectName: "create-mode-description"
+                        Layout.fillWidth: true; font.pixelSize: 11
+                        text: create.prepareOnly ? "朋友可以先加入并同步安装，你随时可以启动游戏。" :
+                            "选择已经对局域网开放的世界，确认后创建房间。"
+                    }
                 }
             }
             Surface {
                 objectName: "create-world-discovery"
+                visible: !create.prepareOnly
                 Layout.fillWidth: true; Layout.maximumWidth: 620; Layout.alignment: Qt.AlignHCenter
                 implicitHeight: discovery.implicitHeight + 28
                 color: "#211d2b"; border.color: "#49415c"
@@ -235,7 +267,7 @@ ColumnLayout {
     CopyText {
         objectName: "create-node-unavailable"; Layout.fillWidth: true
         visible: !vm.nodeAvailable; color: "#dfbd92"; font.pixelSize: 12
-        text: "联机节点暂不可用，请返回大厅刷新节点后继续。"
+        text: vm.nodeIndex < 0 ? "请先添加启动器接入码并连接节点，才能创建房间。" : "联机节点暂不可用，请返回大厅刷新节点后继续。"
     }
     RowLayout {
         objectName: "create-footer"
@@ -253,14 +285,14 @@ ColumnLayout {
         ActionButton { objectName: "cancel-create"; text: "取消"; quiet: true; onClicked: lobby.act("navigate", {page:"hall"}) }
         ActionButton {
             objectName: "create-next"
-            text: create.scanning ? "正在查找世界…" : vm.busy ? "正在创建…" : create.worldIndex >= 0 || (create.manual && port.acceptableInput) ? "创建房间" : vm.worlds.length > 1 ? "请选择游戏世界" : "先创建房间"
+            text: vm.busy ? (!create.prepareOnly && create.scanning ? "正在查找世界…" : "正在创建…") : create.prepareOnly ? "先创建房间" : create.worldIndex >= 0 || (create.manual && port.acceptableInput) ? "创建房间" : "请选择游戏世界"
             primary: true
             enabled: !!vm.nodeAvailable && !vm.busy && !vm.instanceLoading && !!vm.version &&
-                (vm.worlds.length <= 1 || create.worldIndex >= 0 || (create.manual && port.acceptableInput)) &&
-                (!create.manual || port.acceptableInput) &&
-                (!create.scanning || (create.manual && port.acceptableInput)) && (!create.gameChatEnabled || chatName.acceptableInput)
+                (create.prepareOnly || ((create.worldIndex >= 0 || (create.manual && port.acceptableInput)) &&
+                (!create.manual || port.acceptableInput) && (!create.scanning || (create.manual && port.acceptableInput)))) &&
+                (!create.gameChatEnabled || chatName.acceptableInput)
             onClicked: {
-                lobby.act("quickCreate", {port:create.worldIndex >= 0 || create.manual ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, transport:vm.transportPolicy})
+                lobby.act("quickCreate", {port:!create.prepareOnly && (create.worldIndex >= 0 || create.manual) ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, transport:vm.transportPolicy})
                 if (typeof tutorial !== "undefined") tutorial.action("create-world")
             }
         }

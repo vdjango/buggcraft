@@ -1,5 +1,6 @@
 """QML settings shared by global and per-instance pages."""
 import os
+from pathlib import Path
 
 import psutil
 from PySide6.QtCore import QObject, Property, Signal, Slot, QTimer
@@ -7,6 +8,7 @@ from PySide6.QtWidgets import QFileDialog
 
 from config.javafinder import JavaPathFinder
 from config.settings import get_settings_manager, launcher_opacity
+from config.downloads import download_concurrency, normalize_concurrency
 from config.settings_scope import GlobalSettingsScope
 from core.visibility import VisibilitySettings
 from core.game_languages import available_languages
@@ -16,6 +18,8 @@ from ui.pages.qml_host import QmlPage
 class SettingsController(QObject):
     changed = Signal()
     memoryChanged = Signal()
+    sliderValuesChanged = Signal()
+    tutorialTargetRequested = Signal(str)
 
     def __init__(self, parent, scope):
         super().__init__(parent)
@@ -25,6 +29,7 @@ class SettingsController(QObject):
         self._fields = []
         self._memory = {}
         self._updates = None
+        self._preview_sound = None
         self.reload()
 
     def bind_updates(self, updates):
@@ -108,6 +113,11 @@ class SettingsController(QObject):
                              collapsible=False)
             elif key == 'multiplayer.quick_action':
                 group.update(kind='radio', summary='', collapsible=False)
+                for option, description in zip(group['options'], (
+                        '完全手动，由你进入大厅创建或加入。',
+                        '开放局域网后首页按钮闪烁，点击后处理。',
+                        '开放局域网后自动创建房间并打开。')):
+                    option['description'] = description
             elif key in ('launcher.allow_multiple', 'translation.enabled', 'multiplayer.notification_sound'):
                 group.update(kind='standalone-toggle', collapsible=False)
                 if key == 'translation.enabled':
@@ -120,6 +130,11 @@ class SettingsController(QObject):
     @Property('QVariantMap', notify=memoryChanged)
     def memoryInfo(self):
         return self._memory
+
+    @Property('QVariantMap', notify=sliderValuesChanged)
+    def sliderValues(self):
+        return dict(memory=int(self.settings.get_version_setting('memory.allocation', 2048)),
+                    opacity=launcher_opacity(self.settings))
 
     @Slot()
     def refreshMemory(self):
@@ -157,18 +172,21 @@ class SettingsController(QObject):
                             ['自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI'],
                             'Minecraft 本体、assets、libraries 和加载器。BMCLAPI 优先国内镜像，失败回退官方。'),
                 self._field('settings.general.content_mirror', '模组与整合包下载源',
-                            s.get_setting('settings.general.content_mirror', 'MCIM'), ['MCIM', '官方'],
-                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。默认 MCIM，超时、持续低速或失败时自动切换原站；不影响游戏本体下载源。'),
+                            s.get_setting('settings.general.content_mirror', '自动测速'), ['自动测速', 'MCIM', '官方'],
+                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。自动测速比较 MCIM 与可信原站的短 Range 响应，每 10 分钟更新；MCIM 表示速度接近时优先镜像，官方表示只用原站。完整下载仍校验哈希并在失败时回退。'),
+                self._field('downloads.concurrency', '下载并发数', download_concurrency(self.manager),
+                            sorted({1, 2, 4, 8, 16, 32, 64, download_concurrency(self.manager)}),
+                            '每个任务同时下载的文件数量，默认 32。网络不稳定可调低，修改后对新任务生效。'),
                 self._field('launcher.allow_multiple', '允许多开游戏',
                             bool(s.get_setting('launcher.allow_multiple', False)), kind='toggle',
                             description='首页可按版本和 PID 选择停止目标。'),
                 self._field('multiplayer.quick_action', '快捷联机',
                             s.get_setting('multiplayer.quick_action', '首页提示'),
                             ['关闭', '首页提示', '自动创建或加入'],
-                            '关闭：仅手动联机。首页提示：高亮按钮后点击继续。自动模式：自动创建私密房间或加入邀请码对应的房间。'),
-                self._field('multiplayer.notification_sound', '好友通知声音',
+                            '关闭：仅手动联机。首页提示：游戏开放局域网后，首页联机按钮会闪烁，点击后再处理。自动：游戏开放局域网后自动创建房间并打开；识别房间邀请码时自动加入。'),
+                self._field('multiplayer.notification_sound', '好友与联机提示音',
                             bool(s.get_setting('multiplayer.notification_sound', True)), kind='toggle',
-                            description='收到好友申请、联机邀请或加入申请时提醒。'),
+                            description='收到好友申请、房间邀请或加入申请时播放声音。关闭后仍保留闪烁和未读提醒，设置立即生效。'),
                 self._field('translation.enabled', '自动翻译资源介绍',
                             bool(s.get_setting('translation.enabled', False)), kind='toggle',
                             description='自动翻译模组、资源包、光影和整合包的列表简介与详情。首次翻译在后台进行，不影响浏览和下载。'),
@@ -221,6 +239,7 @@ class SettingsController(QObject):
             ])
             self._fields = fields
         self.refreshMemory()
+        self.sliderValuesChanged.emit()
         self.changed.emit()
 
     @Slot(str, 'QVariant')
@@ -244,6 +263,8 @@ class SettingsController(QObject):
             self.settings.set_version_setting_enable(bool(value))
         elif key == 'memory.allocation':
             self.settings.set_version_setting(key, int(value))
+        elif key == 'downloads.concurrency' and self.scope == 'general':
+            self.settings.set_setting(key, normalize_concurrency(value))
         elif key == 'launcher.opacity' and self.scope == 'general':
             try:
                 value = max(35, min(100, int(value)))
@@ -262,7 +283,14 @@ class SettingsController(QObject):
                 memory, _ = AdvancedMemoryRecommender(self.settings).calculate()
                 self.settings.set_version_setting('memory.allocation', memory)
         self.settings.save_settings()
-        self.reload()
+        if key in ('memory.allocation', 'launcher.opacity'):
+            # A slider already displays its new value. Replacing the groups
+            # here destroys its delegate and keyboard focus after every move.
+            field['value'] = value
+            self.sliderValuesChanged.emit()
+            self.refreshMemory()
+        else:
+            self.reload()
         if key == 'settings.general.update' and self._updates is not None:
             self._updates.channel_changed()
         if key == 'multiplayer.quick_action':
@@ -272,6 +300,21 @@ class SettingsController(QObject):
                 dialog.backend.clipboard_invite = ''
                 dialog.backend.patch(openWorldPrompt=False, openWorldPort=0)
             home._refresh_multiplayer_entry()
+        if key == 'multiplayer.notification_sound' and bool(value):
+            self.previewNotificationSound()
+
+    @Slot(result=bool)
+    def previewNotificationSound(self):
+        """Play a short confirmation chime after notification sound is enabled."""
+        if not bool(self.manager.get_setting('multiplayer.notification_sound', True)):
+            return False
+        if self._preview_sound is None:
+            from utils.social_sound import SocialSound
+            resources = getattr(self.parent(), 'resource_path', None)
+            if not resources:
+                resources = Path(__file__).resolve().parents[4] / 'resources'
+            self._preview_sound = SocialSound(resources)
+        return bool(self._preview_sound.play('request'))
 
     @Slot()
     def openReleases(self):

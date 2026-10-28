@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 import hashlib
 import json
 import logging
@@ -15,22 +17,14 @@ import threading
 import zipfile
 from urllib.parse import urlsplit
 
-from core.downloads import DownloadCancelled, MinecraftDownloader
+from core.downloads import DownloadCancelled, MinecraftDownloader, use_download_budget
 from core.loaders import install_loader
 from core.loader_rules import validate_loaders
 from core.curseforge import CurseForgeAPI, download_url, fallback_url
+from utils.path_helper import filesystem_path as disk_path
 
 MAX_EXPANDED = 8 * 1024 ** 3
 MAX_ENTRIES = 50000
-
-
-def disk_path(path):
-    """Use Windows extended paths for deeply nested author-supplied configs."""
-    path = Path(path).absolute()
-    value = str(path)
-    if os.name == 'nt' and not value.startswith('\\\\?\\'):
-        value = '\\\\?\\UNC\\' + value[2:] if value.startswith('\\\\') else '\\\\?\\' + value
-    return Path(value)
 
 
 def safe_path(value):
@@ -60,6 +54,184 @@ def suggested_name(archive):
         return instance_name(value)
     except ValueError:
         return 'Imported-Modpack'
+
+
+_EXPORT_IGNORED_DIRECTORIES = {
+    '.buggcraft-downloads', 'logs', 'crash-reports', 'screenshots', 'natives',
+}
+_BUGGCRAFT_RESOURCE_DIRECTORIES = {'mods', 'resourcepacks', 'shaderpacks'}
+_BUGGCRAFT_DOWNLOAD_HOSTS = {
+    'cdn.modrinth.com', 'github.com', 'raw.githubusercontent.com', 'gitlab.com',
+    'edge.forgecdn.net', 'mediafilez.forgecdn.net',
+}
+
+
+def _valid_download_urls(value):
+    """Return public HTTPS URLs accepted by the portable package format."""
+    if not isinstance(value, list) or not 1 <= len(value) <= 16:
+        return []
+    result = []
+    for url in value:
+        if not isinstance(url, str) or len(url) > 8192 or re.search(r'[\s\x00-\x1f]', url):
+            return []
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.hostname not in _BUGGCRAFT_DOWNLOAD_HOSTS
+                or parsed.username or parsed.password or parsed.port not in (None, 443)):
+            return []
+        result.append(url)
+    return result
+
+
+def export_pack(directory, identity, destination, *, name=None, version='1.0.0', mode='compact',
+                game_directory=None):
+    """Export an installed instance as the launcher's portable ``.buggpack``.
+
+    Store a versioned manifest and portable files under ``files/``. Compact
+    packages reference known, unchanged downloadable content; standard packages
+    embed all portable content. Minecraft and its loader are installed on import.
+    """
+    instance_name(identity)
+    if mode not in ('compact', 'standard'):
+        raise ValueError('导出模式必须是 compact 或 standard')
+    root = Path(directory).resolve() / 'versions' / identity
+    metadata_path = root / f'{identity}.json'
+    if not root.is_dir() or not metadata_path.is_file():
+        raise ValueError('找不到要导出的游戏实例或版本信息。')
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError) as exc:
+        raise ValueError('实例版本信息无法读取，不能导出。') from exc
+    if not isinstance(metadata, dict):
+        raise ValueError('实例版本信息格式无效，不能导出。')
+    pack_metadata = metadata.get('buggcraftModpack')
+    if not isinstance(pack_metadata, dict):
+        pack_metadata = {}
+    from hookup.rooms import instance_metadata
+    content_root = Path(game_directory).resolve() if game_directory else root
+    if content_root not in (root, Path(directory).resolve()):
+        raise ValueError('游戏内容目录必须是实例目录或当前 Minecraft 目录。')
+    detected = instance_metadata(directory, identity, content_root)
+    minecraft = pack_metadata.get('minecraft') or detected['version']
+    if not isinstance(minecraft, str) or not re.fullmatch(r'[A-Za-z0-9_.+-]{1,64}', minecraft):
+        raise ValueError('无法确定实例的 Minecraft 版本，不能导出。')
+    loader_names = {'forge': 'Forge', 'neoforge': 'NeoForge', 'fabric': 'Fabric', 'quilt': 'Quilt'}
+    loader = pack_metadata.get('loader') or loader_names.get(detected['loader'], '')
+    loader_version = pack_metadata.get('loaderVersion') or detected['loader_version']
+    if loader and (loader not in ('Forge', 'NeoForge', 'Fabric', 'Quilt') or
+                   not isinstance(loader_version, str) or
+                   not re.fullmatch(r'[A-Za-z0-9_.+-]{1,64}', loader_version)):
+        raise ValueError('实例加载器信息无效，不能导出。')
+    dependency_names = {'Forge': 'forge', 'NeoForge': 'neoforge',
+                        'Fabric': 'fabric-loader', 'Quilt': 'quilt-loader'}
+    dependencies = {'minecraft': minecraft}
+    if loader:
+        dependencies[dependency_names[loader]] = loader_version
+    pack_name = str(name or pack_metadata.get('name') or identity).strip()
+    if not pack_name or len(pack_name) > 200:
+        raise ValueError('整合包名称无效。')
+    destination = Path(destination).expanduser().resolve()
+    if destination.suffix.lower() not in ('.buggpack', '.zip'):
+        destination = destination.with_suffix('.buggpack')
+    if destination == root or destination.is_relative_to(root):
+        raise ValueError('导出文件不能放在正在导出的实例目录内。')
+    if destination == metadata_path or destination.is_dir():
+        raise ValueError('导出位置无效。')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise FileExistsError('导出文件已存在，请选择其他文件名。')
+
+    manifest = {
+        'format': 'buggcraft',
+        'formatVersion': 1,
+        'name': pack_name,
+        'version': str(version),
+        'minecraft': minecraft,
+        'loader': loader,
+        'loaderVersion': loader_version,
+        'dependencies': dependencies,
+        'recommendedRam': pack_metadata.get('recommendedRam', 0),
+        'exportMode': mode,
+        'files': [],
+    }
+    resource_records = {}
+    records = pack_metadata.get('resources', [])
+    if isinstance(records, list):
+        for record in records:
+            if isinstance(record, dict) and isinstance(record.get('path'), str):
+                resource_records[record['path'].replace('\\', '/').casefold()] = record
+    from core.content_records import read_records
+    resource_records.update({record['path'].casefold(): record for record in read_records(content_root)})
+    resource_records.update({record['path'].casefold(): record for record in read_records(root)})
+    try:
+        with zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED,
+                             compresslevel=6) as archive:
+            entries = []
+            included = 0
+            externalized = 0
+            sources = {path.relative_to(root).as_posix().casefold(): path
+                       for path in root.rglob('*') if path.is_file() and not path.is_symlink()}
+            # Non-isolated launch profiles use the shared .minecraft content
+            # folders. Include those portable files when the version folder
+            # does not contain its own copy.
+            for folder in (() if content_root == root else (
+                    'mods', 'resourcepacks', 'shaderpacks', 'config',
+                    'defaultconfigs', 'kubejs', 'scripts', 'saves')):
+                shared = content_root / folder
+                if shared.is_dir():
+                    for path in shared.rglob('*'):
+                        if path.is_file() and not path.is_symlink():
+                            relative_name = path.relative_to(Path(directory).resolve()).as_posix()
+                            sources.setdefault(relative_name.casefold(), path)
+            for relative_key in sorted(sources):
+                source = sources[relative_key]
+                if not source.is_file() or source.is_symlink():
+                    continue
+                try:
+                    relative = source.relative_to(root)
+                except ValueError:
+                    relative = source.relative_to(Path(directory).resolve())
+                if (relative.name in (f'{identity}.json', f'{identity}.jar', 'buggcraft-modpack.json')
+                        or relative.parts[0] in _EXPORT_IGNORED_DIRECTORIES
+                        or relative.parts[0].startswith('.buggcraft')):
+                    continue
+                safe_path(relative.as_posix())
+                digest = hashlib.sha256()
+                sha1 = hashlib.sha1()
+                with source.open('rb') as input_stream:
+                    for chunk in iter(lambda: input_stream.read(1024 * 1024), b''):
+                        digest.update(chunk)
+                        sha1.update(chunk)
+                relative_name = relative.as_posix()
+                size = source.stat().st_size
+                record = resource_records.get(relative_name.casefold())
+                downloads = _valid_download_urls(record.get('downloads')) if isinstance(record, dict) else []
+                external = (mode == 'compact'
+                            and relative.parts[0].casefold() in _BUGGCRAFT_RESOURCE_DIRECTORIES
+                            and downloads and isinstance(record, dict) and record.get('size') == size
+                            and (record.get('sha1') or record.get('sha256'))
+                            and (not record.get('sha1') or str(record.get('sha1')).lower() == sha1.hexdigest())
+                            and (not record.get('sha256') or str(record.get('sha256')).lower() == digest.hexdigest()))
+                entry = {'path': relative_name, 'size': size, 'sha256': digest.hexdigest(),
+                         'sha1': sha1.hexdigest(), 'embedded': not external}
+                if external:
+                    entry['downloads'] = downloads
+                    externalized += 1
+                else:
+                    archive_name = 'files/' + relative_name
+                    with source.open('rb') as input_stream, archive.open(archive_name, 'w') as output_stream:
+                        for chunk in iter(lambda: input_stream.read(1024 * 1024), b''):
+                            output_stream.write(chunk)
+                    included += 1
+                entries.append(entry)
+            manifest['files'] = entries
+            archive.writestr('buggcraft.pack.json',
+                             json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    return {'path': str(destination), 'name': pack_name, 'minecraft': minecraft,
+            'loader': loader, 'loader_version': loader_version, 'files': included,
+            'external_files': externalized, 'mode': mode}
 
 
 @dataclass(frozen=True)
@@ -135,6 +307,83 @@ def _inspect_modrinth(manifest, expanded, path):
                     tuple(refs), 0, expanded, 'Modrinth', ('overrides', 'client-overrides'))
 
 
+def _inspect_buggcraft(manifest, archive, expanded, path):
+    if (not isinstance(manifest, dict) or manifest.get('format') != 'buggcraft' or
+            manifest.get('formatVersion') != 1):
+        raise ValueError('不支持的 Buggcraft 整合包清单版本')
+    minecraft = manifest.get('minecraft')
+    if not isinstance(minecraft, str) or not re.fullmatch(r'[A-Za-z0-9_.+-]{1,64}', minecraft):
+        raise ValueError('整合包 Minecraft 版本无效')
+    loader = manifest.get('loader') or ''
+    loader_version = manifest.get('loaderVersion') or ''
+    if loader and (loader not in ('Forge', 'NeoForge', 'Fabric', 'Quilt') or
+                   not isinstance(loader_version, str) or
+                   not re.fullmatch(r'[A-Za-z0-9_.+-]{1,64}', loader_version)):
+        raise ValueError('整合包加载器信息无效')
+    files = manifest.get('files')
+    if not isinstance(files, list) or len(files) > MAX_ENTRIES:
+        raise ValueError('Buggcraft 文件清单无效')
+    names, refs, total = set(), [], 0
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError('Buggcraft 文件条目无效')
+        relative = str(safe_path(item.get('path')))
+        if relative.casefold() in names or relative.casefold().startswith('.buggcraft'):
+            raise ValueError('Buggcraft 文件路径重复或保留')
+        names.add(relative.casefold())
+        size, digest = item.get('size'), item.get('sha256')
+        if type(size) is not int or size < 0 or not re.fullmatch(r'[0-9a-fA-F]{64}', str(digest or '')):
+            raise ValueError('Buggcraft 文件缺少有效 SHA-256 校验值')
+        sha1 = item.get('sha1')
+        if sha1 is not None and not re.fullmatch(r'[0-9a-fA-F]{40}', str(sha1)):
+            raise ValueError('Buggcraft file has an invalid SHA-1')
+        embedded = item.get('embedded', True)
+        if not isinstance(embedded, bool):
+            raise ValueError('Buggcraft embedded flag is invalid')
+        if not embedded:
+            downloads = _valid_download_urls(item.get('downloads'))
+            if not downloads or not sha1:
+                raise ValueError('External Buggcraft files require HTTPS downloads and SHA-1')
+            total += size
+            if total + expanded > MAX_EXPANDED:
+                raise ValueError('Package expanded and download size exceeds 8 GiB')
+            hashes = {'sha256': digest.lower(), 'sha1': str(sha1).lower()}
+            if item.get('sha512') is not None:
+                if not re.fullmatch(r'[0-9a-fA-F]{128}', str(item['sha512'])):
+                    raise ValueError('Buggcraft file has an invalid SHA-512')
+                hashes['sha512'] = str(item['sha512']).lower()
+            refs.append({'path': relative, 'fileSize': size, 'hashes': hashes,
+                         'downloads': downloads, 'embedded': False})
+            continue
+        archive_name = 'files/' + relative
+        try:
+            member = archive.getinfo(archive_name)
+        except KeyError as exc:
+            raise ValueError('Buggcraft 缺少文件：' + relative) from exc
+        if member.file_size != size:
+            raise ValueError('Buggcraft 文件大小校验失败：' + relative)
+        current = hashlib.sha256()
+        with archive.open(member) as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                current.update(chunk)
+        if current.hexdigest().lower() != digest.lower():
+            raise ValueError('Buggcraft 文件 SHA-256 校验失败：' + relative)
+        hashes = {'sha256': digest.lower()}
+        if sha1:
+            hashes['sha1'] = str(sha1).lower()
+        refs.append({'path': relative, 'fileSize': size, 'hashes': hashes,
+                     'archivePath': archive_name, 'embedded': True})
+    archive_files = {item.filename for item in archive.infolist() if not item.is_dir()}
+    expected = {'buggcraft.pack.json'} | {item['archivePath'] for item in refs if item.get('archivePath')}
+    if archive_files != expected:
+        raise ValueError('Buggcraft 包含清单之外的文件')
+    ram = manifest.get('recommendedRam', 0)
+    return PackInfo(str(manifest.get('name') or Path(path).stem), str(manifest.get('version', '')),
+                    minecraft, loader, loader_version, 'files', tuple(refs),
+                    ram if type(ram) is int and 0 <= ram <= 1048576 else 0,
+                    expanded, 'Buggcraft', ('files',))
+
+
 def inspect_pack(path):
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
@@ -147,13 +396,16 @@ def inspect_pack(path):
             if normalized in seen or stat.S_ISLNK(item.external_attr >> 16) or item.flag_bits & 1:
                 raise ValueError(f'整合包包含重复、链接或加密文件：{item.filename}')
             seen.add(normalized)
-        manifests = [name for name in ('manifest.json', 'modrinth.index.json') if name in archive.namelist()]
+        manifests = [name for name in ('buggcraft.pack.json', 'manifest.json', 'modrinth.index.json')
+                     if name in archive.namelist()]
         if len(manifests) != 1:
             raise ValueError('整合包根目录需包含唯一的 manifest.json（CurseForge）或 modrinth.index.json（Modrinth）')
         info = archive.getinfo(manifests[0])
         if info.file_size > 4 * 1024 ** 2:
             raise ValueError('整合包清单过大')
         manifest = json.loads(archive.read(info).decode('utf-8-sig'))
+        if manifests[0] == 'buggcraft.pack.json':
+            return _inspect_buggcraft(manifest, archive, expanded, path)
         if manifests[0] == 'modrinth.index.json':
             return _inspect_modrinth(manifest, expanded, path)
     if not isinstance(manifest, dict) or manifest.get('manifestType') != 'minecraftModpack' \
@@ -199,10 +451,15 @@ class CurseForgeClient(CurseForgeAPI):
         projects, files = {}, {}
         project_ids = list(dict.fromkeys(project for project, file in refs))
         file_ids = list(dict.fromkeys(file for project, file in refs))
-        for start in range(0, len(project_ids), 50):
-            projects.update({item['id']: item for item in self.post('/mods', {'modIds': project_ids[start:start+50]})})
-        for start in range(0, len(file_ids), 50):
-            files.update({item['id']: item for item in self.post('/mods/files', {'fileIds': file_ids[start:start+50]})})
+        requests = ([('/mods', {'modIds': project_ids[start:start+50]}, projects)
+                     for start in range(0, len(project_ids), 50)] +
+                    [('/mods/files', {'fileIds': file_ids[start:start+50]}, files)
+                     for start in range(0, len(file_ids), 50)])
+        if requests:
+            with ThreadPoolExecutor(max_workers=min(4, len(requests)), thread_name_prefix='pack-metadata') as pool:
+                futures = {pool.submit(self.post, route, body): destination for route, body, destination in requests}
+                for future in as_completed(futures):
+                    futures[future].update({item['id']: item for item in future.result()})
         jobs, names = [], set()
         for project_id, file_id in refs:
             project, item = projects.get(project_id, {}), files.get(file_id, {})
@@ -248,6 +505,11 @@ class ModpackImporter:
             raise DownloadCancelled('整合包导入已取消，已校验下载会在重试时复用')
 
     def install(self, archive_path, identity, *, expected_archive_sha256=None, archive_identified=None):
+        with use_download_budget():
+            return self._install(archive_path, identity, expected_archive_sha256=expected_archive_sha256,
+                                 archive_identified=archive_identified)
+
+    def _install(self, archive_path, identity, *, expected_archive_sha256=None, archive_identified=None):
         instance_name(identity)
         info = inspect_pack(archive_path)
         target = disk_path(self.root / 'versions' / identity)
@@ -272,38 +534,91 @@ class ModpackImporter:
                 first = safe_path(relative).parts[0].casefold()
                 if first.startswith('.buggcraft') or first in ('natives', 'buggcraft-modpack.json', identity.casefold() + '.json', identity.casefold() + '.jar'):
                     raise ValueError('整合包不能覆盖启动器元数据：' + relative)
+        elif info.source == 'Buggcraft':
+            # Compact exports keep verified downloadable resources outside the
+            # archive. Embedded entries are copied from the package itself.
+            jobs = [(item['downloads'][0], item['path'], item['hashes']['sha1'], item['fileSize'])
+                    for item in info.files if not item.get('embedded', True)]
         else:
             jobs = self.client.resolve(info.files) if info.files else []
         self.check()
         cache = self.root / '.buggcraft-downloads' / 'modpacks' / archive_hash
         cache.mkdir(parents=True, exist_ok=True)
+        downloading = threading.Event()
+        downloading.set()
+        progress_lock = threading.Lock()
+        download_progress = [0, len(jobs)]
+
+        def report_download(done, total):
+            with progress_lock:
+                download_progress[:] = [done, total]
+                if not downloading.is_set():
+                    self.progress(done, total)
+
         downloader = MinecraftDownloader(cache / 'files', source=self.source, cancel=self.cancel,
-                                         status=self.status, progress=self.progress, file_event=self.file_event)
+                                         status=self.status, progress=report_download, file_event=self.file_event)
         downloader.content_source = self.content_source
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
-        if info.source == 'Modrinth':
-            downloader.file_mirrors = {item['downloads'][0]: item['downloads'][1:] for item in info.files}
-        downloader._batch(jobs, '[2/5] 正在下载并校验整合包模组和资源…')
-        if info.source == 'Modrinth':
-            for item in info.files:
+        if info.source in ('Modrinth', 'Buggcraft'):
+            downloader.file_mirrors = {item['downloads'][0]: item['downloads'][1:]
+                                       for item in info.files if item.get('downloads')}
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix='modpack-resources') as pool:
+            future = pool.submit(downloader._batch, jobs, '[2/5] 正在下载并校验整合包模组和资源…')
+            try:
                 self.check()
-                digest = hashlib.sha512()
+                self.progress(0, 0)
+                self.status('[3/5] 正在并行安装 Minecraft 和加载器…')
+                from utils.download_locks import download_lock
+                with download_lock(self.root / '.buggcraft-loader-install', self.cancel):
+                    resources = self._resource_records(info, jobs, downloader)
+                    return self._install_instance(archive_path, identity, info, archive_hash, cache, downloader,
+                                                  jobs, resources, target, future, downloading, download_progress)
+            except BaseException:
+                self.cancel.set()
+                raise
+
+    def _verify_external_files(self, info, downloader):
+        if info.source in ('Modrinth', 'Buggcraft'):
+            for item in info.files:
+                if info.source == 'Buggcraft' and item.get('embedded', True):
+                    continue
+                self.check()
+                algorithm = 'sha512' if info.source == 'Modrinth' else 'sha256'
+                digest = hashlib.new(algorithm)
                 with downloader.inside(item['path']).open('rb') as source:
                     for chunk in iter(lambda: source.read(1024 * 1024), b''):
                         self.check()
                         digest.update(chunk)
-                if digest.hexdigest().lower() != item['hashes']['sha512'].lower():
-                    downloader._file_event(item['path'], 'failed', error='Modrinth 文件 SHA512 校验失败')
-                    raise ValueError('Modrinth 文件 SHA512 校验失败：' + item['path'])
-        self.check()
-        self.progress(0, 0)
-        self.status('[3/5] 正在安装 Minecraft 和加载器…')
-        from utils.download_locks import download_lock
-        with download_lock(self.root / '.buggcraft-loader-install', self.cancel):
-            return self._install_instance(archive_path, identity, info, archive_hash, cache, downloader, jobs, target)
+                if digest.hexdigest().lower() != item['hashes'][algorithm].lower():
+                    error = info.source + ' 文件 ' + algorithm.upper() + ' 校验失败'
+                    downloader._file_event(item['path'], 'failed', error=error)
+                    downloader.inside(item['path']).unlink(missing_ok=True)
+                    raise ValueError(error + '：' + item['path'])
 
-    def _install_instance(self, archive_path, identity, info, archive_hash, cache, downloader, jobs, target):
+    def _install_vanilla(self, version):
+        MinecraftDownloader(self.root, source=self.source, cancel=self.cancel,
+                            status=self.status, progress=self.progress,
+                            file_event=self.file_event).install(version)
+
+    def _resource_records(self, info, jobs, downloader):
+        """Persist verified download metadata for a later compact export."""
+        if info.source == 'Buggcraft':
+            return [dict(path=item['path'], size=item['fileSize'],
+                         sha1=item['hashes'].get('sha1'), sha256=item['hashes'].get('sha256'),
+                         sha512=item['hashes'].get('sha512'), downloads=item.get('downloads', []))
+                    for item in info.files]
+        if info.source == 'Modrinth':
+            return [dict(path=item['path'], size=item['fileSize'],
+                         sha1=item['hashes'].get('sha1'), sha512=item['hashes'].get('sha512'),
+                         downloads=item.get('downloads', [])) for item in info.files]
+        fallbacks = getattr(downloader, 'curseforge_fallbacks', {}) or {}
+        return [dict(path=relative, size=size, sha1=sha1,
+                     downloads=[url] + ([fallbacks[url]] if fallbacks.get(url) else []))
+                for url, relative, sha1, size in jobs]
+
+    def _install_instance(self, archive_path, identity, info, archive_hash, cache, downloader, jobs,
+                          resources, target, future, downloading, download_progress):
         # Loader setup and intermediate cleanup form one transaction. Other
         # modpack tasks can still fetch their resources concurrently.
         versions_root = self.root / 'versions'
@@ -323,7 +638,8 @@ class ModpackImporter:
             pass
         try:
             return self._assemble_instance(archive_path, identity, info, archive_hash, cache,
-                                           downloader, jobs, target, before_versions)
+                                           downloader, jobs, resources, target, before_versions,
+                                           future, downloading, download_progress)
         finally:
             try:
                 if target.exists():
@@ -345,8 +661,22 @@ class ModpackImporter:
         except OSError:
             return None
 
-    def _assemble_instance(self, archive_path, identity, info, archive_hash, cache, downloader, jobs, target,
-                           before_versions):
+    def _assemble_instance(self, archive_path, identity, info, archive_hash, cache, downloader, jobs, resources,
+                           target, before_versions, future, downloading, download_progress):
+        # Modrinth and Buggcraft publish stronger hashes than the transfer's
+        # SHA-1 check. The vanilla game can download alongside package files,
+        # but the loader installer waits for their stronger hash verification.
+        if info.source in ('Modrinth', 'Buggcraft'):
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='pack-vanilla') as pool:
+                vanilla = pool.submit(copy_context().run, self._install_vanilla, info.minecraft)
+                try:
+                    future.result()
+                    self._verify_external_files(info, downloader)
+                    self.check()
+                    vanilla.result()
+                except BaseException:
+                    self.cancel.set()
+                    raise
         if info.loader:
             installed = install_loader(info.loader, info.minecraft, info.loader_version, str(self.root), self.java,
                 {'setStatus': lambda value: self.status('[3/5] ' + str(value)),
@@ -354,13 +684,19 @@ class ModpackImporter:
                  'setMax': lambda total: self.progress(-1, total),
                  'fileEvent': self.file_event}, self.cancel, source=self.source)
         else:
-            MinecraftDownloader(self.root, source=self.source, cancel=self.cancel,
-                                 status=self.status, progress=self.progress,
-                                 file_event=self.file_event).install(info.minecraft)
+            if info.source not in ('Modrinth', 'Buggcraft'):
+                self._install_vanilla(info.minecraft)
             installed = info.minecraft
         instance_name(installed)
         if not (self.root / 'versions' / installed / (installed + '.json')).is_file():
             raise ValueError('加载器安装未生成有效版本文件')
+        downloading.clear()
+        if not future.done():
+            self.status('[3/5] 正在等待整合包模组和资源下载完成…')
+            self.progress(*download_progress)
+        future.result()
+        if info.source not in ('Modrinth', 'Buggcraft'):
+            self._verify_external_files(info, downloader)
         self.check()
         stage = disk_path(tempfile.mkdtemp(prefix='instance-', dir=cache))
         try:
@@ -442,7 +778,7 @@ class ModpackImporter:
             metadata['buggcraftModpack'] = {'name': info.name, 'version': info.version, 'minecraft': info.minecraft,
                                             'loader': info.loader, 'loaderVersion': info.loader_version,
                                             'archiveSha256': archive_hash, 'recommendedRam': info.recommended_ram,
-                                            'source': info.source}
+                                            'source': info.source, 'resources': resources}
             # Display metadata is optional for aliases. Include it when available
             # for compatibility with other launchers, without inventing dates.
             for key in ('type', 'time', 'releaseTime'):

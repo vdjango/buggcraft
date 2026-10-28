@@ -225,7 +225,7 @@ Rectangle {
                     }
                 }
                 Label { Layout.fillWidth: true; visible: !!root.state.status && !root.state.busy; text: root.state.status; color: "#dfb9bc"; wrapMode: Text.Wrap; font.pixelSize: 11 }
-                ActionButton { visible: versions.loadFailed && root.tab === 1; text: "重试加载"; implicitHeight: 28; onClicked: contentController.loadMoreVersions() }
+                ActionButton { objectName: "content-versions-retry"; visible: versions.loadFailed && root.tab === 1; text: "重试加载"; implicitHeight: 28; onClicked: contentController.loadMoreVersions() }
             }
         }
     }

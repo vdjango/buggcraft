@@ -132,7 +132,7 @@ def initialize_application():
     # 设置Qt环境
     if not setup_qt_environment():
         logger.error("Qt环境设置失败，无法启动应用")
-        send_notification("启动失败", "Qt环境设置失败")
+        send_notification("启动失败", f"Qt 运行环境初始化失败，请重新解压或安装完整运行包。\n仍无法启动时请提交日志：{LOG_PATH}")
         return 1
     
     from PySide6.QtCore import QLibraryInfo, qVersion

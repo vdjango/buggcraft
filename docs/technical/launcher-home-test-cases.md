@@ -1,0 +1,133 @@
+# 启动器首页测试用例
+
+对应 [功能清单第 1 节](launcher-function-coverage-checklist.md#1-启动器首页)。本轮按用户要求不测试正版登录；该组不勾选，也不计入本轮执行数量。完成标记统一放在功能清单中，只用 `[x]`、`[ ]`。
+
+补充 HOME-45 至 HOME-48：教学重启持久化、离线启动参数、Java/版本/参数失败恢复、资源与 Qt 启动错误见本文末尾。自动化使用 Qt 定向事件和临时子进程；没有正版认证或微软令牌测试。
+
+## 执行条件与证据
+
+自动化启动生产主窗口和 QML，通过 Qt 鼠标、键盘、输入框、下拉框和确认弹窗操作。每例新建临时配置、缓存、游戏目录，目录删除只允许作用于本例临时目录。下载使用本机 HTTP 服务，账号、房间列表和社交响应使用测试数据；节点联网验证结果由夹具提供，不能据此认定公网连接成功。
+
+进程用例保留生产启动工作线程、会话管理和真实子进程，仅把 Minecraft 命令替换为可正常退出/崩溃的 Python 程序。会实际启动四个不同 PID，验证停止一个后其余三个存活。这证明启动器进程管理行为。真实 Minecraft 主菜单、Java 命令、窗口和四客户端会话由 `tests/test_game_launch_live.py` 的 GAME-01 至 GAME-06 另行验收；公网联机仍需真实节点测试。
+
+每例保存 `actions.jsonl`、`client-ui-result.json`、`screenshots/*.png`。JSON 必须为 `passed=true`，pytest 必须退出码为 0；有失败或跳过不能打勾。查看截图时另外检查文字、遮挡和按钮位置，不能仅以文件存在判定画面合格。
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+$env:QT_QUICK_BACKEND = "software"
+$env:BUGGCRAFT_UI_OUTPUT = "E:\code\.test-tools\home-checklist-final"
+.build-venv\Scripts\python.exe -m pytest -q tests/test_home_ui.py tests/test_client_ui_acceptance.py tests/test_onboarding.py tests/test_settings_ui.py -k "not online"
+```
+
+可见回放使用 `QT_QPA_PLATFORM=windows`。单独执行本轮新增用例：
+
+```powershell
+.build-venv\Scripts\python.exe -m pytest -q tests/test_home_ui.py -k "not online"
+```
+
+以下自动化方法名省略 `test_` 前缀。`H` 为 `tests/test_home_ui.py::HomeChecklistUiTests`，`A` 为 `tests/test_client_ui_acceptance.py`，`S` 为 `tests/test_settings_ui.py`，`O` 为 `tests/test_onboarding.py`。
+
+## 1. 启动与初始页面
+
+| 编号 | 前置条件与操作 | 预期结果 | 自动化/实机步骤 |
+|---|---|---|---|
+| HOME-01 | 首次使用配置 → 打开启动器 → 按教学点击语言、翻译、联机方式、声音、大厅、好友、节点、房间与创建入口 → 完成 | 教学消失，关闭演示大厅，回到首页，完成标记写入配置 | O：`click_through_to_real_lobby_and_create_page_without_creating_room`、`mouse_completion_closes_lobby_and_returns_to_home`；不创建真实房间 |
+| HOME-02 | 离线登录 → 更换版本 → 关闭窗口 → 从同一份配置重新创建启动器 | 角色、目录、实例恢复，首页姓名及启动目标与磁盘记录一致 | H：`restart_restores_offline_role_directory_and_selected_version`；截图 `home-restored.png` |
+| HOME-03 | 新配置、空游戏目录、无账号 → 打开首页 → 查看登录与选择游戏入口 → 实例 → 安装新游戏 | 没有虚假版本，登录输入可见，下载入口可用 | H：`empty_home_installation_populates_version_picker_and_instances` |
+
+## 2. 头部版本切换
+
+| 编号 | 前置条件与操作 | 预期结果 | 自动化 |
+|---|---|---|---|
+| HOME-04 | 至少两个已安装版本 → 打开头部版本 → 选择另一个 | 弹层关闭，首页副标题、已保存版本和启动目标同步 | A/Home：`home_version_sidebar_and_page_navigation` |
+| HOME-05 | 选择另一版本 → 再打开列表 → 点击原版本 | 恢复原启动目标，不丢失版本 | H：`version_round_trip_keyboard_escape_and_outside_click` |
+| HOME-06 | 打开列表 → 下/上/下 → 回车；再次打开 → 下 → Esc；再次打开 → 点击外部 | 上下改变高亮，回车提交；Esc 和外部关闭不改变已选值 | 同上；截图 `home-version-round-trip.png` |
+| HOME-07 | 空目录打开版本列表 → Esc → 安装游戏 → 实例选择 → 再打开版本列表 | 空列表无残留；下载产物写盘后新版本立即出现，无须重启 | H：`empty_home_installation_populates_version_picker_and_instances`；截图 `home-after-install.png` |
+
+## 3. 离线登录
+
+| 编号 | 前置条件与操作 | 预期结果 | 自动化 |
+|---|---|---|---|
+| HOME-08 | 首页离线登录 → 输入有效用户名 → 分别用确认按钮、回车提交 | 显示对应角色，离线 UUID 与角色对应 | H：`offline_empty_enter_confirmation_and_mode_round_trip`；A/Home：`home_offline_login_validation_and_launch_options` 验证启动参数 |
+| HOME-09 | 清空用户名提交；输入纯空格提交 | 提示“请输入用户名。”，保持未登录，不提交游戏启动 | 同上 |
+| HOME-10 | 已登录 → 切换账号 → 输入另一个名字 → 确认 | 当前角色及启动参数更新，不保留上一玩家 UUID | 同上 |
+| HOME-11 | 离线已登录 → 点击正版模式选项 → 切回离线模式 | 两种模式独立；切回后离线角色保留 | H：`offline_empty_enter_confirmation_and_mode_round_trip`；仅切换菜单，不点击正版登录或触发授权 |
+
+## 4. 正版登录
+
+HOME-12 至 HOME-16 对应清单 1.4 的五条，按用户要求不执行。已有测试代码保留，本轮命令用 `-k "not online"` 排除；不将历史通过记录计入本轮完成项。
+
+## 5. 游戏启动与停止
+
+真实游戏验收前置：可运行的 Java、完整游戏版本、离线测试角色；本轮不执行正版分支。需要游戏画面和进程证据的项目继续保留未勾选。
+
+| 编号 | 操作 | 预期结果 | 自动化与实机补充 |
+|---|---|---|---|
+| HOME-17 | 离线登录 → 选择版本 → 启动 → Minecraft 主菜单 → 正常退出 | 账号与实例正确，退出后首页可再次启动 | A/Home 验证离线姓名、UUID、语言、版本传参；H 验证进程生命周期；真实主菜单和再次启动由 `test_game_launch_live.py::test_home_real_minecraft_offline_launch_exit_and_relaunch` 验证 |
+| HOME-18 | 未登录点击启动 → 登录重试；无版本点击启动 → 安装/选择后重试 | 未登录提示且不创建进程；无版本进入实例页；补齐后可提交所选目标 | H：`home_stop_normal_exit_crash_log_and_relaunch`、`empty_home_installation_populates_version_picker_and_instances`；真实游戏重试另测 |
+| HOME-19 | 分别准备缺失 Java、不兼容 Java、缺失游戏文件、错误启动参数 → 启动 → 查看错误和日志 → 修复后重试 | 每种失败均有可操作提示，日志保留原因，修复后可启动 | 手工分别记录四种错误、完整日志和重试画面；本轮未实测全部分支，不勾选 |
+| HOME-20 | 进程启动 → 点击停止 → 等待退出 | 子进程退出、工作线程回收、首页恢复，无错误崩溃弹窗 | H：`home_stop_normal_exit_crash_log_and_relaunch`；真实 Java/Minecraft 停止由 `test_game_launch_live.py` 验证 |
+| HOME-21 | 进程启动 → 正常退出；再启动 → 异常退出 → 查看日志 → 关闭 → 再启动 | 正常退出不报错；异常码 17 可见且记入日志；重试可运行 | 同上；截图 `home-crash-log.png` |
+| HOME-22 | 关闭多开 → 点击启动 → 运行时再次点击主按钮 | 第二次点击执行停止，启动序号不增加，不创建第二个进程 | H：`home_stop_normal_exit_crash_log_and_relaunch`；真实 Minecraft 单开停止由 `test_game_launch_live.py::test_settings_multiple_games_four_real_clients_and_stop_isolation` 验证 |
+| HOME-23 | 开启多开 → 连续启动四个 → 用会话下拉选择第一个 → 菜单停止当前 → 逐个停止其余 | 四个不同 PID；停止第一个后另三个仍存活；全部停止后首页恢复 | H：`home_four_processes_stop_only_the_selected_session`；真实四客户端和单独停止由 `test_game_launch_live.py::test_settings_multiple_games_four_real_clients_and_stop_isolation` 验证；截图 `home-four-sessions.png` |
+
+## 6. 左侧菜单与页面切换
+
+| 编号 | 操作 | 预期结果 | 自动化/实机步骤 |
+|---|---|---|---|
+| HOME-24 | 首页 → 收起侧栏 → 展开 → 输入用户名并回车 | 控件随侧栏显示，展开后可继续登录 | A/Home：`home_version_sidebar_and_page_navigation`；H：`page_navigation_retains_input_and_sidebar_on_every_page` |
+| HOME-25 | 首页 → 下载 → 设置 → 开始 | 目标页面可见，头部选中项与页面一致，版本不被重置 | H：`page_navigation_retains_input_and_sidebar_on_every_page` |
+| HOME-26 | 分别在下载和设置收起/展开侧栏 → 切回首页 | 每页均能操作侧栏，无遮挡或卡死 | 同上 |
+| HOME-27 | 输入未提交的用户名 → 切换页面再返回 → 无操作间隔连续切换 12 次 → 回车登录 | 未提交内容保留，导航最终回到首页，输入控件仍能提交 | 同上；截图 `home-navigation-input-retained.png` |
+| HOME-28 | Windows 桌面 → 最小化 → 点任务栏恢复 → 拖动标题栏 → 关闭并重开 | 最小化/恢复、位置移动正确，重开读取配置 | 配置重开由 HOME-02 验证；任务栏、窗口拖动仍需 Windows 桌面实测，不以 offscreen 代替 |
+
+## 7. 实例切换与管理
+
+| 编号 | 前置条件与操作 | 预期结果 | 自动化/实机步骤 |
+|---|---|---|---|
+| HOME-29 | 首页 → 实例 → 选目录 → 选实例行 → 首页 | 头部与启动按钮显示所选实例，设置中目录/版本一致 | A/Home：`home_version_sidebar_and_page_navigation`；A/Instance：`instance_selection_settings_folder_and_directory_switch` |
+| HOME-30 | 实例 → 添加游戏文件夹 → 选择空目录 → 查看列表 → 切回原目录 | 空目录无旧实例；切回后重新扫描恢复实例列表 | A/Instance：同上；文件选择器返回临时目录，添加与扫描走生产路径 |
+| HOME-31 | 空目录 → 安装新游戏 → 下载 → 完成 → 实例 → 选择 → 首页 | 客户端归档实际写入所选目录，实例与版本列表立即更新 | H：`empty_home_installation_populates_version_picker_and_instances` |
+| HOME-32 | 实例设置 → 开启独立配置 → 修改 → 返回 → 选择其他实例 → 修改 → 切回 | 两个实例各自写盘，继承与独立值不互相覆盖，重新读取仍正确 | H：`instance_settings_remain_independent_after_switching_instances`；S：`global_and_instance_memory_java_and_launch_preferences`；截图 `home-second-instance-settings.png` |
+| HOME-33 | 对应实例“目录” → 文件资源管理器 | 打开所选实例实际路径，非其他实例或错误根目录 | A/Instance 验证传入外部打开函数的路径；资源管理器真实窗口另测，不据替身勾选 |
+| HOME-34 | 删除实例 → 取消 → 选当前实例并确认 → 列表更新；运行中再次尝试删除 | 取消保留；确认实际删除且列表同步；运行中拒绝删除并保留进程 | A/Instance：`instance_delete_cancel_confirm_and_last_version`；H：`instance_running_delete_guard_and_directory_confirmation` |
+| HOME-35 | 运行中尝试移除目录；停止后移除 → 查看警告 → 取消 → 再次确认 | 运行中拒绝；明确永久删除；取消保留标记文件；确认删除整个临时目录和列表项 | H：同上；截图 `home-directory-delete-False.png`、`home-directory-delete-True.png` |
+| HOME-36 | 切空目录 → 首页；删除当前实例 → 首页；删除最后一个 → 首页 | 没有残留版本或错误启动目标；空目录/删空时显示“选择游戏”和“请下载或导入游戏” | A/Instance 两个方法分别覆盖空目录和每次删除后返回首页，核对磁盘、当前选择、剩余列表、启动副标题 |
+
+## 8. 进入联机大厅
+
+| 编号 | 前置条件与操作 | 预期结果 | 自动化/实机步骤 |
+|---|---|---|---|
+| HOME-37 | 首页联机 → 展开节点列表 → 键盘选第二个节点 → 查看房间区 | 选中实际配置路径与索引一致，房间区显示选中节点的列表结果 | H：`lobby_empty_add_node_switch_search_and_return`；房间结果为夹具，不验证公网可达 |
+| HOME-38 | 无节点 → 首页联机 → 空状态添加节点 → 输入添加码 → 验证完成 → 返回大厅 | 空状态可操作；只在验证结果成功后保存配置；错误不伪装成成功 | H 覆盖 UI 与写盘，联网验证回调为夹具；真实有效接入码的连接与认证仍需实测，因此原条目不勾选 |
+| HOME-39 | 大厅搜索并清空 → 创建 → 返回大厅 → 加入 → 返回大厅 | 搜索词传到控制器，各表单正常打开和返回，不产生房间或连接 | H：同上；截图 `home-lobby-create.png`、`home-lobby-join.png` |
+| HOME-40 | 大厅关闭 → 首页 → 再次进入 → Esc | 主窗口保持可用，大厅可再次打开并正常关闭 | H：同上；A/Home：`home_lobby_and_direct_friends_entry` |
+
+## 9. 进入好友页面
+
+| 编号 | 前置条件与操作 | 预期结果 | 自动化/实机步骤 |
+|---|---|---|---|
+| HOME-41 | 首页好友 → 搜索 → 清空 → 在线 → 全部 | 搜索命中一个；清空两个；在线一个；全部恢复两个 | H：`home_friends_filters_tabs_unread_empty_and_reopen` |
+| HOME-42 | 好友列表 → 好友申请 → 联机邀请 → 加入申请 → 好友列表 | 四个页签内容与所选项匹配，返回不丢失联系人 | 同上 |
+| HOME-43 | 首页有未读提示 → 进入好友 → 逐个查看通知页签 → 返回首页 | 已查看的未读数及首页提醒清除；仍需处理的申请总数保留，不把待处理误作未读 | 同上；断言 `homeAttention=false` 且待处理总数仍为 3 |
+| HOME-44 | 关闭好友 → 再开 → 清空联系人 → 查看空状态；新配置无节点时检查入口 | 重开窗口可用，无好友时有“添加好友”入口；无节点时不显示不可用的好友按钮，从联机入口进入节点添加提示 | H：`home_friends_filters_tabs_unread_empty_and_reopen`、`lobby_empty_add_node_switch_search_and_return` |
+
+## 本轮记录
+
+本轮首页扩展模块共 12 条 UI 测试，其中 1 条正版登录测试按要求排除，其余 11 条参与回归；原有首页模块另排除 1 条正版登录测试。原有首页、实例、设置关联和首次教学测试一起执行。最终数量、执行结果和证据目录见 [测试矩阵执行记录](client-ui-test-matrix.md#本轮执行记录)。
+
+2026-10-27 首页专项关联回归为 52 passed、2 deselected、5 subtests passed，退出码 0；Windows 可见回放两组分别为 13 passed、1 deselected 和 3 passed、1 deselected，16 份结果报告均通过。该次记录对应补充真实游戏前的首页 44 项：29 项完成、15 项空框，其中正版登录 5 项按要求不测试。后续真实游戏及四客户端的勾选与执行证据另见 [真实启动用例](launcher-game-launch-test-cases.md) 和主清单，不能继续以这组历史数量代表当前完成数。
+
+用户排除正版登录前的两份历史产物已移至 `E:\code\.test-tools\home-login-history-before-exclusion\`，不混入本轮 `home-checklist-final/` 中的 29 份 UI 通过报告。
+
+Windows 可见模式若产生初始化异常输出，即使断言和退出码通过，也必须在记录中保留异常，不将其表述为“全程无异常”。
+
+## 10. 新增启动边界
+
+| 编号 | 操作 | 预期结果 | 自动化/实测方法 |
+|---|---|---|---|
+| HOME-45 | 完成教学最后一步 → 关闭大厅 → 重建启动器窗口与设置管理器 → 等过首次启动定时延迟 | 磁盘中的完成标记仍为真；首页可用；教学不重新出现 | [x] `tests/test_coverage_gaps_ui.py::test_tutorial_completion_survives_new_window_and_settings_manager`，真实 QML 继续事件、重建窗口、等待 1.55 秒 |
+| HOME-46 | 以离线用户名登录 → 点击首页启动 → 在实际启动子进程读取参数 | 子进程收到准确用户名、由生产函数生成的离线 UUID、离线令牌 `0`、所选版本及游戏目录 | [x] `test_offline_identity_and_version_reach_actual_child_command`；只替换 Minecraft 命令为本地子进程，不请求正版授权 |
+| HOME-47a | 配置不存在的 Java → 启动 → 查看错误及日志 → 打开 Java 设置 → 配置有效 Java → 从首页重试 | 错误指出版本要求、路径及安装失败原因；设置入口可用；修复后启动子进程成功 | [x] `test_missing_java_reports_cause_opens_settings_and_allows_retry` |
+| HOME-47b | 配置不兼容 Java → 启动 → 查看错误 → 设置兼容 Java → 重试；另分别移除版本 JSON、写入损坏 JSON、设置无法解析的参数后启动并查看日志 | 每一类明确说明具体原因；版本错误包含准确路径和修复动作；查看日志可用；恢复后子进程退出码为 0 | [x] `test_incompatible_java_reports_cause_opens_settings_and_allows_retry`、`test_missing_corrupt_version_and_invalid_arguments_have_logs_and_retry`；无效参数错误由启动参数解析器实际产生 |
+| HOME-48 | 分别移走资源目录、注入 Qt 初始化失败、在创建 QApplication 前注入失败 | 显示可理解的启动失败消息，建议修复完整包并指出日志；日志中保留相同错误；前置 QApplication 失败时检查 Windows 原生 MessageBox 参数 | [x] `tests/test_startup_errors_ui.py::test_startup_failure_has_recovery_message_and_persistent_log`；前两项真实显示离屏 QMessageBox 并截图，第三项断言 Windows 原生显示调用，不伪称人工观察了原生桌面 |
