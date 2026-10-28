@@ -201,23 +201,37 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
         self.check(self.manager.get_setting('java.path') == original,
                    'canceling custom Java preserves the current selection')
         errors = []
+        dismissed = []
 
         def dismiss_invalid():
             dialog = QApplication.activeModalWidget()
+            if dialog is None:
+                return
+            dismissal_timer.stop()
             try:
-                self.assertIsNotNone(dialog)
                 self.screenshot_ui('settings-invalid-java', dialog)
                 self.click_ui(dialog.host, 'dialog-action-0')
+                dismissed.append(True)
             except Exception as exc:
                 errors.append(exc)
             finally:
                 if dialog is not None and dialog.isVisible():
                     dialog.reject()
 
-        QTimer.singleShot(300, dismiss_invalid)
-        choose_custom(str(self.directory / 'missing-java.exe'))
+        # Scrolling to the option can take longer on hosted macOS ARM. Keep
+        # polling until the real modal opens instead of firing once too early.
+        dismissal_timer = QTimer(self.window)
+        dismissal_timer.setInterval(50)
+        dismissal_timer.timeout.connect(dismiss_invalid)
+        dismissal_timer.start()
+        try:
+            choose_custom(str(self.directory / 'missing-java.exe'))
+        finally:
+            dismissal_timer.stop()
+            dismissal_timer.deleteLater()
         if errors:
             raise errors[0]
+        self.check(bool(dismissed), 'invalid Java warning was dismissed through its UI')
         self.check(self.manager.get_setting('java.path') == original,
                    'invalid Java warning preserves the existing selection')
         choose_custom(java)
