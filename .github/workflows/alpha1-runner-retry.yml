@@ -29,8 +29,8 @@ jobs:
           from urllib.request import Request, urlopen
 
           repository = os.environ['GH_REPO']
-          run_id = 40700361708
-          expected_sha = 'cd0e17aa226a8fd8c1c687c07205275031acf4cd'
+          run_id = 40707200669
+          expected_sha = '1214592725980968459130e2a38e55fa5a11523c'
           base = f'https://api.github.com/repos/{repository}'
           def report_error(kind, error, trace):
               detail = str(error)
