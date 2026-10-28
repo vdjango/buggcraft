@@ -1,0 +1,65 @@
+name: Diagnose macOS offscreen popup focus
+on:
+  push:
+    branches: [ci/alpha1-runner-retry]
+    paths: [.github/workflows/alpha1-focus-diagnostic.yml]
+permissions:
+  contents: read
+jobs:
+  focus:
+    runs-on: macos-15-intel
+    timeout-minutes: 12
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_BACKEND: software
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1214592725980968459130e2a38e55fa5a11523c
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Inspect real dialog and host focus
+        run: |
+          python -u - <<'PY'
+          from PySide6.QtCore import QObject, QMetaObject, Qt
+          from PySide6.QtTest import QTest
+          from tests.test_navigation_polish import NavigationPolishTests
+
+          NavigationPolishTests.setUpClass()
+          case = NavigationPolishTests('test_history_filters_logs_and_failed_task_action_use_shared_list')
+          case.setUp()
+          def inspect(label):
+              quick = case.window.download_page.tasks_page.host.quick
+              dialog = quick.rootObject().findChild(QObject, 'task-log-dialog')
+              print(label, dict(activeWindow=case.window.isActiveWindow(), widgetFocus=quick.hasFocus(),
+                    focusWidget=str(case.app.focusWidget()), focusItem=str(quick.quickWindow().activeFocusItem()),
+                    opened=dialog.property('opened'), focus=dialog.property('focus'),
+                    activeFocus=dialog.property('activeFocus'), popupType=dialog.property('popupType'),
+                    timer=case.window.download_page.tasks_page.view_controller._log_timer.isActive()), flush=True)
+              return quick, dialog
+          try:
+              case.test_history_filters_logs_and_failed_task_action_use_shared_list()
+              print('ORIGINAL TEST PASSED')
+          except AssertionError as error:
+              print(str(error), flush=True)
+              quick, dialog = inspect('initial failure')
+              quick.setFocus(Qt.OtherFocusReason)
+              case.pump(100)
+              inspect('host setFocus')
+              case.app.setActiveWindow(case.window)
+              case.pump(100)
+              inspect('Qt active window')
+              QMetaObject.invokeMethod(dialog, 'forceActiveFocus', Qt.DirectConnection)
+              case.pump(100)
+              inspect('popup forceActiveFocus')
+              QTest.keyClick(quick, Qt.Key_Escape)
+              case.pump(500)
+              inspect('after real Escape')
+          finally:
+              case.tearDown()
+              case.doCleanups()
+          PY
