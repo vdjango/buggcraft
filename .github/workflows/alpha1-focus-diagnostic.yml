@@ -25,7 +25,11 @@ jobs:
       - name: Inspect real dialog and host focus
         run: |
           python -u - <<'PY'
-          import json
+          import json, sys, traceback
+          def error_annotation(kind, value, trace):
+              detail = ''.join(traceback.format_exception(kind, value, trace))
+              print('::error title=Focus diagnostic::' + detail.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'), flush=True)
+          sys.excepthook = error_annotation
           from PySide6.QtCore import QObject, QMetaObject, Qt
           from PySide6.QtTest import QTest
           from tests.test_navigation_polish import NavigationPolishTests
@@ -39,7 +43,7 @@ jobs:
               state = dict(activeWindow=case.window.isActiveWindow(), widgetFocus=quick.hasFocus(),
                     focusWidget=str(case.app.focusWidget()), focusItem=str(quick.quickWindow().activeFocusItem()),
                     opened=dialog.property('opened'), focus=dialog.property('focus'),
-                    activeFocus=dialog.property('activeFocus'), popupType=dialog.property('popupType'),
+                    activeFocus=dialog.property('activeFocus'),
                     timer=case.window.download_page.tasks_page.view_controller._log_timer.isActive())
               print('::notice title=' + label + '::' + json.dumps(state, default=str), flush=True)
               return quick, dialog
