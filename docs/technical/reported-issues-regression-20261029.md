@@ -4,6 +4,22 @@
 
 测试入口统一为 `tests/` 中的 pytest/unittest 用例。UI 用例发送真实 Qt 鼠标、键盘和输入法事件，检查实际文件、任务状态和进程；本地 HTTP 和 C++ 节点提供可重复的网络环境。仅截图、模拟成功回调、打印日志不构成功能通过。
 
+## 用户确认的九项验收清单
+
+“本地通过”表示已有功能和自动用例证据；Windows 托管回归和五平台打包未全部完成之前，不等同于最终验收通过。
+
+| 用户编号 | 要解决的内容 | 当前状态及对应回归 |
+| --- | --- | --- |
+| 1 | 房主可提交诊断，保留确认及上传结果 | 本地通过；REG-09 |
+| 2 | 房间成员显示房主信息及转让后的身份 | 本地通过；REG-08 |
+| 3 | 重复导入提示改名，允许修改或取消；不能覆盖已有实例 | 本地通过；REG-02、REG-14 |
+| 4 | 下载、导入和导出在后台运行；游戏下载、整合包导入/下载、房间安装共用并发设置，核心、libraries、assets 并发，加载器/模组在依赖允许时并行 | 本地通过；REG-03、REG-04、REG-11，仍在收尾 Windows 托管组合回归 |
+| 5 | 紧凑导出界面，真实进度、取消及结果，完成后由用户关闭 | 本地通过并复核截图；REG-01 |
+| 6 | P2P 修复加入持续测试，覆盖空闲、故障、信令短断与恢复 | 本地及 Linux 托管通过；REG-12，Windows 托管尚未运行到后续协议步骤 |
+| 7 | 更新优先取得七牛下载凭证，避免旧提示持有过期地址；测量实际下载来源与速度 | 凭证、校验及回退用例本地通过；REG-07；线上票据确认指向 `kodo.bugg.icu`，本机流式读取完整 44,732,416 字节用时 8.50 秒，平均 5.02 MiB/s；单次测量不代表所有网络速度 |
+| 8 | 首次启动时没有目录/实例/版本，房间安装自动创建并保存目录 | 本地通过；REG-05 |
+| 9 | 下载的 Java 经版本和完整性检查后复用，并发任务共享下载 | 本地通过；REG-06 |
+
 ## 当前收尾清单
 
 以下托管结果对应代码提交 `c20a454766dccc050c22022728c60afe0d20eebb`，记录于 2026-10-29。文档提交不代表新的代码构建结果。
@@ -15,7 +31,7 @@
 - [x] 真实整合包导出/导入后启动 Minecraft、四游戏本地联机实测；范围和证据见下表。
 - [x] Linux 托管客户端及原生回归通过，包括真实 P2P 故障、房间协议和诊断附件流控：[运行 40833898601](https://github.com/vdjango/buggcraft/actions/runs/40833898601)。
 - [x] 重新核对中文 UI 截图：`E:\code\.test-tools\alpha2-ui-evidence`。另补跑真实节点房间 UI 1 项通过，记录 `real-native-room.xml`。
-- [ ] Windows 托管客户端及原生回归：同一运行中仍在构建生产 C++ 运行时，尚无最终结论。
+- [ ] Windows 托管客户端及原生回归：`c20a454` 在下载组合中创建 `MultiplayerDialog` 的 `QQuickWidget` 时发生 `0xc0000374` 原生堆损坏；不是网络超时。已补测试窗口主动销毁及重复创建回归，本地 47 项、75 子断言通过，等待修复后新托管结果。
 - [ ] 五平台启动器打包：[运行 40833898523](https://github.com/vdjango/buggcraft/actions/runs/40833898523)，尚在进行，不能标记完成。
 - [ ] 另一窗口的域名接入修改完成后，合并并执行接入、房间、好友和诊断组合回归；本轮保持隔离，不合并、不发布。
 
@@ -40,12 +56,15 @@
 | REG-15 | 四个实际 Minecraft 窗口进入准备房间、移动/方块/聊天同步、死亡重生、转让管理后游戏不断线、退出重进 | `test_four_game_multiplayer_live.py::test_four_real_minecraft_clients_move_build_chat_respawn_and_reconnect` |
 | REG-16 | 桥正常/异常退出和启动途中取消后回收子进程与全部管道，再启动仍可用；诊断与房间 UI 连续运行不遗留关闭后的事件循环 | `test_native_bridge_runtime.py::test_cancelling_bridge_start_reaps_the_child_and_allows_restart`、`test_native_bridge_runtime.py::test_real_cpp_bridge_methods_errors_shutdown_and_restart`、`test_diagnostics_ui.py`、`test_room_lobby_live_ui.py` |
 | REG-17 | 好友悬浮按钮重新布局后立即卸载页面，不执行已销毁对象的延迟回调；房间控件先完成可见/可用布局，再点击和断言 | `test_friend_entry_ui.py::FriendEntryUiTests::test_queued_floating_button_layout_is_safe_after_page_unload`、`test_room_lobby_ui.py` |
+| REG-18 | 房间控制器测试完成后主动销毁 QWidget 和子定时器；后台联机窗口反复创建/关闭，QML 正常加载且对象全部回收 | `test_room_launch_flow.py::BackgroundLanMonitorTests::test_background_monitor_can_be_destroyed_and_recreated` |
 
 ## 自动运行
 
 `.github/workflows/package.yml` 持续运行客户端页面、房间、日志、导出和缓存锁回归，每个模块使用独立进程，避免 Qt 对象生命周期串扰。
 
 `.github/workflows/client-regression.yml` 在主分支/修复分支推送、PR 或手动触发时，分别在 Windows 和 Linux 构建生产 C++ 节点与桥，运行上述真实 HTTP、诊断上传、房间点击、下载与 P2P 用例。保存 JUnit、截图和构建日志；这些测试依赖只装在测试环境，不打入启动器发行包。
+
+下载组合也按模块启动独立 pytest 进程，每个模块完整执行原有用例，并保留详细测试名、原生异常堆栈和独立 JUnit。失败仍中止工作流；不将崩溃当作公网慢而跳过。另保留本地同进程组合运行，以检查跨模块对象清理。
 
 原生仓库 `.github/workflows/core.yml` 自动运行 P2P 和房间协议回归；`scripts/check_compatibility.py` 默认包括诊断上传用例。它是测试套件的加载器，实际测试仍由 unittest 用例执行。
 
@@ -106,6 +125,7 @@ python -m pytest -q -s tests/test_four_game_multiplayer_live.py
 | 桥、诊断、房间与好友 UI 组合，严格资源警告复测 | 27 项、55 子断言通过；启动取消、真实管道 EOF、房间操作及好友销毁检查，不忽略资源警告 | `E:\code\.test-tools\alpha2-focused-final.log/xml` |
 | 按 CI 独立模块入口复测桥和真实节点 UI | 46 项通过；各模块独立进程，以严格资源警告运行；另外路由/传输/发布门禁组合 31 项、64 子断言通过 | `E:\code\.test-tools\alpha2-isolated-regression/`、`alpha2-routing-final.xml` |
 | 下载、Java、更新和好友 UI 组合复测 | 167 项、97 子断言通过 | `E:\code\.test-tools\alpha2-download-ci-fixed.log/xml` |
+| Windows 堆异常后的同进程下载组合回归 | 162 项、97 子断言通过，包含新增的后台联机窗口反复创建/销毁；严格处理未回收资源警告，未拆分本地运行来规避组合问题 | `E:\code\.test-tools\alpha2-download-lifetime-fixed.log/xml` |
 | 发布门禁及测试入口一致性 | 15 项、72 子断言通过；当前共收集 888 条，较完整运行时增加 3 条发布流程检查 | `E:\code\.test-tools\alpha2-release-wiring-final.xml` |
 | 真实诊断上传、重复点击及发布检查的最终定向回归 | 21 项、72 子断言通过，严格处理未回收资源警告；重复点击时保持实际上传任务未完成，再释放并验证真实节点只收到一份附件 | `E:\code\.test-tools\alpha2-final-targeted.log/xml` |
 

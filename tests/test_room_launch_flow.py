@@ -11,8 +11,11 @@ from unittest.mock import AsyncMock, Mock, patch
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / '.test-tools'), str(ROOT / 'buggcraft/src/buggcraft')]
+from PySide6.QtCore import QEvent, QUrl
+from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from PySide6.QtTest import QTest
+import shiboken6
 from ui.multiplayer_controller import MultiplayerController
 from hookup.profiles import RoomInvite
 
@@ -21,12 +24,13 @@ class RoomLaunchFlowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
 
     def setUp(self):
         work = tempfile.TemporaryDirectory()
         self.addCleanup(work.cleanup)
         self.parent = QWidget()
-        self.addCleanup(self.parent.close)
+        self.addCleanup(self.dispose_widgets)
         self.parent.current_client = False
         self.parent.launcher = SimpleNamespace(running=False, start_thread=None,
             minecraft_directory=work.name, minecraft_version='selected')
@@ -46,6 +50,17 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.service.endpoints['room'] = SimpleNamespace(listen_port=34567, role='client')
         self.controller.node_path = 'fixture-node'
         self.controller.patch(selected='room', nodeAvailable=True)
+
+    def dispose_widgets(self):
+        # close() hides a QWidget; it does not destroy its QObject children.
+        # Release controllers/timers while QApplication is alive, rather than
+        # leaving Python's cyclic collector to destroy them during a later
+        # QQuickWidget constructor. CI reported a native heap failure there;
+        # deterministic cleanup removes this source of lifetime interference.
+        if shiboken6.isValid(self.parent):
+            self.parent.close()
+            shiboken6.delete(self.parent)
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_quick_launch_supports_both_account_modes_and_never_stops_running_game(self):
         for mode in ('online', 'offline'):
@@ -690,6 +705,32 @@ class BackgroundLanMonitorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
+
+    def destroy_dialog(self, dialog):
+        dialog.shutdown()
+        dialog.quick.setSource(QUrl())
+        shiboken6.delete(dialog.quick)
+        shiboken6.delete(dialog)
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_background_monitor_can_be_destroyed_and_recreated(self):
+        from ui.dialog.MultiplayerDialog import MultiplayerDialog
+        with tempfile.TemporaryDirectory() as folder, \
+                patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'check_node'):
+            for _ in range(4):
+                dialog = MultiplayerDialog(storage_path=Path(folder) / 'rooms.json')
+                backend, timer, quick = dialog.backend, dialog.runtime_timer, dialog.quick
+                try:
+                    self.assertEqual(quick.status(), QQuickWidget.Ready, str(quick.errors()))
+                    self.assertTrue(timer.isActive())
+                    self.assertFalse(backend.closed)
+                finally:
+                    self.destroy_dialog(dialog)
+                self.assertFalse(shiboken6.isValid(backend))
+                self.assertFalse(shiboken6.isValid(timer))
+                self.assertFalse(shiboken6.isValid(quick))
 
     def test_startup_starts_hidden_monitor_without_saved_nodes(self):
         from ui.pages.qml_start import StartGamePage
@@ -710,7 +751,7 @@ class BackgroundLanMonitorTests(unittest.TestCase):
                 dialog.timer.timeout.emit()
                 check.assert_called_once_with()
             finally:
-                dialog.shutdown()
+                self.destroy_dialog(dialog)
 
 
 if __name__ == '__main__':
