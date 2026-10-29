@@ -247,6 +247,8 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
                '--noinclude-qt-translations',
                '--include-module=PySide6.QtQuickWidgets', '--include-module=PySide6.QtQml',
                '--include-package=minecraft_launcher_lib', '--include-package-data=minecraft_launcher_lib',
+               '--include-package=keyring', '--include-module=keyring.backends.Windows',
+               '--include-package=win32ctypes', '--include-distribution-metadata=keyring',
                '--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid',
                f'--include-data-dir={resources}=resources',
                f'--output-dir={output or root / "dist"}',

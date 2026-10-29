@@ -292,6 +292,7 @@ class HomeChecklistUiTests(_HomeCase):
                    "a launcher without nodes offers the explicit add-node entry")
         self.screenshot_ui("home-lobby-without-node", dialog)
         self.click_ui(dialog, "empty-add-node")
+        self.click_ui(dialog, "node-advanced")
         profile = personal_profile()
         self.text_ui(dialog, "node-code", encode_code(profile))
         self.click_ui(dialog, "add-node-code")

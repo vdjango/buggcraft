@@ -16,6 +16,9 @@ class RelayProfile:
     _nodes: tuple = field(default=(), init=False, repr=False, compare=False)
 
     def __post_init__(self):
+        if isinstance(self.token, str) and self.token.startswith('vault1:'):
+            from .device_login import reveal_token
+            object.__setattr__(self, 'token', reveal_token(self.token))
         if (not isinstance(self.server_host, str) or not self.server_host.strip()
                 or len(self.server_host) > 253
                 or any(char.isspace() or char in '/\\@?#' for char in self.server_host)):

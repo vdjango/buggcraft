@@ -1,5 +1,6 @@
 """Click the shipping home/lobby/friends windows during account failures."""
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -19,6 +20,9 @@ class FriendEntryUiTests(LauncherQmlCase):
         jobs.start()
         self.addCleanup(service.stop)
         self.addCleanup(jobs.stop)
+        network_profile = patch.object(MultiplayerController, 'refresh_network_profile')
+        network_profile.start()
+        self.addCleanup(network_profile.stop)
         self.page = self.window.started_page
         self.dialog = self.page._ensure_multiplayer_dialog()
         self.backend = self.dialog.backend
@@ -87,6 +91,29 @@ class FriendEntryUiTests(LauncherQmlCase):
         self.snapshot('friends-recovered', self.dialog.friends_window)
         self.assert_no_qml_errors()
 
+    def test_network_type_uses_beginner_friendly_labels_in_friends_and_hall(self):
+        network = dict(type='direct_easier', direct_successes=3, relay_successes=1)
+        state = social_state()
+        state['networkProfile'] = network
+        state['friends'][0]['network_profile'] = network
+        self.backend.apply_social_state(state)
+        self.backend.patch(playerNetworkProfile=network, playerNetworkProfileReady=True)
+        self.pump()
+        friends = self.open_friends()
+        self.assertIn('你的网络类型：较容易直连', self.item(friends, 'my-network-type').property('text'))
+        self.assertIn('直连成功 3 次', self.item(friends, 'friend-network-type-0').property('text'))
+        state['friends'][0].pop('network_profile')
+        self.backend.apply_social_state(state)
+        self.pump()
+        self.assertIn('暂无联机记录', self.item(friends, 'friend-network-type-0').property('text'))
+        self.backend.patch(page='hall')
+        self.pump()
+        self.assertIn('你的网络类型：较容易直连', self.item(self.dialog, 'hall-network-type').property('text'))
+        for item in ('my-network-type', 'my-network-history', 'hall-network-type'):
+            text = str(self.item(friends if item != 'hall-network-type' else self.dialog, item).property('text'))
+            self.assertNotRegex(text, r'实测|IPv[46]|UDP')
+        self.assert_no_qml_errors()
+
     def test_expired_personal_account_entry_opens_code_recovery(self):
         save_json(self.path, profile_data(personal_profile(expiry=1)))
         with patch.object(self.backend, 'prompt_node_credential_update',
@@ -108,6 +135,58 @@ class FriendEntryUiTests(LauncherQmlCase):
         self.assertEqual(action.property('text'), '更换接入码')
         self.click(friends, 'friends-replace-node-code')
         self.assertEqual(self.backend.view['page'], 'nodes')
+
+    def test_revoked_device_login_offers_browser_recovery_at_original_node(self):
+        save_json(self.path, profile_data(personal_profile(expiry=int(time.time()) + 3 * 86400)))
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': 'https://community.example:18443'})
+        self.backend.reload_store(refresh_identity=True)
+        self.assertTrue(self.backend.view['deviceManaged'])
+        self.assertTrue(self.backend.view['nodes'][0]['deviceManaged'])
+        self.backend.apply_social_state(social_state())
+        self.backend.social_failure('request', 'Invalid delegated key')
+        dialog = self.backend.credential_prompt_dialog
+        self.assertIsNotNone(dialog)
+        self.assertIn('重新登录', dialog.windowTitle())
+        next(button for button in dialog.buttons() if button.text() == '稍后').click()
+        friends = self.open_friends()
+        self.assertEqual(self.item(friends, 'friends-stale-recovery').property('text'), '重新登录')
+        self.click(friends, 'friends-stale-recovery')
+        self.assertEqual(self.backend.view['page'], 'nodes')
+        self.assertEqual(self.backend.view['deviceOrigin'], 'https://community.example:18443')
+        self.pump()
+        self.assertEqual(self.item(self.dialog, 'node-web-address').property('text'),
+                         'https://community.example:18443')
+        self.assertTrue(self.path.is_file())
+        self.assert_no_qml_errors()
+
+    def test_expired_device_refresh_denial_exposes_relogin_and_keeps_node(self):
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': 'https://community.example'})
+        self.backend.reload_store()
+        save_json(self.path, profile_data(personal_profile(expiry=1)))
+        self.backend.finish('device-refresh:' + self.backend.node_path, None, '授权已失效')
+        self.assertTrue(self.backend.view['nodeAccessExpired'])
+        self.assertTrue(self.backend.view['nodeCredentialRequired'])
+        self.assertFalse(self.backend.view['nodeAvailable'])
+        dialog = self.backend.credential_prompt_dialog
+        self.assertIsNotNone(dialog)
+        next(button for button in dialog.buttons() if button.text() == '前往重新登录').click()
+        self.assertEqual(self.backend.view['page'], 'nodes')
+        self.assertEqual(self.backend.view['deviceOrigin'], 'https://community.example')
+        self.assertTrue(self.path.is_file())
+        friends = self.open_friends()
+        self.assertEqual(self.item(friends, 'friends-replace-node-code').property('text'), '重新登录')
+        self.assert_no_qml_errors()
+
+    def test_transient_device_refresh_error_keeps_valid_login_for_retry(self):
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': 'https://community.example'})
+        self.backend.reload_store()
+        self.backend.apply_social_state(social_state())
+        self.backend.finish('device-refresh:' + self.backend.node_path, None, 'connection timed out')
+        self.assertFalse(self.backend.view['nodeCredentialRequired'])
+        self.assertIsNone(self.backend.credential_prompt_dialog)
+        self.assertTrue(self.backend.view['socialReady'])
+        self.assertNotIn(self.backend.node_path, self.backend.device_refresh_denied)
+        self.assertIn('自动重试', self.backend.view['notice'])
 
     def test_cached_friends_credential_rejection_keeps_visible_recovery_action(self):
         self.backend.apply_social_state(social_state())

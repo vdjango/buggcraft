@@ -25,7 +25,8 @@ class LobbyBackend(QObject):
         super().__init__()
         self._view = {
             'page': 'hall', 'rooms': [
-                {'id': 'one', 'title': 'Room one', 'game': {'version': '1.21.8', 'loader': 'vanilla'}, 'connections': 1},
+                {'id': 'one', 'title': 'Room one', 'node_name': '宿迁节点', 'node_region': '中国·江苏宿迁',
+                 'game': {'version': '1.21.8', 'loader': 'vanilla'}, 'connections': 1},
                 {'id': 'two', 'title': 'Room two', 'game': {'version': '1.20.1', 'loader': 'fabric'}, 'connections': 4},
             ], 'loading': False, 'roomError': '', 'busy': False, 'nodeIndex': 0,
             'nodes': [{'title': 'Local relay'}], 'nodeAvailable':True, 'selected': '', 'connections': [],
@@ -213,6 +214,7 @@ class LobbyLayoutTests(unittest.TestCase):
         self.backend.viewChanged.emit(); QTest.qWait(30)
         self.click('empty-add-node')
         self.assertEqual(self.backend.view['page'], 'nodes')
+        self.click('node-advanced')
         self.click('node-code'); QApplication.clipboard().setText('buggnode1-example')
         QTest.keyClick(self.window, Qt.Key_V, Qt.ControlModifier); QTest.qWait(30)
         self.assertEqual(self.backend.view['nodeDraft'], 'buggnode1-example')
@@ -257,24 +259,41 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertTrue(find_item(self.window, 'join-public-0').isVisible())
         self.assertTrue(find_item(self.window, 'join-public-1').isVisible())
 
+    def test_room_list_shows_assigned_node_and_region(self):
+        location = find_item(self.window, 'room-node-location-0')
+        self.assertEqual(location.property('text'), '宿迁节点 · 中国·江苏宿迁')
+
     def test_room_latency_is_visible_and_distinguishes_unavailable_from_zero(self):
-        for value, available, expected in [(57.4, True, '节点 57 ms'),
-                                            (0, True, '节点 0 ms'),
-                                            (None, True, '延迟 —'),
-                                            (57, False, '延迟 —')]:
+        for value, available, expected in [(57.4, True, '到大厅节点 57 ms'),
+                                            (0, True, '到大厅节点 0 ms'),
+                                            (None, True, '到大厅节点 —'),
+                                            (57, False, '到大厅节点 —')]:
             self.backend._view = {**self.backend._view, 'nodeLatencyMs': value,
                                   'nodeAvailable': available}
             self.backend.viewChanged.emit()
             QTest.qWait(30)
+            self.assertEqual(find_item(self.window, 'hall-node-latency').property('text'), expected)
             for index in range(2):
                 latency = find_item(self.window, 'room-latency-' + str(index))
                 self.assertTrue(latency.isVisible())
-                self.assertEqual(latency.property('text'), expected)
+                self.assertEqual(latency.property('text'), '加入后测量')
                 join = find_item(self.window, 'join-public-' + str(index))
                 self.assertLess(latency.mapToScene(QPointF(latency.width(), 0)).x(),
                                 join.mapToScene(QPointF(0, 0)).x())
                 self.assertLessEqual(join.mapToScene(QPointF(join.width(), 0)).x(),
                                      self.window.width())
+
+    def test_hall_host_latency_comes_from_own_game_path_not_directory_or_host_advertisement(self):
+        self.backend._view.update(nodeLatencyMs=999, connections=[dict(id='joined', roomId='one',
+            role='client', state='online', latency_ms=42)])
+        self.backend.viewChanged.emit()
+        QTest.qWait(40)
+        self.assertEqual(find_item(self.window, 'room-latency-0').property('text'), '到房主 42 ms')
+        self.assertEqual(find_item(self.window, 'room-latency-1').property('text'), '加入后测量')
+        self.backend._view['connections'][0]['latency_ms'] = None
+        self.backend.viewChanged.emit()
+        QTest.qWait(30)
+        self.assertEqual(find_item(self.window, 'room-latency-0').property('text'), '到房主 —')
 
     def test_current_room_entry_opens_room_without_a_navigation_menu(self):
         self.backend._view = {**self.backend._view, 'connections': [
@@ -917,11 +936,13 @@ class LobbyLayoutTests(unittest.TestCase):
     def test_room_displays_members_game_players_and_game_ping_separately(self):
         self.backend._view = {**self.backend._view, 'page':'connected', 'selected':'mine',
             'connections':[dict(id='mine', title='World', role='client', state='online',
-                availability='ready', members=4, capacity=10, game_players=2, latency_ms=57)],
+                availability='ready', members=4, capacity=10, game_players=2, latency_ms=57, nodeLatencyMs=12.4)],
             'chatState':'在线', 'chatMessages':[], 'chatDraft':'', 'chatError':'',
             'chatSending':False, 'bridgeStatus':'游戏聊天已同步'}
         self.backend.viewChanged.emit()
         QTest.qWait(40)
+        self.assertEqual(find_item(self.window, 'room-node-latency').property('text'), '到联机节点 12 ms')
+        self.assertEqual(find_item(self.window, 'room-host-latency').property('text'), '到房主 57 ms')
         self.click('room-details')
         for name, expected in [('room-member-count','房间内 4 / 10 人'),
                 ('game-player-count','游戏内 2 人'), ('game-latency','游戏延迟 57 ms')]:

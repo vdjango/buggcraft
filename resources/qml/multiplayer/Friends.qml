@@ -64,7 +64,7 @@ ColumnLayout {
             Layout.fillWidth: true; spacing: 3
             CopyText {
                 objectName: "friend-access-mode"; Layout.fillWidth: true
-                text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialLoading ? "正在连接好友服务…" : vm.socialReady ? vm.socialName : vm.friendEntryAvailable ? "好友服务未连接" : "匿名接入"
+                text: vm.nodeAccessExpired ? (vm.deviceManaged ? "登录已失效" : "接入码已过期") : vm.socialLoading ? "正在连接好友服务…" : vm.socialReady ? vm.socialName : vm.friendEntryAvailable ? "好友服务未连接" : "匿名接入"
                 font.pixelSize: 14; font.bold: true; color: "#e9e1f2"; wrapMode: Text.NoWrap; elide: Text.ElideRight
             }
             CopyText { Layout.fillWidth: true; text: vm.socialReady ? "好友码 " + vm.socialFriendCode : "连接账号后，和朋友一起玩"; font.pixelSize: 11; color: "#a99bb6"; elide: Text.ElideRight }
@@ -74,12 +74,36 @@ ColumnLayout {
         ActionButton { objectName: "add-friend"; text: "添加好友"; visible: !!vm.socialReady; primary: true; implicitHeight: 32; onClicked: lobby.act("navigate", {page:"friendForm"}) }
     }
     Surface {
+        objectName: "my-network-profile"; visible: true
+        Layout.fillWidth: true; implicitHeight: 50; color: "#24202c"; border.color: "#51445d"
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 8; spacing: 7
+            ColumnLayout {
+                Layout.fillWidth: true; spacing: 3
+                CopyText {
+                    objectName: "my-network-type"; Layout.fillWidth: true
+                    text: "你的网络类型：" + (!vm.playerNetworkProfileReady ? "正在判断…" : (vm.playerNetworkProfile || {}).type === "direct_easier" ? "较容易直连" : (vm.playerNetworkProfile || {}).type === "relay_likely" ? "可能需要中转" : "暂时无法判断")
+                    font.pixelSize: 12; font.bold: true; color: "#e6dced"; elide: Text.ElideRight
+                }
+                CopyText {
+                    objectName: "my-network-history"; Layout.fillWidth: true
+                    text: !vm.playerNetworkProfileReady ? "正在读取近 7 天的联机记录…" : "近 7 天总记录：直连成功 " + ((vm.playerNetworkProfile || {}).direct_successes || 0) + " 次 · 中转成功 " + ((vm.playerNetworkProfile || {}).relay_successes || 0) + " 次"
+                    font.pixelSize: 10; color: "#b7aabd"; elide: Text.ElideRight
+                }
+            }
+            HeaderAction {
+                objectName: "network-profile-help"; text: "?"; iconSize: 13
+                label: "网络类型是按当前网络情况给出的参考，不能保证和每位好友都能直接连接；还要看好友当时的网络和本次连接。失败时会自动尝试中转。同步的只有网络类型和近 7 天成功次数，不包含网络地址。次数是与所有玩家的总记录，不代表和某位好友单独联机的次数。"
+            }
+        }
+    }
+    Surface {
         objectName: "friends-stale-state"; visible: !!vm.socialReady && vm.socialState === "stale"
         Layout.fillWidth: true; implicitHeight: 54; color: "#3b2b25"; border.color: "#a9764d"
         RowLayout {
             anchors.fill: parent; anchors.margins: 10; spacing: 8
             CopyText { Layout.fillWidth: true; text: (vm.socialError || "好友节点暂时不可达") + "\n显示上次同步的联系人，在线状态未知。"; color: "#ffd7b0"; font.pixelSize: 11; wrapMode: Text.Wrap; verticalAlignment: Text.AlignVCenter }
-            ActionButton { objectName: "friends-stale-recovery"; text: vm.nodeCredentialRequired ? "更换接入码" : "重试连接"; implicitHeight: 30; onClicked: lobby.act(vm.nodeCredentialRequired ? "replaceNodeCode" : "refreshFriends", {}) }
+            ActionButton { objectName: "friends-stale-recovery"; text: vm.nodeCredentialRequired ? (vm.deviceManaged ? "重新登录" : "更换接入码") : "重试连接"; implicitHeight: 30; onClicked: lobby.act(vm.nodeCredentialRequired ? "replaceNodeCode" : "refreshFriends", {}) }
         }
     }
     Surface {
@@ -90,10 +114,10 @@ ColumnLayout {
             FriendAvatar { Layout.alignment: Qt.AlignHCenter; name: "友"; showStatus: false; Layout.preferredWidth: 56; Layout.preferredHeight: 56 }
             CopyText { Layout.fillWidth: true; text: vm.socialLoading ? "正在连接你的好友" : vm.nodeAccessExpired ? "重新连接，继续和朋友玩" : "和朋友一起探索"; horizontalAlignment: Text.AlignHCenter; font.pixelSize: 16; font.bold: true; color: "#e9dff3" }
             CopyText {
-                Layout.fillWidth: true; text: vm.socialError || (vm.socialLoading ? "请稍候，好友列表会自动更新。" : "添加节点的个人接入码，即可查看好友和发送联机邀请。")
+                Layout.fillWidth: true; text: vm.socialError || (vm.socialLoading ? "请稍候，好友列表会自动更新。" : "填写节点地址并登录账号，即可查看好友和发送联机邀请。")
                 font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
             }
-            ActionButton { objectName: "friends-replace-node-code"; Layout.alignment: Qt.AlignHCenter; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "更换接入码" : vm.friendEntryAvailable ? "重试连接" : "连接好友服务"; primary: true; visible: !vm.socialLoading; onClicked: lobby.act(vm.friendEntryAvailable && !vm.nodeAccessExpired && !vm.nodeCredentialRequired ? "refreshFriends" : "replaceNodeCode", {}) }
+            ActionButton { objectName: "friends-replace-node-code"; Layout.alignment: Qt.AlignHCenter; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? (vm.deviceManaged ? "重新登录" : "更换接入码") : vm.friendEntryAvailable ? "重试连接" : "连接好友服务"; primary: true; visible: !vm.socialLoading; onClicked: lobby.act(vm.friendEntryAvailable && !vm.nodeAccessExpired && !vm.nodeCredentialRequired ? "refreshFriends" : "replaceNodeCode", {}) }
         }
     }
     FriendInviteProgress {

@@ -38,6 +38,9 @@ class SlimPackagingTests(unittest.TestCase):
                 command = build.make_command()
                 self.assertIn('--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid', command)
                 self.assertIn('--noinclude-dlls=PySide6/qt-plugins/imageformats/*qpdf*', command)
+                self.assertIn('--include-module=keyring.backends.Windows', command)
+                self.assertIn('--include-package=win32ctypes', command)
+                self.assertIn('--include-distribution-metadata=keyring', command)
                 self.assertFalse(any(arg in command for arg in ('--include-package=aiortc', '--include-package=av')))
                 self.assertFalse(any('legacy_hookup' in arg or 'hookup._rtc' in arg
                                      or 'hookup/THIRD_PARTY_NOTICES.txt' in arg for arg in command))

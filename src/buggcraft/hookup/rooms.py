@@ -174,6 +174,8 @@ async def list_rooms(profile):
         same_entry = (entry.server_host, entry.server_port, entry.server_public_key) == (
             profile.server_host, profile.server_port, profile.server_public_key)
         return {'rooms': rooms, 'connect_ms': round(latency, 1),
+                'node_latency_ms': info.get('node_latency_ms') if info.get('node_latency_method') == 'application-echo' else None,
+                'node_latency_method': info.get('node_latency_method'),
                 'node_name': name if same_entry and isinstance(name, str) and
                 0 < len(name) <= 80 and all(c.isprintable() for c in name) else ''}
 
@@ -191,6 +193,9 @@ def validate_room(value):
         raise ValueError('节点房间标识无效')
     if not isinstance(value.get('title'), str) or len(value['title']) > 80:
         raise ValueError('节点房间名称无效')
+    for key in ('node_name', 'node_region'):
+        if not isinstance(value.get(key, ''), str) or len(value.get(key, '')) > 80:
+            raise ValueError('房间所属节点信息无效')
     if type(value.get('require_invite', False)) is not bool:
         raise ValueError('节点房间加入方式无效')
     for key in ('connections', 'capacity'):

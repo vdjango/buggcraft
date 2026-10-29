@@ -35,7 +35,8 @@ class ChatControllerTests(unittest.TestCase):
         self.window = QDialog()
         self.addCleanup(self.window.close)
         self.service = Mock(endpoints={})
-        with patch('ui.multiplayer_controller.TunnelService', return_value=self.service):
+        with patch('ui.multiplayer_controller.TunnelService', return_value=self.service), \
+                patch.object(MultiplayerController, 'refresh_network_profile'):
             self.controller = MultiplayerController(self.window, Path(self.temporary.name) / 'lobby.json')
         self.addCleanup(self.controller.close)
         for name in ('first', 'second'):
@@ -232,6 +233,20 @@ class ChatControllerTests(unittest.TestCase):
         self.assertTrue(controller.view['contacts'][0]['presenceStale'])
         self.assertEqual(controller.view['socialState'], 'stale')
         self.assertIn('temporary node timeout', controller.view['socialError'])
+
+    def test_network_profile_is_exposed_to_self_and_online_friends_and_validated(self):
+        controller = self.controller
+        account = 'c' * 32 + '.' + 'd' * 32
+        network = dict(type='direct_easier', direct_successes=3, relay_successes=1)
+        controller.apply_social_state(self._social_state(
+            networkProfile=network,
+            friends=[dict(account=account, username='Alice', online=True, network_profile=network)]))
+        self.assertEqual(controller.view['playerNetworkProfile'], network)
+        self.assertEqual(controller.view['contacts'][0]['networkProfile'], network)
+        with self.assertRaisesRegex(ValueError, '好友网络情况无效'):
+            controller.apply_social_state(self._social_state(
+                friends=[dict(account=account, username='Alice', online=True,
+                              network_profile=dict(network, direct_successes=True))]))
 
     def test_friend_room_invite_reports_success_and_failure_for_retry(self):
         controller = self.controller
@@ -506,6 +521,19 @@ class ChatControllerTests(unittest.TestCase):
             response['friends'] = [dict(account=account, username='Alice', online=True)]
             self.controller.finish(key, response, None)
         self.assertEqual(self.controller.view['contacts'], [])
+
+    def test_node_rtt_never_uses_list_elapsed_time_or_legacy_bridge_measurements(self):
+        controller = self.controller
+        for method, value, expected in [('application-echo', 12.4, 12.4),
+                                        (None, 1192, None), ('application-echo', 0, 0)]:
+            controller.finish('rooms:' + controller.room_generation + ':0',
+                dict(rooms=[], next=None, total=0, connect_ms=5000,
+                     node_latency_ms=value, node_latency_method=method), None)
+            self.assertEqual(controller.view['nodeLatencyMs'], expected)
+        controller.update_chat('first', dict(type='node-latency', latency_ms=18.5))
+        controller.update_chat('first', dict(type='latency', latency_ms=75))
+        self.assertEqual(controller.records['first']['nodeLatencyMs'], 18.5)
+        self.assertEqual(controller.records['first']['latency_ms'], 75)
 
     def test_player_metrics_remain_separate_and_unknown_counts_are_cleared(self):
         controller = self.controller
