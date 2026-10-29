@@ -1,4 +1,4 @@
-name: Cancel superseded alpha 2 branch build
+name: Pause pending alpha 2 publication
 on:
   push:
     branches: [ci/alpha2-release-promotion]
@@ -17,11 +17,11 @@ jobs:
           python3 - <<'PY'
           import json, os, subprocess
           prefix = 'repos/' + os.environ['GH_REPO']
-          run = json.loads(subprocess.check_output(['gh','api',prefix + '/actions/runs/40804208285'],text=True))
-          assert run['head_branch'] == 'release/alpha2-integration'
-          assert run['head_sha'] == '53fd0c6ff8ca8652f45a3ae404ef5afe44186d92'
-          assert run['path'] == '.github/workflows/package.yml'
+          run = json.loads(subprocess.check_output(['gh','api',prefix + '/actions/runs/40805276608'],text=True))
+          assert run['head_branch'] == 'ci/alpha2-release-promotion'
+          assert run['head_sha'] == '98e19fa6a6f00f25fde8cf27a4dcd43d5677426e'
+          assert run['path'] == '.github/workflows/alpha2-release-promotion.yml'
           if run['status'] != 'completed':
-              subprocess.run(['gh','api','--method','POST',prefix + '/actions/runs/40804208285/cancel'],check=True)
-          print('The superseded build is stopped; final 6d549ba build remains active.')
+              subprocess.run(['gh','api','--method','POST',prefix + '/actions/runs/40805276608/cancel'],check=True)
+          print('Pending promotion stopped: publication remains paused by user request.')
           PY

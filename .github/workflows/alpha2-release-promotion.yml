@@ -11,6 +11,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   promote:
+    # User paused publication while domain-based node entry is integrated.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
