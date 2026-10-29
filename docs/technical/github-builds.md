@@ -22,7 +22,7 @@ Windows 和 Linux 使用独立可执行文件，macOS 使用包含应用的 ZIP�
 
 ## 版本发布
 
-修复先在独立 `release/*` 分支完成并通过五平台 `Package launcher`，再快进合入 main。main 的同一提交再次全平台通过后，运行 `Release launcher build`，手动输入已经确定的版本号。不要直接推送标签绕过验证。
+修复先在独立 `release/*` 分支完成，通过五平台 `Package launcher` 和 Windows/Linux 的 `Client and native regression`，再合入 main。main 的同一提交再次通过这两套工作流后，运行 `Release launcher build`，手动输入已经确定的版本号。发布校验会拒绝缺失、未完成、失败、取消、跳过或其他提交的结果；不要直接推送标签绕过验证。
 
 版本构建覆盖 Windows x64、Linux x86_64/ARM64、macOS Intel/Apple Silicon。全部检查通过后，在 GitHub 创建草稿并自动同步到[下载站](https://download.bugg.icu)。核对五个平台的文件、内嵌版本、大小和 SHA-256 后，在下载站后台审核发布；GitHub 草稿与下载站发布状态分别管理。
 
