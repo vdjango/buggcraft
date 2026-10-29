@@ -153,6 +153,9 @@ class NativeEndpoint:
             value = event.get('latency_ms')
             self.room_info['latency_ms'] = value if type(value) is int and 0 <= value <= 1000000 else None
             self.room_info['latency_state'] = event.get('state', 'unavailable')
+        elif event.get('type') == 'node-latency':
+            value = event.get('latency_ms')
+            self.room_info['node_latency_ms'] = value if type(value) in (int, float) and 0 <= value <= 1000000 else None
 
     def _set_transport(self, transport, *, force=False, notify=True):
         if transport not in ('p2p', 'relay', 'auto'):

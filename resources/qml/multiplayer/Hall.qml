@@ -6,7 +6,7 @@ ColumnLayout {
     id: hall
     property var vm: lobby.view
     property bool canUseNode: vm.nodeIndex >= 0 && !!vm.nodeAvailable
-    spacing: 8
+    spacing: 4
     Surface {
         objectName: "lobby-loading-status"
         Layout.fillWidth: true; Layout.preferredHeight: 46
@@ -18,17 +18,34 @@ ColumnLayout {
             CopyText { Layout.fillWidth: true; text: vm.socialLoading ? "正在登录好友服务…" : "正在连接联机节点并加载房间…"; color: "#ded3f3"; font.pixelSize: 12 }
         }
     }
+    Surface {
+        objectName: "hall-network-profile"; visible: true
+        Layout.fillWidth: true; Layout.preferredHeight: 28; color: "#24202c"; border.color: "#51445d"
+        RowLayout {
+            anchors.fill: parent; anchors.leftMargin: 9; anchors.rightMargin: 6; spacing: 6
+            CopyText {
+                objectName: "hall-network-type"; Layout.fillWidth: true
+                text: "你的网络类型：" + (!vm.playerNetworkProfileReady ? "正在判断…" : (vm.playerNetworkProfile || {}).type === "direct_easier" ? "较容易直连" : (vm.playerNetworkProfile || {}).type === "relay_likely" ? "可能需要中转" : "暂时无法判断") +
+                    (!vm.playerNetworkProfileReady ? " · 正在读取近7天联机记录…" : " · 近7天：直连成功 " + ((vm.playerNetworkProfile || {}).direct_successes || 0) + " 次 · 中转成功 " + ((vm.playerNetworkProfile || {}).relay_successes || 0) + " 次")
+                font.pixelSize: 11; color: "#e1d7e9"; elide: Text.ElideRight
+            }
+            HeaderAction {
+                objectName: "hall-network-profile-help"; text: "?"; iconSize: 13
+                label: "网络类型是按当前网络情况给出的参考，不能保证和每位好友都能直接连接；还要看好友当时的网络和本次连接。失败时会自动尝试中转。同步的只有网络类型和近 7 天成功次数，不包含网络地址。次数是与所有玩家的总记录，不代表和某位好友单独联机的次数。"
+            }
+        }
+    }
     RowLayout {
         Layout.fillWidth: true
         visible: !!vm.socialError
         CopyText { objectName: "lobby-social-error"; Layout.fillWidth: true; text: vm.socialError || ""; color: "#e8b3b3"; font.pixelSize: 11; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
-        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "更换接入码" : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act((vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "replaceNodeCode" : "refreshFriends", {}) }
+        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? (vm.deviceManaged ? "重新登录" : "更换接入码") : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act((vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "replaceNodeCode" : "refreshFriends", {}) }
     }
     Rectangle {
         id: nodeBar
         objectName: "room-node-row"
         Layout.fillWidth: true
-        Layout.preferredHeight: 84
+        Layout.preferredHeight: 70
         color: "#201c29"
         border.color: "#40384a"
         property color statusColor: vm.roomError ? "#d9aa7a" :
@@ -75,6 +92,15 @@ ColumnLayout {
                     color: nodeBar.statusColor
                 }
                 CopyText {
+                    objectName: "hall-node-latency"
+                    property bool measured: !!vm.nodeAvailable && typeof vm.nodeLatencyMs === "number" && isFinite(vm.nodeLatencyMs) && vm.nodeLatencyMs >= 0
+                    text: "到大厅节点 " + (measured ? Math.round(vm.nodeLatencyMs) + " ms" : "—")
+                    font.pixelSize: 11; color: !measured ? "#aaa4b3" : vm.nodeLatencyMs < 100 ? "#a7c9b5" : vm.nodeLatencyMs < 250 ? "#d0b895" : "#e8b3b3"
+                    ToolTip.visible: nodeLatencyHover.hovered
+                    ToolTip.text: "你到当前大厅节点的小消息往返时间，不包含连接、登录和房间列表加载；不是到房主的延迟。"
+                    HoverHandler { id: nodeLatencyHover }
+                }
+                CopyText {
                     objectName: "rooms-loaded"
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignRight
@@ -107,7 +133,7 @@ ColumnLayout {
             }
             CopyText {
                 objectName: "lobby-identity"; Layout.fillWidth: true
-                text: vm.nodeAccessExpired ? "接入码已过期" : vm.socialReady ? "已登录 · " + vm.socialName : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入")
+                text: vm.nodeAccessExpired ? (vm.deviceManaged ? "登录已失效" : "接入码已过期") : vm.socialReady ? "已登录 · " + vm.socialName : vm.deviceManaged ? "账号待验证" : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入")
                 font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce"
                 wrapMode: Text.NoWrap; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight
             }
@@ -207,7 +233,8 @@ ColumnLayout {
                 required property var modelData
                 required property int index
                 readonly property string worldState: modelData.availability || ""
-                width: rooms.width; height: 58
+                readonly property var connection: (vm.connections || []).find(function(item) { return item.roomId === roomRow.modelData.id && item.state === "online" }) || null
+                width: rooms.width; height: 68
                 color: index % 2 ? "#282530" : "#24222c"
                 border.color: "#3f3949"
                 RowLayout {
@@ -222,6 +249,13 @@ ColumnLayout {
                             Layout.fillWidth: true; text: modelData.title
                             wrapMode: Text.NoWrap; elide: Text.ElideRight
                             font.pixelSize: 14; font.bold: true; color: "#f2edff"
+                        }
+                        CopyText {
+                            objectName: "room-node-location-" + index
+                            Layout.fillWidth: true
+                            text: [modelData.node_name || "", modelData.node_region || ""].filter(function(value) { return value.length > 0 }).join(" · ") || "所属节点未知"
+                            wrapMode: Text.NoWrap; elide: Text.ElideRight
+                            font.pixelSize: 10; color: "#9faab3"
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -248,14 +282,15 @@ ColumnLayout {
                     }
                     CopyText {
                         objectName: "room-latency-" + index
-                        property bool measured: !!vm.nodeAvailable && typeof vm.nodeLatencyMs === "number" && isFinite(vm.nodeLatencyMs) && vm.nodeLatencyMs >= 0
-                        text: measured ? "节点 " + Math.round(vm.nodeLatencyMs) + " ms" : "延迟 —"
-                        color: !measured ? "#aaa4b3" : vm.nodeLatencyMs < 100 ? "#a7c9b5" : vm.nodeLatencyMs < 250 ? "#d0b895" : "#e8b3b3"
+                        property var latency: roomRow.connection ? roomRow.connection.latency_ms : null
+                        property bool measured: typeof latency === "number" && isFinite(latency) && latency >= 0
+                        text: measured ? "到房主 " + Math.round(latency) + " ms" + (roomRow.connection.role === "host" ? " · 本机" : "") : roomRow.connection ? "到房主 —" : "加入后测量"
+                        color: !measured ? "#aaa4b3" : latency < 100 ? "#a7c9b5" : latency < 250 ? "#d0b895" : "#e8b3b3"
                         font.pixelSize: 11
-                        Layout.preferredWidth: 86
+                        Layout.preferredWidth: 112
                         horizontalAlignment: Text.AlignRight
                         ToolTip.visible: roomLatencyHover.hovered
-                        ToolTip.text: "这是当前玩家到目录节点的探测耗时（不含登录与房间列表查询），不是到房主游戏的延迟，也不含房主到节点的链路。"
+                        ToolTip.text: "加入房间后，沿实际游戏线路测量你到房主游戏的往返时间。直接连接时不经过中转节点；中转时包含你到节点、节点到房主及游戏响应时间。没有测到就显示 —。"
                         HoverHandler { id: roomLatencyHover }
                     }
                     CopyText {

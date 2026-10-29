@@ -13,12 +13,13 @@ Rectangle {
     property var joinRequest: null
     property var receivedInvite: null
     readonly property var room: person.room || ({})
+    readonly property var networkProfile: person.networkProfile || ({})
     property var inviteState: null
     property bool joining: false
     readonly property string username: person.name || person.username || "玩家"
     readonly property string displayName: person.alias || username
     signal action(string name, var data)
-    implicitHeight: 72
+    implicitHeight: row.mode === 0 && row.person.online ? 88 : 72
     color: hover.hovered ? "#2b2335" : "transparent"
     HoverHandler { id: hover }
     Rectangle { anchors.left: parent.left; anchors.leftMargin: 12; anchors.right: parent.right; anchors.rightMargin: 12; anchors.bottom: parent.bottom; height: 1; color: "#342c3e" }
@@ -39,6 +40,15 @@ Rectangle {
                 text: row.mode === 0 ? (row.inviteState ? row.inviteState.status :
                     row.person.presenceStale ? "在线状态未知" : !row.person.online ? "离线" : row.room.id ? (row.room.role === "host" ? "房主 · " : "联机中 · ") + (row.room.title || "好友的房间") + (row.room.availability === "waiting" ? " · 等待世界开放" : "") : "在线，可以一起玩") :
                     row.mode === 1 ? (row.person.incoming ? "想添加你为好友" : "申请已发送，等待回应") : row.mode === 3 ? "想加入你的房间 · 同意后自动发送邀请" : row.joining ? "正在接受邀请并连接房间…" : "邀请你一起联机 · 接受后自动连接"
+            }
+            CopyText {
+                objectName: "friend-network-type-" + (row.person.index || 0)
+                visible: row.mode === 0 && !!row.person.online
+                Layout.fillWidth: true; font.pixelSize: 10; wrapMode: Text.NoWrap; elide: Text.ElideRight
+                color: "#b9abca"
+                text: !row.person.networkProfile ? "网络类型：暂时无法判断 · 暂无联机记录" :
+                    "网络类型：" + (row.networkProfile.type === "direct_easier" ? "较容易直连" : row.networkProfile.type === "relay_likely" ? "可能需要中转" : "暂时无法判断") +
+                    " · 近7天总计：直连成功 " + (row.networkProfile.direct_successes || 0) + " 次 · 中转成功 " + (row.networkProfile.relay_successes || 0) + " 次"
             }
         }
         ActionButton {

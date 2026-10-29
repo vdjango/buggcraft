@@ -7,7 +7,7 @@ Surface {
     id: header
     property var roomView
     signal settingsRequested()
-    Layout.fillWidth: true; implicitHeight: 74
+    Layout.fillWidth: true; implicitHeight: 110
     color: "#211d2b"; border.color: "#49415c"
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 12; spacing: 6
@@ -33,6 +33,13 @@ Surface {
             }
             ActionButton { objectName: "room-details"; text: "详情"; quiet: true; implicitWidth: 52; implicitHeight: 28; onClicked: details.open() }
         }
+        CopyText {
+            objectName: "room-owner-node"; Layout.fillWidth: true
+            visible: !!header.roomView.record.nodeName || !!header.roomView.record.nodeRegion
+            text: "房间节点：" + (header.roomView.record.nodeName || "未知") +
+                (header.roomView.record.nodeRegion ? " · " + header.roomView.record.nodeRegion : "")
+            color: "#a9c2be"; font.pixelSize: 10; wrapMode: Text.NoWrap; elide: Text.ElideRight
+        }
         RowLayout {
             Layout.fillWidth: true
             CopyText {
@@ -43,6 +50,24 @@ Surface {
             }
             ActionButton { objectName: "choose-detected-world"; visible: header.roomView.waiting && header.roomView.host && !!header.roomView.record.worldChoiceRequired; text: "选择世界"; quiet: true; implicitHeight: 23; onClicked: lobby.act("reopenWorld", {}) }
             ActionButton { objectName: "copy-address"; visible: !header.roomView.host && !header.roomView.waiting; text: header.roomView.copiedKind === "address" ? "已复制 ✓" : "游戏地址"; quiet: true; implicitHeight: 23; onClicked: lobby.act("copyAddress", {id:lobby.view.selected}) }
+        }
+        RowLayout {
+            Layout.fillWidth: true; spacing: 16
+            CopyText {
+                objectName: "room-node-latency"
+                text: "到联机节点 " + (header.roomView.online && typeof header.roomView.record.nodeLatencyMs === "number" ? Math.round(header.roomView.record.nodeLatencyMs) + " ms" : "—")
+                font.pixelSize: 11; color: "#b9adca"
+            }
+            CopyText {
+                objectName: "room-host-latency"
+                text: "到房主 " + (header.roomView.online && typeof header.roomView.record.latency_ms === "number" ? header.roomView.record.latency_ms + " ms" : "—") + (header.roomView.host ? " · 本机" : "")
+                font.pixelSize: 11; color: "#b9adca"
+            }
+            Item { Layout.fillWidth: true }
+            HeaderAction {
+                text: "?"; iconSize: 13
+                label: "到联机节点：你到本房间节点的往返时间。到房主：沿当前游戏线路到房主游戏的往返时间，包含游戏响应；直接连接时不经过中转节点，中转时包含两段线路。— 表示尚未测到。"
+            }
         }
     }
     Popup {

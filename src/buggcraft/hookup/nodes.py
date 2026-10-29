@@ -17,6 +17,8 @@ def profile_data(profile):
 
 
 def save_json(path, value):
+    from .device_login import protect_data
+    value = protect_data(value)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix='.node-', dir=path.parent)

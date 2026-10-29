@@ -2,5 +2,7 @@ PySide6==6.8.1; sys_platform != "linux" or platform_machine != "aarch64"
 PySide6==6.8.3; sys_platform == "linux" and platform_machine == "aarch64"
 minecraft-launcher-lib==7.1
 requests==2.33.0
+keyring==25.6.0
+cryptography>=44,<47
 psutil==7.0.0
 pypng==0.20220715.0

@@ -25,7 +25,10 @@ class NativeBoundaryTests(unittest.TestCase):
                     imports.extend(alias.name.split('.')[0] for alias in node.names)
                 elif isinstance(node, ast.ImportFrom) and node.module:
                     imports.append(node.module.split('.')[0])
-            self.assertFalse(forbidden.intersection(imports), file.name)
+            # Launcher device login signs approval challenges; it does not
+            # implement the retired Python multiplayer transport.
+            disallowed = forbidden - {'cryptography'} if file.name == 'device_login.py' else forbidden
+            self.assertFalse(disallowed.intersection(imports), file.name)
         for module in ('hookup.relay', 'hookup.host', 'hookup.client', 'tunnel'):
             self.assertIsNone(importlib.util.find_spec(module), module)
 
