@@ -6,13 +6,13 @@
 
 | 系统 | 产物名称包含 | 使用方式 |
 |---|---|---|
-| Windows 10/11 x64 | `windows-x64` | 解压 Actions 下载的文件，保留 `Buggcraft-Setup.exe` 与运行包 ZIP 在同一目录，再运行安装程序。 |
+| Windows 10/11 x64 | `windows-x64` | 解压 Actions 产物，运行独立文件 `Buggcraft.exe`。 |
 | Linux x86_64 | `linux-x86_64` | 下载 `Buggcraft` 并赋予可执行权限后运行。 |
 | Linux ARM64 | `linux-arm64` | 下载 `Buggcraft-linux-arm64` 并赋予可执行权限后运行。 |
 | macOS Intel | `macos-x86_64` | 解压产物，再解压其中的应用 ZIP。 |
 | macOS Apple Silicon | `macos-arm64` | 解压产物，再解压其中的应用 ZIP。 |
 
-分支构建的 Windows 安装程序使用同目录 ZIP，不内置会变动的“最新运行包”地址。程序会校验完整包和文件哈希，将运行环境安装在程序旁边。`build-diagnostics-…` 是排查构建失败的日志，不是应用下载。
+Windows 和 Linux 使用独立可执行文件，macOS 使用包含应用的 ZIP。`build-diagnostics-…` 是排查构建失败的日志，不是应用下载。
 
 ## 手动构建
 
@@ -22,10 +22,10 @@
 
 ## 版本发布
 
-维护者确认版本号和提交后，推送形如 `v1.2.3` 的新标签。CI 构建并检查全部三个平台，通过后在 [Releases](https://github.com/vdjango/buggcraft/releases) 创建一个**草稿**，附上应用包、平台独立的清单与 SHA-256、对应提交的源码快照和许可证。
+修复先在独立 `release/*` 分支完成并通过五平台 `Package launcher`，再快进合入 main。main 的同一提交再次全平台通过后，运行 `Release launcher build`，手动输入已经确定的版本号。不要直接推送标签绕过验证。
 
-标签构建的 Windows 安装程序内置该标签下的运行包地址，公开 Release 后可单独下载安装程序并联网安装。不得将安装程序与其他版本的运行包混用；草稿阶段的下载地址尚未向普通用户开放，可先用同目录 ZIP 验收。
+版本构建覆盖 Windows x64、Linux x86_64/ARM64、macOS Intel/Apple Silicon。全部检查通过后，在 GitHub 创建草稿并自动同步到[下载站](https://download.bugg.icu)。核对五个平台的文件、内嵌版本、大小和 SHA-256 后，在下载站后台审核发布；GitHub 草稿与下载站发布状态分别管理。
 
-发布者检查安装、签名状态和说明后，在 GitHub 点击 **Publish release**。公开仓库的 Release 下载无需登录 GitHub。不要重用或移动已发布的标签；修复后使用新版本号，避免已下载的安装程序对应到不同文件。
+若版本已生成草稿但同步失败，重跑失败的同步任务。不要重用或移动已发布的标签；功能修复使用明确的新版本号。完整操作与失败处理见[固定发布流程](../guides/launcher-release-checklist.md)。
 
 目前 Windows 未配置受信任代码签名，macOS 使用 ad-hoc 签名且未经 Apple 公证。CI 成功不代表系统会放行，也不替代干净设备上的安装验收。具体边界见 [Windows 打包](windows-packaging.md)和 [macOS 打包](macos-packaging.md)。
