@@ -1,11 +1,40 @@
 """Prepare inherited instances without installing their alias as a vanilla version."""
 import json
 import copy
+import os
 from pathlib import Path
 
 import minecraft_launcher_lib
 
 from core.downloads import MinecraftDownloader, verified_installation
+
+
+def deduplicate_classpath(command):
+    """Keep the first occurrence of each JAR in JVM classpath arguments.
+
+    BootstrapLauncher scans every classpath entry as a module. A repeated JAR
+    can therefore abort NeoForge before Minecraft starts, even when both
+    entries point to the exact same shared library file.
+    """
+    result = list(command)
+    for index, argument in enumerate(result):
+        if not isinstance(argument, str):
+            continue
+        if index and result[index - 1] in ('-cp', '-classpath', '--class-path'):
+            classpath, prefix = argument, ''
+        elif argument.startswith(('--class-path=', '-DlegacyClassPath=')):
+            prefix, classpath = argument.split('=', 1)
+            prefix += '='
+        else:
+            continue
+        entries, seen = [], set()
+        for entry in classpath.split(os.pathsep):
+            key = os.path.normcase(os.path.normpath(entry)) if entry else ''
+            if key not in seen:
+                seen.add(key)
+                entries.append(entry)
+        result[index] = prefix + os.pathsep.join(entries)
+    return result
 
 
 def version_chain(directory, version):

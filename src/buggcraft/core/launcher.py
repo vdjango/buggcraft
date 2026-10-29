@@ -25,7 +25,7 @@ from config.settings import get_settings_manager
 from core.launch_options import (split_arguments, redacted_command, offline_uuid,
                                  complete_auth_arguments, required_java)
 from core.downloads import verified_installation
-from core.launch_preparation import prepare_inherited, inherited_command
+from core.launch_preparation import prepare_inherited, inherited_command, deduplicate_classpath
 from core.memory import AdvancedMemoryRecommender
 from core.java_runtime import select_java, java_policy, JavaRuntimeUnavailable
 from core.java_downloads import catalogue as java_catalogue, install_available as install_java
@@ -360,7 +360,7 @@ class MinecraftLibLauncher(QObject):
                 self.minecraft_directory,
                 options
             )
-            command = complete_auth_arguments(command)
+            command = deduplicate_classpath(complete_auth_arguments(command))
             
             # 设置窗口大小
             if not self.minecraft_fullscreen:
