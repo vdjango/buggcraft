@@ -11,6 +11,28 @@ import test_room_launch_flow as fixtures
 class RoomPreparationControllerTests(unittest.TestCase):
     setUpClass = fixtures.RoomLaunchFlowTests.__dict__['setUpClass']
     setUp = fixtures.RoomLaunchFlowTests.setUp
+    dispose_widgets = fixtures.RoomLaunchFlowTests.dispose_widgets
+
+    def test_room_history_retry_reuses_task_and_refuses_a_disconnected_room(self):
+        record = self.controller.records['room']
+        history = Mock()
+        history.track_room_preparation.return_value = 'history-task'
+        self.parent.settings_manager.get_setting.side_effect = lambda key, default=None: (
+            self.parent.launcher.minecraft_directory if key == 'minecraft.directory.enable' else default)
+        with patch.object(self.controller, 'preparation_history', return_value=history), \
+                patch.object(self.controller, 'report_room_state'), \
+                patch.object(self.controller, 'job', side_effect=lambda key, coroutine: coroutine.close()):
+            self.controller.prepare_room()
+            callback = history.track_room_preparation.call_args.kwargs['retry']
+            record.update(preparing=False, prepareFailed=True)
+            callback('history-task')
+            self.assertEqual(history.track_room_preparation.call_args.kwargs['task_id'], 'history-task')
+            self.assertEqual(record['prepareHistoryTask'], 'history-task')
+            self.assertFalse(record['prepareFailed'])
+            record['preparing'] = False
+            self.service.endpoints.clear()
+            with self.assertRaisesRegex(ValueError, '房间已断开'):
+                callback('history-task')
 
     def test_world_connection_is_automatic_even_with_quick_creation_disabled_and_ambiguity_needs_choice(self):
         record = self.controller.records['room']

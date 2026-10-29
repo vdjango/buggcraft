@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from config.settings import get_settings_manager
 from ui.pages.qml_host import QmlPage
 from utils.path_helper import get_default_minecraft_dir, filesystem_path
-from core.downloads import DownloadCancelled, MinecraftDownloader
+from core.downloads import DownloadCancelled, MinecraftDownloader, download_error_message
 from core.loaders import install_loader
 from core.modpacks import suggested_name
 from core.transfer_metrics import TransferMeter
@@ -56,6 +56,7 @@ class TaskHistoryController(QObject):
     def tasks(self):
         query = self._query.casefold()
         return [dict({key: value for key, value in task.items() if key not in ('files', 'logs', '_last_status')},
+                     canRetry=task['id'] in self.page._external_retries,
                      speed=task.get('speed', 0) if task.get('state') in TasksPage.ACTIVE and time.monotonic() - task.get('_speedAt', 0) < 3 else 0) for task in self._tasks
                 if query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
                              " ".join(item.get('name', '') for item in task.get('files', []))).casefold()
@@ -261,7 +262,7 @@ class DownloadWorker(QRunnable):
         except Exception as exc:
             logger.exception("Download/install failed: version=%s kind=%s source=%s", self.version,
                              self.content.get('kind') if self.content else 'modpack' if self.modpack else 'game', self.source)
-            self.signals.finished.emit(self.task_id, False, str(exc))
+            self.signals.finished.emit(self.task_id, False, download_error_message(exc))
 
 
 class TasksPage(QWidget):
@@ -282,6 +283,7 @@ class TasksPage(QWidget):
         self._file_indexes = {}
         self._workers = {}
         self._external_cancellations = {}
+        self._external_retries = {}
         self._closing = False
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(4)
@@ -454,21 +456,30 @@ class TasksPage(QWidget):
         self.pool.start(worker)
         self._schedule_save()
 
-    def track_room_preparation(self, title, game_dir, game, cancel):
+    def track_room_preparation(self, title, game_dir, game, cancel, *, retry=None, task_id=None):
         """Track the lobby's async installer in the same persistent history."""
-        task_id = uuid.uuid4().hex
+        previous = self._find_task(task_id) if task_id else None
+        task_id = previous['id'] if previous else uuid.uuid4().hex
         task = dict(id=task_id, version=title, game_dir=os.path.abspath(game_dir),
                     kind='room', loader=game.get('loader', ''), base_version=game.get('version', ''),
                     loader_version=game.get('loader_version', ''),
                     state='进行中', status='正在核对房间文件…', progress=0, maximum=0,
                     created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'),
-                    error='', logs=[], files=[])
-        self._tasks.insert(0, task)
+                    error='', logs=list(previous.get('logs', [])) if previous else [], files=[])
+        if previous:
+            previous.clear()
+            previous.update(task)
+            task = previous
+        else:
+            self._tasks.insert(0, task)
+        self._file_indexes.pop(task_id, None)
         live = [item for item in self._tasks if item['state'] in self.ACTIVE]
         ended = [item for item in self._tasks if item['state'] not in self.ACTIVE]
         self._tasks = sorted(live + ended[:max(0, 200 - len(live))],
                              key=lambda item: item['created_at'], reverse=True)
         self._external_cancellations[task_id] = cancel
+        if retry:
+            self._external_retries[task_id] = retry
         self._log(task, f"准备房间配置：Minecraft {game.get('version', '')} · {game.get('loader', '')} {game.get('loader_version', '')}")
         self._persist_and_refresh()
         return task_id
@@ -480,6 +491,7 @@ class TasksPage(QWidget):
         kind = event.get('kind')
         if kind == 'manifest':
             task['files'] = [dict(item, state='pending') for item in event['files'] + event.get('resources', [])]
+            self._file_indexes.pop(task_id, None)
             self._log(task, f"已收到 {len(task['files'])} 个模组，来源：房主，下载后逐个校验 SHA-256。")
         elif kind == 'download':
             self.update_file_event(task_id, event)
@@ -508,6 +520,7 @@ class TasksPage(QWidget):
                     status=message, error='' if succeeded or cancelled else message,
                     finished_at=datetime.now(timezone.utc).isoformat(timespec='seconds'))
         if succeeded:
+            self._external_retries.pop(task_id, None)
             task['progress'] = task['maximum'] or 1
             task['maximum'] = task['maximum'] or 1
         self._log(task, message)
@@ -722,6 +735,13 @@ class TasksPage(QWidget):
                 cancel.set()
                 task.update(state='正在取消', status='正在停止房间配置下载…')
                 self._persist_and_refresh()
+            elif task['state'] not in self.ACTIVE and task_id in self._external_retries:
+                try:
+                    self._external_retries[task_id](task_id)
+                except ValueError as exc:
+                    task.update(error=str(exc), status='房间下载暂时无法重试')
+                    self._log(task, str(exc))
+                    self._persist_and_refresh()
             return
         if task["state"] in self.ACTIVE:
             task["state"] = "正在取消"
@@ -756,6 +776,8 @@ class TasksPage(QWidget):
 
     def clear_completed(self):
         self._tasks = [task for task in self._tasks if task.get("state") in self.ACTIVE]
+        self._external_retries = {task_id: retry for task_id, retry in self._external_retries.items()
+                                  if self._find_task(task_id)}
         self._file_indexes = {task_id: index for task_id, index in self._file_indexes.items()
                               if self._find_task(task_id)}
         self._persist_and_refresh()

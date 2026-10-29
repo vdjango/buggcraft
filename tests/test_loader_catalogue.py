@@ -16,6 +16,14 @@ from core import loaders
 
 
 class LoaderCatalogueTests(unittest.TestCase):
+    def test_loader_metadata_parser_error_is_actionable_and_closes_response(self):
+        response = Mock()
+        response.json.side_effect = json.JSONDecodeError('Expecting value', '', 0)
+        with patch.object(loaders, '_response', return_value=response):
+            with self.assertRaisesRegex(ValueError, '加载器安装信息.*重试'):
+                loaders._response_json('https://example.test/loader.json', '加载器安装信息')
+        response.close.assert_called_once()
+
     def test_standalone_fabric_game_and_loader_share_one_download_limit(self):
         identity = 'fabric-loader-0.15.0-1.20.1'
         active = peak = 0

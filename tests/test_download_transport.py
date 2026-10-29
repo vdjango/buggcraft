@@ -92,7 +92,7 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertIn('文件校验失败', events[-1]['error'])
         self.assertFalse((Path(self.temp.name) / 'broken.jar').exists())
 
-    def test_cancelled_file_event_is_terminal_and_partial_file_is_removed(self):
+    def test_cancelled_file_event_is_terminal_and_partial_file_can_resume(self):
         events = []
         def receive(event):
             events.append(event)
@@ -102,7 +102,14 @@ class DownloadTransportTests(unittest.TestCase):
         with self.assertRaises(DownloadCancelled):
             self.downloader.fetch(self.url, 'cancel.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(events[-1]['state'], 'cancelled')
-        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part')))
+        self.assertTrue(list(Path(self.temp.name).rglob('*.buggcraft-part')))
+        downloader = MinecraftDownloader(self.temp.name, source='官方')
+        try:
+            result = downloader.fetch(self.url, 'cancel.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        finally:
+            downloader._sessions.session.close() if getattr(downloader._sessions, 'session', None) else None
+        self.assertEqual(result.read_bytes(), self.payload)
+        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part*')))
 
     def test_parallel_tasks_share_one_verified_target_without_part_file_races(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -184,8 +191,8 @@ class DownloadTransportTests(unittest.TestCase):
                             break
                         time.sleep(0.03)
                     return
-                if fixture.mode and len(fixture.requests) == 1:
-                    self.wfile.write(fixture.payload[:65536])
+                if fixture.mode and (len(fixture.requests) == 1 or fixture.mode == 'persistent'):
+                    self.wfile.write(fixture.payload[offset:offset + 65536])
                     self.close_connection = True
                 else:
                     self.wfile.write(fixture.payload[offset:])
@@ -312,7 +319,7 @@ class DownloadTransportTests(unittest.TestCase):
                     'https://cdn.modrinth.com:444/x', 'https://github.com/a/b/releases/download/x.jar'):
             self.assertEqual(self.downloader.urls(url), [url])
 
-    def test_cancel_after_partial_download_removes_partial_and_preserves_installed_file(self):
+    def test_cancel_after_partial_download_preserves_checkpoint_and_installed_file(self):
         path = Path(self.temp.name) / 'pack.zip'
         path.write_bytes(b'previous')
         def cancel(done, total):
@@ -321,7 +328,70 @@ class DownloadTransportTests(unittest.TestCase):
             self.downloader.fetch(self.url, 'pack.zip', hashlib.sha1(self.payload).hexdigest(),
                                   len(self.payload), file_progress=cancel)
         self.assertEqual(path.read_bytes(), b'previous')
-        self.assertFalse(path.with_name(path.name + '.buggcraft-part').exists())
+        self.assertTrue(path.with_name(path.name + '.buggcraft-part').exists())
+
+    def test_new_downloader_resumes_after_all_automatic_attempts_fail(self):
+        self.mode = 'persistent'
+        digest = hashlib.sha1(self.payload).hexdigest()
+        target = Path(self.temp.name) / 'retry.jar'
+        with self.assertRaisesRegex(RuntimeError, 'retry.jar'):
+            self.downloader.fetch(self.url, target.name, digest, len(self.payload))
+        temporary = target.with_name(target.name + '.buggcraft-part')
+        offset = temporary.stat().st_size
+        self.assertGreater(offset, 0)
+        self.assertLess(offset, len(self.payload))
+        self.assertFalse(target.exists())
+        self.mode = 'resume'
+        progress = []
+        downloader = MinecraftDownloader(self.temp.name, source='官方')
+        try:
+            downloader.fetch(self.url, target.name, digest, len(self.payload), file_progress=lambda done, total: progress.append(done))
+        finally:
+            downloader._sessions.session.close()
+        self.assertEqual(self.ranges[-1], f'bytes={offset}-')
+        self.assertEqual(progress[0], offset)
+        self.assertEqual(target.read_bytes(), self.payload)
+        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part*')))
+
+    def test_response_size_is_saved_for_resume_when_manifest_only_has_hash(self):
+        self.mode = 'persistent'
+        digest = hashlib.sha1(self.payload).hexdigest()
+        with self.assertRaises(RuntimeError):
+            self.downloader.fetch(self.url, 'metadata.bin', digest)
+        offset = (Path(self.temp.name) / 'metadata.bin.buggcraft-part').stat().st_size
+        self.mode = 'resume'
+        result = self.downloader.fetch(self.url, 'metadata.bin', digest)
+        self.assertEqual(self.ranges[-1], f'bytes={offset}-')
+        self.assertEqual(result.read_bytes(), self.payload)
+
+    def test_changed_hash_does_not_append_old_partial_bytes(self):
+        self.mode = 'persistent'
+        with self.assertRaises(RuntimeError):
+            self.downloader.fetch(self.url, 'changed.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.payload = b'new release' * 25000
+        self.mode = 'resume'
+        result = self.downloader.fetch(self.url, 'changed.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertIsNone(self.ranges[-1])
+        self.assertEqual(result.read_bytes(), self.payload)
+
+    def test_invalid_metadata_switches_source_and_never_publishes_error_response(self):
+        self.extra_payloads = {'/invalid': b'{"error": "temporarily unavailable"}',
+                               '/valid': b'{"versions": []}'}
+        base = self.url.rsplit('/', 1)[0]
+        with patch.object(self.downloader, 'urls', return_value=[base + '/invalid', base + '/valid']):
+            value = self.downloader.fetch_json(self.url, 'manifest.json', label='Minecraft 版本列表',
+                                               valid=lambda data: isinstance(data.get('versions'), list))
+        self.assertEqual(value, {'versions': []})
+        self.assertEqual(json.loads((Path(self.temp.name) / 'manifest.json').read_text()), value)
+        self.assertIn('/valid', self.requests)
+
+    def test_malformed_metadata_has_actionable_message_and_is_not_cached(self):
+        self.extra_payloads = {'/invalid': b'<html>Service unavailable</html>'}
+        with self.assertRaisesRegex(RuntimeError, '游戏资源索引不完整或格式错误.*assets.json.*重试') as error:
+            self.downloader.fetch_json(self.url.rsplit('/', 1)[0] + '/invalid', 'assets.json', label='游戏资源索引')
+        self.assertNotIn('Expecting value', str(error.exception))
+        self.assertFalse((Path(self.temp.name) / 'assets.json').exists())
+        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part*')))
 
     def test_rejected_mirror_falls_back_once_and_cools_down_for_later_files(self):
         self.downloader.source = 'BMCLAPI'
@@ -446,7 +516,7 @@ class DownloadTransportTests(unittest.TestCase):
                 self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
                 path.unlink()
 
-    def test_cancel_parallel_resource_preserves_previous_install_and_cleans_parts(self):
+    def test_cancel_parallel_resource_preserves_previous_install_and_resumes_contiguous_prefix(self):
         path = Path(self.temp.name) / 'large.zip'
         path.write_bytes(b'previous installation')
         def cancel(done, total):
@@ -454,6 +524,21 @@ class DownloadTransportTests(unittest.TestCase):
         with self.assertRaises(DownloadCancelled):
             self.large_content('/segments', cancel)
         self.assertEqual(path.read_bytes(), b'previous installation')
+        temporary = path.with_name(path.name + '.buggcraft-part')
+        self.assertTrue(temporary.exists())
+        self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part.[0-9]')))
+        offset = temporary.stat().st_size
+        self.mode = 'resume'
+        downloader = MinecraftDownloader(self.temp.name, source='官方', workers=1)
+        try:
+            downloader.fetch(self.url, path.name, hashlib.sha1(self.payload).hexdigest(), len(self.payload),
+                             sha512=hashlib.sha512(self.payload).hexdigest())
+        finally:
+            if getattr(downloader._sessions, 'session', None):
+                downloader._sessions.session.close()
+        self.assertEqual(path.read_bytes(), self.payload)
+        if 0 < offset < len(self.payload):
+            self.assertEqual(self.ranges[-1], f'bytes={offset}-')
         self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
 
     def test_slow_mirror_switches_with_range_and_verifies_complete_file(self):

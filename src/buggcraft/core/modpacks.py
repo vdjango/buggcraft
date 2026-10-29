@@ -441,11 +441,14 @@ def inspect_pack(path):
         manifests = [name for name in ('buggcraft.pack.json', 'manifest.json', 'modrinth.index.json')
                      if name in archive.namelist()]
         if len(manifests) != 1:
-            raise ValueError('整合包根目录需包含唯一的 manifest.json（CurseForge）或 modrinth.index.json（Modrinth）')
+            raise ValueError('整合包缺少有效清单，请重新导出或重新下载整合包。')
         info = archive.getinfo(manifests[0])
         if info.file_size > 4 * 1024 ** 2:
             raise ValueError('整合包清单过大')
-        manifest = json.loads(archive.read(info).decode('utf-8-sig'))
+        try:
+            manifest = json.loads(archive.read(info).decode('utf-8-sig'))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ValueError('整合包清单损坏或格式错误，请重新导出或重新下载整合包。') from exc
         if manifests[0] == 'buggcraft.pack.json':
             return _inspect_buggcraft(manifest, archive, expanded, path)
         if manifests[0] == 'modrinth.index.json':

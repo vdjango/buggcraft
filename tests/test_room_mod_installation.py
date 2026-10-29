@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import shutil
 from pathlib import Path
 import tempfile
 import threading
@@ -65,6 +66,85 @@ class RoomLoaderTests(unittest.TestCase):
 
 
 class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_room_retry_reuses_downloaded_files_after_failed_staging_is_removed(self):
+        first = self.item
+        other_payload = b'second mod bytes'
+        second = dict(name='second.jar', size=len(other_payload), sha256=hashlib.sha256(other_payload).hexdigest())
+        items = [first, second]
+        self.game.update(mods_count=2, mods_hash=manifest_hash(items))
+        self.endpoint.mod_manifest.return_value = items
+        from config.settings import SettingsManager
+        settings = SettingsManager(self.root / 'config')
+        settings.set_setting('downloads.concurrency', 1)
+        failed = True
+
+        async def transfer(item, target, cancel, progress):
+            if item['name'] == second['name'] and failed:
+                raise ConnectionError('second mod interrupted')
+            target.write_bytes(self.payload if item['name'] == first['name'] else other_payload)
+            progress(item['size'], item['size'])
+
+        with patch('config.settings.get_settings_manager', return_value=settings), \
+                patch('hookup.preparation.fetch_public_mod', new=AsyncMock(return_value=False)):
+            self.endpoint.download_mod.side_effect = transfer
+            with self.assertRaisesRegex(ConnectionError, 'second mod interrupted'):
+                await self.prepare()
+            self.assertFalse(list((self.root / '.buggcraft-downloads/room-preparation').glob('room-*')))
+            self.assertTrue((self.root / '.buggcraft-downloads/room-content' / first['sha256'] / 'content').is_file())
+            failed = False
+            self.endpoint.download_mod.reset_mock()
+            identity = await self.prepare()
+        self.endpoint.download_mod.assert_awaited_once()
+        self.assertEqual(self.endpoint.download_mod.await_args.args[0]['name'], 'second.jar')
+        self.assertEqual((self.root / 'versions' / identity / 'mods/example.jar').read_bytes(), self.payload)
+        self.assertEqual((self.root / 'versions' / identity / 'mods/second.jar').read_bytes(), other_payload)
+
+    async def test_public_room_download_resumes_after_failure_without_p2p(self):
+        from core.downloads import MinecraftDownloader
+        item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest())
+        self.game.update(mods_hash=manifest_hash([item]))
+        self.endpoint.mod_manifest.return_value = [item]
+        self.endpoint.transport_state = 'relay'
+        ranges, failing = [], True
+        payload = self.payload
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                header = self.headers.get('Range')
+                ranges.append(header)
+                offset = int(header[6:-1]) if header else 0
+                self.send_response(206 if header else 200)
+                self.send_header('Content-Length', str(len(payload) - offset))
+                if header:
+                    self.send_header('Content-Range', f'bytes {offset}-{len(payload)-1}/{len(payload)}')
+                self.end_headers()
+                self.wfile.write(payload[offset:offset + 32768] if failing else payload[offset:])
+                self.close_connection = True
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        metadata = dict(files=[dict(primary=True, size=item['size'], hashes=dict(sha1=item['sha1']),
+                                    url='https://cdn.modrinth.com/data/test/example.jar')])
+        with patch('core.content_mirrors.get_modrinth', return_value=metadata), \
+                patch.object(MinecraftDownloader, 'urls', lambda *_: [f'http://127.0.0.1:{server.server_port}/mod']):
+            with self.assertRaises(ConnectionError):
+                await self.prepare()
+            partial = self.root / '.buggcraft-downloads/room-content' / item['sha256'] / 'content.buggcraft-part'
+            offset = partial.stat().st_size
+            self.assertGreater(offset, 0)
+            self.assertLess(offset, len(payload))
+            failing = False
+            identity = await self.prepare()
+        self.endpoint.download_mod.assert_not_awaited()
+        self.assertEqual(ranges[-1], f'bytes={offset}-')
+        self.assertEqual((self.root / 'versions' / identity / 'mods/example.jar').read_bytes(), payload)
+        self.assertFalse(partial.exists())
+
     async def test_optional_resources_download_to_separate_folders_and_do_not_change_mod_compatibility(self):
         resources = [dict(self.item, name='same.zip', path=folder + '/same.zip')
                      for folder in ('resourcepacks', 'shaderpacks')]
@@ -177,6 +257,8 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         self.endpoint.mod_manifest.return_value = items
         for workers in (1, 2, 4):
             with self.subTest(workers=workers):
+                # This case measures transfers, independently of cache reuse.
+                shutil.rmtree(self.root / '.buggcraft-downloads/room-content', ignore_errors=True)
                 active = peak = 0
                 async def transfer(item, target, cancel, progress):
                     nonlocal active, peak
@@ -204,14 +286,16 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         from config.settings import SettingsManager
         from core.downloads import MinecraftDownloader
         payload = b'room source verified bytes\n' * 340000  # Large enough to tempt Range workers.
-        sha1 = hashlib.sha1(payload).hexdigest()
-        items = [dict(name=f'public-{index}.jar', size=len(payload), sha1=sha1,
-                      sha256=hashlib.sha256(payload).hexdigest()) for index in range(5)]
+        payloads = {f'public-{index}.jar': bytes([index]) + payload[1:] for index in range(5)}
+        items = [dict(name=name, size=len(data), sha1=hashlib.sha1(data).hexdigest(),
+                      sha256=hashlib.sha256(data).hexdigest()) for name, data in payloads.items()]
         self.game.update(mods_count=len(items), mods_hash=manifest_hash(items))
         self.endpoint.mod_manifest.return_value = items
         self.endpoint.transport_state = 'relay'  # Source downloads must succeed without P2P.
-        metadata = dict(files=[dict(primary=True, size=len(payload), hashes=dict(sha1=sha1),
-                                    url='https://cdn.modrinth.com/data/fixture/public.jar')])
+        def metadata(path, *args):
+            item = next(item for item in items if path.endswith(item['sha1']))
+            return dict(files=[dict(primary=True, size=item['size'], hashes=dict(sha1=item['sha1']),
+                                    url='https://cdn.modrinth.com/data/fixture/' + item['name'])])
         lock = threading.Lock()
         active = peak = 0
         ranges = []
@@ -219,6 +303,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 nonlocal active, peak
+                payload = payloads[self.path.rsplit('/', 1)[-1]]
                 with lock:
                     active += 1
                     peak = max(peak, active)
@@ -244,21 +329,22 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         settings = SettingsManager(self.root / 'config')
         for workers in (1, 2, 4):
             with self.subTest(workers=workers):
+                shutil.rmtree(self.root / '.buggcraft-downloads/room-content', ignore_errors=True)
                 active = peak = 0
                 ranges.clear()
                 settings.set_setting('downloads.concurrency', workers)
                 settings.save_settings()
                 persisted = SettingsManager(settings.config_path)
                 with patch('config.settings.get_settings_manager', return_value=persisted), \
-                        patch('core.content_mirrors.get_modrinth', return_value=metadata), \
+                        patch('core.content_mirrors.get_modrinth', side_effect=metadata), \
                         patch.object(MinecraftDownloader, 'urls',
-                                     lambda _self, _url: [f'http://127.0.0.1:{server.server_port}/public.jar']):
+                                     lambda _self, url: [f'http://127.0.0.1:{server.server_port}/' + url.rsplit('/', 1)[-1]]):
                     identity = await self.prepare()
                 self.assertEqual(peak, workers)
                 self.assertEqual(ranges, [None] * len(items))
                 self.endpoint.download_mod.assert_not_awaited()
                 for item in items:
-                    self.assertEqual((self.root / 'versions' / identity / 'mods' / item['name']).read_bytes(), payload)
+                    self.assertEqual((self.root / 'versions' / identity / 'mods' / item['name']).read_bytes(), payloads[item['name']])
 
     async def test_existing_instance_reuses_sixty_five_matching_mods_and_downloads_only_missing_one(self):
         versions = self.root / 'versions'
@@ -296,7 +382,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         call = self.endpoint.download_mod.await_args
         self.assertEqual(call.args[0], items[-1])
         self.assertTrue(call.args[1].name.startswith('.p2p-'))
-        self.assertEqual(call.args[1].parent, self.root / '.buggcraft-downloads' / 'room-preparation' / identity / 'mods')
+        self.assertEqual(call.args[1].parent, self.root / '.buggcraft-downloads' / 'room-content' / items[-1]['sha256'])
         self.assertFalse((self.root / '.buggcraft-downloads' / 'room-preparation' / identity).exists())
         installed = self.root / 'versions' / identity / 'mods'
         self.assertEqual(len(list(installed.glob('*.jar'))), 66)

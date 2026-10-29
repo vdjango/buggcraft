@@ -48,8 +48,21 @@ def _verify_mod(path, item, cancel):
 
 async def _download_room_mod(endpoint, item, base, target, source, cancel, progress, host_ready=None):
     """Exhaust the configured source, then permit an established P2P fallback."""
-    paths = {name: target.with_name('.' + name + '-' + target.name)
-             for name in ('public', 'p2p')}
+    # Staging directories are disposable. Keep verified content and public
+    # download checkpoints outside them, keyed by the authenticated manifest.
+    cache = Path(base) / '.buggcraft-downloads' / 'room-content' / item['sha256']
+    cache.mkdir(parents=True, exist_ok=True)
+    cached = cache / 'content'
+    if cached.is_file():
+        try:
+            await asyncio.to_thread(_verify_mod, cached, item, cancel)
+        except ValueError:
+            cached.unlink(missing_ok=True)
+        else:
+            await asyncio.to_thread(shutil.copy2, cached, target)
+            progress('cached', item['size'], item['size'])
+            return 'cached'
+    paths = {'public': cached, 'p2p': cache / ('.p2p-' + secrets.token_hex(8))}
     try:
         winner = ''
         try:
@@ -63,7 +76,7 @@ async def _download_room_mod(endpoint, item, base, target, source, cancel, progr
         except Exception:
             # A corrupt public copy is treated as an unavailable source. The
             # independent direct download must pass the same verification.
-            pass
+            cached.unlink(missing_ok=True)
         if not winner:
             # Public files can overlap game installation; avoid asking the host
             # for a fallback before the requested loader has been validated.
@@ -84,12 +97,14 @@ async def _download_room_mod(endpoint, item, base, target, source, cancel, progr
             winner = 'p2p'
         if cancel.is_set():
             raise InterruptedError('安装已取消。')
-        await asyncio.to_thread(os.replace, paths[winner], target)
+        if winner == 'p2p':
+            await asyncio.to_thread(os.replace, paths['p2p'], cached)
+        await asyncio.to_thread(shutil.copy2, cached, target)
         return winner
     finally:
-        for path in paths.values():
-            path.unlink(missing_ok=True)
-            path.with_name(path.name + '.buggcraft-part').unlink(missing_ok=True)
+        # Public transfers use hash-bound checkpoints and survive failure or
+        # cancellation. Native P2P has no Range contract; only reuse full files.
+        paths['p2p'].unlink(missing_ok=True)
 
 
 def resolved_metadata(directory, identity, seen=None):

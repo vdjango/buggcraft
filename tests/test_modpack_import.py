@@ -18,6 +18,15 @@ from core.downloads import DownloadCancelled, MinecraftDownloader, _DownloadSess
 
 
 class ModpackTests(unittest.TestCase):
+    def test_malformed_exported_pack_manifest_has_readable_error(self):
+        for payload in (b'<html>failure</html>', b'\xff\xfeinvalid'):
+            with self.subTest(payload=payload):
+                archive = self.root / 'invalid.buggpack'
+                with zipfile.ZipFile(archive, 'w') as pack:
+                    pack.writestr('buggcraft.pack.json', payload)
+                with self.assertRaisesRegex(ValueError, '整合包清单损坏或格式错误'):
+                    inspect_pack(archive)
+
     def test_export_reports_real_progress_and_cancel_removes_only_its_partial_archive(self):
         instance = self.root / 'source/versions/Pack'
         instance.mkdir(parents=True)

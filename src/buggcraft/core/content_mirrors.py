@@ -46,7 +46,10 @@ def get_modrinth(path, params, cancel, source):
                 response.raise_for_status()
                 if response.status_code != 200:
                     raise ValueError('Modrinth 返回状态无效')
-                data = response.json()
+                try:
+                    data = response.json()
+                except (ValueError, UnicodeDecodeError) as exc:
+                    raise ValueError('资源下载信息不完整或格式错误，请重试或更换下载源。') from exc
             if not isinstance(data, (dict, list)):
                 raise ValueError('Modrinth 返回格式无效')
             dates = list(cached_dates(data)) if mirror else []

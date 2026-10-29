@@ -65,6 +65,8 @@ class DownloadConcurrencyTests(unittest.TestCase):
                 if relative.startswith('assets/indexes/'):
                     import json
                     path.write_text(json.dumps(index), encoding='utf-8')
+                    if _kwargs.get('_validate'):
+                        _kwargs['_validate'](path)
                 else:
                     with lock:
                         started.append(relative)

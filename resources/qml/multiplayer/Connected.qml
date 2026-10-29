@@ -98,11 +98,12 @@ ColumnLayout {
                 }
                 ActionButton {
                     objectName: "room-quick-launch"; visible: !connected.host
-                    text: connected.preparing ? "正在准备…" : connected.record.compatibility ? "同步安装" : connected.waiting ? "启动到主菜单" : "进入游戏"
+                    text: connected.preparing ? "正在准备…" : connected.record.prepareFailed ? "重试下载" : connected.record.compatibility ? "同步安装" : connected.waiting ? "启动到主菜单" : "进入游戏"
                     primary: true; implicitHeight: 27
                     enabled: !connected.preparing && (!vm.instanceLoading || !!connected.record.preparedSource)
                     onClicked: {
-                        if (!connected.record.compatibility) lobby.act("launchRoom", {})
+                        if (connected.record.prepareFailed) lobby.act("prepareRoom", {mode: connected.record.prepareMode || "fresh"})
+                        else if (!connected.record.compatibility) lobby.act("launchRoom", {})
                         else if ((connected.game.mods_count || 0) > 0) preparePopup.open()
                         else lobby.act("prepareRoom", {})
                     }

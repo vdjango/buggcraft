@@ -72,15 +72,21 @@ class ClientUiFixtures:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 name = urlsplit(self.path).path.lstrip('/')
-                fixture.requests.append({'file': name, 'time': __import__('time').time()})
+                requested_range = self.headers.get('Range')
+                fixture.requests.append({'file': name, 'time': __import__('time').time(), 'range': requested_range})
                 if name in fixture.failures or name not in fixture.payloads:
                     self.send_error(404, 'UI fixture unavailable')
                     return
                 payload = fixture.payloads[name]
-                self.send_response(200)
-                self.send_header('Content-Length', str(len(payload)))
+                offset = int(requested_range[6:-1]) if requested_range and requested_range.endswith('-') else 0
+                self.send_response(206 if offset else 200)
+                if offset:
+                    self.send_header('Content-Range', f'bytes {offset}-{len(payload)-1}/{len(payload)}')
+                self.send_header('Accept-Ranges', 'bytes')
+                self.send_header('Content-Length', str(len(payload) - offset))
                 self.send_header('Content-Type', 'application/octet-stream')
                 self.end_headers()
+                payload = payload[offset:]
                 barrier = fixture.pauses.get(name)
                 try:
                     if name in fixture.truncations:

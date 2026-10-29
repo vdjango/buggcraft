@@ -100,6 +100,16 @@ class RoomLobbyUiTests(unittest.TestCase):
         self.click('room-tab-install')
         self.save('guest-downloading-room-client-logs')
 
+    def test_guest_failed_download_retries_original_install_mode_from_room_button(self):
+        record = self.room()
+        record.update(role='client', isManager=False, prepareFailed=True, prepareMode='existing',
+                      compatibility='缺少模组', prepareStatus='下载中断，请重试')
+        self.backend.viewChanged.emit(); QTest.qWait(80)
+        self.assertEqual(self.wait_item('room-quick-launch').property('text'), '重试下载')
+        self.click('room-quick-launch')
+        self.assertEqual(self.backend.actions[-1], ('prepareRoom', {'mode': 'existing'}))
+        self.save('guest-download-retry')
+
     def test_member_roster_always_shows_room_host_for_host_and_guest(self):
         """Role ids from the bridge must remain visible even without row flags."""
         record = self.room()

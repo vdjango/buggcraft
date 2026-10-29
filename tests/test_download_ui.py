@@ -395,6 +395,107 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.assert_no_qml_errors()
         self.finish_test()
 
+    def exported_compact_pack(self):
+        """Export with production code, then import that exact archive via QML."""
+        from core.content_records import record_content
+        from core.modpacks import export_pack
+        source = self.directory / 'export-source'
+        instance = source / 'versions/1.21.8'
+        instance.mkdir(parents=True)
+        (instance / '1.21.8.json').write_text(json.dumps(self.fixtures.metadata), encoding='utf-8')
+        resources = {'mods/resume-mod.jar': b'verified mod bytes\n' * 32768,
+                     'resourcepacks/resume-resources.zip': b'resource pack bytes' * 100,
+                     'shaderpacks/resume-shader.zip': b'shader pack bytes' * 100}
+        for relative, payload in resources.items():
+            target = instance / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+            record_content(instance, target, ['https://cdn.modrinth.com/data/fixture/' + target.name])
+            self.fixtures.payloads[target.name] = payload
+        (instance / 'config').mkdir()
+        (instance / 'config/exported.txt').write_text('production export', encoding='utf-8')
+        archive = self.directory / 'exported-compact.buggpack'
+        export_pack(source, '1.21.8', archive)
+        original_route = self.fixtures.route
+        def route(downloader, url):
+            if url.startswith('https://cdn.modrinth.com/data/fixture/'):
+                return [f'http://127.0.0.1:{self.fixtures.server.server_port}/' + url.rsplit('/', 1)[-1]]
+            return original_route(downloader, url)
+        self._patch(patch('core.downloads.MinecraftDownloader.urls', route))
+        return archive, resources
+
+    def test_own_export_import_metadata_error_is_readable_and_ui_retry_completes(self):
+        archive, resources = self.exported_compact_pack()
+        original = self.fixtures.payloads['manifest.json']
+        self.fixtures.payloads['manifest.json'] = b'<html>temporarily unavailable</html>'
+        host, _ = self.open_import(archive)
+        self.text_ui(host, 'pack-instance-name', 'own-pack-json-retry')
+        self.click_ui(host, 'start-pack-import')
+        task = self.finished_task(state='失败')
+        self.check('Minecraft 版本列表' in task['error'] and '重试' in task['error']
+                   and 'Expecting value' not in task['error'], 'metadata error names the failing item and offers retry')
+        self.screenshot_ui('own-pack-readable-metadata-error')
+        self.fixtures.payloads['manifest.json'] = original
+        tasks = self.window.download_page.tasks_page
+        self.click_ui(tasks, 'task-action-' + task['id'])
+        self.finished_task(task)
+        target = self.game_dir / 'versions/own-pack-json-retry'
+        for name, payload in resources.items():
+            self.check((target / name).read_bytes() == payload, 'own export resource restored: ' + name)
+        self.check(len(tasks._tasks) == 1 and (target / 'config/exported.txt').is_file(),
+                   'retry finishes the same task and publishes portable settings')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_own_export_import_interrupted_resource_resumes_from_ui(self):
+        archive, resources = self.exported_compact_pack()
+        self.fixtures.truncations.add('resume-mod.jar')
+        host, _ = self.open_import(archive)
+        self.text_ui(host, 'pack-instance-name', 'own-pack-resume')
+        self.click_ui(host, 'start-pack-import')
+        task = self.finished_task(state='失败')
+        partials = list(self.game_dir.rglob('resume-mod.jar.buggcraft-part'))
+        self.check(len(partials) == 1 and 0 < partials[0].stat().st_size < len(resources['mods/resume-mod.jar']),
+                   'interrupted import retains verified-identity partial bytes')
+        offset = partials[0].stat().st_size
+        self.fixtures.truncations.clear()
+        tasks = self.window.download_page.tasks_page
+        self.click_ui(tasks, 'task-action-' + task['id'])
+        self.finished_task(task)
+        requests = [row for row in self.fixtures.requests if row['file'] == 'resume-mod.jar']
+        self.check(requests[-1]['range'] == f'bytes={offset}-', 'UI retry requests only the remaining resource bytes')
+        target = self.game_dir / 'versions/own-pack-resume'
+        for name, payload in resources.items():
+            self.check((target / name).read_bytes() == payload, 'resumed resource verified: ' + name)
+        self.check(len(tasks._tasks) == 1 and not partials[0].exists(), 'success clears checkpoint and keeps one history task')
+        self.screenshot_ui('own-pack-import-resumed')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_room_failed_download_history_button_reuses_task_and_file_rows(self):
+        tasks = self.window.download_page.tasks_page
+        calls = []
+        def retry(task_id):
+            calls.append(task_id)
+            reused = tasks.track_room_preparation('Room configuration', self.game_dir, {'version': '1.21.8'}, Event(),
+                                                   retry=retry, task_id=task_id)
+            self.assertEqual(reused, task_id)
+            tasks.room_preparation_event(task_id, dict(kind='manifest', files=[dict(name='mod.jar', key='mod.jar')]))
+            tasks.room_preparation_event(task_id, dict(kind='download', name='mod.jar', key='mod.jar', state='verified', done=12, total=12))
+            tasks.finish_room_preparation(task_id, True, '房间配置准备完成')
+        task_id = tasks.track_room_preparation('Room configuration', self.game_dir, {'version': '1.21.8'}, Event(), retry=retry)
+        tasks.room_preparation_event(task_id, dict(kind='manifest', files=[dict(name='old.jar', key='old.jar')]))
+        tasks.room_preparation_event(task_id, dict(kind='download', name='old.jar', key='old.jar', state='failed'))
+        tasks.finish_room_preparation(task_id, False, '下载中断，请重试')
+        self.window.download_page.on_progress_clicked()
+        self.check(self.item(tasks, 'task-action-' + task_id).property('text') == '重试下载', 'room failure exposes retry action')
+        self.click_ui(tasks, 'task-action-' + task_id)
+        self.check(calls == [task_id] and len(tasks._tasks) == 1, 'one UI click retries the existing room task')
+        self.check(tasks._tasks[0]['state'] == '已完成' and tasks._tasks[0]['files'][0]['state'] == 'verified',
+                   'retry updates new file rows and finishes successfully')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
     def test_import_directory_permission_failure_keeps_instances_and_retries(self):
         import errno
         original_mkdir = Path.mkdir

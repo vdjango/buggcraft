@@ -7,7 +7,7 @@ ListRow {
     required property var modelData
     property bool active: ["等待中", "进行中", "正在取消"].indexOf(modelData.state) >= 0
     property string actionText: modelData.state === "正在取消" ? "正在取消" : active ? "取消"
-        : modelData.kind === "room" ? (modelData.state === "已完成" ? "已准备" : "返回房间重试")
+        : modelData.kind === "room" ? "重试下载"
         : modelData.modpack && modelData.state === "已完成" ? "已导入"
         : modelData.modpack ? "继续安装"
         : modelData.content && modelData.content.kind === "modpack" && modelData.state === "已完成" ? "继续安装"
@@ -29,9 +29,9 @@ ListRow {
             ActionButton { objectName: "task-log-" + root.modelData.id; text: "日志"; implicitWidth: 50; implicitHeight: 28; onClicked: root.viewLog(root.modelData.id) }
             ActionButton {
                 objectName: "task-action-" + root.modelData.id
-                visible: root.modelData.kind !== "room" || root.active
+                visible: root.modelData.kind !== "room" || root.active || !!root.modelData.canRetry
                 implicitHeight: 28; text: root.actionText
-                enabled: root.modelData.state !== "正在取消" && !(root.modelData.kind === "room" && !root.active) && !(root.modelData.modpack && root.modelData.state === "已完成")
+                enabled: root.modelData.state !== "正在取消" && !(root.modelData.modpack && root.modelData.state === "已完成")
                 onClicked: taskHistory.taskAction(root.modelData.id)
             }
         }

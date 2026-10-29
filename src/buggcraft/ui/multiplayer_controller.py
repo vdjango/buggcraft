@@ -1572,7 +1572,7 @@ class MultiplayerController(RoomPreparation, QObject):
         self.job('syncgame:' + name, endpoint.update_game(self.game, self.instance_source[2] if self.instance_source else None))
         self.patch(busy=True)
 
-    def prepare_room(self, mode='fresh'):
+    def prepare_room(self, mode='fresh', retry_task_id=None):
         name = self._state['selected']
         record = self.records.get(name)
         endpoint = self.service.endpoints.get(name)
@@ -1587,6 +1587,8 @@ class MultiplayerController(RoomPreparation, QObject):
             raise ValueError('请选择全新配置或已有配置。')
         if mode == 'existing' and not self.instance_source:
             raise ValueError('请先选择一个已安装的游戏配置。')
+        if record.get('prepareFailed') and record.get('prepareMode') == mode:
+            retry_task_id = retry_task_id or record.get('prepareHistoryTask')
         settings = page.settings_manager
         directory = settings.get_setting('minecraft.directory.enable') or ''
         if not directory:
@@ -1603,12 +1605,20 @@ class MultiplayerController(RoomPreparation, QObject):
         cancel = threading.Event()
         self.preparations[name] = cancel
         history = self.preparation_history()
+        def retry(task_id):
+            if self.service.endpoints.get(name) is not endpoint or name not in self.records:
+                raise ValueError('房间已断开，请重新加入房间后重试。')
+            self.patch(selected=name, error='', notice='')
+            self.prepare_room(mode, retry_task_id=task_id)
         if history:
             self.preparation_tasks[name] = history.track_room_preparation(
-                record.get('title') or '房间配置', directory, record.get('game', {}), cancel)
+                record.get('title') or '房间配置', directory, record.get('game', {}), cancel,
+                retry=retry, task_id=retry_task_id)
+            record['prepareHistoryTask'] = self.preparation_tasks[name]
         record.update(preparing=True, prepareStatus='正在核对房间文件…', prepareProgress=0,
                       prepareMaximum=0, prepareFile='', prepareFileDone=0, prepareFileTotal=0,
-                      prepareIndex=0, prepareCount=0, prepareSpeed='', modError='')
+                      prepareIndex=0, prepareCount=0, prepareSpeed='', modError='',
+                      prepareFailed=False, prepareMode=mode)
         record.update(prepareTask=uuid.uuid4().hex, prepareLogs=[])
         self.add_prepare_log(record, '开始核对房间配置', 'configuration')
         self.report_room_state(name, 'checking', 'configuration')
@@ -2124,6 +2134,7 @@ class MultiplayerController(RoomPreparation, QObject):
             record = self.records.get(name)
             if record:
                 record['preparing'] = False
+                record['prepareFailed'] = bool(error)
                 record['prepareStatus'] = error or '配置已安装，正在复核加载器和模组…'
                 self.publish_connections()
             if error:

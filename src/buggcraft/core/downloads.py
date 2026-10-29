@@ -7,6 +7,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import threading
 import time
 import zipfile
@@ -148,6 +149,13 @@ class DownloadCancelled(Exception):
     pass
 
 
+def download_error_message(error):
+    """Keep parser internals out of the task card; callers log the traceback."""
+    if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+        return '下载信息不完整或格式错误，请点击重试。已下载进度会保留。'
+    return str(error)
+
+
 _CURRENT_DOWNLOAD_BUDGET = ContextVar('buggcraft_download_budget', default=None)
 
 
@@ -267,7 +275,7 @@ class MinecraftDownloader:
 
     def check_cancelled(self):
         if self.cancel.is_set():
-            raise DownloadCancelled("下载已取消，已校验文件会保留，重试时继续使用")
+            raise DownloadCancelled("下载已停止，已下载进度会保留，点击重试继续下载")
 
     def urls(self, original):
         parsed = urlsplit(original)
@@ -315,14 +323,14 @@ class MinecraftDownloader:
             raise ValueError(f"下载路径超出游戏目录：{relative} ({target!s}; root={self.root!s})")
         return target
 
-    def fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None):
+    def fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None, _validate=None):
         self._file_event(relative, 'pending', total=size or 0)
         try:
             with download_lock(self.inside(relative), self.cancel):
                 if self.budget is None:
-                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress)
+                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress, _validate=_validate)
                 with self.budget.reserve(self.cancel):
-                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress)
+                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress, _validate=_validate)
         except (DownloadCancelled, InterruptedError):
             self._file_event(relative, 'cancelled')
             raise
@@ -405,14 +413,30 @@ class MinecraftDownloader:
             logger.info('download_parallel_fallback file=%s reason=%s', relative, exc)
             return False
         finally:
+            if self.cancel.is_set():
+                # Range workers can finish out of order. Only a contiguous
+                # prefix can be resumed by the ordinary HTTP Range request.
+                try:
+                    with temporary.open('wb') as output:
+                        for index, part in enumerate(parts):
+                            expected = size * (index + 1) // count - size * index // count
+                            length = part.stat().st_size if part.is_file() else 0
+                            if not 0 < length <= expected:
+                                break
+                            with part.open('rb') as source:
+                                shutil.copyfileobj(source, output)
+                            if length < expected:
+                                break
+                except OSError:
+                    logger.warning('download_parallel_checkpoint_failed file=%s', relative, exc_info=True)
             for part in parts:
                 part.unlink(missing_ok=True)
 
-    def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None):
+    def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None, _validate=None):
         """Download into a temporary file; never publish truncated files."""
         target = self.inside(relative)
         self.check_cancelled()
-        def verified(path):
+        def verified(path, *, structure=False):
             if size is not None and path.stat().st_size != size:
                 return False
             digests = {name: hashlib.new(name) for name, value in (('sha1', sha1), ('sha512', sha512)) if value}
@@ -421,10 +445,16 @@ class MinecraftDownloader:
                     self.check_cancelled()
                     for digest in digests.values():
                         digest.update(chunk)
-            return all(digest.hexdigest().lower() == {'sha1': sha1, 'sha512': sha512}[name].lower()
-                       for name, digest in digests.items())
+            valid = all(digest.hexdigest().lower() == {'sha1': sha1, 'sha512': sha512}[name].lower()
+                        for name, digest in digests.items())
+            if valid and structure and _validate:
+                try:
+                    _validate(path)
+                except ValueError:
+                    return False
+            return valid
 
-        if target.is_file() and (sha1 or sha512) and verified(target):
+        if target.is_file() and (sha1 or sha512) and verified(target, structure=True):
             with self._verified_lock:
                 self._verified[str(target.relative_to(self.root))] = sha1
             length = target.stat().st_size
@@ -435,6 +465,44 @@ class MinecraftDownloader:
         errors = []
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".buggcraft-part")
+        checkpoint = temporary.with_name(temporary.name + '.json')
+        identity = {'sha1': sha1, 'sha512': sha512}
+
+        def discard_partial():
+            temporary.unlink(missing_ok=True)
+            checkpoint.unlink(missing_ok=True)
+
+        # Hashes bind partial bytes to the requested file, across workers and
+        # application restarts. Never append an unrelated old download.
+        try:
+            saved = json.loads(checkpoint.read_text(encoding='utf-8'))
+            saved_size = saved.get('size')
+            if (not (sha1 or sha512) or saved.get('identity') != identity
+                    or not isinstance(saved_size, int) or saved_size <= 0
+                    or size is not None and saved_size != size
+                    or not temporary.is_file() or temporary.stat().st_size > saved_size):
+                discard_partial()
+            elif size is None:
+                size = saved_size
+        except (OSError, ValueError, TypeError, AttributeError):
+            discard_partial()
+
+        def save_checkpoint(total):
+            if (sha1 or sha512) and total:
+                checkpoint.write_text(json.dumps({'identity': identity, 'size': total}), encoding='utf-8')
+
+        if temporary.is_file() and size and temporary.stat().st_size == size:
+            self._file_event(relative, 'verifying', done=size, total=size)
+            if verified(temporary, structure=True):
+                os.replace(temporary, target)
+                checkpoint.unlink(missing_ok=True)
+                self._file_event(relative, 'verified', done=size, total=size)
+                if file_progress:
+                    file_progress(size, size)
+                with self._verified_lock:
+                    self._verified[str(target.relative_to(self.root))] = sha1
+                return target
+            discard_partial()
         candidates = list(dict.fromkeys(candidate for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
                                         for candidate in self.urls(address)))
         content_source = self.content_source or self.source
@@ -451,11 +519,10 @@ class MinecraftDownloader:
                     continue
             attempts = 1 if content_mirror else 3
             for attempt in range(attempts):
-                if self.cancel.is_set():
-                    temporary.unlink(missing_ok=True)
                 self.check_cancelled()
                 try:
-                    self._file_event(relative, 'downloading', done=0, total=size or 0,
+                    offset = temporary.stat().st_size if temporary.exists() and (sha1 or sha512) and size else 0
+                    self._file_event(relative, 'downloading', done=offset, total=size or 0,
                                      host=host or '', attempt=attempt + 1, error='')
                     self.status(f'正在下载 {target.name} · {urlsplit(candidate).hostname} · 第 {attempt + 1} 次')
                     logger.info('download_start file=%s host=%s attempt=%s', relative, urlsplit(candidate).hostname, attempt + 1)
@@ -464,7 +531,6 @@ class MinecraftDownloader:
                         session = _DownloadSession(getattr(self, 'curseforge_key', ''),
                                                    getattr(self, 'curseforge_fallbacks', None))
                         self._sessions.session = session
-                    offset = temporary.stat().st_size if temporary.exists() and (sha1 or sha512) and size else 0
                     headers = {"User-Agent": USER_AGENT, 'Accept-Encoding': 'identity',
                                **getattr(self, 'request_headers', {})}
                     if offset:
@@ -482,12 +548,19 @@ class MinecraftDownloader:
                             content_range = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', response.headers.get('Content-Range', ''))
                             if (not offset or not content_range or int(content_range[1]) != offset
                                     or int(content_range[3]) != size or int(content_range[2]) != size - 1):
-                                temporary.unlink(missing_ok=True)
+                                discard_partial()
                                 raise ValueError(f'断点续传响应无效：{target.name}')
                         else:
                             offset = 0  # A server may ignore Range and send the whole file.
                         downloaded = offset
                         transfer_total = int(size if size is not None else response.headers.get('Content-Length') or 0)
+                        if size is None and (sha1 or sha512) and transfer_total > 0:
+                            size = transfer_total
+                        save_checkpoint(size)
+                        if offset:
+                            self.status(f'正在续传 {target.name} · 已下载 {offset:,} / {size:,} 字节')
+                            if file_progress:
+                                file_progress(offset, size)
                         last_progress = 0.0
                         transfer_started = time.monotonic()
                         window_bytes = offset
@@ -527,11 +600,14 @@ class MinecraftDownloader:
                                         transfer_started, window_bytes = now, downloaded
                         expected = size if size is not None else response.headers.get("Content-Length")
                         if expected is not None and downloaded != int(expected):
-                            raise ValueError(f"文件长度不完整：{target.name}")
+                            raise requests.ConnectionError(f"文件下载中断：{target.name}，重试时继续下载")
                         self._file_event(relative, 'verifying', done=downloaded, total=downloaded)
                         if (sha1 or sha512) and not verified(temporary):
                             raise ValueError(f"文件校验失败：{target.name}")
+                        if _validate:
+                            _validate(temporary)
                     os.replace(temporary, target)
+                    checkpoint.unlink(missing_ok=True)
                     self._file_event(relative, 'verified', done=downloaded, total=downloaded, host=final_host or host or '')
                     if file_progress:
                         file_progress(downloaded, downloaded)
@@ -542,19 +618,20 @@ class MinecraftDownloader:
                         self._verified[str(target.relative_to(self.root))] = sha1
                     return target
                 except DownloadCancelled:
-                    temporary.unlink(missing_ok=True)
+                    if not (sha1 or sha512) or not size:
+                        discard_partial()
                     raise
                 except (requests.RequestException, OSError, ValueError) as exc:
                     self._file_event(relative, 'retrying', error=str(exc))
                     errors.append(str(exc))
                     logger.warning('download_retry file=%s host=%s attempt=%s error=%s', relative,
                                    urlsplit(candidate).hostname, attempt + 1, exc)
-                    # Only transport interruptions retain a verified-size partial;
-                    # bad hashes, disk errors and HTTP errors restart cleanly.
-                    if not isinstance(exc, (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)):
-                        temporary.unlink(missing_ok=True)
-                    if self.cancel.is_set():
-                        temporary.unlink(missing_ok=True)
+                    # A rejected source cannot invalidate bytes bound to the
+                    # expected hash. Bad ranges, hashes and disk errors do.
+                    transient = isinstance(exc, (requests.ConnectionError, requests.Timeout,
+                                                 requests.exceptions.ChunkedEncodingError, requests.HTTPError))
+                    if not transient or not (sha1 or sha512) or not size:
+                        discard_partial()
                     self.check_cancelled()
                     if content_mirror:
                         # Transport, stale-cache, HTTP and hash failures all
@@ -585,23 +662,35 @@ class MinecraftDownloader:
                         # not improve by retrying the same URL immediately.
                         break
                     if attempt < attempts - 1 and self.cancel.wait(0.5 * (attempt + 1)):
-                        temporary.unlink(missing_ok=True)
                         self.check_cancelled()
-        temporary.unlink(missing_ok=True)
         raise RuntimeError(f"下载 {target.name} 失败：{errors[-1] if errors else url}")
+
+    def fetch_json(self, url, relative, sha1=None, size=None, *, label='下载信息', valid=None):
+        data = None
+
+        def validate(path):
+            nonlocal data
+            try:
+                data = json.loads(path.read_text(encoding='utf-8-sig'))
+                if not isinstance(data, dict) or valid and not valid(data):
+                    raise ValueError('unexpected metadata structure')
+            except (ValueError, UnicodeDecodeError, KeyError, TypeError, AttributeError) as exc:
+                logger.warning('download_metadata_invalid file=%s label=%s error=%s', relative, label, exc)
+                raise ValueError(f'{label}不完整或格式错误（{Path(relative).name}），请重试或更换下载源。') from exc
+
+        self.fetch(url, relative, sha1, size, _validate=validate)
+        return data
 
     def manifest(self):
         self.status("正在获取 Minecraft 版本列表…")
         # Fetch to a per-request name so opening a list cannot race an install.
         import uuid
-        path = self.fetch(MANIFEST_URL, f".buggcraft-downloads/manifest-{uuid.uuid4().hex}.json")
+        relative = f".buggcraft-downloads/manifest-{uuid.uuid4().hex}.json"
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data.get("versions"), list):
-                raise ValueError("版本列表格式不正确")
-            return data
+            return self.fetch_json(MANIFEST_URL, relative, label='Minecraft 版本列表',
+                                   valid=lambda value: isinstance(value.get('versions'), list))
         finally:
-            path.unlink(missing_ok=True)
+            self.inside(relative).unlink(missing_ok=True)
 
     def allowed(self, rules):
         if not rules:
@@ -673,10 +762,8 @@ class MinecraftDownloader:
         entry = next((item for item in manifest["versions"] if item["id"] == version), None)
         if entry is None:
             raise ValueError(f"未找到 Minecraft {version}")
-        metadata_path = self.fetch(entry["url"], f".buggcraft-downloads/{version}.json", entry.get("sha1"))
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        if metadata.get("id") != version:
-            raise ValueError("版本元数据与所选版本不一致")
+        metadata = self.fetch_json(entry['url'], f'.buggcraft-downloads/{version}.json', entry.get('sha1'),
+                                   label=f'Minecraft {version} 版本信息', valid=lambda value: value.get('id') == version)
 
         self.install_metadata(version, metadata)
 
@@ -710,8 +797,9 @@ class MinecraftDownloader:
         index = metadata.get("assetIndex")
         asset_jobs = []
         if index:
-            index_path = self.fetch(index["url"], "assets/indexes/" + index["id"] + ".json", index.get("sha1"), index.get("size"))
-            assets = json.loads(index_path.read_text(encoding="utf-8"))
+            assets = self.fetch_json(index['url'], 'assets/indexes/' + index['id'] + '.json',
+                                     index.get('sha1'), index.get('size'), label='游戏资源索引',
+                                     valid=lambda value: isinstance(value.get('objects'), dict))
             objects = assets["objects"]
             self.file_names.update({f"assets/objects/{obj['hash'][:2]}/{obj['hash']}": name
                                     for name, obj in objects.items()})

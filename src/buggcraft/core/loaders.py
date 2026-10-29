@@ -111,10 +111,23 @@ def _response(url):
 
 
 def _json_versions(url):
-    value = _response(url).json()
+    value = _response_json(url, '加载器版本列表')
     if not isinstance(value, list):
         raise ValueError("加载器版本服务返回了无效数据")
     return value
+
+
+def _response_json(url, label):
+    response = _response(url)
+    try:
+        return response.json()
+    except (ValueError, UnicodeDecodeError) as exc:
+        logger.warning('loader_metadata_invalid url=%s error=%s', url, exc)
+        raise ValueError(label + '不完整或格式错误，请重试或更换下载源。') from exc
+    finally:
+        close = getattr(response, 'close', None)
+        if close:
+            close()
 
 
 def _maven_versions(url):
@@ -393,7 +406,7 @@ def _profile_loader(loader, minecraft_version, loader_version, directory, callba
     errors = []
     for url in _source_urls(source, 'https://' + host + suffix, BMCLAPI + '/' + mirror_name + suffix):
         try:
-            metadata = _response(url).json()
+            metadata = _response_json(url, loader + ' 安装信息')
             break
         except Exception as exc:
             errors.append(str(exc))
