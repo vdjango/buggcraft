@@ -40,6 +40,11 @@ class DialogController(QObject):
     def action(self, name):
         self.actionRequested.emit(name)
 
+    @Slot(str, str)
+    def setDataValue(self, key, value):
+        self.data[key] = value
+        self.changed.emit()
+
     @Slot()
     def copyCode(self):
         if self.code:

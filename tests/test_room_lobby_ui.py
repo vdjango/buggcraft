@@ -85,6 +85,23 @@ class RoomLobbyUiTests(unittest.TestCase):
         self.click('room-tab-install')
         self.save('guest-downloading-room-client-logs')
 
+    def test_member_roster_always_shows_room_host_for_host_and_guest(self):
+        """Role ids from the bridge must remain visible even without row flags."""
+        record = self.room()
+        self.click('room-tab-members')
+        host_row = find_item(self.window, 'room-member-host')
+        self.assertTrue(host_row.isVisible())
+        self.assertEqual(find_item(self.window, 'member-role-host').property('text'), '房主')
+
+        # Older nodes sent manager_id/provider_id but omitted the per-row flags.
+        host = record['lobby']['members'][0]
+        host.pop('manager', None)
+        host.pop('provider', None)
+        record.update(role='client', isManager=False)
+        record['lobby']['self_id'] = 'guest1'
+        self.backend.viewChanged.emit(); QTest.qWait(50)
+        self.assertEqual(find_item(self.window, 'member-role-host').property('text'), '房主')
+
     def test_member_management_requires_explicit_confirmation_and_can_be_cancelled(self):
         self.room()
         self.click('room-tab-members')
@@ -96,6 +113,18 @@ class RoomLobbyUiTests(unittest.TestCase):
         self.save('room-member-transfer-confirmation')
         self.click('member-confirm-submit')
         self.assertEqual(self.backend.actions[-1], ('offerOwner', {'member': 'guest1'}))
+
+    def test_host_and_guest_have_diagnostics_and_anonymous_submission_is_disabled(self):
+        record = self.room()
+        self.click('room-submit-diagnostics')
+        self.assertEqual(self.backend.actions[-1], ('submitDiagnostics', {}))
+        record.update(role='client', isManager=False)
+        self.backend.viewChanged.emit(); QTest.qWait(40)
+        self.click('room-submit-diagnostics')
+        self.assertEqual(self.backend.actions[-1], ('submitDiagnostics', {}))
+        self.backend._view['socialReady'] = False
+        self.backend.viewChanged.emit(); QTest.qWait(40)
+        self.assertFalse(find_item(self.window, 'room-submit-diagnostics').isEnabled())
 
     def test_long_member_list_has_explicit_paging_and_hides_it_after_last_page(self):
         record = self.room()

@@ -54,7 +54,7 @@ Item {
                     Item { Layout.fillWidth: true }
                     ActionButton {
                         objectName: "start-pack-import"; text: "开始导入"; primary: true
-                        enabled: !!root.state.pack_path && !!packName.text.trim()
+                        enabled: !root.state.pack_inspecting && !!root.state.pack_path && !!packName.text.trim()
                         onClicked: contentController.importPack()
                     }
                 }

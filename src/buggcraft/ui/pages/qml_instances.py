@@ -1,6 +1,7 @@
 """Instance operations with a fixed two-column QML layout."""
 import json
 import os
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Qt, QTimer, Signal, Slot
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import QFileDialog
 from config.settings import get_settings_manager
 from core.minecraft.version import delete_minecraft_directory, delete_minecraft_version, open_folder
 from core.modpacks import export_pack
+from core.downloads import DownloadCancelled
 from ui.dialog.qml_dialog import QmlDialog
 from ui.pages.qml_host import QmlPage
 from utils.instances import installed_instance_ids
@@ -22,6 +24,31 @@ class MinecraftSettingSignals(QObject):
 
 class _DeleteSignals(QObject):
     finished = Signal(str)
+
+
+class _ExportSignals(QObject):
+    progress = Signal(str, object, object)
+    finished = Signal(object, str)
+
+
+class _ExportWorker(QRunnable):
+    def __init__(self, directory, identity, destination, mode, game_directory):
+        super().__init__()
+        self.arguments = directory, identity, destination
+        self.mode, self.game_directory = mode, game_directory
+        self.cancel = threading.Event()
+        self.signals = _ExportSignals()
+
+    def run(self):
+        try:
+            result = export_pack(*self.arguments, mode=self.mode, game_directory=self.game_directory,
+                                 progress=self.signals.progress.emit, cancel=self.cancel)
+        except DownloadCancelled:
+            self.signals.finished.emit(None, '导出已取消')
+        except Exception as exc:
+            self.signals.finished.emit(None, str(exc) or type(exc).__name__)
+        else:
+            self.signals.finished.emit(result, '')
 
 
 class _DeleteWorker(QRunnable):
@@ -68,6 +95,7 @@ class InstancesController(QObject):
         self._delete_dialog = None
         self._delete_worker = None
         self._export_dialog = None
+        self._export_worker = None
 
     @Property('QVariantMap', notify=changed)
     def view(self):
@@ -154,10 +182,9 @@ class InstancesController(QObject):
                 return
             dialog = QmlDialog(
                 self.page, title='导出整合包', message='选择导出方式',
-                detail='精简：文件更小，导入更快。\n'
-                       '常规：包含完整内容，适合分享和长期存档。',
-                actions=['精简导出', '常规导出', '取消'], width=560, height=250,
-                primary_action='精简导出')
+                detail=identity, actions=['精简导出', '常规导出', '取消'], width=620, height=420,
+                primary_action='精简导出', source='ModpackExportDialog.qml',
+                data=dict(phase='choose', instance=identity))
             self._export_dialog = dialog
             dialog.controller.actionRequested.connect(
                 lambda label: self._export_action(identity, label))
@@ -218,21 +245,25 @@ class InstancesController(QObject):
             dialog.deleteLater()
 
     def _export_action(self, identity, label):
-        if label == '取消':
+        if label == '取消导出' and self._export_worker:
+            self._export_worker.cancel.set()
+            model = self._export_dialog.controller
+            model.message = '正在取消…'
+            model.actions_enabled = False
+            model.changed.emit()
+            return
+        if label in ('取消', '关闭'):
             if self._export_dialog is not None:
                 self._export_dialog.reject()
             return
         mode = {'精简导出': 'compact', '常规导出': 'standard'}.get(label)
         if not mode or self._export_dialog is None:
             return
-        dialog = self._export_dialog
-        dialog.hide()
-        dialog.shutdown()
-        self._export_dialog = None
-        dialog.deleteLater()
-        QTimer.singleShot(0, lambda: self._choose_export(identity, mode))
+        self._choose_export(identity, mode)
 
     def _choose_export(self, identity, mode):
+        if self._export_worker:
+            return
         directory = self.settings.get_setting('minecraft.directory.enable') or ''
         default = identity + ('-compact' if mode == 'compact' else '-standard') + '.buggpack'
         destination, _ = QFileDialog.getSaveFileName(
@@ -240,14 +271,50 @@ class InstancesController(QObject):
             'Buggcraft 整合包 (*.buggpack);;ZIP 文件 (*.zip)')
         if not destination:
             return
-        try:
-            game_directory = self.settings.get_minecraft_isolation_directory(directory=directory, version=identity)
-            result = export_pack(directory, identity, destination, mode=mode, game_directory=game_directory)
-        except (OSError, ValueError) as exc:
-            self._status = '导出失败：' + str(exc)
-        else:
-            label = '精简' if mode == 'compact' else '常规'
+        if self._export_dialog is None:
+            self.action(identity, 'export')
+        dialog = self._export_dialog
+        model = dialog.controller
+        model.message, model.detail = '正在导出整合包', '正在整理实例文件…'
+        model.working, model.progress, model.dismissible = True, -1., False
+        model.actions = ['取消导出']
+        model.primary_action = ''
+        model.data = dict(phase='exporting', instance=identity, mode=mode, path=destination)
+        model.changed.emit()
+        game_directory = self.settings.get_minecraft_isolation_directory(directory=directory, version=identity)
+        worker = self._export_worker = _ExportWorker(directory, identity, destination, mode, game_directory)
+        worker.signals.progress.connect(self._export_progress, Qt.QueuedConnection)
+        worker.signals.finished.connect(self._export_finished, Qt.QueuedConnection)
+        QThreadPool.globalInstance().start(worker)
+
+    @Slot(str, object, object)
+    def _export_progress(self, text, done, total):
+        if self._export_dialog is None or self._export_worker is None:
+            return
+        model = self._export_dialog.controller
+        model.progress = min(1., done / total) if total else -1.
+        model.detail = text
+        model.changed.emit()
+
+    @Slot(object, str)
+    def _export_finished(self, result, error):
+        self._export_worker = None
+        if self._export_dialog is None:
+            return
+        model = self._export_dialog.controller
+        model.working, model.dismissible, model.actions_enabled = False, True, True
+        model.actions, model.primary_action = ['关闭'], '关闭'
+        model.data = dict(model.data, phase='error' if error else 'complete')
+        model.message = ('导出已取消' if error == '导出已取消' else '导出失败') if error else '整合包已导出'
+        model.detail = error if error else result['path']
+        model.progress = 0. if error else 1.
+        if result:
+            label = '精简' if result['mode'] == 'compact' else '常规'
             self._status = f"{label}整合包已导出：{Path(result['path']).name}"
+            model.data.update(size=Path(result['path']).stat().st_size, files=result['files'] + result['external_files'])
+        else:
+            self._status = model.message + ('：' + error if error != model.message else '')
+        model.changed.emit()
         self.changed.emit()
 
     @Slot(str)

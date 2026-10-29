@@ -1,0 +1,88 @@
+# 已报告问题的持续回归
+
+本轮修复在 `release/alpha2-integration` 隔离工作区进行，原生节点在 `release/alpha2-bridge`。暂不发布，不覆盖另一个窗口尚未提交的域名接入修改。域名接入合并后还需运行接入、房间和诊断组合回归。
+
+测试入口统一为 `tests/` 中的 pytest/unittest 用例。UI 用例发送真实 Qt 鼠标、键盘和输入法事件，检查实际文件、任务状态和进程；本地 HTTP 和 C++ 节点提供可重复的网络环境。仅截图、模拟成功回调、打印日志不构成功能通过。
+
+## 用例与修复的对应关系
+
+| 编号 | 问题和验收 | 持久化测试入口 |
+| --- | --- | --- |
+| REG-01 | 导出模式、真实字节进度、取消、出错清理；完成弹窗等待用户关闭；事件循环继续响应 | `test_instance_modpack_entry.py`、`test_modpack_import.py` |
+| REG-02 | 重复导入自动提出新名称，用户可修改或取消；新名称仍占用时阻止；慢文件检查不冻结窗口，旧结果不覆盖新选择 | `test_download_ui.py::DownloadChecklistUiTests::test_duplicate_import_renames_without_overwriting_existing_instance`、`test_download_ui.py::DownloadChecklistUiTests::test_duplicate_import_cancel_and_occupied_replacement_start_no_task`、`test_modpack_drop.py` |
+| REG-03 | 游戏核心、libraries、assets 同池下载；加载器安装与模组下载重叠；1–64 路并发设置有效 | `test_download_transport.py`、`test_download_concurrency.py`、`test_modpack_import.py`、`test_modrinth_import.py` |
+| REG-04 | 两个任务同时安装到同一个文件，只写一次；Windows 普通/扩展路径共用锁，取消等待不破坏占用者 | `test_download_locks.py`、`test_download_transport.py::DownloadTransportTests::test_parallel_tasks_share_one_verified_target_without_part_file_races` |
+| REG-05 | 没有根目录、实例或版本时，房间安装创建目录并保存位置 | `test_room_launch_flow.py::RoomLaunchFlowTests::test_room_install_creates_and_saves_default_root_on_first_use`、`test_room_mod_installation.py` |
+| REG-06 | 已校验 Java 复用；损坏/缺失/不适配的 Java 不复用；并发安装共享目标 | `test_java_downloads.py`、`test_java_runtime_selection.py` |
+| REG-07 | 延迟点击更新时重新取得七牛下载凭证；下载校验、失败保留原文件及重试 | `test_update_client.py`、`test_launcher_updates.py` |
+| REG-08 | 房主和房客均看到房主标识；兼容只有 manager_id/provider_id 的快照；转让后标识正确 | `test_room_lobby_ui.py`、`test_room_lobby_live_ui.py` |
+| REG-09 | 房主和房客均可提交诊断；匿名/未确认不能提交；真实认证失败后可修复重试，管理员能下载相同附件 | `test_room_lobby_ui.py`、`test_diagnostics_ui.py` |
+| REG-10 | 请求安装日志需玩家授权；拒绝、撤回、转让和退出清空授权；界面不能读其他成员私有日志 | `test_room_lobby_live_ui.py`、原生 `test_room_lobby.py` |
+| REG-11 | 优先设置的下载源；P2P 未连接禁止文件兜底；资源包和光影不阻止必需模组准备 | `test_room_mod_installation.py`、原生 `test_resource_metadata.py` |
+| REG-12 | P2P 空闲不误切中转；单向 UDP 故障只影响对应玩家；信令中断保留已建立游戏通道；重连和 STUN 备用 | 原生 `test_peer_heartbeat.py`、`test_peer_reconnect.py`、`test_peer_signaling_attempt.py`、`test_peer_stun_fallback.py`、`test_ipv4_p2p.py`、`test_route_selection.py` |
+| REG-13 | 原生诊断上传支持流控；大附件慢磁盘时其他控制请求继续；截断清理和大小限制 | 原生 `compatibility/tests/test_feedback_native.py` |
+| REG-14 | 精简/常规包经真实 UI 导出、导入，再由实际 Java 启动 Minecraft 并加载资源 | `test_game_launch_live.py::RealMinecraftUiTests::test_buggpack_export_both_modes_import_and_launch_real_game` |
+| REG-15 | 四个实际 Minecraft 窗口进入准备房间、移动/方块/聊天同步、死亡重生、转让管理后游戏不断线、退出重进 | `test_four_game_multiplayer_live.py::test_four_real_minecraft_clients_move_build_chat_respawn_and_reconnect` |
+
+## 自动运行
+
+`.github/workflows/package.yml` 持续运行客户端页面、房间、日志、导出和缓存锁回归，每个模块使用独立进程，避免 Qt 对象生命周期串扰。
+
+`.github/workflows/client-regression.yml` 在主分支/修复分支推送、PR 或手动触发时，分别在 Windows 和 Linux 构建生产 C++ 节点与桥，运行上述真实 HTTP、诊断上传、房间点击、下载与 P2P 用例。保存 JUnit、截图和构建日志；这些测试依赖只装在测试环境，不打入启动器发行包。
+
+原生仓库 `.github/workflows/core.yml` 自动运行 P2P 和房间协议回归；`scripts/check_compatibility.py` 默认包括诊断上传用例。它是测试套件的加载器，实际测试仍由 unittest 用例执行。
+
+`test_regression_wiring.py` 同时检查文档引用的类/方法确实存在、这些功能仍被 CI 调用、三个工作流固定相同的原生提交，避免后续重构漏掉测试入口。
+
+本地运行客户端的常规入口：
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:QT_QUICK_BACKEND = 'software'
+$env:BUGGCRAFT_NATIVE_SOURCE = '<原生节点仓库绝对路径>'
+$env:BUGGCRAFT_NATIVE_CORE = '<完整安装目录>/bin/buggcraft-core.exe'
+$env:BUGGCRAFT_BRIDGE_EXECUTABLE = '<完整安装目录>/bin/buggcraft-bridge.exe'
+$env:BUGGCRAFT_BRIDGE_LIBRARY = '<完整安装目录>/bin/buggcraft_bridge.dll'
+$env:BUGGCRAFT_BRIDGE_PACKAGE = '<完整安装目录>'
+python -m pytest -q tests --junitxml=build/regression.xml
+```
+
+先在原生仓库执行 `cmake --install build --config Release --prefix runtime`，或使用 `scripts/build_bridge.py` 的完整安装产物。动态库和配套 `share/buggcraft-native/python/buggcraft_bridge.py` 必须来自同一个安装目录，不能只指定编译目录中单独的 DLL。Linux 使用对应的无 `.exe` 二进制与 `lib/libbuggcraft_bridge.so`。
+
+Windows 可见回放把 `QT_QPA_PLATFORM` 改成 `windows`，仍由相同的 pytest 用例操作控件。网络测试使用本地服务器，不会将公网下载超时冒充功能失败，也不会把本地文件校验或 UI 错误当成网络慢而跳过。
+
+实际 Minecraft、四游戏及公网测试保留独立环境门控：缺少游戏、Java、账号或节点时会明确跳过，不能把跳过计为通过。它们不因跑通常规回归就自动宣称验收成功。
+
+四个真实游戏窗口的重复执行入口仍是 pytest（需要桌面、完整游戏和 Node.js 观察客户端）：
+
+```powershell
+$env:QT_QPA_PLATFORM = 'windows'
+$env:BUGGCRAFT_FOUR_GAME_LIVE = '1'
+$env:BUGGCRAFT_FOUR_GAME_NODE = 'local'
+$env:BUGGCRAFT_TEST_WORKSPACE = 'E:\code'
+$env:BUGGCRAFT_LAUNCHER_SDK = '<本次启动器仓库>/src/buggcraft'
+$env:BUGGCRAFT_LIVE_GAME_DIR = '<完整 Minecraft 1.21.8 目录>'
+$env:BUGGCRAFT_LIVE_JAVA = '<Java 21>/bin/java.exe'
+python -m pytest -q -s tests/test_four_game_multiplayer_live.py
+```
+
+它启动本次构建的 C++ 节点，检查四人准备、开放世界、实际移动/方块/聊天同步、死亡重生、房主转让和重入，并保留游戏窗口截图。这里使用回环网络；跨运营商公网联机需要另跑远程模式。
+
+## 本轮实测记录
+
+| 范围 | 实测结果 | 证据 |
+| --- | --- | --- |
+| 导出 UI、打包取消/进度、下载、Windows 缓存路径锁 | 57 passed、19 subtests passed | `E:\code\.test-tools\alpha2-export-lock-final.log/xml` |
+| 原生 C++ 单元与 ABI | CTest 3/3 通过 | `alpha2-native-bridge/build/Testing/Temporary/LastTest.log` |
+| 原生协议兼容及真实诊断附件上传 | 45 项通过 | `E:\code\.test-tools\alpha2-compatibility-verified.log` |
+| 大附件实际暂停/恢复、控制通道响应及附件一致性 | 5 项通过 | `E:\code\.test-tools\alpha2-feedback-paused-verified.log` |
+| 慢文件检查、新旧选择竞态、重名取消与拒绝占用名称 | 4 项通过 | `E:\code\.test-tools\alpha2-inspection-negative-verified.log/xml` |
+| P2P 空闲、单向 UDP 故障恢复和信令短断，进程与共享库两模式 | 6 项通过 | `E:\code\.test-tools\alpha2-heartbeat-verified.log` |
+| 真实 Minecraft 两模式导出/导入/启动 | 1 项通过，使用 Java 21 | `E:\code\.test-tools\alpha2-real-game-java21.log` |
+| 首轮完整回归中的并发失败 | 保留失败记录；扩展路径锁修复后专项通过，完整回归重新执行 | `E:\code\.test-tools\alpha2-full-traced.log/xml` |
+| 客户端当前收集的全部用例，按最终执行记录逐个核对 | 883 条均有记录：865 通过、18 环境跳过；无尚未复测通过的失败 | `alpha2-full-verified.xml`、`alpha2-full-remaining.xml`、`alpha2-full-remaining-v2.xml`、`alpha2-inspection-negative-verified.xml`、`alpha2-java-wiring-verified.xml` |
+| 安装目录中的真实 C++ DLL/独立进程、错误恢复和重启 | 2 项通过；最初缺失绑定文件的环境错误复测通过 | `E:\code\.test-tools\alpha2-runtime-verified.log/xml` |
+| 原生完整 unittest discover | 164 条：147 通过、17 环境跳过，772.798 秒；无失败 | `E:\code\.test-tools\alpha2-native-full-installed.log` |
+| 四个真实 Minecraft 1.21.8 窗口、本地生产 C++ 节点和桥 | pytest 1 项通过，158.99 秒；四人准备、移动/拆放/聊天同步、三房客重生、转让、重入均通过 | `E:\code\.test-tools\alpha2-four-games-local.log/xml`；原生 `validation-artifacts/vanilla-20261029-131106/report.json` 及四张游戏窗口截图 |
+
+客户端记录为分段续跑与修复后复测的合并核对，不表述为一次命令全绿。保留两次失败：单独编译目录缺少 FFI 绑定、诊断测试夹具误引入节点包；改用完整安装产物，并将节点夹具归回原生仓库后均已通过。后半段有一条 Windows 子进程清理警告，未忽略或隐藏。原生首次完整运行还保留一次高负载下添加节点超时的失败记录；重新运行完整套件后通过，没有跳过或放宽该断言。四游戏实测只验收本机节点，不代替跨运营商公网测试；其他窗口未合并的域名接入不属于这轮验收。

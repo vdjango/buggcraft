@@ -74,6 +74,21 @@ class _SearchWorker(QRunnable):
             self.signals.finished.emit(self.request, self.mode[0], None, str(exc))
 
 
+class _PackInspectWorker(QRunnable):
+    def __init__(self, generation, path, callback):
+        super().__init__()
+        self.generation, self.path = generation, path
+        self.signals = _SearchSignals()
+        self.signals.finished.connect(callback)
+
+    @Slot()
+    def run(self):
+        try:
+            self.signals.finished.emit(self.generation, 'pack-inspect', inspect_pack(self.path), '')
+        except Exception as exc:
+            self.signals.finished.emit(self.generation, 'pack-inspect', None, str(exc))
+
+
 class ContentBrowserController(QObject):
     changed = Signal()
     pageRequested = Signal(str)
@@ -98,6 +113,10 @@ class ContentBrowserController(QObject):
         self.pack_name = ""
         self.pack_summary = "支持 Buggcraft、CurseForge 和 Modrinth 整合包，可拖入启动器任意页面。"
         self.pack_error = ""
+        self.pack_inspecting = False
+        self._pack_generation = 0
+        self._import_conflict_dialog = None
+        self._pack_candidate = ''
         self.view = "browse"
         self.import_directory = ""
         self.query = ""
@@ -145,7 +164,7 @@ class ContentBrowserController(QObject):
         return {key: getattr(self, key) for key in (
             'kind', 'status', 'busy', 'results', 'versions', 'selected_version',
             'selected_project', 'pack_path', 'pack_name', 'pack_summary', 'pack_error',
-            'view', 'import_directory', 'source', 'query', 'has_more', 'details_busy', 'file_query',
+            'pack_inspecting', 'view', 'import_directory', 'source', 'query', 'has_more', 'details_busy', 'file_query',
             'translation_enabled', 'translation_status', 'show_original')} | {
                 'instance': self.settings.get_setting('minecraft.version.enable') or '尚未选择',
                 'target': self._target(), 'game_version': self._context()[2],
@@ -705,39 +724,58 @@ class ContentBrowserController(QObject):
 
     @Slot(str)
     def inspectPack(self, path):
-        try:
-            info = inspect_pack(path)
-            resolved = str(Path(path).resolve())
-            if not self.pack_name or self.pack_path != resolved:
-                self.pack_name = suggested_name(path)
-            self.pack_path = resolved
+        resolved = str(Path(path).resolve())
+        self._pack_generation += 1
+        generation = self._pack_generation
+        old_path = self.pack_path
+        self._pack_candidate = resolved
+        if not self.pack_name or old_path != resolved:
+            self.pack_name = suggested_name(path)
+        self.pack_path = resolved
+        self.pack_inspecting = True
+        self.pack_error = ''
+        self.pack_summary = '正在检查整合包文件…'
+        self.changed.emit()
+        self.pool.start(_PackInspectWorker(generation, resolved, self._pack_inspected))
+
+    @Slot(int, str, object, str)
+    def _pack_inspected(self, generation, _mode, info, error):
+        if generation != self._pack_generation:
+            return
+        self.pack_inspecting = False
+        if error:
+            self.pack_path = ''
+            self.pack_summary = '无法读取这个整合包。'
+            self.pack_error = error
+        else:
+            self.pack_path = self._pack_candidate
             self.pack_summary = (f"{info.name} · {info.version} · {info.source}\nMinecraft {info.minecraft} · "
                                  f"{info.loader + ' ' + info.loader_version if info.loader else '原版'}\n"
                                  f"{len(info.files)} 个下载文件 · 内置内容 {info.expanded_bytes / 1024**2:.1f} MiB")
-            self.pack_error = ""
-        except Exception as exc:
-            self.pack_path = ""
-            self.pack_summary = "无法读取这个整合包。"
-            self.pack_error = str(exc)
+            self.pack_error = ''
         self.changed.emit()
 
     @Slot(str)
     def setPackName(self, name):
         self.pack_name = name.strip()
+        self.pack_error = ''
 
     @Slot()
     def importPack(self):
+        if self.pack_inspecting:
+            return
         directory = (self.import_directory or
                      self.settings.get_setting("minecraft.directory.enable") or "")
         try:
             instance_name(self.pack_name)
             if not self.pack_path:
                 raise ValueError("请先选择并检查 Buggcraft、CurseForge 或 Modrinth 整合包。")
-            if directory and (Path(directory) / "versions" / self.pack_name).exists():
-                raise ValueError("该实例名称已存在，请更换名称。")
             if not directory:
                 from utils.path_helper import get_default_minecraft_dir
                 directory = str(get_default_minecraft_dir())
+            if self._pack_name_occupied(directory, self.pack_name):
+                self._show_import_conflict(directory)
+                return
             started = self.download_pages.tasks_page.start_install(
                 self.pack_name, directory, modpack=self.pack_path)
             if started:
@@ -747,8 +785,67 @@ class ContentBrowserController(QObject):
             self.pack_error = str(exc)
         self.changed.emit()
 
+    def _show_import_conflict(self, directory):
+        if self._import_conflict_dialog is not None:
+            self._import_conflict_dialog.raise_()
+            self._import_conflict_dialog.activateWindow()
+            return
+        from ui.dialog.qml_dialog import QmlDialog
+        base, index = self.pack_name[:94], 2
+        while self._pack_name_occupied(directory, f'{base}-{index}'):
+            index += 1
+        suggested = f'{base}-{index}'
+        dialog = QmlDialog(self.download_pages.window(), resources=self.download_pages.resource_path,
+                           title='实例名称已存在', message='保留已有实例，并导入为新名称',
+                           detail=f'“{base}”不会被覆盖。', width=500, height=300,
+                           source='ImportConflictDialog.qml',
+                           actions=['使用新名称导入', '取消'], primary_action='使用新名称导入',
+                           data=dict(instance=base, name=suggested))
+        self._import_conflict_dialog = dialog
+
+        def finish(action):
+            if action == '使用新名称导入':
+                name = str(dialog.controller.data.get('name', '')).strip()
+                try:
+                    instance_name(name)
+                    if self._pack_name_occupied(directory, name):
+                        raise ValueError('这个名称也已存在，请输入其他名称。')
+                except ValueError as exc:
+                    dialog.set_message_text(str(exc))
+                    return
+                self.pack_name = name
+                self.changed.emit()
+                started = self.download_pages.tasks_page.start_install(name, directory, modpack=self.pack_path)
+                if started:
+                    self.status = '整合包导入任务已开始，可在任务页查看进度。'
+                    self.pageRequested.emit('tasks')
+                    dialog.accept()
+                else:
+                    dialog.set_message_text('这个名称已有安装任务，请稍后再试或选择其他名称。')
+            else:
+                dialog.reject()
+
+        dialog.controller.actionRequested.connect(finish)
+
+        def closed(_result):
+            self._import_conflict_dialog = None
+            dialog.shutdown()
+            QTimer.singleShot(0, dialog, dialog.deleteLater)
+
+        dialog.finished.connect(closed)
+        dialog.show()
+
+    def _pack_name_occupied(self, directory, name):
+        tasks = self.download_pages.tasks_page
+        return (Path(directory, 'versions', name).exists() or any(
+            Path(task['game_dir']).resolve() == Path(directory).resolve()
+            and task['version'].casefold() == name.casefold() and task['state'] in tasks.ACTIVE
+            for task in tasks._tasks))
+
     @Slot()
     def shutdown(self):
+        if self._import_conflict_dialog is not None:
+            self._import_conflict_dialog.reject()
         if self._download_dialog is not None:
             self._download_dialog.reject()
         self._translation_closed = True

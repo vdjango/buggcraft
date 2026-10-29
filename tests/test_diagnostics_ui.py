@@ -84,10 +84,13 @@ class DiagnosticsUiTests(_UiCase):
             self.loop.close()
 
     def start_node(self):
-        native = Path(os.environ.get('BUGGCRAFT_NATIVE_REPO', str(Path(__file__).resolve().parents[2] / 'minecraft-tunnel-native')))
-        self.assertTrue((native / 'compatibility/src/tunnel/portal.py').is_file(), 'Production node checkout is required')
+        configured = os.environ.get('BUGGCRAFT_NATIVE_SOURCE') or os.environ.get('BUGGCRAFT_NATIVE_REPO')
+        native = Path(configured or Path(__file__).resolve().parents[2] / 'minecraft-tunnel-native')
+        if not configured and not (native / 'web/tunnel/portal.py').is_file():
+            self.skipTest('Set BUGGCRAFT_NATIVE_SOURCE to the production node checkout')
+        self.assertTrue((native / 'web/tunnel/portal.py').is_file(), 'Configured production node checkout is required')
         self.node_errors = (self.output / 'node-stderr.log').open('w', encoding='utf-8')
-        self.node = subprocess.Popen([sys.executable, '-u', str(Path(__file__).with_name('diagnostics_node_fixture.py')), str(native)],
+        self.node = subprocess.Popen([sys.executable, '-u', str(native / 'tests/launcher_diagnostics_fixture.py')],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.node_errors,
             text=True, encoding='utf-8', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         self.addCleanup(self.close_node)
@@ -365,7 +368,7 @@ class DiagnosticsUiTests(_UiCase):
         self.submit()
         self.wait_job('feedback-upload')
         self.check(not self.backend.view['error'] and self.backend.view['notice'].startswith('反馈已提交，编号：'),
-                   'Restored real account credential succeeds through same UI')
+                   'Restored real account credential succeeds through same UI: ' + str(self.backend.view['error']))
         self.check(self.node_call(op='inspect')['count'] == 1, 'Retry creates one valid feedback')
         self.assert_no_qml_errors()
         self.finish_test()

@@ -1,7 +1,7 @@
 """Four unmodified Minecraft GUI clients, exercised by a pytest test case.
 
 This intentionally opens four visible game windows, creates only a fresh world
-and uses the isolated native node on the authorized test server. It never uses
+and uses a local production C++ node or the authorized remote test server. It never uses
 the launcher's removed Python transport. Reports include screenshots, game logs,
 block/chat synchronization, death/respawn and a real client reconnect.
 """

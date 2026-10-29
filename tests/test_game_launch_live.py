@@ -543,14 +543,21 @@ class RealMinecraftUiTests(_UiCase):
             self.navigate('instances-button')
             page = self.window.version_page.versions_page
             archive = self.output / (mode + '.buggpack')
+            archive.unlink(missing_ok=True)
             with patch('ui.pages.qml_instances.QFileDialog.getSaveFileName', return_value=(str(archive), '')):
                 self.click_ui(page, 'instance-export-' + self.version)
                 self.click_ui(page.controller._export_dialog.host, 'dialog-action-' + str(button))
-                self.wait_for(archive.is_file, 'UI exports ' + mode + ' package')
+                self.wait_for(lambda: page.controller._export_worker is None, 'UI exports ' + mode + ' package', timeout=120000)
+                self.check(page.controller._export_dialog.controller.data['phase'] == 'complete',
+                           'export succeeds: ' + page.controller._export_dialog.controller.detail)
+                self.check(page.controller._export_dialog.isVisible(), 'completed export awaits manual close')
+                self.click_ui(page.controller._export_dialog, 'dialog-action-0')
             with zipfile.ZipFile(archive) as exported:
                 manifest = json.loads(exported.read('buggcraft.pack.json'))
             selected = next(row for row in manifest['files'] if row['path'] == 'resourcepacks/' + resource.name)
             self.check(selected['embedded'] is (mode == 'standard'), 'selected export mode reaches real archive')
+            self.check(selected['sha1'] == hashlib.sha1(self.fixtures.payloads[resource.name]).hexdigest(),
+                       'export manifest matches the exact resource served by HTTP')
             host, import_controller = self.open_import(archive)
             self.check(Path(import_controller.pack_path) == archive.resolve(), 'UI imports the exported buggpack archive')
             self.text_ui(host, 'pack-instance-name', 'roundtrip-' + mode)

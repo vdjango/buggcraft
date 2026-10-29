@@ -14,6 +14,7 @@ import shutil
 import stat
 import tempfile
 import threading
+import time
 import zipfile
 from urllib.parse import urlsplit
 
@@ -83,13 +84,20 @@ def _valid_download_urls(value):
 
 
 def export_pack(directory, identity, destination, *, name=None, version='1.0.0', mode='compact',
-                game_directory=None):
+                game_directory=None, progress=None, cancel=None):
     """Export an installed instance as the launcher's portable ``.buggpack``.
 
     Store a versioned manifest and portable files under ``files/``. Compact
     packages reference known, unchanged downloadable content; standard packages
     embed all portable content. Minecraft and its loader are installed on import.
     """
+    def check():
+        if cancel is not None and cancel.is_set():
+            raise DownloadCancelled('导出已取消')
+
+    check()
+    if progress:
+        progress('正在整理实例文件…', 0, 0)
     instance_name(identity)
     if mode not in ('compact', 'standard'):
         raise ValueError('导出模式必须是 compact 或 standard')
@@ -162,14 +170,20 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
     from core.content_records import read_records
     resource_records.update({record['path'].casefold(): record for record in read_records(content_root)})
     resource_records.update({record['path'].casefold(): record for record in read_records(root)})
+    created = False
     try:
-        with zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED,
-                             compresslevel=6) as archive:
+        archive = zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED,
+                                  compresslevel=6)
+        created = True
+        with archive:
             entries = []
             included = 0
             externalized = 0
-            sources = {path.relative_to(root).as_posix().casefold(): path
-                       for path in root.rglob('*') if path.is_file() and not path.is_symlink()}
+            sources = {}
+            for path in root.rglob('*'):
+                check()
+                if path.is_file() and not path.is_symlink():
+                    sources[path.relative_to(root).as_posix().casefold()] = path
             # Non-isolated launch profiles use the shared .minecraft content
             # folders. Include those portable files when the version folder
             # does not contain its own copy.
@@ -179,10 +193,13 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                 shared = content_root / folder
                 if shared.is_dir():
                     for path in shared.rglob('*'):
+                        check()
                         if path.is_file() and not path.is_symlink():
                             relative_name = path.relative_to(Path(directory).resolve()).as_posix()
                             sources.setdefault(relative_name.casefold(), path)
+            portable = []
             for relative_key in sorted(sources):
+                check()
                 source = sources[relative_key]
                 if not source.is_file() or source.is_symlink():
                     continue
@@ -195,12 +212,29 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                         or relative.parts[0].startswith('.buggcraft')):
                     continue
                 safe_path(relative.as_posix())
+                portable.append((source, relative, source.stat().st_size))
+            total = sum(size * 2 for _, _, size in portable)
+            done, last_report = 0, 0.
+
+            def report(label, amount=0, force=False):
+                nonlocal done, last_report
+                done += amount
+                now = time.monotonic()
+                if progress and (force or now - last_report >= .08):
+                    progress(label, done, total)
+                    last_report = now
+
+            for source, relative, size in portable:
+                check()
+                report('正在检查 ' + relative.as_posix(), force=True)
                 digest = hashlib.sha256()
                 sha1 = hashlib.sha1()
                 with source.open('rb') as input_stream:
                     for chunk in iter(lambda: input_stream.read(1024 * 1024), b''):
+                        check()
                         digest.update(chunk)
                         sha1.update(chunk)
+                        report('正在检查 ' + relative.as_posix(), len(chunk))
                 relative_name = relative.as_posix()
                 size = source.stat().st_size
                 record = resource_records.get(relative_name.casefold())
@@ -216,18 +250,26 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                 if external:
                     entry['downloads'] = downloads
                     externalized += 1
+                    report('已整理 ' + relative_name, size)
                 else:
+                    report('正在打包 ' + relative_name, force=True)
                     archive_name = 'files/' + relative_name
                     with source.open('rb') as input_stream, archive.open(archive_name, 'w') as output_stream:
                         for chunk in iter(lambda: input_stream.read(1024 * 1024), b''):
+                            check()
                             output_stream.write(chunk)
+                            report('正在打包 ' + relative_name, len(chunk))
                     included += 1
                 entries.append(entry)
             manifest['files'] = entries
             archive.writestr('buggcraft.pack.json',
                              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+            check()
+        if progress:
+            progress('整合包已导出', max(total, 1), max(total, 1))
     except Exception:
-        destination.unlink(missing_ok=True)
+        if created:
+            destination.unlink(missing_ok=True)
         raise
     return {'path': str(destination), 'name': pack_name, 'minecraft': minecraft,
             'loader': loader, 'loader_version': loader_version, 'files': included,

@@ -56,7 +56,7 @@ class JavaDownloadTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory, \
                 patch('core.java_downloads.java_platform', return_value=('windows', 'x64')), \
-                patch('core.java_downloads.requests.get', return_value=Response()), \
+                patch('core.java_downloads.requests.get', return_value=Response()) as request, \
                 patch('core.java_downloads.JavaPathFinder._get_java_version',
                       return_value=('openjdk version "25.0.1"', (25, 0, 1))):
             rename = Path.rename
@@ -71,6 +71,12 @@ class JavaDownloadTests(unittest.TestCase):
             self.assertTrue(Path(entry[0]).is_file())
             self.assertEqual(entry[2][0], 25)
             self.assertTrue((Path(directory) / package.checksum / 'buggcraft-runtime.json').is_file())
+            downloaded = request.call_count
+            with patch('core.java_downloads.requests.get', side_effect=AssertionError('Cached Java was downloaded again')):
+                reused = install(package, directory)
+            self.assertEqual(reused, entry)
+            self.assertEqual(Path(reused[0]).read_bytes(), b'java executable fixture')
+            self.assertEqual(downloaded, 1)
 
     def test_cancelled_download_does_not_request_or_publish_files(self):
         package = JavaPackage('Test', 25, '25.0.1', 'windows', 'x64', 'jre',

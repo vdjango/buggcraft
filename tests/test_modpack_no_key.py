@@ -18,6 +18,7 @@ class ModpackNoKeyTests(LauncherQmlCase):
         self.assertFalse(hasattr(controller, 'api_key'))
         self.assertFalse(hasattr(controller, 'key_input'))
         controller.inspectPack(str(archive))
+        self.wait_until(lambda: not controller.pack_inspecting)
         self.assertEqual(controller.pack_error, '')
         controller.setPackName('Fixture')
         with patch.object(downloads.tasks_page, 'start_install', return_value=True) as start:

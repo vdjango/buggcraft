@@ -58,8 +58,10 @@ class QmlPage(QWidget):
 
     def unload(self):
         if self._loaded:
-            self.quick.setSource(QUrl())
             self._loaded = False
+            quick = self._quick
+            if quick is not None and shiboken6.isValid(quick):
+                quick.setSource(QUrl())
 
     def _on_status(self, status):
         if status == QQuickWidget.Error:

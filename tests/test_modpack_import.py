@@ -18,6 +18,32 @@ from core.downloads import DownloadCancelled, MinecraftDownloader, _DownloadSess
 
 
 class ModpackTests(unittest.TestCase):
+    def test_export_reports_real_progress_and_cancel_removes_only_its_partial_archive(self):
+        instance = self.root / 'source/versions/Pack'
+        instance.mkdir(parents=True)
+        (instance / 'Pack.json').write_text(json.dumps(dict(id='Pack', clientVersion='1.20.1')), encoding='utf-8')
+        (instance / 'config').mkdir()
+        (instance / 'config/settings.txt').write_bytes(b'portable-content' * 200000)
+        archive = self.root / 'progress.buggpack'
+        reports = []
+        export_pack(self.root / 'source', 'Pack', archive, progress=lambda *row: reports.append(row))
+        self.assertTrue(any(0 < done < total for _, done, total in reports))
+        self.assertEqual(reports[-1][1], reports[-1][2])
+        self.assertEqual(inspect_pack(archive).files[0]['path'], 'config/settings.txt')
+        original = archive.read_bytes()
+        with self.assertRaises(FileExistsError):
+            export_pack(self.root / 'source', 'Pack', archive)
+        self.assertEqual(archive.read_bytes(), original)
+        cancelled = self.root / 'cancelled.buggpack'
+        event = threading.Event()
+        def cancel(label, done, total):
+            if label.startswith('正在打包'):
+                event.set()
+        with self.assertRaises(DownloadCancelled):
+            export_pack(self.root / 'source', 'Pack', cancelled, progress=cancel, cancel=event)
+        self.assertFalse(cancelled.exists())
+        self.assertEqual(archive.read_bytes(), original)
+
     def test_compact_export_references_verified_content_and_standard_embeds_it(self):
         from core.content_records import record_content
         source = self.root / 'source'

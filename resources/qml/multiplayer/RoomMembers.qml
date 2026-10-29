@@ -6,6 +6,21 @@ ColumnLayout {
     id: members
     property var record: ({})
     property var snapshot: record.lobby || ({})
+    // Older bridge snapshots only carried the stable role ids. Normalize the
+    // rows at the presentation boundary so the manager is still visible on
+    // both host and guest clients while newer nodes can keep sending flags.
+    property var memberRows: {
+        var rows = members.snapshot.members || []
+        var managerId = members.snapshot.manager_id || ""
+        var providerId = members.snapshot.provider_id || ""
+        return rows.map(function(row) {
+            var copy = {}
+            for (var key in row) copy[key] = row[key]
+            copy.manager = !!row.manager || (!!managerId && row.id === managerId)
+            copy.provider = !!row.provider || (!!providerId && row.id === providerId)
+            return copy
+        })
+    }
     property var selection: ({})
     property string operation: ""
     signal logsRequested()
@@ -35,7 +50,7 @@ ColumnLayout {
     ListView {
         id: list; objectName: "room-members-list"
         Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 5
-        model: members.snapshot.members || []
+        model: members.memberRows
         ScrollBar.vertical: ScrollBar {}
         delegate: Rectangle {
             id: memberRow
@@ -56,7 +71,7 @@ ColumnLayout {
                     RowLayout {
                         Layout.fillWidth: true; spacing: 6
                         CopyText { Layout.fillWidth: true; text: memberRow.modelData.name + (memberRow.modelData.id === members.snapshot.self_id ? "（我）" : ""); color: "#eee8fa"; font.pixelSize: 12; elide: Text.ElideRight; wrapMode: Text.NoWrap }
-                        CopyText { text: memberRow.modelData.manager ? "房主" : memberRow.modelData.provider ? "世界提供者" : ""; font.pixelSize: 10; color: "#b9a2dc"; visible: text.length > 0 }
+                        CopyText { objectName: "member-role-" + memberRow.modelData.id; text: memberRow.modelData.manager ? "房主" : memberRow.modelData.provider ? "世界提供者" : ""; font.pixelSize: 10; color: "#b9a2dc"; visible: text.length > 0 }
                     }
                     ProgressBar {
                         objectName: "member-progress-" + memberRow.modelData.id

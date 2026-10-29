@@ -1,0 +1,112 @@
+name: Client and native regression
+
+on:
+  push:
+    branches: [main, 'release/**']
+    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', '.github/workflows/client-regression.yml']
+  pull_request:
+    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', '.github/workflows/client-regression.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: '1'
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_BACKEND: software
+      BUGGCRAFT_UI_OUTPUT: ${{ github.workspace }}/build/client-regression/ui
+      BUGGCRAFT_QML_SNAPSHOTS: ${{ github.workspace }}/build/client-regression/screenshots
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: vdjango/minecraft-tunnel-native
+          ref: e80c7d15a96ea98b4253985330f22e084d0fa8e4
+          path: native-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            native-source/requirements.txt
+      - name: Prepare Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libcurl4-openssl-dev libgl1 libegl1 libxkbcommon0 libxcb-cursor0
+      - name: Prepare Windows dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install openssl:x64-windows 'curl[openssl]:x64-windows'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt -r native-source/requirements.txt pytest pytest-subtests
+      - name: Build production C++ node and bridge
+        run: |
+          mkdir -p build/client-regression
+          python scripts/build_bridge.py --native-source native-source --output dist/native-runtime --log build/native-regression-build.log
+          ctest --test-dir native-source/build --build-config Release --output-on-failure
+          python - <<'PY'
+          import os, pathlib, sys
+          root = pathlib.Path.cwd()
+          package = root / 'dist/native-runtime'
+          extension = '.exe' if os.name == 'nt' else ''
+          library = package / ('bin/buggcraft_bridge.dll' if os.name == 'nt' else 'lib/libbuggcraft_bridge.so')
+          values = dict(
+              BUGGCRAFT_NATIVE_SOURCE=root / 'native-source',
+              BUGGCRAFT_LAUNCHER_SDK=root / 'src/buggcraft',
+              BUGGCRAFT_NATIVE_CORE=package / 'bin' / ('buggcraft-core' + extension),
+              BUGGCRAFT_BRIDGE_EXECUTABLE=package / 'bin' / ('buggcraft-bridge' + extension),
+              BUGGCRAFT_BRIDGE_LIBRARY=library,
+              BUGGCRAFT_BRIDGE_PACKAGE=package,
+              PYTHONPATH=root / 'src/buggcraft')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for key, value in values.items():
+                  output.write(f'{key}={value}\n')
+          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as output:
+              output.write(str(package / 'bin') + '\n')
+          PY
+      - name: Test real UI and node diagnostics, consent and ownership
+        run: python -X faulthandler -m pytest -q -o faulthandler_timeout=120 tests/test_regression_wiring.py tests/test_native_cutover.py tests/test_native_library.py tests/test_native_bridge_runtime.py tests/test_diagnostics_ui.py tests/test_room_lobby_ui.py tests/test_room_lobby_live_ui.py --junitxml=build/client-regression/connected-ui.xml
+      - name: Test real download, import, Java reuse and update behavior
+        run: python -X faulthandler -m pytest -q tests/test_download_transport.py tests/test_download_locks.py tests/test_download_concurrency.py tests/test_modpack_import.py tests/test_room_mod_installation.py tests/test_room_launch_flow.py tests/test_java_downloads.py tests/test_java_runtime_selection.py tests/test_update_client.py tests/test_launcher_updates.py --junitxml=build/client-regression/downloads.xml
+      - name: Test export controls and responsive worker lifecycle
+        run: python -X faulthandler -m pytest -q tests/test_instance_modpack_entry.py tests/test_modpack_drop.py tests/test_modpack_no_key.py --junitxml=build/client-regression/export-ui.xml
+      - name: Test duplicate import and editable instance names
+        run: python -X faulthandler -m pytest -q tests/test_download_ui.py --junitxml=build/client-regression/download-ui.xml
+      - name: Test real P2P idle, failure, fallback, reconnect and room protocols
+        working-directory: native-source
+        run: python -u -m unittest tests.test_peer_heartbeat tests.test_peer_reconnect tests.test_peer_signaling_attempt tests.test_peer_stun_fallback tests.test_ipv4_p2p tests.test_route_selection tests.test_relay_handshake tests.test_resource_metadata tests.test_room_lobby tests.test_bridge_services -v
+      - name: Test real native diagnostic upload and flow control
+        working-directory: native-source
+        run: python -u scripts/check_compatibility.py test_feedback_native
+      - name: Retain test reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-regression-${{ matrix.os }}
+          path: |
+            build/client-regression/
+            build/native-regression-build.log
+            build/room-preparation-ui/
+            native-source/build/Testing/Temporary/LastTest.log
+          if-no-files-found: warn

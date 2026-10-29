@@ -58,6 +58,26 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.parent.started_game.assert_not_called()
         self.assertIn('已经运行', self.controller.view['notice'])
 
+    def test_room_install_creates_and_saves_default_root_on_first_use(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'new-minecraft-root'
+            values = {'minecraft.directory.enable': '', 'minecraft.directory.installed': []}
+            settings = self.parent.settings_manager
+            settings.get_setting.side_effect = lambda key, default=None: values.get(key, default)
+            def submit(key, coroutine):
+                self.assertEqual(key, 'prepare:room')
+                coroutine.close()
+            with patch('utils.path_helper.get_default_minecraft_dir', return_value=root), \
+                    patch.object(self.controller, 'job', side_effect=submit) as job, \
+                    patch.object(self.controller, 'report_room_state'):
+                self.controller.prepare_room()
+            self.assertTrue(root.is_dir())
+            settings.set_setting.assert_any_call('minecraft.directory.enable', str(root))
+            settings.set_setting.assert_any_call('minecraft.directory.installed', [str(root)])
+            settings.save_settings.assert_called_once()
+            job.assert_called_once()
+            self.assertTrue(self.controller.records['room']['preparing'])
+
     def test_quick_creation_uses_player_name_and_checks_world_before_hosting(self):
         self.parent.auth_manager.current.username = '小明'
         self.controller.game = {'version': '1.21.8'}

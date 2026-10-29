@@ -25,6 +25,12 @@ Surface {
                 onClicked: { lobby.act("dismissPublicGuide", {}); header.settingsRequested() }
                 Shared.AttentionFrame { objectName: "room-public-guide-glow"; active: header.roomView.showPublicGuide }
             }
+            ActionButton {
+                objectName: "room-submit-diagnostics"; text: "提交诊断"; quiet: true; implicitHeight: 28
+                enabled: !!lobby.view.socialReady && !lobby.view.busy
+                Accessible.name: "提交当前房间的联机诊断"
+                onClicked: lobby.act("submitDiagnostics", {})
+            }
             ActionButton { objectName: "room-details"; text: "详情"; quiet: true; implicitWidth: 52; implicitHeight: 28; onClicked: details.open() }
         }
         RowLayout {

@@ -1,5 +1,7 @@
 """Real HTTP downloads must verify bytes before replacing installed files."""
 import hashlib
+import io
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
@@ -8,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from zipfile import ZipFile
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
 
@@ -18,6 +21,46 @@ import requests
 
 
 class DownloadTransportTests(unittest.TestCase):
+    def test_install_fetches_core_libraries_assets_logging_and_extracts_natives(self):
+        native = io.BytesIO()
+        with ZipFile(native, 'w') as archive:
+            archive.writestr('fixture-native.dll', b'native library fixture')
+        asset = b'real HTTP game asset fixture'
+        digest = hashlib.sha1(asset).hexdigest()
+        index = json.dumps({'objects': {'minecraft/sounds/fixture.ogg':
+            {'hash': digest, 'size': len(asset)}}}).encode()
+        base = self.url.rsplit('/', 1)[0]
+        payloads = {'/client': b'game core fixture', '/library': b'library fixture',
+                    '/native': native.getvalue(), '/index': index, '/logging': b'log config fixture',
+                    '/asset': asset}
+        self.extra_payloads = payloads
+        def artifact(endpoint, **extra):
+            payload = payloads[endpoint]
+            return dict(url=base + endpoint, sha1=hashlib.sha1(payload).hexdigest(), size=len(payload), **extra)
+        metadata = {'id': 'component-fixture', 'downloads': {'client': artifact('/client')},
+            'libraries': [{'name': 'fixture:library:1', 'downloads': {
+                'artifact': artifact('/library', path='fixture/library.jar'),
+                'classifiers': {'natives-fixture': artifact('/native', path='fixture/native.jar')}},
+                'natives': {self.downloader.system: 'natives-fixture'}}],
+            'assetIndex': artifact('/index', id='fixture'),
+            'logging': {'client': {'file': artifact('/logging', id='fixture.xml')}}}
+        real_urls = self.downloader.urls
+        def urls(url):
+            if url.startswith('https://resources.download.minecraft.net/'):
+                return [base + '/asset']
+            return real_urls(url)
+        with patch.object(self.downloader, 'urls', side_effect=urls):
+            self.downloader.install_metadata('component-fixture', metadata)
+        root = Path(self.temp.name)
+        for path, payload in [('versions/component-fixture/component-fixture.jar', payloads['/client']),
+                ('libraries/fixture/library.jar', payloads['/library']),
+                ('assets/log_configs/fixture.xml', payloads['/logging']),
+                (f'assets/objects/{digest[:2]}/{digest}', asset),
+                ('versions/component-fixture/natives/fixture-native.dll', b'native library fixture')]:
+            self.assertEqual((root / path).read_bytes(), payload, path)
+        self.assertTrue((root / 'versions/component-fixture/.buggcraft-complete.json').is_file())
+        self.assertCountEqual(self.requests, payloads.keys())
+
     def test_file_events_report_real_bytes_verification_and_cached_reuse(self):
         events = []
         self.downloader.file_event = events.append
@@ -92,6 +135,13 @@ class DownloadTransportTests(unittest.TestCase):
                 fixture.requests.append(self.path)
                 fixture.ranges.append(self.headers.get('Range'))
                 fixture.user_agents.append(self.headers.get('User-Agent'))
+                if self.path in getattr(fixture, 'extra_payloads', {}):
+                    payload = fixture.extra_payloads[self.path]
+                    self.send_response(200)
+                    self.send_header('Content-Length', str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 if self.path == '/redirect':
                     self.send_response(302)
                     self.send_header('Location', '/artifact')

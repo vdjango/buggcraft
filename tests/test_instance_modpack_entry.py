@@ -5,6 +5,60 @@ from _qml_test_support import LauncherQmlCase
 
 
 class InstanceModpackEntryTests(LauncherQmlCase):
+    def test_export_is_cancellable_while_qt_remains_responsive(self):
+        import threading
+        from PySide6.QtCore import QTimer
+        from core.modpacks import export_pack as real_export
+        instance = self.game_dir / 'versions/1.21.8'
+        metadata = instance / '1.21.8.json'
+        metadata.write_text(json.dumps(dict(id='1.21.8', clientVersion='1.21.8')), encoding='utf-8')
+        (instance / 'config').mkdir()
+        (instance / 'config/settings.txt').write_bytes(b'portable-content' * 200000)
+        archive = self.directory / 'cancelled.buggpack'
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        worker_threads, ticks = [], []
+        timer = QTimer()
+        timer.setInterval(10)
+        timer.timeout.connect(lambda: ticks.append(threading.get_ident()))
+        timer.start()
+        self.addCleanup(timer.stop)
+        def gated_export(*args, **kwargs):
+            report = kwargs['progress']
+            def progress(label, done, total):
+                report(label, done, total)
+                if label.startswith('正在打包') and not started.is_set():
+                    worker_threads.append(threading.get_ident())
+                    started.set()
+                    if not release.wait(10):
+                        raise TimeoutError('UI did not respond while exporting')
+            kwargs['progress'] = progress
+            return real_export(*args, **kwargs)
+        self.window.switch_pages('实例')
+        page = self.window.version_page.versions_page
+        self.pump()
+        with patch('ui.pages.qml_instances.export_pack', side_effect=gated_export), \
+                patch('ui.pages.qml_instances.QFileDialog.getSaveFileName', return_value=(str(archive), 'Buggcraft package')):
+            self.click(page, 'instance-export-1.21.8')
+            dialog = page.controller._export_dialog
+            self.snapshot('modpack-export-modes', dialog)
+            self.click(dialog.host, 'dialog-action-0')
+            self.wait_until(started.is_set)
+            before = len(ticks)
+            self.wait_until(lambda: len(ticks) > before + 2)
+            self.assertNotEqual(worker_threads[0], threading.get_ident())
+            self.snapshot('modpack-export-progress', dialog)
+            self.click(dialog.host, 'dialog-action-0')
+            self.assertTrue(page.controller._export_worker.cancel.is_set())
+            release.set()
+            self.wait_until(lambda: page.controller._export_worker is None)
+        self.assertFalse(archive.exists())
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.controller.message, '导出已取消')
+        self.click(dialog.host, 'dialog-action-0')
+        self.wait_until(lambda: page.controller._export_dialog is None)
+        self.assert_no_qml_errors()
+
     def test_buggpack_drag_drop_opens_actual_import_form(self):
         from PySide6.QtCore import QMimeData, QPoint, QPointF, QUrl, Qt
         from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -21,6 +75,7 @@ class InstanceModpackEntryTests(LauncherQmlCase):
         QApplication.sendEvent(self.window.started_page.quick, drop)
         self.pump(100)
         controller = self.window.download_page.content_page.controller
+        self.wait_until(lambda: not controller.pack_inspecting)
         self.assertEqual(controller.pack_path, str(archive.resolve()))
         self.assertEqual(controller.view, 'import')
         self.assert_no_qml_errors()
@@ -46,11 +101,18 @@ class InstanceModpackEntryTests(LauncherQmlCase):
             dialog = page.controller._export_dialog
             self.assertIsNotNone(dialog)
             self.click(dialog.host, 'dialog-action-0')
+        self.wait_until(lambda: page.controller._export_worker is None)
         self.assertTrue(archive.is_file())
         with zipfile.ZipFile(archive) as packaged:
             self.assertIn('buggcraft.pack.json', packaged.namelist())
             self.assertEqual(packaged.read('files/config/ui-export.json'), b'{"ok":true}')
         self.assertIn('整合包已导出', page.controller.view['status'])
+        self.assertIs(page.controller._export_dialog, dialog)
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.controller.actions, ['关闭'])
+        self.snapshot('modpack-export-complete', dialog)
+        self.click(dialog.host, 'dialog-action-0')
+        self.wait_until(lambda: page.controller._export_dialog is None)
 
     def test_import_uses_selected_directory_after_each_directory_change(self):
         page = self.window.version_page.versions_page

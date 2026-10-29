@@ -212,6 +212,7 @@ class DownloadChecklistUiTests(_DownloadCase):
             self.click_ui(page, "download-import-pack")
         host = self.window.download_page.content_page
         self.check(controller.view == "import", "import entry opens its real form")
+        self.wait_for(lambda: not controller.pack_inspecting, 'pack metadata inspection completes off UI thread')
         return host, controller
 
     def test_modpack_import_mrpack_and_curseforge_zip_name_and_instance_refresh(self):
@@ -264,11 +265,13 @@ class DownloadChecklistUiTests(_DownloadCase):
             with self.subTest(archive=archive.name):
                 with patch("ui.pages.download.content_browser.QFileDialog.getOpenFileName", return_value=(str(archive), "ZIP")):
                     self.click_ui(host, "choose-pack-file")
+                self.wait_for(lambda: not controller.pack_inspecting, 'invalid pack inspection completes')
                 self.check(bool(controller.pack_error) and not controller.pack_path
                            and not self.item(host, "start-pack-import").isEnabled(),
                            "unreadable or non-modpack ZIP shows an error and disables import")
         with patch("ui.pages.download.content_browser.QFileDialog.getOpenFileName", return_value=(str(self.fixtures.pack_path), "MRPACK")):
             self.click_ui(host, "choose-pack-file")
+        self.wait_for(lambda: not controller.pack_inspecting, 'valid pack inspected after errors')
         for name in ("", "   ", "bad/name", "1.21.8"):
             with self.subTest(name=name):
                 self.text_ui(host, "pack-instance-name", name)
@@ -276,8 +279,14 @@ class DownloadChecklistUiTests(_DownloadCase):
                     self.check(not self.item(host, "start-pack-import").isEnabled(), "blank instance name cannot be submitted")
                 else:
                     self.click_ui(host, "start-pack-import")
-                    self.check(bool(controller.pack_error) and not self.window.download_page.tasks_page._tasks,
-                               "invalid or occupied instance name is rejected without a task")
+                    if name == '1.21.8':
+                        dialog = controller._import_conflict_dialog
+                        self.check(dialog is not None and not self.window.download_page.tasks_page._tasks,
+                                   'occupied name offers rename without starting a task')
+                        self.click_ui(dialog, 'dialog-action-1')
+                    else:
+                        self.check(bool(controller.pack_error) and not self.window.download_page.tasks_page._tasks,
+                                   "invalid instance name is rejected without a task")
         self.text_ui(host, "pack-instance-name", "recovered-name")
         self.click_ui(host, "start-pack-import")
         self.finished_task()
@@ -305,6 +314,7 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.wait_for(lambda: self.window.download_page.content_page.controller.view == "import"
                               and self.window.current_tab == 1, "drop opens the real import form")
                 controller = self.window.download_page.content_page.controller
+                self.wait_for(lambda: not controller.pack_inspecting, 'dropped pack inspection completes')
                 self.check(controller.pack_path == str(self.fixtures.pack_path.resolve()) and bool(controller.pack_name),
                            "drop invokes production inspection and fills the instance name")
                 self.text_ui(self.window.download_page.content_page, "pack-instance-name", "dropped-pack")
@@ -313,6 +323,55 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.check((self.game_dir / "versions/dropped-pack/config/ui-acceptance.json").is_file(),
                    "the dropped pack can be imported through its form")
         self.screenshot_ui("download-dropped-pack-installed")
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_duplicate_import_renames_without_overwriting_existing_instance(self):
+        host, controller = self.open_import()
+        original = self.game_dir / 'versions' / 'duplicate-pack'
+        original.mkdir()
+        marker = original / 'keep.txt'
+        marker.write_text('original instance', encoding='utf-8')
+        self.text_ui(host, 'pack-instance-name', 'duplicate-pack')
+        self.click_ui(host, 'start-pack-import')
+        dialog = controller._import_conflict_dialog
+        self.check(dialog is not None and dialog.isVisible(), 'duplicate import offers a naming choice')
+        self.check(dialog.controller.data['name'] == 'duplicate-pack-2', 'unused instance name is proposed')
+        self.text_ui(dialog, 'import-conflict-name', 'duplicate-copy')
+        self.click_ui(dialog, 'dialog-action-0')
+        task = self.finished_task()
+        self.check(task['version'] == 'duplicate-copy'
+                   and (self.game_dir / 'versions/duplicate-copy/config/ui-acceptance.json').is_file(),
+                   'renamed import executes the real importer')
+        self.check(marker.read_text(encoding='utf-8') == 'original instance',
+                   'duplicate import preserves the original instance')
+        self.screenshot_ui('download-duplicate-import-completed')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_duplicate_import_cancel_and_occupied_replacement_start_no_task(self):
+        host, controller = self.open_import()
+        markers = []
+        for name in ('occupied-pack', 'occupied-pack-2'):
+            directory = self.game_dir / 'versions' / name
+            directory.mkdir()
+            marker = directory / 'keep.txt'
+            marker.write_text(name, encoding='utf-8')
+            markers.append(marker)
+        self.text_ui(host, 'pack-instance-name', 'occupied-pack')
+        self.click_ui(host, 'start-pack-import')
+        dialog = controller._import_conflict_dialog
+        self.check(dialog.controller.data['name'] == 'occupied-pack-3', 'name proposal skips both existing instances')
+        self.text_ui(dialog, 'import-conflict-name', 'occupied-pack-2')
+        self.click_ui(dialog, 'dialog-action-0')
+        self.check(dialog.isVisible() and '已存在' in dialog.controller.detail,
+                   'occupied replacement is rejected inside the naming dialog')
+        self.check(not self.window.download_page.tasks_page._workers, 'rejected name creates no install task')
+        self.click_ui(dialog, 'dialog-action-1')
+        self.wait_for(lambda: controller._import_conflict_dialog is None, 'cancel dismisses rename dialog')
+        self.check(not self.window.download_page.tasks_page._workers, 'cancelling duplicate import creates no task')
+        for marker in markers:
+            self.check(marker.read_text(encoding='utf-8') == marker.parent.name, 'existing instance stays untouched')
         self.assert_no_qml_errors()
         self.finish_test()
 

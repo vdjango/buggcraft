@@ -27,7 +27,7 @@ from hookup.profiles import RelayProfile
 from ui.multiplayer_controller import MultiplayerController
 
 ROOT = Path(__file__).resolve().parents[1]
-NATIVE = ROOT.parent / 'minecraft-tunnel-native'
+NATIVE = Path(os.environ.get('BUGGCRAFT_NATIVE_SOURCE', ROOT.parent / 'minecraft-tunnel-native'))
 GAME = dict(version='1.21.8', loader='vanilla', mods_count=0,
             mods_hash=hashlib.sha256(b'').hexdigest())
 
@@ -84,6 +84,8 @@ class LiveRoomUiTests(unittest.TestCase):
             except (OSError, subprocess.TimeoutExpired):
                 self.node.kill(); self.node.wait(timeout=5)
         self.node_errors.close()
+        self.node.stdin.close()
+        self.node.stdout.close()
 
     def client(self, nickname, index):
         shell = QWidget()
@@ -139,6 +141,14 @@ class LiveRoomUiTests(unittest.TestCase):
 
     def test_real_room_chat_consent_revocation_and_ownership_from_visible_controls(self):
         host, guest = self.host, self.guest
+        manager_id = self.record(host)['lobby']['manager_id']
+        for client in (host, guest):
+            self.click(client, 'room-tab-members')
+            self.assertTrue(find_item(client[1], 'room-member-' + manager_id).isVisible())
+            role = find_item(client[1], 'member-role-' + manager_id)
+            self.assertTrue(role.isVisible())
+            self.assertEqual(role.property('text'), '房主')
+        self.click(guest, 'room-tab-chat')
         self.click(guest, 'room-chat-input')
         self.assertTrue(find_item(guest[1], 'room-chat-input').hasActiveFocus(),
             'Chat field did not receive focus from the mouse click')

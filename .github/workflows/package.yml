@@ -104,7 +104,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 259c79360a7b1b55b0c4629d555d5112c310cf7b
+          ref: e80c7d15a96ea98b4253985330f22e084d0fa8e4
           path: native-source
       - uses: actions/setup-python@v5
         with:
@@ -177,12 +177,13 @@ jobs:
                      'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
                      'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
                      'test_unix_qt_trimming', 'test_room_mod_installation',
-                     'test_room_launch_flow', 'test_lobby_layout',
+                     'test_room_launch_flow', 'test_lobby_layout', 'test_room_lobby_ui',
+                     'test_game_log_ui',
                      'test_chat_controller', 'test_clipboard', 'test_friend_directory', 'test_social_diagnostics',
                      'test_friend_entry_regression', 'test_friend_entry_ui', 'test_lobby_opening', 'test_lobby_navigation',
                      'test_instance_deletion', 'test_instance_modpack_entry',
-                     'test_download_transport', 'test_installation_receipt', 'test_modrinth_import',
-                     'test_release_gate']
+                     'test_download_transport', 'test_download_locks', 'test_installation_receipt', 'test_modrinth_import',
+                     'test_release_gate', 'test_regression_wiring']
           pathlib.Path('dist').mkdir(exist_ok=True)
           # Give each module a fresh Qt/runtime lifetime. Collecting dead UI
           # objects in a later HTTP worker can otherwise crash the interpreter.

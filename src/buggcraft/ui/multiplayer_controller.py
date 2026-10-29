@@ -1449,9 +1449,17 @@ class MultiplayerController(RoomPreparation, QObject):
         if mode == 'existing' and not self.instance_source:
             raise ValueError('请先选择一个已安装的游戏配置。')
         settings = page.settings_manager
-        directory = settings.get_setting('minecraft.directory.enable')
+        directory = settings.get_setting('minecraft.directory.enable') or ''
         if not directory:
-            raise ValueError('请先在设置中选择游戏目录。')
+            from utils.path_helper import get_default_minecraft_dir
+            directory = str(get_default_minecraft_dir())
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            installed = settings.get_setting('minecraft.directory.installed', []) or []
+            if directory not in installed:
+                installed.append(directory)
+            settings.set_setting('minecraft.directory.installed', installed)
+            settings.set_setting('minecraft.directory.enable', directory)
+            settings.save_settings()
         from hookup.preparation import prepare_configuration
         cancel = threading.Event()
         self.preparations[name] = cancel

@@ -10,7 +10,14 @@ _files = {}
 
 @contextmanager
 def download_lock(path, cancel=None):
-    key = os.path.normcase(str(Path(path).resolve()))
+    resolved = str(Path(path).resolve())
+    # Windows may return an extended path while another task creates a parent.
+    # Both spellings still refer to one file and must share the same lock.
+    if resolved.startswith('\\\\?\\UNC\\'):
+        resolved = '\\\\' + resolved[8:]
+    elif resolved.startswith('\\\\?\\'):
+        resolved = resolved[4:]
+    key = os.path.normcase(resolved)
     with _guard:
         entry = _files.setdefault(key, [threading.RLock(), 0])
         entry[1] += 1
