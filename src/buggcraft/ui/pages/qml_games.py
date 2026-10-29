@@ -1,14 +1,18 @@
 """Virtualized Minecraft catalogue and QML installation form."""
 import json
+import logging
 import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, Signal, Slot
 
 from config.settings import get_settings_manager
-from core.downloads import MinecraftDownloader
+from core.downloads import MinecraftDownloader, download_error_message
 from core.loader_rules import COMPONENTS, LOADERS, incompatibility
 from ui.pages.qml_host import QmlPage
+
+
+logger = logging.getLogger(__name__)
 
 
 class WorkSignals(QObject):
@@ -27,7 +31,8 @@ class CatalogueWork(QRunnable):
         try:
             self.signals.finished.emit(self.sequence, self.kind, self.action(), '')
         except Exception as exc:
-            self.signals.finished.emit(self.sequence, self.kind, None, str(exc))
+            logger.exception('Catalogue request failed: kind=%s sequence=%s', self.kind, self.sequence)
+            self.signals.finished.emit(self.sequence, self.kind, None, download_error_message(exc))
 
 
 class GameCatalogueController(QObject):

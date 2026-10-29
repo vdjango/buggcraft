@@ -150,10 +150,33 @@ class DownloadCancelled(Exception):
 
 
 def download_error_message(error):
-    """Keep parser internals out of the task card; callers log the traceback."""
-    if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+    """Project transport/parser failures into UI text; retain details in logs."""
+    message = str(error or '').strip()
+    if isinstance(error, PermissionError) or re.search(r'\bPermissionError\b|Access is denied|access denied',
+                                                       message, re.IGNORECASE):
+        return '目标文件夹没有写入权限，请选择其他文件夹后重试。'
+    if (isinstance(error, (json.JSONDecodeError, UnicodeDecodeError))
+            or re.search(r'JSONDecodeError|Expecting (?:value|property name)|Extra data: line|'
+                         r'Unterminated string|line \d+ column \d+', message, re.IGNORECASE)):
         return '下载信息不完整或格式错误，请点击重试。已下载进度会保留。'
-    return str(error)
+    raw_data = (message.startswith('{')
+                or re.match(r'^\[\s*(?:\{|\[|["\']|\]|true\b|false\b|null\b|-?\d+(?=[.,\]\s]))', message)
+                or re.search(r'\{\s*["\'][^\n]+["\']\s*:', message))
+    transport = isinstance(error, requests.RequestException) or re.search(
+        r'https?://|HTTPS?ConnectionPool|Max retries exceeded|'
+        r'(?:Connect|Read)?Timeout(?:Error)?|ConnectionError|SSLError|'
+        r'Client Error|Server Error|Caused by|Traceback \(most recent call last\)', message, re.IGNORECASE)
+    if transport:
+        failed_file = re.match(r'下载\s+([^\n/\\:：]{1,100})\s+失败[:：]', message)
+        prefix = (failed_file[1] + ' 下载失败：') if failed_file else ''
+        if re.search(r'timed?\s*out|timeout|超时', message, re.IGNORECASE):
+            return prefix + '连接下载源超时，请重试或在设置中切换下载源。已下载进度会保留。'
+        if re.search(r'\b404\b', message):
+            return prefix + '下载源暂未提供所需文件（404），请重试或在设置中切换下载源。已下载进度会保留。'
+        return prefix + '暂时无法从下载源获取文件，请重试或在设置中切换下载源。已下载进度会保留。'
+    if raw_data or len(message) > 400 or '\n' in message:
+        return '下载未完成，请重试。可在任务日志中查看详情。'
+    return message
 
 
 _CURRENT_DOWNLOAD_BUDGET = ContextVar('buggcraft_download_budget', default=None)
@@ -315,7 +338,7 @@ class MinecraftDownloader:
         mirror = MIRROR + replacements[parsed.hostname] + parsed.path
         if parsed.query:
             mirror += "?" + parsed.query
-        return [mirror, original] if self.source == "BMCLAPI" else [original, mirror]
+        return [original, mirror] if self.source == "自动（官方优先，失败切换镜像）" else [mirror, original]
 
     def inside(self, relative):
         target = _resolved(self.root / relative)

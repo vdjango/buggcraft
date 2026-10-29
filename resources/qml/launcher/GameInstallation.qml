@@ -66,6 +66,7 @@ Rectangle {
                 onClicked: gameCatalogue.chooseComponentVersion(index)
             }
             Label {
+                objectName: "component-list-status"
                 anchors.centerIn: parent; width: parent.width; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter
                 visible: versions.count === 0; color: "#b3ffffff"
                 text: root.state.loaderBusy ? "正在获取版本…" : root.state.loaderStatus || "暂无可用版本"

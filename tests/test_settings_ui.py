@@ -107,7 +107,8 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
         self.check(self.persisted().get_setting('launcher.allow_multiple') is False,
                    'disabled multi-open state survives a fresh settings read')
         for key, values in (
-                ('settings.general.mirrors', ['自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI']),
+                ('settings.general.mirrors', ['自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI',
+                                              '自动（官方优先，失败切换镜像）']),
                 ('settings.general.content_mirror', ['自动测速', 'MCIM', '官方'])):
             for index, expected in enumerate(values):
                 self.select_choice(page, key, index)

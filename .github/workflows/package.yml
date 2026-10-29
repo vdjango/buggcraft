@@ -174,7 +174,8 @@ jobs:
                      'test_inherited_launch', 'test_game_sessions', 'test_game_diagnostics',
                      'test_startup_logging', 'test_startup_resource_paths', 'test_launcher_process',
                      'test_update_client', 'test_launcher_updates', 'test_resource_translation', 'test_ui_refinements',
-                     'test_loader_catalogue', 'test_native_code_import',
+                     'test_loader_catalogue', 'test_loader_catalogue_regressions',
+                     'test_download_error_presentation', 'test_native_code_import',
                      'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
                      'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache',
                      'test_unix_qt_trimming', 'test_room_mod_installation',
@@ -224,6 +225,7 @@ jobs:
                      'tests/test_startup_errors_ui.py', 'tests/test_download_ui.py',
                      'tests/test_settings_ui.py', 'tests/test_settings_checklist_ui.py',
                      'tests/test_shared_branches_ui.py', 'tests/test_loader_source_ui.py',
+                     'tests/test_catalogue_source_regression_ui.py',
                      'tests/test_onboarding.py', '-k', 'not online',
                      '--junitxml=dist/client-ui/pytest.xml']
           log = Path('dist/client-ui/pytest.log')

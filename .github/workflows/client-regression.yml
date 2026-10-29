@@ -144,6 +144,7 @@ jobs:
           # Keep the same pytest cases and assertions, with a fresh Qt/native
           # lifetime per module just as in the UI and packaging steps.
           for name in ('test_download_transport', 'test_download_locks', 'test_download_concurrency',
+                       'test_loader_catalogue', 'test_loader_catalogue_regressions', 'test_download_error_presentation',
                        'test_modpack_import', 'test_room_mod_installation', 'test_room_launch_flow',
                        'test_java_downloads', 'test_java_runtime_selection', 'test_update_client',
                        'test_launcher_updates'):
@@ -162,7 +163,7 @@ jobs:
       - name: Test export controls and responsive worker lifecycle
         run: python -X faulthandler -u -m pytest -q tests/test_instance_modpack_entry.py tests/test_modpack_drop.py tests/test_modpack_no_key.py --junitxml=build/client-regression/export-ui.xml 2>&1 | tee build/client-regression/export-ui.log
       - name: Test duplicate import, editable names and friend entry lifecycle
-        run: python -X faulthandler -u -m pytest -q tests/test_download_ui.py tests/test_friend_entry_ui.py --junitxml=build/client-regression/download-ui.xml 2>&1 | tee build/client-regression/download-ui.log
+        run: python -X faulthandler -u -m pytest -q tests/test_download_ui.py tests/test_catalogue_source_regression_ui.py tests/test_friend_entry_ui.py --junitxml=build/client-regression/download-ui.xml 2>&1 | tee build/client-regression/download-ui.log
       - name: Test real P2P idle, failure, fallback, reconnect and room protocols
         working-directory: native-source
         run: python -u -m unittest tests.test_peer_heartbeat tests.test_peer_reconnect tests.test_peer_signaling_attempt tests.test_peer_stun_fallback tests.test_ipv4_p2p tests.test_route_selection tests.test_relay_handshake tests.test_resource_metadata tests.test_room_lobby tests.test_bridge_services -v 2>&1 | tee ../build/client-regression/native-protocol.log

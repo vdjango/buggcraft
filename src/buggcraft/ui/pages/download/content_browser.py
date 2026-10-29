@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QFileDialog, QWidget, QVBoxLayout
 from config.settings import get_settings_manager
 from core.content import ContentCatalogue, instance_environment
 from core.content_mirrors import configured_source
+from core.downloads import download_error_message
 from core.translation import TranslationClient, endpoint as translation_endpoint
 from core.modpacks import inspect_pack, instance_name, suggested_name
 from ui.pages.qml_host import QmlPage
@@ -71,7 +72,8 @@ class _SearchWorker(QRunnable):
             mode, action = self.mode
             self.signals.finished.emit(self.request, mode, action(), "")
         except Exception as exc:
-            self.signals.finished.emit(self.request, self.mode[0], None, str(exc))
+            logger.exception('Content catalogue request failed: mode=%s', self.mode[0])
+            self.signals.finished.emit(self.request, self.mode[0], None, download_error_message(exc))
 
 
 class _PackInspectWorker(QRunnable):
@@ -86,7 +88,8 @@ class _PackInspectWorker(QRunnable):
         try:
             self.signals.finished.emit(self.generation, 'pack-inspect', inspect_pack(self.path), '')
         except Exception as exc:
-            self.signals.finished.emit(self.generation, 'pack-inspect', None, str(exc))
+            logger.exception('Modpack inspection failed: path=%s', self.path)
+            self.signals.finished.emit(self.generation, 'pack-inspect', None, download_error_message(exc))
 
 
 class ContentBrowserController(QObject):
@@ -559,7 +562,7 @@ class ContentBrowserController(QObject):
         self.busy = False
         logger.info('Content query finished: request=%s mode=%s count=%s error=%s', request, mode, len(data or []), error)
         if error:
-            self.status = "获取失败：" + error
+            self.status = "获取失败：" + download_error_message(error)
             if mode == 'search' and self._append:
                 self.has_more = True
         elif mode == "search":
@@ -746,7 +749,7 @@ class ContentBrowserController(QObject):
         if error:
             self.pack_path = ''
             self.pack_summary = '无法读取这个整合包。'
-            self.pack_error = error
+            self.pack_error = download_error_message(error)
         else:
             self.pack_path = self._pack_candidate
             self.pack_summary = (f"{info.name} · {info.version} · {info.source}\nMinecraft {info.minecraft} · "
@@ -782,7 +785,8 @@ class ContentBrowserController(QObject):
                 self.status = "整合包导入任务已开始，可在任务页查看进度。"
                 self.pageRequested.emit("tasks")
         except Exception as exc:
-            self.pack_error = str(exc)
+            logger.exception('Unable to start modpack import')
+            self.pack_error = download_error_message(exc)
         self.changed.emit()
 
     def _show_import_conflict(self, directory):

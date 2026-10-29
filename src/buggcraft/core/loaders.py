@@ -92,6 +92,8 @@ def _source_mode(source):
         return "official"
     if source == "BMCLAPI":
         return "mirror"
+    if source == "自动（官方优先，失败切换镜像）":
+        return "official_first"
     return "auto"
 
 
@@ -101,12 +103,16 @@ def _source_urls(source, official, mirror):
         return [official]
     if mode == "mirror":
         return [mirror]
-    return [official, mirror]
+    return [official, mirror] if mode == "official_first" else [mirror, official]
 
 
 def _response(url):
     response = requests.get(url, timeout=(8, 20), headers={"User-Agent": USER_AGENT})
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception:
+        response.close()
+        raise
     return response
 
 
@@ -131,18 +137,63 @@ def _response_json(url, label):
 
 
 def _maven_versions(url):
-    root = ET.fromstring(_response(url).content)
-    return [node.text for node in root.findall("./versioning/versions/version") if node.text]
+    response = _response(url)
+    try:
+        root = ET.fromstring(response.content)
+        return [node.text for node in root.findall("./versioning/versions/version") if node.text]
+    finally:
+        response.close()
 
 
-def _load_records(label, candidates):
+def _load_records(label, candidates, normalize, minecraft_version):
     errors = []
     for url, load in candidates:
         try:
-            return load(url)
+            versions = normalize(load(url))
+            if versions:
+                return versions
+            logger.warning('loader_catalogue_empty loader=%s game=%s url=%s', label, minecraft_version, url)
         except Exception as exc:
-            errors.append(f"{url}: {exc}")
-    raise RuntimeError(f"无法获取 {label} 版本列表：{'；'.join(errors)}")
+            errors.append(exc)
+            logger.warning('loader_catalogue_failed loader=%s game=%s url=%s',
+                           label, minecraft_version, url, exc_info=True)
+    if not errors:
+        raise ValueError(f"{label} 暂无适用于 Minecraft {minecraft_version} 的版本")
+    raise RuntimeError(f"暂时无法获取 {label} 版本列表，请重新加载或在设置中切换下载源。") from errors[-1]
+
+
+def _sorted_versions(versions):
+    def order(version):
+        release, *extra = re.split(r'[-+]', version, maxsplit=1)
+        suffix = extra[0] if extra else ''
+        numbers = tuple(int(part) for part in release.split('.'))
+        suffix_order = tuple((1, int(part)) if part.isdigit() else (0, part)
+                             for part in re.split(r'(\d+)', suffix))
+        return numbers, '-' not in version, suffix_order
+    return sorted({version for version in versions if isinstance(version, str)
+                   and re.fullmatch(r'\d+(?:\.\d+)*(?:[-+][A-Za-z0-9_.+-]+)?', version)},
+                  key=order, reverse=True)
+
+
+def _meta_versions(records):
+    return _sorted_versions(item['loader']['version'] for item in records
+                            if isinstance(item, dict) and isinstance(item.get('loader'), dict)
+                            and isinstance(item['loader'].get('version'), str))
+
+
+def _neoforge_versions(records, minecraft_version):
+    # NeoForge's version suffix uses .0 for Minecraft releases such as 1.21.
+    match = re.fullmatch(r'1\.(\d+)(?:\.(\d+))?', minecraft_version)
+    prefix = f'{match[1]}.{match[2] or 0}.' if match else minecraft_version + '.'
+    versions = []
+    for item in records:
+        if isinstance(item, dict):
+            if item.get('mcversion') != minecraft_version:
+                continue
+            item = item.get('version')
+        if isinstance(item, str) and item.startswith(prefix):
+            versions.append(item)
+    return _sorted_versions(versions)
 
 
 def _forge_versions(records, minecraft_version):
@@ -242,7 +293,7 @@ def _flatten_forge_version(directory, installed, minecraft_version, before_versi
             shutil.rmtree(path, ignore_errors=True)
 
 
-def available_versions(loader, minecraft_version, source="自动（官方优先，失败切换镜像）"):
+def available_versions(loader, minecraft_version, source="自动（镜像优先，失败切换官方）"):
     if not minecraft_version:
         raise ValueError("请先选择 Minecraft 版本")
     if loader == "Forge":
@@ -251,8 +302,8 @@ def available_versions(loader, minecraft_version, source="自动（官方优先�
         candidates = []
         for url in _source_urls(source, official, mirror):
             candidates.append((url, _maven_versions if url == official else _json_versions))
-        records = _load_records("Forge", candidates)
-        result = _forge_versions(records, minecraft_version)
+        result = _load_records("Forge", candidates,
+                               lambda records: _forge_versions(records, minecraft_version), minecraft_version)
     elif loader in ("Fabric", "Quilt"):
         root = "v2" if loader == "Fabric" else "v3"
         official_host = "meta.fabricmc.net" if loader == "Fabric" else "meta.quiltmc.org"
@@ -260,20 +311,18 @@ def available_versions(loader, minecraft_version, source="自动（官方优先�
         mirror_name = "fabric-meta" if loader == "Fabric" else "quilt-meta"
         mirror = f"{BMCLAPI}/{mirror_name}/{root}/versions/loader/{minecraft_version}"
         candidates = [(url, _json_versions) for url in _source_urls(source, official, mirror)]
-        records = _load_records(loader, candidates)
-        result = [str(item["loader"]["version"]) for item in records
-                  if isinstance(item, dict) and item.get("loader", {}).get("version")]
+        result = _load_records(loader, candidates, _meta_versions, minecraft_version)
     elif loader == "NeoForge":
-        match = re.fullmatch(r"1\.(\d+)\.(\d+)", minecraft_version)
-        if not match or tuple(map(int, match.groups())) < (20, 2):
+        match = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", minecraft_version)
+        if not (match and ((int(match[1]) == 1 and (int(match[2]), int(match[3] or 0)) >= (20, 2))
+                           or int(match[1]) >= 26)):
             raise ValueError("NeoForge 官方安装器从 Minecraft 1.20.2 起提供")
-        prefix = f"{match.group(1)}.{match.group(2)}."
         official = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
-        mirror = _MAVEN_MIRROR + "/net/neoforged/neoforge/maven-metadata.xml"
-        candidates = [(url, _maven_versions) for url in _source_urls(source, official, mirror)]
-        result = [version for version in _load_records("NeoForge", candidates)
-                  if version.startswith(prefix)]
-        result.reverse()
+        mirror = BMCLAPI + "/neoforge/list/" + minecraft_version
+        candidates = [(url, _maven_versions if url == official else _json_versions)
+                      for url in _source_urls(source, official, mirror)]
+        result = _load_records("NeoForge", candidates,
+                               lambda records: _neoforge_versions(records, minecraft_version), minecraft_version)
     else:
         raise ValueError(f"不支持的加载器：{loader}")
     if not result:
@@ -308,16 +357,19 @@ def _download_urls(url, source):
         "resources.download.minecraft.net": "/assets",
         "libraries.minecraft.net": "/maven",
     }
-    mirror = _maven_mirror_url(url)
-    if not mirror and parsed.hostname in replacements:
+    # Assets are not Maven artifacts, although both use minecraft.net hosts.
+    # Match the specific game endpoints before the generic Maven router.
+    if parsed.hostname in replacements:
         mirror = BMCLAPI + replacements[parsed.hostname] + parsed.path
         if parsed.query:
             mirror += "?" + parsed.query
+    else:
+        mirror = _maven_mirror_url(url)
     if _source_mode(source) == "official" or not mirror:
         return [url]
     if _source_mode(source) == "mirror":
         return [mirror]
-    return [url, mirror]
+    return [url, mirror] if _source_mode(source) == "official_first" else [mirror, url]
 
 
 class _LoaderSession:

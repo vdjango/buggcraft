@@ -544,7 +544,7 @@ class DownloadChecklistUiTests(_DownloadCase):
 
         def profile_response(url):
             profiles.append(url)
-            loader = 'fabric' if 'fabricmc' in url else 'quilt'
+            loader = 'fabric' if 'fabricmc' in url or '/fabric-meta/' in url else 'quilt'
             return SimpleNamespace(json=lambda: dict(id=loader + '-loader-0.16.9-1.21.8',
                 inheritsFrom='1.21.8', mainClass='fixture.ApiLoader', libraries=[]))
 
@@ -624,8 +624,11 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.check("404" in task["error"], "downloaded modpack failure retains its stage's HTTP error")
                 self.click_ui(tasks, "task-log-" + task["id"])
                 self.click_ui(tasks, "log-text-tab")
-                self.check(filename in self.item(tasks, "task-log-text").property("text"),
-                           "pack task log identifies the failed archive or client dependency")
+                log_text = self.item(tasks, "task-log-text").property("text")
+                local_name = "1.21.8.jar" if filename == "client.jar" else filename
+                self.check(local_name in log_text, "pack task log identifies the failed local archive or dependency")
+                self.check("Client Error" not in log_text and "http://" not in log_text,
+                           "failure log presents useful filenames without transport internals")
                 self.click_ui(tasks, "task-log-close")
                 self.fixtures.failures.clear()
                 self.click_ui(tasks, "task-action-" + task["id"])

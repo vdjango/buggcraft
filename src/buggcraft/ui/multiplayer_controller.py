@@ -1663,10 +1663,11 @@ class MultiplayerController(RoomPreparation, QObject):
             record.update(mods=[dict(item, state='pending') for item in event['files']],
                           prepareCount=len(event['files']), modLoading=False)
         elif kind == 'file':
+            from core.downloads import download_error_message
             self.add_prepare_log(record, event['name'] + ' · ' + {
                 'downloading': '开始下载', 'verified': '校验完成', 'failed': '下载失败',
                 'skipped': '可选内容已跳过'}.get(event['state'], event['state']) +
-                ((' · ' + str(event['error'])) if event.get('error') else ''),
+                ((' · ' + download_error_message(event['error'])) if event.get('error') else ''),
                 event.get('content', 'mods'), 'error' if event['state'] == 'failed' else 'info')
             record['mods'] = [dict(item, state=event['state']) if item['name'] == event['name'] else item
                               for item in record.get('mods', [])]
@@ -2124,6 +2125,8 @@ class MultiplayerController(RoomPreparation, QObject):
             self.publish_connections()
             return
         if key.startswith('prepare:'):
+            from core.downloads import download_error_message
+            display_error = download_error_message(error)
             name = key[8:]
             cancel = self.preparations.pop(name, None)
             task_id = self.preparation_tasks.pop(name, None)
@@ -2135,14 +2138,14 @@ class MultiplayerController(RoomPreparation, QObject):
             if record:
                 record['preparing'] = False
                 record['prepareFailed'] = bool(error)
-                record['prepareStatus'] = error or '配置已安装，正在复核加载器和模组…'
+                record['prepareStatus'] = display_error or '配置已安装，正在复核加载器和模组…'
                 self.publish_connections()
             if error:
                 if record:
-                    self.add_prepare_log(record, error, 'configuration', 'error')
+                    self.add_prepare_log(record, display_error, 'configuration', 'error')
                     self.report_room_state(name, 'cancelled' if cancel and cancel.is_set() else 'failed',
                                            code='cancelled' if cancel and cancel.is_set() else 'install_failed')
-                self.patch(error='配置准备失败：' + error)
+                self.patch(error='配置准备失败：' + display_error)
                 return
             try:
                 if not record:

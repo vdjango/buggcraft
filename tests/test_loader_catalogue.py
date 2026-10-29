@@ -168,7 +168,8 @@ class LoaderCatalogueTests(unittest.TestCase):
         offline.raise_for_status.side_effect = OSError('offline')
         mirror = self.response(records=[{'mcversion': '1.20.1', 'version': '47.4.0'}])
         with patch.object(loaders.requests, 'get', side_effect=[offline, mirror]) as get:
-            self.assertEqual(loaders.available_versions('Forge', '1.20.1', '自动'), ['47.4.0'])
+            self.assertEqual(loaders.available_versions(
+                'Forge', '1.20.1', '自动（官方优先，失败切换镜像）'), ['47.4.0'])
         self.assertEqual(get.call_count, 2)
 
     def test_no_matching_build_reports_no_compatible_version(self):
@@ -253,7 +254,8 @@ class LoaderCatalogueTests(unittest.TestCase):
                                     callback={}, session=session))
         self.assertEqual(session.get.call_count, 2)
         self.assertEqual(session.get.call_args.kwargs['timeout'], (8, 20))
-        self.assertTrue(session.get.call_args.args[0].startswith(loaders.BMCLAPI))
+        self.assertTrue(session.get.call_args_list[0].args[0].startswith(loaders.BMCLAPI))
+        self.assertEqual(session.get.call_args.args[0], 'https://maven.minecraftforge.net/installer.jar')
         cancel = threading.Event()
         cancel.set()
         with self.assertRaises(InterruptedError):
@@ -277,7 +279,8 @@ class LoaderCatalogueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             installer_path = Path(temporary) / 'installer.jar'
             installer_path.write_bytes(installer.getvalue())
-            for source, mirror_first in (('自动', False), ('官方', False), ('BMCLAPI', True)):
+            for source, mirror_first in (('自动', True), ('官方', False), ('BMCLAPI', True),
+                                         ('自动（官方优先，失败切换镜像）', False)):
                 root = Path(temporary) / source
                 calls = []
                 def fake_fetch(downloader, url, relative, sha1, size):

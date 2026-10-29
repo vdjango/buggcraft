@@ -64,7 +64,7 @@ class LoaderSourceUiTests(_UiCase):
                                 lambda _session, url, **kw: transport(url, **kw)))
         self.fixtures.payloads['source-fixture-1.jar'] = b'loader-specific transport evidence'
         digest = hashlib.sha1(self.fixtures.payloads['source-fixture-1.jar']).hexdigest()
-        policies = ('自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI')
+        policies = ('自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI')
         for loader, host in (('Fabric', 'meta.fabricmc.net'), ('Quilt', 'meta.quiltmc.org')):
             for index, fail in ((0, False), (1, False), (2, False), (0, True), (1, True)):
                 general = self.settings_tab(0)
@@ -82,7 +82,7 @@ class LoaderSourceUiTests(_UiCase):
                 self.fixtures.payloads['loader-profile.json'] = json.dumps(profile).encode()
                 library = self.game_dir / 'libraries/test/acceptance/source-fixture/1/source-fixture-1.jar'
                 library.unlink(missing_ok=True)
-                self.unavailable = {host, lib_host} if fail else set()
+                self.unavailable = ({mirror} if index == 0 else {host, lib_host}) if fail else set()
                 before = len(self.routes)
                 page = self.seed_games()
                 self.click_ui(page, 'install-1.21.8')
@@ -97,7 +97,7 @@ class LoaderSourceUiTests(_UiCase):
                 self.check(task['source'] == policies[index], 'selected policy reaches actual loader worker')
                 calls = self.routes[before:]
                 profiles = [row['host'] for row in calls if row['file'] == 'loader-profile.json']
-                self.check(profiles and profiles[0] == (mirror if index == 2 else host),
+                self.check(profiles and profiles[0] == (mirror if index in (0, 2) else host),
                            'loader profile first host follows settings: ' + repr(profiles))
                 metadata = self.game_dir / 'versions' / identity / (identity + '.json')
                 if rejected:
@@ -105,12 +105,12 @@ class LoaderSourceUiTests(_UiCase):
                                'official-only failure cannot fall back or publish a successful instance')
                     continue
                 if fail:
-                    self.check(mirror in profiles, 'automatic policy retries the loader profile through mirror')
+                    self.check(host in profiles, 'automatic policy falls back to the publisher after mirror failure')
                 libraries = [row['host'] for row in calls if row['file'] == 'source-fixture-1.jar']
-                self.check(libraries and libraries[0] == (mirror if index == 2 else lib_host),
+                self.check(libraries and libraries[0] == (mirror if index in (0, 2) else lib_host),
                            'loader dependency first host follows settings: ' + repr(libraries))
                 if fail:
-                    self.check(mirror in libraries, 'automatic dependency download also falls back')
+                    self.check(lib_host in libraries, 'automatic dependency download also falls back to publisher')
                 self.check(library.read_bytes() == self.fixtures.payloads['source-fixture-1.jar']
                            and json.loads(metadata.read_text(encoding='utf-8')) == profile,
                            'successful task publishes verified loader-specific bytes and exact profile')

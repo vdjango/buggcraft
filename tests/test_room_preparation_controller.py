@@ -10,8 +10,32 @@ import test_room_launch_flow as fixtures
 
 class RoomPreparationControllerTests(unittest.TestCase):
     setUpClass = fixtures.RoomLaunchFlowTests.__dict__['setUpClass']
-    setUp = fixtures.RoomLaunchFlowTests.setUp
     dispose_widgets = fixtures.RoomLaunchFlowTests.dispose_widgets
+
+    def setUp(self):
+        # These controller cases mock the room service, including its job queue.
+        # Network-profile discovery has dedicated tests and must not enqueue an
+        # unawaited coroutine in that mocked queue.
+        probe = patch('ui.multiplayer_controller.MultiplayerController.refresh_network_profile')
+        probe.start()
+        self.addCleanup(probe.stop)
+        fixtures.RoomLaunchFlowTests.setUp(self)
+
+    def test_room_install_failure_is_readable_and_raw_details_stay_in_history(self):
+        record = self.controller.records['room']
+        record.update(preparing=True, prepareLogs=[])
+        history = Mock()
+        self.controller.preparation_tasks['room'] = 'history-task'
+        raw = "下载 asm-util.jar 失败：HTTPSConnectionPool(host='mirror.invalid'): ReadTimeoutError"
+        with patch.object(self.controller, 'preparation_history', return_value=history):
+            self.controller.finish('prepare:room', None, raw)
+        history.finish_room_preparation.assert_called_once_with('history-task', False, raw, cancelled=False)
+        self.assertTrue(record['prepareFailed'])
+        for text in (record['prepareStatus'], self.controller.view['error']):
+            self.assertIn('超时', text)
+            self.assertIn('重试', text)
+            self.assertNotIn('ConnectionPool', text)
+            self.assertNotIn('mirror.invalid', text)
 
     def test_room_history_retry_reuses_task_and_refuses_a_disconnected_room(self):
         record = self.controller.records['room']

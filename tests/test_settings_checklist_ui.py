@@ -192,7 +192,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
 
     def test_game_download_source_preferences_reach_real_install_tasks(self):
         self.use_production_download_routes()
-        sources = ('自动（官方优先，失败切换镜像）', '官方', 'BMCLAPI')
+        sources = ('自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI')
         mirror = urlsplit(downloads.MIRROR).hostname
         for index, fail_official in ((0, False), (1, False), (2, False), (0, True), (1, True)):
             source = sources[index]
@@ -201,7 +201,8 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                 self.select_choice(general, 'settings.general.mirrors', index)
                 archive = self.game_dir / 'versions/1.21.8/1.21.8.jar'
                 archive.unlink(missing_ok=True)
-                self.route_failures = {('piston-data.mojang.com', 'client.jar')} if fail_official else set()
+                failing_host = mirror if index == 0 else 'piston-data.mojang.com'
+                self.route_failures = {(failing_host, 'client.jar')} if fail_official else set()
                 before = len(self.route_requests)
                 page = self.seed_games()
                 self.click_ui(page, 'install-1.21.8')
@@ -210,14 +211,15 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                 task = self.finished_task(state='失败' if rejected else '已完成')
                 self.check(task['source'] == source, 'selected game policy reaches production download worker')
                 hosts = [row['host'] for row in self.route_requests[before:] if row['file'] == 'client.jar']
-                self.check(hosts and hosts[0] == (mirror if index == 2 else 'piston-data.mojang.com'),
+                self.check(hosts and hosts[0] == (mirror if index in (0, 2) else 'piston-data.mojang.com'),
                            'actual first HTTP host follows the selected game source: ' + repr(hosts))
                 if rejected:
                     self.check(set(hosts) == {'piston-data.mojang.com'}, 'official-only mode never contacts the mirror')
                     self.check(not archive.exists(), 'unavailable official source cannot publish a client archive')
                     continue
                 if fail_official:
-                    self.check(hosts[-1] == mirror, 'automatic mode falls back to the mirror after official HTTP failure')
+                    self.check(hosts[-1] == 'piston-data.mojang.com',
+                               'automatic mode falls back to the publisher after mirror HTTP failure')
                 self.check(archive.read_bytes() == self.fixtures.payloads['client.jar'],
                            'game download produces the verified client bytes')
         self.screenshot_ui('settings-game-source-downloads')

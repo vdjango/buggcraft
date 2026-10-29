@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -56,6 +57,8 @@ class TaskHistoryController(QObject):
     def tasks(self):
         query = self._query.casefold()
         return [dict({key: value for key, value in task.items() if key not in ('files', 'logs', '_last_status')},
+                     error=download_error_message(task.get('error', '')),
+                     status=download_error_message(task.get('status', '')),
                      canRetry=task['id'] in self.page._external_retries,
                      speed=task.get('speed', 0) if task.get('state') in TasksPage.ACTIVE and time.monotonic() - task.get('_speedAt', 0) < 3 else 0) for task in self._tasks
                 if query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
@@ -138,9 +141,16 @@ class TaskHistoryController(QObject):
     def _refresh_log(self):
         task = self.page._find_task(self._log_task_id)
         if task:
-            self._log_lines = list(task.get("logs", []))
+            def display_line(line):
+                match = re.fullmatch(r'(\d{2}:\d{2}:\d{2}\s+)(.*)', line, re.DOTALL)
+                prefix, message = (match[1], match[2]) if match else ('', line)
+                if message.startswith('详细错误：'):
+                    message = message[len('详细错误：'):]
+                return prefix + download_error_message(message)
+            self._log_lines = [display_line(line) for line in task.get("logs", [])]
             order = {'failed': 0, 'retrying': 1, 'downloading': 2, 'verifying': 3, 'pending': 4}
-            self._log_files = sorted([dict(item) for item in task.get('files', [])],
+            self._log_files = sorted([dict(item, error=download_error_message(item.get('error', '')))
+                                      for item in task.get('files', [])],
                                      key=lambda item: order.get(item.get('state'), 5))
             self.logChanged.emit()
         elif self._log_task_id:
@@ -262,6 +272,7 @@ class DownloadWorker(QRunnable):
         except Exception as exc:
             logger.exception("Download/install failed: version=%s kind=%s source=%s", self.version,
                              self.content.get('kind') if self.content else 'modpack' if self.modpack else 'game', self.source)
+            self.signals.status.emit(self.task_id, '详细错误：' + str(exc))
             self.signals.finished.emit(self.task_id, False, download_error_message(exc))
 
 

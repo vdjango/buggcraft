@@ -19,8 +19,33 @@ class TaskHistoryQmlTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_task_and_file_presentations_hide_raw_error_but_preserve_details(self):
+        raw = '{"code": "UPSTREAM_FAILED", "message": "internal detail"}'
+        page = QWidget()
+        page._external_retries = {}
+        task = dict(id='failed', state='失败', version='pack', error=raw, status=raw,
+                    files=[dict(name='mod.jar', state='failed', error=raw)], logs=[raw,
+                        '12:34:56  详细错误：下载 mod.jar 失败：HTTPSConnectionPool(host=mirror.invalid): ReadTimeoutError'])
+        page._find_task = lambda _task_id: task
+        controller = TaskHistoryController(page)
+        controller.set_tasks([task])
+        try:
+            self.assertNotIn('{', controller.tasks[0]['error'])
+            self.assertNotIn('{', controller.tasks[0]['status'])
+            controller.showLog('failed')
+            self.assertNotIn('{', controller.currentFiles[0]['error'])
+            self.assertNotIn('{', controller.logLines[0])
+            self.assertEqual(task['logs'][0], raw)
+            self.assertTrue(controller.logLines[1].startswith('12:34:56  mod.jar 下载失败：'))
+            self.assertNotIn('ConnectionPool', controller.logLines[1])
+            self.assertEqual(task['files'][0]['error'], raw)
+        finally:
+            controller.closeLog()
+            page.close()
+
     def test_qml_loads_and_filters_existing_task_records(self):
         page = QWidget()
+        page._external_retries = {}
         page._tasks = [
             {"id": "active", "version": "1.21.8-Fabric", "game_dir": "E:/games/main",
              "state": "进行中"},
