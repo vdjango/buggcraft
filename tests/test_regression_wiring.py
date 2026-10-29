@@ -48,9 +48,10 @@ class RegressionWiringTests(unittest.TestCase):
             pins.append(match.group(1))
         self.assertEqual(len(set(pins)), 1, 'Packaging and regression must test the same native code')
         regression = (workflows / 'client-regression.yml').read_text(encoding='utf-8')
-        for module in ('test_native_cutover', 'test_native_bridge_runtime', 'test_diagnostics_ui',
+        for module in ('test_native_cutover', 'test_native_routes', 'test_native_bridge_runtime', 'test_diagnostics_ui',
                        'test_room_lobby_live_ui', 'test_download_transport', 'test_download_locks',
                        'test_instance_modpack_entry', 'test_modpack_drop', 'test_download_ui',
+                       'test_friend_entry_ui',
                        'test_java_downloads', 'test_update_client', 'test_room_launch_flow',
                        'test_peer_heartbeat', 'test_peer_reconnect', 'test_peer_signaling_attempt',
                        'test_peer_stun_fallback', 'test_room_lobby', 'test_feedback_native'):

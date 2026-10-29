@@ -3,6 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from PySide6.QtCore import QMetaObject, QUrl
+from PySide6.QtQuick import QQuickView
+
 from _qml_test_support import LauncherQmlCase
 from test_friend_entry_regression import personal_profile, social_state
 from hookup.nodes import save_json, profile_data
@@ -27,6 +30,27 @@ class FriendEntryUiTests(LauncherQmlCase):
         self.backend.store.add_node(str(self.path))
         self.backend.reload_store()
         self.pump()
+
+    def test_queued_floating_button_layout_is_safe_after_page_unload(self):
+        source = self.directory / 'floating-lifecycle.qml'
+        imports = (Path(__file__).resolve().parents[1] / 'resources/qml/multiplayer').as_uri()
+        source.write_text('import QtQuick\nimport "' + imports + '"\n'
+            'Item { width: 721; height: 505\n'
+            ' FloatingFriends { id: button; manuallyPositioned: true; y: 420 }\n'
+            ' function queueClamp() { button.maximumY = 100 }\n}', encoding='utf-8')
+        view = QQuickView()
+        try:
+            for _ in range(5):
+                view.setSource(QUrl.fromLocalFile(str(source)))
+                self.assertEqual(view.status(), QQuickView.Ready)
+                self.assertTrue(QMetaObject.invokeMethod(view.rootObject(), 'queueClamp'))
+                # Deliberately unload before Qt.callLater dispatches its clamp.
+                view.setSource(QUrl())
+                self.pump()
+            self.assert_no_qml_errors()
+        finally:
+            view.close()
+            view.deleteLater()
 
     def fail_refresh(self):
         key = 'socialstatus:' + self.backend.social_generation + ':' + self.backend.node_path

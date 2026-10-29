@@ -73,6 +73,10 @@ class DiagnosticsUiTests(_UiCase):
     def close_loop(self):
         if self.loop.is_running():
             async def drain():
+                # This case replaces TunnelService with a UI fixture. Close the
+                # real bridge on its owning loop before that fixture stops it.
+                from hookup.native_routes import close as close_native_routes
+                await close_native_routes()
                 tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
                 for task in tasks:
                     task.cancel()

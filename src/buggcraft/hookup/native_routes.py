@@ -107,19 +107,30 @@ class NativeRoutes:
         self.callbacks.clear()
         if library is not None:
             await asyncio.to_thread(library.close)
-        if process is not None and process.returncode is None:
+        if process is not None:
             try:
                 process.stdin.close()
             except (BrokenPipeError, OSError, ValueError):
+                pass
+            try:
+                await asyncio.wait_for(process.stdin.wait_closed(), 2)
+            except (asyncio.TimeoutError, TimeoutError, BrokenPipeError, OSError, ValueError):
                 pass
             try:
                 await asyncio.wait_for(process.wait(), 2)
             except (asyncio.TimeoutError, TimeoutError):
                 process.kill()
                 await process.wait()
+            try:
+                await asyncio.wait_for(process.stdout.read(), 2)
+            except (asyncio.TimeoutError, TimeoutError, OSError, ValueError):
+                pass
         if self.stderr is not None:
-            self.stderr.cancel()
-            await asyncio.gather(self.stderr, return_exceptions=True)
+            try:
+                await asyncio.wait_for(self.stderr, 2)
+            except (asyncio.TimeoutError, TimeoutError):
+                self.stderr.cancel()
+                await asyncio.gather(self.stderr, return_exceptions=True)
             self.stderr = None
 
     async def _request(self, method, params):
@@ -233,10 +244,22 @@ class NativeRoutes:
             if binary is None:
                 raise FileNotFoundError('未找到 C++ 联机桥，请安装包含 native 的完整启动器。')
             options = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+            # Cancellation can arrive after the OS child exists but before
+            # create_subprocess_exec returns. Keep the spawn alive long enough
+            # to take ownership and reap its process and pipe transports.
+            spawning = asyncio.create_task(asyncio.create_subprocess_exec(
+                binary, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE, limit=65536, **options))
             try:
-                self.process = await asyncio.create_subprocess_exec(
-                    binary, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE, limit=65536, **options)
+                self.process = await asyncio.shield(spawning)
+            except asyncio.CancelledError:
+                try:
+                    self.process = await spawning
+                    self.stderr = asyncio.create_task(self._drain_stderr(self.process))
+                    await self.close()
+                except Exception:
+                    pass
+                raise
             except OSError as exc:
                 raise startup_error(exc, 'process') from exc
             self.stderr = asyncio.create_task(self._drain_stderr(self.process))

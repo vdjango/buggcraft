@@ -9,12 +9,12 @@ AbstractButton {
     property real minimumY: 100
     property real maximumY: parent.height - height - 14
     property bool manuallyPositioned: false
-    onMaximumYChanged: Qt.callLater(function() {
-        // Wait for the surrounding layout before clamping a dragged position.
-        // The default position remains bound to the bottom edge.
-        if (control.manuallyPositioned && control.y > control.maximumY)
-            control.y = control.maximumY
-    })
+    onMaximumYChanged: {
+        // The binding itself is safe during destruction; Qt.callLater can run
+        // after this item has been detached from its parent.
+        if (manuallyPositioned && y > maximumY)
+            y = maximumY
+    }
     Accessible.name: "打开好友窗口"
     Accessible.description: "点击打开好友，按住拖动可调整位置"
     focusPolicy: Qt.StrongFocus

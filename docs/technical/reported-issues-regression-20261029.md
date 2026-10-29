@@ -23,6 +23,8 @@
 | REG-13 | 原生诊断上传支持流控；大附件慢磁盘时其他控制请求继续；截断清理和大小限制 | 原生 `compatibility/tests/test_feedback_native.py` |
 | REG-14 | 精简/常规包经真实 UI 导出、导入，再由实际 Java 启动 Minecraft 并加载资源 | `test_game_launch_live.py::RealMinecraftUiTests::test_buggpack_export_both_modes_import_and_launch_real_game` |
 | REG-15 | 四个实际 Minecraft 窗口进入准备房间、移动/方块/聊天同步、死亡重生、转让管理后游戏不断线、退出重进 | `test_four_game_multiplayer_live.py::test_four_real_minecraft_clients_move_build_chat_respawn_and_reconnect` |
+| REG-16 | 桥正常/异常退出和启动途中取消后回收子进程与全部管道，再启动仍可用；诊断与房间 UI 连续运行不遗留关闭后的事件循环 | `test_native_bridge_runtime.py::test_cancelling_bridge_start_reaps_the_child_and_allows_restart`、`test_native_bridge_runtime.py::test_real_cpp_bridge_methods_errors_shutdown_and_restart`、`test_diagnostics_ui.py`、`test_room_lobby_live_ui.py` |
+| REG-17 | 好友悬浮按钮重新布局后立即卸载页面，不执行已销毁对象的延迟回调；房间控件先完成可见/可用布局，再点击和断言 | `test_friend_entry_ui.py::FriendEntryUiTests::test_queued_floating_button_layout_is_safe_after_page_unload`、`test_room_lobby_ui.py` |
 
 ## 自动运行
 
@@ -80,9 +82,14 @@ python -m pytest -q -s tests/test_four_game_multiplayer_live.py
 | P2P 空闲、单向 UDP 故障恢复和信令短断，进程与共享库两模式 | 6 项通过 | `E:\code\.test-tools\alpha2-heartbeat-verified.log` |
 | 真实 Minecraft 两模式导出/导入/启动 | 1 项通过，使用 Java 21 | `E:\code\.test-tools\alpha2-real-game-java21.log` |
 | 首轮完整回归中的并发失败 | 保留失败记录；扩展路径锁修复后专项通过，完整回归重新执行 | `E:\code\.test-tools\alpha2-full-traced.log/xml` |
-| 客户端当前收集的全部用例，按最终执行记录逐个核对 | 883 条均有记录：865 通过、18 环境跳过；无尚未复测通过的失败 | `alpha2-full-verified.xml`、`alpha2-full-remaining.xml`、`alpha2-full-remaining-v2.xml`、`alpha2-inspection-negative-verified.xml`、`alpha2-java-wiring-verified.xml` |
+| 客户端当前收集的全部用例，按执行记录逐个核对 | 885 条均有记录：867 通过、18 环境跳过；本地记录无尚未复测通过的失败 | `alpha2-full-verified.xml`、`alpha2-full-remaining.xml`、`alpha2-full-remaining-v2.xml`、`alpha2-inspection-negative-verified.xml`、`alpha2-java-wiring-verified.xml`、`alpha2-focused-final.xml`、`alpha2-routing-final.xml`、`alpha2-download-ci-fixed.xml` |
 | 安装目录中的真实 C++ DLL/独立进程、错误恢复和重启 | 2 项通过；最初缺失绑定文件的环境错误复测通过 | `E:\code\.test-tools\alpha2-runtime-verified.log/xml` |
 | 原生完整 unittest discover | 164 条：147 通过、17 环境跳过，772.798 秒；无失败 | `E:\code\.test-tools\alpha2-native-full-installed.log` |
 | 四个真实 Minecraft 1.21.8 窗口、本地生产 C++ 节点和桥 | pytest 1 项通过，158.99 秒；四人准备、移动/拆放/聊天同步、三房客重生、转让、重入均通过 | `E:\code\.test-tools\alpha2-four-games-local.log/xml`；原生 `validation-artifacts/vanilla-20261029-131106/report.json` 及四张游戏窗口截图 |
+| 桥、诊断、房间与好友 UI 组合，严格资源警告复测 | 27 项、55 子断言通过；启动取消、真实管道 EOF、房间操作及好友销毁检查，不忽略资源警告 | `E:\code\.test-tools\alpha2-focused-final.log/xml` |
+| 按 CI 独立模块入口复测桥和真实节点 UI | 46 项通过；各模块独立进程，以严格资源警告运行；另外路由/传输/发布门禁组合 31 项、64 子断言通过 | `E:\code\.test-tools\alpha2-isolated-regression/`、`alpha2-routing-final.xml` |
+| 下载、Java、更新和好友 UI 组合复测 | 167 项、97 子断言通过 | `E:\code\.test-tools\alpha2-download-ci-fixed.log/xml` |
 
-客户端记录为分段续跑与修复后复测的合并核对，不表述为一次命令全绿。保留两次失败：单独编译目录缺少 FFI 绑定、诊断测试夹具误引入节点包；改用完整安装产物，并将节点夹具归回原生仓库后均已通过。后半段有一条 Windows 子进程清理警告，未忽略或隐藏。原生首次完整运行还保留一次高负载下添加节点超时的失败记录；重新运行完整套件后通过，没有跳过或放宽该断言。四游戏实测只验收本机节点，不代替跨运营商公网测试；其他窗口未合并的域名接入不属于这轮验收。
+客户端记录为分段续跑与修复后复测的合并核对，不表述为一次命令全绿。保留两次失败：单独编译目录缺少 FFI 绑定、诊断测试夹具误引入节点包；改用完整安装产物，并将节点夹具归回原生仓库后均已通过。后半段曾出现 Windows 子进程清理警告，追加组合运行可重复；补齐桥管道 EOF 等待、启动取消回收和测试夹具关闭后严格复测，保留原始日志 `alpha2-ci-group-local.log`、`alpha2-ci-group-cleanup.log`。好友按钮旧延迟回调可稳定触发销毁后 QML 错误，新回归在旧实现上失败、修复后通过。原生首次完整运行还保留一次高负载下添加节点超时的失败记录；重新运行完整套件后通过，没有跳过或放宽该断言。四游戏实测只验收本机节点，不代替跨运营商公网测试；其他窗口未合并的域名接入不属于这轮验收。
+
+托管 CI 与本机结果单独记录。`c7826c3` 的 Linux 两种架构打包通过；macOS 两种架构暴露成员列表刚切换尚未渲染的点击竞态，现保留原断言并等待目标控件可见且可用。Windows 下载组合失败；本机对应组合也复现好友销毁后的延迟回调错误，修复后本机组合通过，托管具体断言待新运行的 JUnit 标注进一步核对。新托管运行尚未完成前，不将跨平台构建标记为通过。整个修复分支不触发下载站发布。

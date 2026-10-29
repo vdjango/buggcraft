@@ -16,7 +16,22 @@ class RoomLobbyUiTests(unittest.TestCase):
     setUpClass = fixtures.LobbyLayoutTests.__dict__['setUpClass']
     setUp = fixtures.LobbyLayoutTests.setUp
     dispose_window = fixtures.LobbyLayoutTests.dispose_window
-    click = fixtures.LobbyLayoutTests.click
+
+    def wait_item(self, name):
+        for _ in range(100):
+            try:
+                item = find_item(self.window, name)
+                if item.isVisible() and item.isEnabled():
+                    return item
+            except AssertionError:
+                pass
+            self.window.requestUpdate()
+            QTest.qWait(20)
+        self.fail('Room control was not rendered and enabled: ' + name)
+
+    def click(self, name):
+        self.wait_item(name)
+        fixtures.LobbyLayoutTests.click(self, name)
 
     def room(self, preparing=False):
         snapshot = dict(self_id='host', manager_id='host', provider_id='host',
@@ -89,7 +104,7 @@ class RoomLobbyUiTests(unittest.TestCase):
         """Role ids from the bridge must remain visible even without row flags."""
         record = self.room()
         self.click('room-tab-members')
-        host_row = find_item(self.window, 'room-member-host')
+        host_row = self.wait_item('room-member-host')
         self.assertTrue(host_row.isVisible())
         self.assertEqual(find_item(self.window, 'member-role-host').property('text'), '房主')
 
