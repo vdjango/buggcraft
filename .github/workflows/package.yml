@@ -17,6 +17,7 @@ on:
       - 'tests/**'
       - 'docs/guides/launcher-release-checklist.md'
       - '.github/workflows/package.yml'
+      - '.github/workflows/client-regression.yml'
       - '.github/workflows/release-launcher.yml'
   workflow_dispatch:
 

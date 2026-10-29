@@ -3,9 +3,37 @@ name: Client and native regression
 on:
   push:
     branches: [main, 'release/**']
-    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', 'scripts/require_main_build.py', '.github/workflows/package.yml', '.github/workflows/bridge.yml', '.github/workflows/client-regression.yml']
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'packaging/**'
+      - 'build*'
+      - 'requirements*.txt'
+      - 'scripts/stage_release.py'
+      - 'scripts/build_bridge.py'
+      - 'scripts/require_main_build.py'
+      - 'scripts/release_launcher_tag.py'
+      - 'tests/**'
+      - 'docs/guides/launcher-release-checklist.md'
+      - '.github/workflows/package.yml'
+      - '.github/workflows/client-regression.yml'
+      - '.github/workflows/release-launcher.yml'
   pull_request:
-    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', 'scripts/require_main_build.py', '.github/workflows/package.yml', '.github/workflows/bridge.yml', '.github/workflows/client-regression.yml']
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'packaging/**'
+      - 'build*'
+      - 'requirements*.txt'
+      - 'scripts/stage_release.py'
+      - 'scripts/build_bridge.py'
+      - 'scripts/require_main_build.py'
+      - 'scripts/release_launcher_tag.py'
+      - 'tests/**'
+      - 'docs/guides/launcher-release-checklist.md'
+      - '.github/workflows/package.yml'
+      - '.github/workflows/client-regression.yml'
+      - '.github/workflows/release-launcher.yml'
   workflow_dispatch:
 
 permissions:
@@ -82,35 +110,44 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
               for key, value in values.items():
                   output.write(f'{key}={value}\n')
-          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as output:
-              output.write(str(package / 'bin') + '\n')
+          # Do not add native DLLs to the runner's global PATH. On Windows
+          # they can replace Git Bash dependencies before Python even starts.
+          # Absolute executable/library paths above select the tested runtime.
           PY
       - name: Test real UI and node diagnostics, consent and ownership
         run: |
           python - <<'PY'
+          from pathlib import Path
           import subprocess, sys
           # Qt application/scene-graph lifetimes remain local to each module,
           # matching package.yml. Native diagnostics still use the actual node.
           for name in ('test_regression_wiring', 'test_native_cutover', 'test_native_library', 'test_native_routes',
                        'test_native_bridge_runtime', 'test_diagnostics_ui', 'test_room_lobby_ui',
                        'test_room_lobby_live_ui'):
-              subprocess.run([sys.executable, '-X', 'faulthandler', '-m', 'pytest', '-q',
-                  '-W', 'error::pytest.PytestUnraisableExceptionWarning',
-                  '-o', 'faulthandler_timeout=120', 'tests/' + name + '.py',
-                  '--junitxml=build/client-regression/' + name + '.xml'], check=True, timeout=300)
+              log = Path('build/client-regression/' + name + '.log')
+              try:
+                  with log.open('w', encoding='utf-8') as output:
+                      result = subprocess.run([sys.executable, '-X', 'faulthandler', '-u', '-m', 'pytest', '-q',
+                          '-W', 'error::pytest.PytestUnraisableExceptionWarning',
+                          '-o', 'faulthandler_timeout=120', 'tests/' + name + '.py',
+                          '--junitxml=build/client-regression/' + name + '.xml'],
+                          stdout=output, stderr=subprocess.STDOUT, timeout=300)
+              finally:
+                  print(log.read_text(encoding='utf-8', errors='replace'), flush=True)
+              result.check_returncode()
           PY
       - name: Test real download, import, Java reuse and update behavior
-        run: python -X faulthandler -m pytest -q tests/test_download_transport.py tests/test_download_locks.py tests/test_download_concurrency.py tests/test_modpack_import.py tests/test_room_mod_installation.py tests/test_room_launch_flow.py tests/test_java_downloads.py tests/test_java_runtime_selection.py tests/test_update_client.py tests/test_launcher_updates.py --junitxml=build/client-regression/downloads.xml
+        run: python -X faulthandler -u -m pytest -q tests/test_download_transport.py tests/test_download_locks.py tests/test_download_concurrency.py tests/test_modpack_import.py tests/test_room_mod_installation.py tests/test_room_launch_flow.py tests/test_java_downloads.py tests/test_java_runtime_selection.py tests/test_update_client.py tests/test_launcher_updates.py --junitxml=build/client-regression/downloads.xml 2>&1 | tee build/client-regression/downloads.log
       - name: Test export controls and responsive worker lifecycle
-        run: python -X faulthandler -m pytest -q tests/test_instance_modpack_entry.py tests/test_modpack_drop.py tests/test_modpack_no_key.py --junitxml=build/client-regression/export-ui.xml
+        run: python -X faulthandler -u -m pytest -q tests/test_instance_modpack_entry.py tests/test_modpack_drop.py tests/test_modpack_no_key.py --junitxml=build/client-regression/export-ui.xml 2>&1 | tee build/client-regression/export-ui.log
       - name: Test duplicate import, editable names and friend entry lifecycle
-        run: python -X faulthandler -m pytest -q tests/test_download_ui.py tests/test_friend_entry_ui.py --junitxml=build/client-regression/download-ui.xml
+        run: python -X faulthandler -u -m pytest -q tests/test_download_ui.py tests/test_friend_entry_ui.py --junitxml=build/client-regression/download-ui.xml 2>&1 | tee build/client-regression/download-ui.log
       - name: Test real P2P idle, failure, fallback, reconnect and room protocols
         working-directory: native-source
-        run: python -u -m unittest tests.test_peer_heartbeat tests.test_peer_reconnect tests.test_peer_signaling_attempt tests.test_peer_stun_fallback tests.test_ipv4_p2p tests.test_route_selection tests.test_relay_handshake tests.test_resource_metadata tests.test_room_lobby tests.test_bridge_services -v
+        run: python -u -m unittest tests.test_peer_heartbeat tests.test_peer_reconnect tests.test_peer_signaling_attempt tests.test_peer_stun_fallback tests.test_ipv4_p2p tests.test_route_selection tests.test_relay_handshake tests.test_resource_metadata tests.test_room_lobby tests.test_bridge_services -v 2>&1 | tee ../build/client-regression/native-protocol.log
       - name: Test real native diagnostic upload and flow control
         working-directory: native-source
-        run: python -u scripts/check_compatibility.py test_feedback_native
+        run: python -u scripts/check_compatibility.py test_feedback_native 2>&1 | tee ../build/client-regression/native-feedback.log
       - name: Describe failed assertions
         if: failure()
         run: |

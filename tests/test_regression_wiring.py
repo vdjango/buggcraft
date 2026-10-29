@@ -66,6 +66,16 @@ class RegressionWiringTests(unittest.TestCase):
         self.assertIn("regression (windows-latest)", release_gate)
         self.assertIn("regression (ubuntu-24.04)", release_gate)
 
+    def test_release_packaging_and_regression_have_matching_push_path_filters(self):
+        paths = []
+        for name in ('package.yml', 'client-regression.yml'):
+            contents = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8')
+            push = contents.split('  push:\n', 1)[1].split('  workflow_dispatch:', 1)[0]
+            push = push.split('  pull_request:', 1)[0].split('    paths:', 1)[1]
+            paths.append(set(re.findall(r"^      - '([^']+)'", push, re.M)))
+        self.assertTrue(paths[0])
+        self.assertEqual(paths[0], paths[1], 'Every main packaging commit must also trigger regression')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -137,7 +137,7 @@ class DiagnosticsUiTests(_UiCase):
         self.node.stdin.flush()
         return self.response()
 
-    def modal_actions(self, actions):
+    def modal_actions(self, actions, *, keep_watching=False):
         """Use actual keystrokes/buttons in nested Qt modal event loops."""
         pending = list(actions)
         errors = []
@@ -155,7 +155,7 @@ class DiagnosticsUiTests(_UiCase):
                     modal.reject()
                 return
             if modal is None or any(modal is previous for previous in seen):
-                if not pending and (modal is None or not modal.isVisible()):
+                if not keep_watching and not pending and (modal is None or not modal.isVisible()):
                     timer.stop()
                 return
             # Windows can register a modal before its focus and escape button
@@ -293,10 +293,30 @@ class DiagnosticsUiTests(_UiCase):
         self.start_node()
         title = '上海节点联机心跳与协商诊断'
         description = '房主在上海，玩家在宿迁。\n复现：加入后等待，确认网络与游戏日志。🧪'
-        self.submit(title=title, description=description)
-        self.check('feedback-upload' in self.backend.jobs, 'Actual asynchronous upload started')
-        self.click_ui(self.dialog, 'submit-diagnostics')
-        self.check(self.app.activeModalWidget() is None, 'Duplicate submit creates no dialog or second upload')
+        from utils.feedback_upload import submit_diagnostics
+        upload_allowed = threading.Event()
+        async def paused_upload(*args, **kwargs):
+            # Hold the real worker until the duplicate click is delivered. On
+            # fast Linux runners the upload can otherwise finish during the
+            # helper's layout wait, making that click a legitimate new upload.
+            while not upload_allowed.is_set():
+                await asyncio.sleep(.01)
+            return await submit_diagnostics(*args, **kwargs)
+        with patch('utils.feedback_upload.submit_diagnostics', side_effect=paused_upload):
+            try:
+                self.submit(title=title, description=description)
+                self.check('feedback-upload' in self.backend.jobs, 'Actual asynchronous upload started')
+                # Reject unexpected dialogs so a broken duplicate guard fails
+                # an assertion instead of hanging a nested Qt modal loop.
+                timer, pending, errors = self.modal_actions([], keep_watching=True)
+                try:
+                    self.click_ui(self.dialog, 'submit-diagnostics')
+                finally:
+                    timer.stop()
+                self.check(not errors and self.app.activeModalWidget() is None,
+                           'Duplicate submit creates no dialog or second upload')
+            finally:
+                upload_allowed.set()
         self.wait_job('feedback-upload')
         self.check(not self.backend.view['error'], self.backend.view['error'])
         notice = self.backend.view['notice']

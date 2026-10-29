@@ -16,7 +16,7 @@
 | REG-06 | 已校验 Java 复用；损坏/缺失/不适配的 Java 不复用；并发安装共享目标 | `test_java_downloads.py`、`test_java_runtime_selection.py` |
 | REG-07 | 延迟点击更新时重新取得七牛下载凭证；下载校验、失败保留原文件及重试 | `test_update_client.py`、`test_launcher_updates.py` |
 | REG-08 | 房主和房客均看到房主标识；兼容只有 manager_id/provider_id 的快照；转让后标识正确 | `test_room_lobby_ui.py`、`test_room_lobby_live_ui.py` |
-| REG-09 | 房主和房客均可提交诊断；匿名/未确认不能提交；真实认证失败后可修复重试，管理员能下载相同附件 | `test_room_lobby_ui.py`、`test_diagnostics_ui.py` |
+| REG-09 | 房主和房客均可提交诊断；匿名/未确认不能提交；上传未完成时重复点击不弹新窗口、不生成第二条反馈；真实认证失败后可修复重试，管理员能下载相同附件 | `test_room_lobby_ui.py`、`test_diagnostics_ui.py` |
 | REG-10 | 请求安装日志需玩家授权；拒绝、撤回、转让和退出清空授权；界面不能读其他成员私有日志 | `test_room_lobby_live_ui.py`、原生 `test_room_lobby.py` |
 | REG-11 | 优先设置的下载源；P2P 未连接禁止文件兜底；资源包和光影不阻止必需模组准备 | `test_room_mod_installation.py`、原生 `test_resource_metadata.py` |
 | REG-12 | P2P 空闲不误切中转；单向 UDP 故障只影响对应玩家；信令中断保留已建立游戏通道；重连和 STUN 备用 | 原生 `test_peer_heartbeat.py`、`test_peer_reconnect.py`、`test_peer_signaling_attempt.py`、`test_peer_stun_fallback.py`、`test_ipv4_p2p.py`、`test_route_selection.py` |
@@ -35,6 +35,8 @@
 原生仓库 `.github/workflows/core.yml` 自动运行 P2P 和房间协议回归；`scripts/check_compatibility.py` 默认包括诊断上传用例。它是测试套件的加载器，实际测试仍由 unittest 用例执行。
 
 `test_regression_wiring.py` 同时检查文档引用的类/方法确实存在、这些功能仍被 CI 调用、三个工作流固定相同的原生提交，避免后续重构漏掉测试入口。
+
+发布流程还要求同一条主分支提交的五平台打包及 Windows/Linux 客户端和原生回归全部通过；用例覆盖缺失、失败、取消、跳过、旧提交和最新重试，不能用旧的成功结果替代。打包与回归的路径过滤必须相同，避免只触发其中一个。
 
 本地运行客户端的常规入口：
 
@@ -82,14 +84,15 @@ python -m pytest -q -s tests/test_four_game_multiplayer_live.py
 | P2P 空闲、单向 UDP 故障恢复和信令短断，进程与共享库两模式 | 6 项通过 | `E:\code\.test-tools\alpha2-heartbeat-verified.log` |
 | 真实 Minecraft 两模式导出/导入/启动 | 1 项通过，使用 Java 21 | `E:\code\.test-tools\alpha2-real-game-java21.log` |
 | 首轮完整回归中的并发失败 | 保留失败记录；扩展路径锁修复后专项通过，完整回归重新执行 | `E:\code\.test-tools\alpha2-full-traced.log/xml` |
-| 客户端当前收集的全部用例，按执行记录逐个核对 | 885 条均有记录：867 通过、18 环境跳过；本地记录无尚未复测通过的失败 | `alpha2-full-verified.xml`、`alpha2-full-remaining.xml`、`alpha2-full-remaining-v2.xml`、`alpha2-inspection-negative-verified.xml`、`alpha2-java-wiring-verified.xml`、`alpha2-focused-final.xml`、`alpha2-routing-final.xml`、`alpha2-download-ci-fixed.xml` |
+| 客户端完整 pytest，严格处理未回收资源警告 | 单次命令 885 条：867 通过、18 环境跳过，393 子断言通过；1252.79 秒，无失败 | `E:\code\.test-tools\alpha2-full-lifecycle-final.log/xml` |
 | 安装目录中的真实 C++ DLL/独立进程、错误恢复和重启 | 2 项通过；最初缺失绑定文件的环境错误复测通过 | `E:\code\.test-tools\alpha2-runtime-verified.log/xml` |
 | 原生完整 unittest discover | 164 条：147 通过、17 环境跳过，772.798 秒；无失败 | `E:\code\.test-tools\alpha2-native-full-installed.log` |
 | 四个真实 Minecraft 1.21.8 窗口、本地生产 C++ 节点和桥 | pytest 1 项通过，158.99 秒；四人准备、移动/拆放/聊天同步、三房客重生、转让、重入均通过 | `E:\code\.test-tools\alpha2-four-games-local.log/xml`；原生 `validation-artifacts/vanilla-20261029-131106/report.json` 及四张游戏窗口截图 |
 | 桥、诊断、房间与好友 UI 组合，严格资源警告复测 | 27 项、55 子断言通过；启动取消、真实管道 EOF、房间操作及好友销毁检查，不忽略资源警告 | `E:\code\.test-tools\alpha2-focused-final.log/xml` |
 | 按 CI 独立模块入口复测桥和真实节点 UI | 46 项通过；各模块独立进程，以严格资源警告运行；另外路由/传输/发布门禁组合 31 项、64 子断言通过 | `E:\code\.test-tools\alpha2-isolated-regression/`、`alpha2-routing-final.xml` |
 | 下载、Java、更新和好友 UI 组合复测 | 167 项、97 子断言通过 | `E:\code\.test-tools\alpha2-download-ci-fixed.log/xml` |
+| 发布门禁及测试入口一致性 | 15 项、72 子断言通过；当前共收集 888 条，较完整运行时增加 3 条发布流程检查 | `E:\code\.test-tools\alpha2-release-wiring-final.xml` |
 
-客户端记录为分段续跑与修复后复测的合并核对，不表述为一次命令全绿。保留两次失败：单独编译目录缺少 FFI 绑定、诊断测试夹具误引入节点包；改用完整安装产物，并将节点夹具归回原生仓库后均已通过。后半段曾出现 Windows 子进程清理警告，追加组合运行可重复；补齐桥管道 EOF 等待、启动取消回收和测试夹具关闭后严格复测，保留原始日志 `alpha2-ci-group-local.log`、`alpha2-ci-group-cleanup.log`。好友按钮旧延迟回调可稳定触发销毁后 QML 错误，新回归在旧实现上失败、修复后通过。原生首次完整运行还保留一次高负载下添加节点超时的失败记录；重新运行完整套件后通过，没有跳过或放宽该断言。四游戏实测只验收本机节点，不代替跨运营商公网测试；其他窗口未合并的域名接入不属于这轮验收。
+前期分段续跑与修复后的核对记录仍保留；最终又以单次完整 pytest 命令执行通过上述 885 条用例。保留两次失败：单独编译目录缺少 FFI 绑定、诊断测试夹具误引入节点包；改用完整安装产物，并将节点夹具归回原生仓库后均已通过。后半段曾出现 Windows 子进程清理警告，追加组合运行可重复；补齐桥管道 EOF 等待、启动取消回收和测试夹具关闭后严格复测，保留原始日志 `alpha2-ci-group-local.log`、`alpha2-ci-group-cleanup.log`。好友按钮旧延迟回调可稳定触发销毁后 QML 错误，新回归在旧实现上失败、修复后通过。原生首次完整运行还保留一次高负载下添加节点超时的失败记录；重新运行完整套件后通过，没有跳过或放宽该断言。四游戏实测只验收本机节点，不代替跨运营商公网测试；其他窗口未合并的域名接入不属于这轮验收。
 
 托管 CI 与本机结果单独记录。`c7826c3` 的 Linux 两种架构打包通过；macOS 两种架构暴露成员列表刚切换尚未渲染的点击竞态，现保留原断言并等待目标控件可见且可用。Windows 下载组合失败；本机对应组合也复现好友销毁后的延迟回调错误，修复后本机组合通过，托管具体断言待新运行的 JUnit 标注进一步核对。新托管运行尚未完成前，不将跨平台构建标记为通过。整个修复分支不触发下载站发布。
