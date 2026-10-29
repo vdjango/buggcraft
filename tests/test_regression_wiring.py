@@ -59,6 +59,12 @@ class RegressionWiringTests(unittest.TestCase):
                 self.assertRegex(regression, r'\b' + module + r'\b')
         self.assertIn('BUGGCRAFT_BRIDGE_PACKAGE=package', regression)
         self.assertIn('actions/upload-artifact@v4', regression)
+        package = (workflows / 'package.yml').read_text(encoding='utf-8')
+        self.assertIn("'scripts/require_main_build.py'", package)
+        release_gate = (ROOT / 'scripts/require_main_build.py').read_text(encoding='utf-8')
+        self.assertIn(".github/workflows/client-regression.yml", release_gate)
+        self.assertIn("regression (windows-latest)", release_gate)
+        self.assertIn("regression (ubuntu-24.04)", release_gate)
 
 
 if __name__ == '__main__':
