@@ -22,7 +22,7 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: !!vm.socialError
         CopyText { objectName: "lobby-social-error"; Layout.fillWidth: true; text: vm.socialError || ""; color: "#e8b3b3"; font.pixelSize: 11; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
-        ActionButton { objectName: "retry-social-login"; text: "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act("refreshFriends", {}) }
+        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "更换接入码" : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act((vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "replaceNodeCode" : "refreshFriends", {}) }
     }
     Rectangle {
         id: nodeBar
@@ -255,7 +255,7 @@ ColumnLayout {
                         Layout.preferredWidth: 86
                         horizontalAlignment: Text.AlignRight
                         ToolTip.visible: roomLatencyHover.hovered
-                        ToolTip.text: "到当前接入节点的实测往返延迟，不含登录和加载列表耗时。P2P 或跨节点联机的实际游戏延迟，请加入后查看房间详情。"
+                        ToolTip.text: "这是当前玩家到目录节点的探测耗时（不含登录与房间列表查询），不是到房主游戏的延迟，也不含房主到节点的链路。"
                         HoverHandler { id: roomLatencyHover }
                     }
                     CopyText {

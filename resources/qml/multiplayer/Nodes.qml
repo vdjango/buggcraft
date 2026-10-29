@@ -66,8 +66,8 @@ ColumnLayout {
             color: "#c4241d32"; border.color: "#645077"
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 20; spacing: 12
-                CopyText { text: vm.nodeAccessExpired ? "更换接入码" : "添加联机节点"; font.pixelSize: 20; font.bold: true; color: "#f0e8ff" }
-                CopyText { Layout.fillWidth: true; text: vm.nodeAccessExpired ? "从原节点网页领取新码，粘贴后更新即可。" : "从节点网页复制接入码，粘贴到这里即可联机。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
+                CopyText { text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "更换接入码" : "添加联机节点"; font.pixelSize: 20; font.bold: true; color: "#f0e8ff" }
+                CopyText { Layout.fillWidth: true; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "在原节点网页登录账号，领取个人启动器接入码，粘贴后确认更新。" : "从节点网页复制接入码，粘贴到这里即可联机。"; font.pixelSize: 12; color: "#baaccb"; wrapMode: Text.Wrap }
                 Item { Layout.fillHeight: true; Layout.minimumHeight: 0; Layout.maximumHeight: 14 }
                 CopyText { text: "接入码"; font.pixelSize: 12; color: "#e2d6f2" }
                 InputField {

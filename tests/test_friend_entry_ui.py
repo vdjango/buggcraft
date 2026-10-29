@@ -89,11 +89,34 @@ class FriendEntryUiTests(LauncherQmlCase):
 
     def test_expired_personal_account_entry_opens_code_recovery(self):
         save_json(self.path, profile_data(personal_profile(expiry=1)))
-        self.backend.reload_store()
+        with patch.object(self.backend, 'prompt_node_credential_update',
+                           side_effect=lambda: setattr(self.backend, 'credential_prompted_node', self.backend.node_path)):
+            self.backend.reload_store()
         self.pump()
         friends = self.open_friends()
         self.assertEqual(self.item(friends, 'friend-access-mode').property('text'), '接入码已过期')
         self.click(friends, 'friends-replace-node-code')
         self.assertEqual(self.backend.view['page'], 'nodes')
         self.assertTrue(self.dialog.isVisible())
+        self.assert_no_qml_errors()
+
+    def test_rejected_personal_credential_exposes_code_replacement_action(self):
+        self.backend.patch(nodeCredentialRequired=True,
+                           socialLoading=False, socialError='个人启动器接入码需要更新。')
+        friends = self.open_friends()
+        action = self.item(friends, 'friends-replace-node-code')
+        self.assertEqual(action.property('text'), '更换接入码')
+        self.click(friends, 'friends-replace-node-code')
+        self.assertEqual(self.backend.view['page'], 'nodes')
+
+    def test_cached_friends_credential_rejection_keeps_visible_recovery_action(self):
+        self.backend.apply_social_state(social_state())
+        self.backend.patch(nodeCredentialRequired=True, socialState='stale',
+                           socialError='个人启动器接入码需要更新。')
+        friends = self.open_friends()
+        action = self.item(friends, 'friends-stale-recovery')
+        self.assertTrue(action.isVisible())
+        self.assertEqual(action.property('text'), '更换接入码')
+        self.click(friends, 'friends-stale-recovery')
+        self.assertEqual(self.backend.view['page'], 'nodes')
         self.assert_no_qml_errors()

@@ -76,7 +76,11 @@ ColumnLayout {
     Surface {
         objectName: "friends-stale-state"; visible: !!vm.socialReady && vm.socialState === "stale"
         Layout.fillWidth: true; implicitHeight: 54; color: "#3b2b25"; border.color: "#a9764d"
-        CopyText { anchors.fill: parent; anchors.margins: 10; text: (vm.socialError || "好友节点暂时不可达") + "\n显示上次同步的联系人，在线状态未知。"; color: "#ffd7b0"; font.pixelSize: 11; wrapMode: Text.Wrap; verticalAlignment: Text.AlignVCenter }
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 10; spacing: 8
+            CopyText { Layout.fillWidth: true; text: (vm.socialError || "好友节点暂时不可达") + "\n显示上次同步的联系人，在线状态未知。"; color: "#ffd7b0"; font.pixelSize: 11; wrapMode: Text.Wrap; verticalAlignment: Text.AlignVCenter }
+            ActionButton { objectName: "friends-stale-recovery"; text: vm.nodeCredentialRequired ? "更换接入码" : "重试连接"; implicitHeight: 30; onClicked: lobby.act(vm.nodeCredentialRequired ? "replaceNodeCode" : "refreshFriends", {}) }
+        }
     }
     Surface {
         objectName: "friends-sign-in"; visible: !vm.socialReady
@@ -89,7 +93,7 @@ ColumnLayout {
                 Layout.fillWidth: true; text: vm.socialError || (vm.socialLoading ? "请稍候，好友列表会自动更新。" : "添加节点的个人接入码，即可查看好友和发送联机邀请。")
                 font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
             }
-            ActionButton { objectName: "friends-replace-node-code"; Layout.alignment: Qt.AlignHCenter; text: vm.nodeAccessExpired ? "更换接入码" : vm.friendEntryAvailable ? "重试连接" : "连接好友服务"; primary: true; visible: !vm.socialLoading; onClicked: lobby.act(vm.friendEntryAvailable && !vm.nodeAccessExpired ? "refreshFriends" : "replaceNodeCode", {}) }
+            ActionButton { objectName: "friends-replace-node-code"; Layout.alignment: Qt.AlignHCenter; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "更换接入码" : vm.friendEntryAvailable ? "重试连接" : "连接好友服务"; primary: true; visible: !vm.socialLoading; onClicked: lobby.act(vm.friendEntryAvailable && !vm.nodeAccessExpired && !vm.nodeCredentialRequired ? "refreshFriends" : "replaceNodeCode", {}) }
         }
     }
     FriendInviteProgress {
