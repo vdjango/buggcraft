@@ -3,9 +3,9 @@ name: Client and native regression
 on:
   push:
     branches: [main, 'release/**']
-    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', '.github/workflows/client-regression.yml']
+    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', 'scripts/require_main_build.py', '.github/workflows/package.yml', '.github/workflows/bridge.yml', '.github/workflows/client-regression.yml']
   pull_request:
-    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', '.github/workflows/client-regression.yml']
+    paths: ['src/**', 'resources/**', 'tests/**', 'requirements*.txt', 'scripts/build_bridge.py', 'scripts/require_main_build.py', '.github/workflows/package.yml', '.github/workflows/bridge.yml', '.github/workflows/client-regression.yml']
   workflow_dispatch:
 
 permissions:

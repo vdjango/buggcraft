@@ -1,4 +1,4 @@
-"""Require the latest successful five-platform launcher build for this commit."""
+"""Require launcher packaging and client/native regression for this commit."""
 import json
 import os
 import time
@@ -53,6 +53,20 @@ def require_success(repository, sha, token, get_json=_get_json):
             or any(job.get('conclusion') != 'success' for job in package_jobs)):
         missing = ', '.join(sorted(PLATFORMS - actual)) or 'a failed platform'
         raise RuntimeError('Five-platform launcher build is incomplete: ' + missing)
+    regressions = [item for item in runs
+                   if item.get('path') == '.github/workflows/client-regression.yml'
+                   and item.get('event') == 'push' and item.get('head_branch') == 'main'
+                   and item.get('head_sha') == sha]
+    if not regressions:
+        raise RuntimeError('No Client and native regression push run exists for this main commit')
+    regression = max(regressions, key=lambda item: (item.get('run_number', 0), item.get('run_attempt', 0)))
+    if regression.get('status') != 'completed' or regression.get('conclusion') != 'success':
+        raise RuntimeError('The latest Client and native regression for this commit did not succeed')
+    checks = get_json(base + f"/actions/runs/{regression['id']}/jobs?per_page=100", token).get('jobs', [])
+    expected = {'regression (windows-latest)', 'regression (ubuntu-24.04)'}
+    if ({job.get('name') for job in checks} != expected or len(checks) != len(expected)
+            or any(job.get('conclusion') != 'success' for job in checks)):
+        raise RuntimeError('Client and native regression is incomplete: Windows and Linux must pass')
     return run
 
 
@@ -83,7 +97,7 @@ def main():
     sha = os.environ['GITHUB_SHA']
     token = os.environ['GH_TOKEN']
     run = require_success(repository, sha, token)
-    print(f"Verified Package launcher run #{run['run_number']} for {sha}; all five platforms passed.")
+    print(f"Verified Package launcher run #{run['run_number']} for {sha}; all five platforms and client/native regression passed.")
 
 
 if __name__ == '__main__':

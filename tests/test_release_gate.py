@@ -9,11 +9,13 @@ from scripts import release_launcher_tag
 
 
 class ReleaseGateTests(unittest.TestCase):
-    def run_gate(self, runs, jobs):
+    def run_gate(self, runs, jobs, regression_jobs=()):
         def get_json(url, token):
             self.assertEqual(token, 'test-token')
             if '/actions/runs?' in url:
                 return {'workflow_runs': runs}
+            if '/actions/runs/234/jobs?' in url:
+                return {'jobs': regression_jobs}
             return {'jobs': jobs}
         return require_success('owner/repo', 'commit-sha', 'test-token', get_json)
 
@@ -26,7 +28,40 @@ class ReleaseGateTests(unittest.TestCase):
         }
         jobs = [{'name': 'package (' + platform + ', runner)', 'conclusion': 'success'}
                 for platform in sorted(PLATFORMS)]
-        self.assertEqual(self.run_gate([run], jobs), run)
+        regression = dict(run, id=234, path='.github/workflows/client-regression.yml')
+        regression_jobs = [{'name': name, 'conclusion': 'success'} for name in (
+            'regression (windows-latest)', 'regression (ubuntu-24.04)')]
+        self.assertEqual(self.run_gate([run, regression], jobs, regression_jobs), run)
+
+    def test_regression_must_pass_on_the_same_main_commit(self):
+        run = dict(id=123, run_number=47, run_attempt=1,
+                   path='.github/workflows/package.yml', event='push',
+                   head_branch='main', head_sha='commit-sha', status='completed', conclusion='success')
+        jobs = [{'name': 'package (' + platform + ', runner)', 'conclusion': 'success'}
+                for platform in sorted(PLATFORMS)]
+        regression = dict(run, id=234, path='.github/workflows/client-regression.yml')
+        for changes in (None, {'head_sha': 'older-commit'}, {'head_branch': 'release/fix'},
+                        {'event': 'workflow_dispatch'}, {'status': 'in_progress'},
+                        {'conclusion': 'failure'}, {'conclusion': 'cancelled'}, {'conclusion': 'skipped'}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(RuntimeError, 'Client and native regression'):
+                self.run_gate([run] + ([] if changes is None else [dict(regression, **changes)]), jobs)
+
+    def test_regression_requires_both_platforms_and_latest_attempt(self):
+        run = dict(id=123, run_number=47, run_attempt=1,
+                   path='.github/workflows/package.yml', event='push',
+                   head_branch='main', head_sha='commit-sha', status='completed', conclusion='success')
+        jobs = [{'name': 'package (' + platform + ', runner)', 'conclusion': 'success'}
+                for platform in sorted(PLATFORMS)]
+        regression = dict(run, id=234, path='.github/workflows/client-regression.yml')
+        good = [{'name': name, 'conclusion': 'success'} for name in (
+            'regression (windows-latest)', 'regression (ubuntu-24.04)')]
+        for checks in (good[:1], [good[0], dict(good[1], conclusion='failure')],
+                       [good[0], dict(good[1], conclusion='skipped')], good + [good[0]]):
+            with self.subTest(checks=checks), self.assertRaisesRegex(RuntimeError, 'regression is incomplete'):
+                self.run_gate([run, regression], jobs, checks)
+        later_failure = dict(regression, id=235, run_attempt=2, conclusion='failure')
+        with self.assertRaisesRegex(RuntimeError, 'latest Client and native regression'):
+            self.run_gate([run, regression, later_failure], jobs, good)
 
     def test_does_not_accept_a_different_commit_or_unrelated_workflow(self):
         run = {
