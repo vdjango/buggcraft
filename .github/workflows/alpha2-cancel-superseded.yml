@@ -1,0 +1,27 @@
+name: Cancel superseded alpha 2 branch build
+on:
+  push:
+    branches: [ci/alpha2-release-promotion]
+    paths: [.github/workflows/alpha2-cancel-superseded.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          prefix = 'repos/' + os.environ['GH_REPO']
+          run = json.loads(subprocess.check_output(['gh','api',prefix + '/actions/runs/40804208285'],text=True))
+          assert run['head_branch'] == 'release/alpha2-integration'
+          assert run['head_sha'] == '53fd0c6ff8ca8652f45a3ae404ef5afe44186d92'
+          assert run['path'] == '.github/workflows/package.yml'
+          if run['status'] != 'completed':
+              subprocess.run(['gh','api','--method','POST',prefix + '/actions/runs/40804208285/cancel'],check=True)
+          print('The superseded build is stopped; final 6d549ba build remains active.')
+          PY
