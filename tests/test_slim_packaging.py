@@ -31,15 +31,16 @@ class SlimPackagingTests(unittest.TestCase):
             build.validate_runtime_inventory(directory)
 
     def test_media_and_pdf_are_excluded_on_both_platforms(self):
-        for platform in ('Windows', 'Darwin'):
+        for platform in ('Windows', 'Darwin', 'Linux'):
             with self.subTest(platform=platform), \
                     patch.object(build.platform, 'system', return_value=platform), \
                     patch.object(build, 'qml_exclusions', return_value=([], [])):
                 command = build.make_command()
                 self.assertIn('--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid', command)
                 self.assertIn('--noinclude-dlls=PySide6/qt-plugins/imageformats/*qpdf*', command)
-                self.assertIn('--include-module=keyring.backends.Windows', command)
-                self.assertIn('--include-package=win32ctypes', command)
+                for windows_only in ('--include-module=keyring.backends.Windows',
+                                     '--include-package=win32ctypes'):
+                    self.assertEqual(windows_only in command, platform == 'Windows')
                 self.assertIn('--include-distribution-metadata=keyring', command)
                 self.assertFalse(any(arg in command for arg in ('--include-package=aiortc', '--include-package=av')))
                 self.assertFalse(any('legacy_hookup' in arg or 'hookup._rtc' in arg

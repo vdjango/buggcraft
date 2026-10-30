@@ -247,8 +247,7 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
                '--noinclude-qt-translations',
                '--include-module=PySide6.QtQuickWidgets', '--include-module=PySide6.QtQml',
                '--include-package=minecraft_launcher_lib', '--include-package-data=minecraft_launcher_lib',
-               '--include-package=keyring', '--include-module=keyring.backends.Windows',
-               '--include-package=win32ctypes', '--include-distribution-metadata=keyring',
+               '--include-package=keyring', '--include-distribution-metadata=keyring',
                '--nofollow-import-to=notifypy,loguru,plyer,multiprocessing,concurrent.futures.process,_uuid',
                f'--include-data-dir={resources}=resources',
                f'--output-dir={output or root / "dist"}',
@@ -259,7 +258,8 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
                '--noinclude-data-files=resources/icons/*/app.png',
                '--noinclude-data-files=resources/fonts/*']
     if platform.system() == 'Windows':
-        command += ['--windows-console-mode=disable', '--output-filename=Buggcraft.exe',
+        command += ['--include-module=keyring.backends.Windows', '--include-package=win32ctypes',
+                    '--windows-console-mode=disable', '--output-filename=Buggcraft.exe',
                     '--noinclude-dlls=opengl32sw.dll',
                     '--noinclude-dlls=PySide6/qt-plugins/platforms/qdirect2d.dll',
                     '--noinclude-dlls=PySide6/qt-plugins/platforms/qminimal.dll',

@@ -57,6 +57,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: read
       actions: read
@@ -70,116 +71,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/require_main_build.py
 
-  package:
-    needs: validate
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows-x64
-            arch: x64
-            python: '3.11'
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            arch: x64
-            python: '3.11'
-          - os: ubuntu-24.04-arm
-            platform: linux-arm64
-            arch: arm64
-            python: '3.12'
-          - os: macos-15-intel
-            platform: macos-x86_64
-            arch: x64
-            python: '3.11'
-          - os: macos-15
-            platform: macos-arm64
-            arch: arm64
-            python: '3.11'
-    runs-on: ${{ matrix.os }}
-    env:
-      PYTHONIOENCODING: utf-8
-      QT_QPA_PLATFORM: offscreen
-      QT_QUICK_BACKEND: software
-    # Native compilation, UI acceptance and Nuitka packaging share this job.
-    timeout-minutes: 90
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - name: Embed the launcher release version
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="0.0.0-dev+${GITHUB_SHA:0:12}"
-          fi
-          python - "$version" <<'PY'
-          import re, sys
-          value = sys.argv[1]
-          if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', value):
-              raise SystemExit('Tag must contain a semantic launcher version')
-          open('resources/app-version.txt', 'w', encoding='ascii').write(value + '\n')
-          PY
-      - name: Check out pinned native multiplayer implementation
-        uses: actions/checkout@v4
-        with:
-          repository: vdjango/minecraft-tunnel-native
-          ref: 1bee479ef1d9f2fbd6d906956a8fa5b28cdc4007
-          path: native-source
       - uses: actions/setup-python@v5
+        if: "!startsWith(github.ref, 'refs/tags/v')"
         with:
-          python-version: ${{ matrix.python }}
-          architecture: ${{ matrix.arch }}
+          python-version: '3.11'
           cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-build.txt
             requirements-test.txt
-      - name: Test release file validation
-        run: python -m unittest tests.test_release_staging tests.test_release_platform_sync -v
-      - name: Install build dependencies
-        run: |
-          python -m pip install -r requirements.txt -r requirements-build.txt
-          python -m pip check
-      - name: Prepare Windows native dependencies
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          vcpkg install openssl:x64-windows 'curl[openssl]:x64-windows'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
-      - name: Prepare macOS native dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
-          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
-      - name: Prepare Linux native dependencies
-        if: runner.os == 'Linux'
+      - name: Install launcher test dependencies
+        if: "!startsWith(github.ref, 'refs/tags/v')"
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libssl-dev libcurl4-openssl-dev patchelf libgl1 libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
-      - name: Build and test native multiplayer runtime
-        run: |
-          python scripts/build_bridge.py --native-source native-source --output dist/native-runtime --log dist/native-build.log
-          ctest --test-dir native-source/build --build-config Release --output-on-failure
-      - name: Test launcher against installed C++ bridge DLL and executable
-        run: |
-          python -m pip install -r requirements-test.txt
-          python - <<'PY'
-          import os, pathlib, subprocess, sys
-          package = pathlib.Path('dist/native-runtime').resolve()
-          library = 'buggcraft_bridge.dll' if os.name == 'nt' else (
-              'libbuggcraft_bridge.dylib' if sys.platform == 'darwin' else 'libbuggcraft_bridge.so')
-          environment = dict(os.environ,
-              BUGGCRAFT_BRIDGE_LIBRARY=str(package / ('bin' if os.name == 'nt' else 'lib') / library),
-              BUGGCRAFT_BRIDGE_EXECUTABLE=str(package / 'bin' / ('buggcraft-bridge.exe' if os.name == 'nt' else 'buggcraft-bridge')))
-          environment['PATH'] = str(package / 'bin') + os.pathsep + environment['PATH']
-          subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_native_bridge_runtime.py'],
-                         env=environment, check=True)
-          PY
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
+          python -m pip install -r requirements.txt -r requirements-build.txt -r requirements-test.txt
+          python -m pip check
+      - name: Test release file validation
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        run: python -m unittest tests.test_release_staging tests.test_release_platform_sync -v
       - name: Check slim transport and rendering configuration
+        if: "!startsWith(github.ref, 'refs/tags/v')"
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
@@ -231,87 +143,172 @@ jobs:
               print('Failed modules: ' + ', '.join(failed))
           raise SystemExit(1 if failed else 0)
           PY
-      - name: Test client pages through local Qt input without desktop mouse control
-        env:
-          BUGGCRAFT_UI_OUTPUT: dist/client-ui
-          BUGGCRAFT_UI_PAUSE_MS: 220
+      - name: Keep preflight diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-preflight-${{ github.sha }}
+          path: dist/preflight.log
+          if-no-files-found: ignore
+
+  package:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            native_asset: buggcraft-native-0.3.5-windows-x64.zip
+            arch: x64
+            python: '3.11'
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+            native_asset: buggcraft-native-0.3.5-linux-x64.tar.gz
+            arch: x64
+            python: '3.11'
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            native_asset: ''
+            arch: arm64
+            python: '3.12'
+          - os: macos-15-intel
+            platform: macos-x86_64
+            native_asset: buggcraft-native-0.3.5-macos-x64.tar.gz
+            arch: x64
+            python: '3.11'
+          - os: macos-15
+            platform: macos-arm64
+            native_asset: buggcraft-native-0.3.5-macos-arm64.tar.gz
+            arch: arm64
+            python: '3.11'
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_BACKEND: software
+    # Preflight passed in validate; reuse the pinned native runtime when cached.
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Embed the launcher release version
         run: |
-          mkdir -p dist/client-ui
-          set +e
-          python - <<'PY'
-          import os, signal, subprocess, sys
-          from pathlib import Path
-          command = [sys.executable, '-X', 'faulthandler', '-m', 'pytest', '-q',
-                     'tests/test_qt_input.py', 'tests/test_client_ui_acceptance.py',
-                     'tests/test_home_ui.py', 'tests/test_coverage_gaps_ui.py',
-                     'tests/test_startup_errors_ui.py', 'tests/test_download_ui.py',
-                     'tests/test_settings_ui.py', 'tests/test_settings_checklist_ui.py',
-                     'tests/test_shared_branches_ui.py', 'tests/test_loader_source_ui.py',
-                     'tests/test_catalogue_source_regression_ui.py',
-                     'tests/test_modpack_missing_ui.py',
-                     'tests/test_onboarding.py', '-k', 'not online',
-                     '--junitxml=dist/client-ui/pytest.xml']
-          log = Path('dist/client-ui/pytest.log')
-          process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, encoding='utf-8', errors='replace')
-          try:
-              output, _ = process.communicate(timeout=35 * 60)
-              status = process.returncode
-          except subprocess.TimeoutExpired as error:
-              process.send_signal(signal.SIGABRT) if os.name != 'nt' else process.terminate()
-              try:
-                  output, _ = process.communicate(timeout=30)
-              except subprocess.TimeoutExpired:
-                  process.kill()
-                  output, _ = process.communicate()
-              output += '\nUI test process exceeded the 35 minute timeout.\n'
-              status = 124
-          log.write_text(output, encoding='utf-8')
-          print(output, end='', flush=True)
-          raise SystemExit(status)
-          PY
-          status=$?
-          if (( status != 0 )); then
-            python - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-
-          def escaped(value):
-              return value.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-
-          report = Path('dist/client-ui/pytest.xml')
-          failures = 0
-          if report.is_file():
-              for case in ET.parse(report).iter('testcase'):
-                  for failure in list(case.findall('failure')) + list(case.findall('error')):
-                      title = case.get('classname', '') + '.' + case.get('name', '')
-                      details = failure.text or failure.get('message', '')
-                      print('::error title=' + escaped(title) + '::' + escaped(details[-6000:]))
-                      failures += 1
-          if not failures:
-              lines = Path('dist/client-ui/pytest.log').read_text(encoding='utf-8', errors='replace').splitlines()
-              print('::error title=Launcher UI test failure::' + escaped('\n'.join(lines[-40:])[-6000:]))
-          PY
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-dev+${GITHUB_SHA:0:12}"
           fi
-          exit "$status"
-      - name: Test resource catalogues and gateway
+          python - "$version" <<'PY'
+          import re, sys
+          value = sys.argv[1]
+          if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', value):
+              raise SystemExit('Tag must contain a semantic launcher version')
+          open('resources/app-version.txt', 'w', encoding='ascii').write(value + '\n')
+          PY
+      - name: Restore pinned native multiplayer runtime
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: dist/native-runtime
+          key: native-runtime-v2-${{ matrix.platform }}-f5f0e4433ed8b935c071ab8ae1f8926939b52e83
+      - name: Download tested native release assets
+        id: native_download
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.native_asset != ''
+        continue-on-error: true
+        env:
+          NATIVE_ASSET: ${{ matrix.native_asset }}
         run: |
-          python -m pip install -r packaging/content-gateway-requirements.txt
+          set -euo pipefail
+          mkdir -p dist/native-archive dist/native-runtime
+          base=https://github.com/vdjango/minecraft-tunnel-native/releases/download/v0.3.5
+          curl -fL --retry 3 --retry-all-errors "$base/$NATIVE_ASSET" -o "dist/native-archive/$NATIVE_ASSET"
+          curl -fL --retry 3 --retry-all-errors "$base/$NATIVE_ASSET.sha256" -o "dist/native-archive/$NATIVE_ASSET.sha256"
+          python - "$NATIVE_ASSET" <<'PY'
+          import hashlib, pathlib, sys
+          directory = pathlib.Path('dist/native-archive')
+          name = sys.argv[1]
+          expected = (directory / (name + '.sha256')).read_text(encoding='ascii').split()[0]
+          with (directory / name).open('rb') as source:
+              actual = hashlib.file_digest(source, 'sha256').hexdigest()
+          if actual != expected:
+              raise SystemExit('Native release checksum mismatch: ' + name)
+          PY
+          if [[ "$NATIVE_ASSET" == *.zip ]]; then
+            python -m zipfile -e "dist/native-archive/$NATIVE_ASSET" dist/native-unpacked
+            mv dist/native-unpacked/runtime/* dist/native-runtime/
+          else
+            tar -xzf "dist/native-archive/$NATIVE_ASSET" -C dist/native-runtime --strip-components=1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          metadata = json.loads(Path('dist/native-runtime/share/buggcraft-native/build-info.json').read_text())
+          if metadata.get('commit') != 'f5f0e4433ed8b935c071ab8ae1f8926939b52e83':
+              raise SystemExit('Downloaded native runtime does not match the pinned source revision')
+          PY
+      - name: Check out pinned native multiplayer implementation
+        if: steps.native-cache.outputs.cache-hit != 'true' && (matrix.native_asset == '' || steps.native_download.outcome == 'failure')
+        uses: actions/checkout@v4
+        with:
+          repository: vdjango/minecraft-tunnel-native
+          ref: f5f0e4433ed8b935c071ab8ae1f8926939b52e83
+          path: native-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.arch }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+            requirements-test.txt
+      - name: Install build dependencies
+        run: |
+          python -m pip install -r requirements.txt -r requirements-build.txt
+          python -m pip check
+      - name: Prepare Windows native dependencies
+        if: runner.os == 'Windows' && steps.native-cache.outputs.cache-hit != 'true' && (matrix.native_asset == '' || steps.native_download.outcome == 'failure')
+        shell: pwsh
+        run: |
+          vcpkg install openssl:x64-windows 'curl[openssl]:x64-windows'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+      - name: Prepare macOS native dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - name: Prepare Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf libgl1 libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
+      - name: Prepare Linux native compiler dependencies
+        if: runner.os == 'Linux' && steps.native-cache.outputs.cache-hit != 'true' && (matrix.native_asset == '' || steps.native_download.outcome == 'failure')
+        run: sudo apt-get install -y build-essential cmake libssl-dev libcurl4-openssl-dev
+      - name: Build and test native multiplayer runtime
+        if: steps.native-cache.outputs.cache-hit != 'true' && (matrix.native_asset == '' || steps.native_download.outcome == 'failure')
+        run: |
+          rm -rf dist/native-runtime
+          python scripts/build_bridge.py --native-source native-source --output dist/native-runtime --log dist/native-build.log
+          ctest --test-dir native-source/build --build-config Release --output-on-failure
+      - name: Test launcher against installed C++ bridge DLL and executable
+        run: |
+          python -m pip install -r requirements-test.txt
           python - <<'PY'
           import os, pathlib, subprocess, sys
-          modules = ['test_curseforge', 'test_content_download', 'test_content_dialog',
-                     'test_modpack_import', 'test_content_gateway']
-          result = subprocess.run([sys.executable, '-X', 'faulthandler', '-u', '-m', 'unittest',
-                                   *['tests.' + name for name in modules], '-v'],
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  text=True, encoding='utf-8', errors='replace')
-          pathlib.Path('dist').mkdir(exist_ok=True)
-          pathlib.Path('dist/resource-tests.log').write_text(result.stdout, encoding='utf-8')
-          print(result.stdout)
-          if result.returncode:
-              tail = result.stdout[-6000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=Resource tests failed::' + tail)
-          raise SystemExit(result.returncode)
+          package = pathlib.Path('dist/native-runtime').resolve()
+          library = 'buggcraft_bridge.dll' if os.name == 'nt' else (
+              'libbuggcraft_bridge.dylib' if sys.platform == 'darwin' else 'libbuggcraft_bridge.so')
+          environment = dict(os.environ,
+              BUGGCRAFT_BRIDGE_LIBRARY=str(package / ('bin' if os.name == 'nt' else 'lib') / library),
+              BUGGCRAFT_BRIDGE_EXECUTABLE=str(package / 'bin' / ('buggcraft-bridge.exe' if os.name == 'nt' else 'buggcraft-bridge')))
+          environment['PATH'] = str(package / 'bin') + os.pathsep + environment['PATH']
+          subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_native_bridge_runtime.py'],
+                         env=environment, check=True)
           PY
       - name: Prepare macOS application icon
         if: runner.os == 'macOS'

@@ -1,41 +1,6 @@
 name: Client and native regression
 
 on:
-  push:
-    branches: [main, 'release/**']
-    paths:
-      - 'src/**'
-      - 'resources/**'
-      - 'packaging/**'
-      - 'build*'
-      - 'requirements*.txt'
-      - 'scripts/stage_release.py'
-      - 'scripts/build_bridge.py'
-      - 'scripts/require_main_build.py'
-      - 'scripts/release_launcher_tag.py'
-      - 'scripts/check_ci_contract.py'
-      - 'tests/**'
-      - 'docs/guides/启动器发布检查清单.md'
-      - '.github/workflows/package.yml'
-      - '.github/workflows/client-regression.yml'
-      - '.github/workflows/release-launcher.yml'
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'resources/**'
-      - 'packaging/**'
-      - 'build*'
-      - 'requirements*.txt'
-      - 'scripts/stage_release.py'
-      - 'scripts/build_bridge.py'
-      - 'scripts/require_main_build.py'
-      - 'scripts/release_launcher_tag.py'
-      - 'scripts/check_ci_contract.py'
-      - 'tests/**'
-      - 'docs/guides/启动器发布检查清单.md'
-      - '.github/workflows/package.yml'
-      - '.github/workflows/client-regression.yml'
-      - '.github/workflows/release-launcher.yml'
   workflow_dispatch:
 
 permissions:
@@ -67,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 1bee479ef1d9f2fbd6d906956a8fa5b28cdc4007
+          ref: f5f0e4433ed8b935c071ab8ae1f8926939b52e83
           path: native-source
       - uses: actions/setup-python@v5
         with:

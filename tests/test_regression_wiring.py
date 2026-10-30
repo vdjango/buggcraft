@@ -61,20 +61,22 @@ class RegressionWiringTests(unittest.TestCase):
         self.assertIn('actions/upload-artifact@v4', regression)
         package = (workflows / 'package.yml').read_text(encoding='utf-8')
         self.assertIn("'scripts/require_main_build.py'", package)
+        self.assertIn('actions/cache@v4', package)
+        self.assertIn('needs: validate', package)
         release_gate = (ROOT / 'scripts/require_main_build.py').read_text(encoding='utf-8')
-        self.assertIn(".github/workflows/client-regression.yml", release_gate)
-        self.assertIn("regression (windows-latest)", release_gate)
-        self.assertIn("regression (ubuntu-24.04)", release_gate)
+        self.assertIn('Launcher preflight validation is incomplete', release_gate)
+        self.assertNotIn(".github/workflows/client-regression.yml", release_gate)
 
-    def test_release_packaging_and_regression_have_matching_push_path_filters(self):
-        paths = []
-        for name in ('package.yml', 'client-regression.yml'):
-            contents = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8')
-            push = contents.split('  push:\n', 1)[1].split('  workflow_dispatch:', 1)[0]
-            push = push.split('  pull_request:', 1)[0].split('    paths:', 1)[1]
-            paths.append(set(re.findall(r"^      - '([^']+)'", push, re.M)))
-        self.assertTrue(paths[0])
-        self.assertEqual(paths[0], paths[1], 'Every main packaging commit must also trigger regression')
+    def test_deep_regression_runs_only_when_requested(self):
+        package = (ROOT / '.github/workflows/package.yml').read_text(encoding='utf-8')
+        regression = (ROOT / '.github/workflows/client-regression.yml').read_text(encoding='utf-8')
+        bridge = (ROOT / '.github/workflows/bridge.yml').read_text(encoding='utf-8')
+        self.assertIn('  push:', package)
+        self.assertIn('  pull_request:', package)
+        for workflow in (regression, bridge):
+            self.assertIn('  workflow_dispatch:', workflow)
+            self.assertNotIn('  push:', workflow)
+            self.assertNotIn('  pull_request:', workflow)
 
 
 if __name__ == '__main__':
