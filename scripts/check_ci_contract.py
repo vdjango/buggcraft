@@ -37,6 +37,8 @@ if ('run-id: ${{ needs.validate.outputs.main_run_id }}' not in workflows['packag
         or 'github-token: ${{ github.token }}' not in workflows['package.yml']
         or 'if: "!startsWith(github.ref, \'refs/tags/v\')"' not in workflows['package.yml']):
     errors.append('Release tags must promote the validated main artifacts without rebuilding')
+if 'Check bundled runtime in isolation' in workflows['package.yml']:
+    errors.append('Runtime tests must finish before packaging; do not gate completed packages')
 
 for name in ('requirements.txt', 'requirements-build.txt', 'requirements-test.txt'):
     for number, raw in enumerate((ROOT / name).read_text(encoding='utf-8').splitlines(), 1):

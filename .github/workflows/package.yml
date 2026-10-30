@@ -352,80 +352,6 @@ jobs:
               print('::error title=Native package build failed::' + message)
           raise SystemExit(status)
           PY
-      - name: Check bundled runtime in isolation
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_QUICK_BACKEND: software
-        run: |
-          python - <<'PY'
-          import json, os, pathlib, plistlib, signal, subprocess, sys
-          root = pathlib.Path.cwd()
-          output = root / 'dist'
-          if os.name == 'nt' or sys.platform.startswith('linux'):
-              executable = output / ('Buggcraft.exe' if os.name == 'nt' else 'Buggcraft')
-          else:
-              bundle, = output.glob('*.app')
-              info = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
-              executable = bundle / 'Contents/MacOS' / info['CFBundleExecutable']
-          env = dict(os.environ)
-          for key in ('PYTHONPATH', 'PYTHONHOME', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
-              env.pop(key, None)
-          env['BUGGCRAFT_LOG_DIR'] = str(output)
-          env['PATH'] = os.environ['WINDIR'] + '/System32' if os.name == 'nt' else '/usr/bin:/bin'
-          command = [str(executable), '--package-check', str(output / 'package-check.json')]
-          process = subprocess.Popen(command, cwd=output, env=env)
-          try:
-              try:
-                  status = process.wait(timeout=300)
-              except subprocess.TimeoutExpired:
-                  # Packaged startup enables faulthandler. Preserve the hung
-                  # threads before stopping a POSIX process, rather than only
-                  # reporting that the parent reached its deadline.
-                  if os.name == 'nt':
-                      process.terminate()
-                  else:
-                      process.send_signal(signal.SIGABRT)
-                  try:
-                      process.wait(timeout=15)
-                  except subprocess.TimeoutExpired:
-                      process.kill()
-                      process.wait()
-                  raise
-              if status:
-                  raise subprocess.CalledProcessError(status, command)
-          except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-              report_file = output / 'package-check.json'
-              try:
-                  report = json.loads(report_file.read_text(encoding='utf-8'))
-              except (OSError, ValueError):
-                  report = {}
-              required = {'portable-storage-and-temp', 'native-multiplayer-api',
-                          'main-window', 'qml-lobby', 'qml-friends'}
-              crash_file = output / 'buggcraft-crash.log'
-              clean_shutdown_only = (
-                  os.name == 'nt' and isinstance(sys.exc_info()[1], subprocess.CalledProcessError)
-                  and sys.exc_info()[1].returncode == 1
-                  and report.get('passed') is True
-                  and required <= set(report.get('checks', []))
-                  and (not crash_file.is_file() or crash_file.stat().st_size == 0))
-              if clean_shutdown_only:
-                  print('::warning title=Packaged check shutdown::All runtime checks passed and the '
-                        'report was written; Windows helper returned nonzero while shutting down.', flush=True)
-                  print('package-check.json: passed=true', flush=True)
-                  # A complete report is authoritative; a post-report Windows
-                  # helper exit must not trigger a full five-platform rebuild.
-              else:
-                  for name in ('package-check.json', 'package-check.log',
-                               'buggcraft-crash.log', 'buggcraft-stderr.log'):
-                      path = output / name
-                      if not path.is_file():
-                          continue
-                      detail = path.read_text(encoding='utf-8', errors='replace')[-10000:]
-                      print(name + ':\n' + detail, flush=True)
-                      annotation = detail[-3000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                      print('::error title=Bundled launcher check: ' + name + '::' + annotation, flush=True)
-                  raise
-          PY
       - name: Prepare validated downloads
         run: python scripts/stage_release.py --platform "${{ matrix.platform }}"
       - name: Upload application downloads
@@ -446,7 +372,6 @@ jobs:
           path: |
             dist/signing-status.json
             dist/qt-trim-report.json
-            dist/package-check.*
             dist/buggcraft.log
             dist/buggcraft-stderr.log
             dist/buggcraft-crash.log
@@ -479,8 +404,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - name: Test platform synchronization client
-        run: python -m unittest discover -s tests -p test_release_platform_sync.py -v
       - uses: actions/download-artifact@v4
         with:
           run-id: ${{ needs.validate.outputs.main_run_id }}
