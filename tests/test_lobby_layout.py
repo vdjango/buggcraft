@@ -942,8 +942,12 @@ class LobbyLayoutTests(unittest.TestCase):
         self.backend._view.update(page='connected', selected='mine', connections=[room])
         self.backend.viewChanged.emit()
         QTest.qWait(60)
-        self.assertTrue(find_item(self.window, 'room-connecting-card').isVisible())
+        connecting = find_item(self.window, 'room-connecting-card')
+        self.assertTrue(connecting.isVisible())
         self.assertIn('Connecting to node', find_item(self.window, 'room-connecting-detail').property('text'))
+        cancel = find_item(self.window, 'cancel-room-connecting')
+        self.assertLessEqual(cancel.mapToScene(QPointF(0, cancel.height())).y(),
+                             connecting.mapToScene(QPointF(0, connecting.height())).y())
         room = dict(room, state='online', availability='ready', nodeName='Test node',
                     nodeRegion='Test region', nodeLatencyMs=15, latency_ms=25)
         self.backend._view['connections'] = [room]

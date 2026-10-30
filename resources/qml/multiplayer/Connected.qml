@@ -397,7 +397,7 @@ ColumnLayout {
             RoomInstallLog { anchors.fill: parent; anchors.margins: 10; record: connected.record }
         }
     }
-    Item { Layout.fillHeight: true; visible: !connected.online }
+    Item { Layout.fillHeight: true; visible: connected.ended }
     Popup {
         id: logConsent; objectName: "room-log-consent"; parent: Overlay.overlay; anchors.centerIn: parent
         width: Math.min(390, parent.width - 40); padding: 18; modal: true; focus: true
