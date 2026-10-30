@@ -90,5 +90,5 @@ class InheritedLaunchTests(unittest.TestCase):
                 patch('core.launch_preparation.MinecraftDownloader.install_metadata') as repair:
             prepare_standalone(self.root, 'Combined', {})
         libraries.assert_called_once_with('Combined', [], str(self.root), {})
-        repair.assert_called_once_with('Combined', metadata)
+        repair.assert_called_once_with('Combined', metadata, preserve_client=True)
         self.assertFalse((self.root / 'versions/26.1').exists())

@@ -288,6 +288,7 @@ class LoaderCatalogueTests(unittest.TestCase):
                     'libraries': [{'name': 'net.neoforged:neoforge:21.1.265'}]}), encoding='utf-8')
                 return identity
             with (patch.object(loaders.MinecraftDownloader, 'install', install_game),
+                  patch('core.java_runtime.prepare_installer_java', return_value='java'),
                   patch.object(loaders, '_neo_forge', side_effect=install_neoforge)):
                 result = loaders._install_loader('NeoForge', '1.21.1', '21.1.265', root, 'java',
                     {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
@@ -335,6 +336,7 @@ class LoaderCatalogueTests(unittest.TestCase):
                 self.write_vanilla(downloader.root, version)
             callback = dict(setStatus=lambda _: None, setProgress=lambda _: None, setMax=lambda _: None)
             with (patch.object(loaders, '_neo_forge', side_effect=install_neoforge),
+                  patch('core.java_runtime.prepare_installer_java', return_value='java'),
                   patch.object(loaders.MinecraftDownloader, 'install', vanilla)):
                 with self.assertRaisesRegex(RuntimeError, 'interrupted'):
                     loaders._install_loader('NeoForge', '1.21.1', '21.1.265', root, None,

@@ -423,8 +423,8 @@ class DownloadTransportTests(unittest.TestCase):
     def test_deep_portable_cache_resumes_and_reuses_verified_artifact(self):
         from utils.path_helper import filesystem_path
         import shutil
-        relative = Path('deep-cache') / ('portable-cache-' * 7) / ('loader-library-' * 6) / 'artifact.jar'
-        expected = Path(self.temp.name) / relative
+        relative = Path('deep-cache') / ('portable-cache-' * 7) / ('loader-library-' * 6) / ('checkpoint-' * 5) / 'artifact.jar'
+        expected = Path(self.temp.name).resolve() / relative
         self.assertGreater(len(str(expected)), 260)
         self.mode = 'resume'
         digest = hashlib.sha1(self.payload).hexdigest()

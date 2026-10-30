@@ -74,6 +74,7 @@ class PortableGameDirectoryTests(unittest.TestCase):
                 parent.resource_path = str(Path(temp) / 'resources')
                 parent.on_progress_clicked = Mock()
                 parent.content_page = Mock()
+                parent.games_page = Mock()
                 with patch('ui.pages.download.tasks.get_settings_manager', return_value=manager):
                     page = TasksPage(parent)
                 try:

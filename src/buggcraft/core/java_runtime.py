@@ -79,10 +79,11 @@ class JavaSelection:
     switched: bool
 
 
-def select_java(settings, directory, version):
-    policy = java_policy(directory, version)
+def select_java(settings, directory, version, *, policy=None, preferred_path=None):
+    policy = policy or java_policy(directory, version)
     required = policy.minimum
-    current = settings.get_version_setting('java.path') or ''
+    current = preferred_path if preferred_path is not None else settings.get_version_setting('java.path')
+    current = current or ''
     finder = JavaPathFinder()
 
     def inspect(path):
@@ -109,3 +110,66 @@ def select_java(settings, directory, version):
         major, path = max(candidates)
         return JavaSelection(path, major, required, True)
     raise JavaRuntimeUnavailable(version, required, raw, current, policy.maximum, policy.reason)
+
+
+def prepare_installer_java(loader, directory, version, preferred_path, callback, cancel):
+    """Resolve a verified JVM before Forge installers can spawn a process."""
+    from config.settings import get_settings_manager
+    from core.java_downloads import catalogue, install_available, register
+    from utils.storage_paths import active_storage_root
+    import shutil
+
+    def check_cancelled():
+        if cancel.is_set():
+            raise InterruptedError('安装已取消')
+
+    check_cancelled()
+    settings = get_settings_manager()
+    policy = java_policy(directory, version)
+    # Installing a mod loader needs the same conservative JVM range as running
+    # it, before its metadata has been written into the game directory.
+    policy = JavaPolicy(policy.minimum, policy.recommended, policy.recommended, policy.reason)
+    callback['setStatus'](f'正在检查 {loader} 安装所需的 Java {policy.recommended}…')
+    try:
+        selection = select_java(settings, directory, version, policy=policy, preferred_path=preferred_path)
+    except JavaRuntimeUnavailable:
+        # Reuse a system JVM even when startup discovery has not finished yet.
+        executable = 'java.exe' if os.name == 'nt' else 'java'
+        candidates = [shutil.which(executable)]
+        for variable in ('JAVA_HOME', 'JRE_HOME'):
+            root = os.environ.get(variable)
+            if root:
+                candidates.append(str(Path(root) / 'bin' / executable))
+        finder = JavaPathFinder(cancelled=cancel.is_set)
+        for path in candidates:
+            check_cancelled()
+            if not path or not os.path.isfile(path):
+                continue
+            raw, parsed = finder._get_java_version(path)
+            major = (parsed[1] if parsed[0] == 1 else parsed[0]) if parsed else 0
+            if policy.accepts(major):
+                register(settings, (path, raw, list(parsed)))
+                return path
+
+        callback['setStatus'](f'缺少兼容的 Java，正在自动准备 Java {policy.recommended}…')
+        def report(message, done, total):
+            callback['setStatus'](message)
+            callback['setMax'](total)
+            callback['setProgress'](done)
+        try:
+            source = settings.get_setting('java.download_source', '自动（国内优先）')
+            packages = catalogue(policy.recommended, source)
+            check_cancelled()
+            _, entry = install_available(packages, active_storage_root() / 'java', cancel, report)
+            check_cancelled()
+            register(settings, entry)
+            selection = select_java(settings, directory, version, policy=policy, preferred_path=preferred_path)
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f'{loader} 安装需要 Java {policy.recommended}，自动准备失败：{exc}。'
+                               '可在设置中添加兼容的 Java 后重试，已下载的游戏文件会保留。') from exc
+    check_cancelled()
+    path = Path(selection.path)
+    console = path.with_name('java.exe') if path.name.casefold() == 'javaw.exe' else path
+    return str(console if console.is_file() else path)

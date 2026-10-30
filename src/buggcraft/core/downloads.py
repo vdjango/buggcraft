@@ -220,6 +220,10 @@ class DownloadCancellation(threading.Event):
 class DownloadSourcesExhausted(RuntimeError):
     """A concise per-source failure summary safe to show outside the logs."""
 
+    def __init__(self, message, *, source_errors=()):
+        super().__init__(message)
+        self.source_errors = tuple(source_errors)
+
 
 def _source_failure_reason(error):
     if isinstance(error, requests.HTTPError) and error.response is not None:
@@ -591,6 +595,7 @@ class MinecraftDownloader:
                 file_progress(length, length)
             return destination
         errors = []
+        source_errors = []
         failures = {}
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".buggcraft-part")
@@ -803,6 +808,7 @@ class MinecraftDownloader:
                     if isinstance(exc, OSError) and not isinstance(exc, requests.RequestException):
                         raise
                     errors.append(str(exc))
+                    source_errors.append(exc)
                     from utils.download_address import source_name
                     failures[source_name(candidate) or host or '下载源'] = _source_failure_reason(exc)
                     logger.warning('download_retry file=%s host=%s attempt=%s error=%s', relative,
@@ -856,7 +862,9 @@ class MinecraftDownloader:
                 from utils.download_address import source_name
                 failures[source_name(candidate) or '下载源'] = '暂时不可用（此前请求失败）'
         summary = '；'.join(f'{name}：{reason}' for name, reason in failures.items())
-        raise DownloadSourcesExhausted(f'下载 {target.name} 失败：全部可用下载源均失败。{summary}。已下载进度保留，可稍后重试。')
+        raise DownloadSourcesExhausted(
+            f'下载 {target.name} 失败：全部可用下载源均失败。{summary}。已下载进度保留，可稍后重试。',
+            source_errors=source_errors)
 
     def fetch_json(self, url, relative, sha1=None, size=None, *, label='下载信息', valid=None):
         data = None

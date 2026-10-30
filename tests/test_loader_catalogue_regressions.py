@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 import sys
+import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
@@ -9,6 +11,99 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
 from core import loaders
+
+
+class InstallerJavaRegressionTests(unittest.TestCase):
+    def setUp(self):
+        from config.settings import SettingsManager
+        from core import java_runtime, java_downloads
+        self.runtime, self.downloads = java_runtime, java_downloads
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.settings = SettingsManager(self.root / 'config')
+        self.settings.set_setting('java.path', None)
+        self.settings.set_setting('java.installations', [])
+        self.paths = {}
+        for major in (8, 17, 21):
+            path = self.root / f'java-{major}.exe'
+            path.touch()
+            self.paths[major] = str(path)
+        def probe(path):
+            major = next((n for n, p in self.paths.items() if p == path), 0)
+            return (f'Java {major}', (major, 0, 1)) if major else ('', ())
+        for patcher in (
+            patch('config.settings.get_settings_manager', return_value=self.settings),
+            patch('utils.storage_paths.active_storage_root', return_value=self.root / 'cache'),
+            patch.object(java_runtime.JavaPathFinder, '_get_java_version', side_effect=probe),
+            patch('shutil.which', return_value=None),
+            patch.dict('os.environ', {'JAVA_HOME': '', 'JRE_HOME': ''}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.callback = dict(setStatus=Mock(), setMax=Mock(), setProgress=Mock())
+        self.cancel = threading.Event()
+
+    def resolve(self, java=None, loader='NeoForge', version='1.21.1'):
+        return self.runtime.prepare_installer_java(loader, self.root, version, java, self.callback, self.cancel)
+
+    def test_null_java_uses_verified_registered_runtime_before_spawning_installer(self):
+        self.settings.set_setting('java.installations', [[self.paths[21], 'stale', [8]]])
+        with patch.object(self.downloads, 'catalogue') as fetch, \
+                patch.object(loaders, 'verified_installation', return_value=True), \
+                patch.object(loaders, '_neo_forge', return_value='neoforge') as installer, \
+                patch.object(loaders, '_flatten_forge_version', return_value='instance'):
+            result = loaders._run_loader_install('NeoForge', '1.21.1', '21.1.265', self.root,
+                None, self.callback, self.cancel, 'BMCLAPI', 'instance', set(), _workspace=True)
+        self.assertEqual(result, 'instance')
+        self.assertEqual(installer.call_args.args[2], self.paths[21])
+        fetch.assert_not_called()
+        self.assertIsNone(self.settings.get_setting('java.path'))
+
+    def test_missing_java_installs_into_portable_cache_without_changing_selection(self):
+        with patch.object(self.downloads, 'catalogue', return_value=['verified-package']) as catalogue, \
+                patch.object(self.downloads, 'install_available',
+                    return_value=('verified-package', (self.paths[21], 'Java 21', [21, 0, 1]))) as install:
+            self.assertEqual(self.resolve(), self.paths[21])
+        self.assertEqual(catalogue.call_args.args[0], 21)
+        self.assertEqual(install.call_args.args[1], self.root / 'cache/java')
+        self.assertIs(install.call_args.args[2], self.cancel)
+        self.assertIsNone(self.settings.get_setting('java.path'))
+        self.assertEqual(self.settings.get_setting('java.installations')[0][0], self.paths[21])
+
+    def test_moved_or_incompatible_selected_java_uses_compatible_alternative(self):
+        self.settings.set_setting('java.installations', [[self.paths[21], 'Java 8', [8]]])
+        for selected in (str(self.root / 'moved/java.exe'), self.paths[8], self.paths[17]):
+            with self.subTest(selected=selected), patch.object(self.downloads, 'catalogue') as fetch:
+                self.assertEqual(self.resolve(selected), self.paths[21])
+                fetch.assert_not_called()
+
+    def test_existing_system_java_is_verified_when_configuration_is_empty(self):
+        with patch('shutil.which', return_value=self.paths[21]), \
+                patch.object(self.downloads, 'catalogue') as fetch:
+            self.assertEqual(self.resolve(), self.paths[21])
+        fetch.assert_not_called()
+
+    def test_legacy_forge_retains_java_8_instead_of_using_java_21(self):
+        self.settings.set_setting('java.installations', [[self.paths[8], 'Java 8', [8]]])
+        with patch.object(self.downloads, 'catalogue') as fetch:
+            self.assertEqual(self.resolve(self.paths[21], 'Forge', '1.12.2'), self.paths[8])
+        fetch.assert_not_called()
+
+    def test_java_download_failure_explains_requirement_and_retained_files(self):
+        with patch.object(self.downloads, 'catalogue', side_effect=RuntimeError('network offline')):
+            with self.assertRaisesRegex(RuntimeError, 'NeoForge 安装需要 Java 21') as error:
+                self.resolve()
+        self.assertIn('已下载的游戏文件会保留', str(error.exception))
+        self.assertNotIn('NoneType', str(error.exception))
+
+    def test_cancelled_java_preparation_does_not_download_or_spawn(self):
+        self.cancel.set()
+        with patch.object(self.downloads, 'catalogue') as catalogue, patch.object(loaders.subprocess, 'Popen') as spawn:
+            with self.assertRaises(InterruptedError):
+                self.resolve()
+        catalogue.assert_not_called()
+        spawn.assert_not_called()
 
 
 class LoaderCatalogueRegressionTests(unittest.TestCase):

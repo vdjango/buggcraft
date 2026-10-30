@@ -12,7 +12,7 @@ import zipfile
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
-from core.downloads import DownloadCancelled, MinecraftDownloader
+from core.downloads import DownloadCancelled, DownloadSourcesExhausted, MinecraftDownloader
 from core.modpack_missing import unavailable_mod
 from core.modpacks import CurseForgeClient, ModpackImporter, export_pack
 from client_ui_fixtures import ClientUiFixtures
@@ -161,6 +161,16 @@ class MissingModImportTests(unittest.TestCase):
 
 
 class MissingModPolicyTests(unittest.TestCase):
+    def test_all_sources_must_confirm_missing_before_a_mod_can_be_skipped(self):
+        missing = requests.HTTPError(response=type('Response', (), {'status_code': 404})())
+        gone = requests.HTTPError(response=type('Response', (), {'status_code': 410})())
+        for errors, expected in [((missing, gone), True),
+                                 ((missing, requests.Timeout('read timed out')), False),
+                                 ((missing, ValueError('hash mismatch')), False), ((), False)]:
+            with self.subTest(errors=errors):
+                error = DownloadSourcesExhausted('全部下载源失败', source_errors=errors)
+                self.assertEqual(unavailable_mod('mods/private.jar', error), expected)
+
     def test_only_missing_jar_in_mods_qualifies(self):
         for path, error, expected in [
             ('mods/private.jar', RuntimeError('404 Client Error for url: https://example.invalid/file'), True),

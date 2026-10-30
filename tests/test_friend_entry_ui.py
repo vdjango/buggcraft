@@ -234,7 +234,10 @@ class FriendEntryUiTests(LauncherQmlCase):
         self.backend.social_failure('request', 'Invalid delegated key')
         dialog = self.backend.credential_prompt_dialog
         self.assertIsNotNone(dialog)
-        self.assertIn('重新登录', dialog.windowTitle())
+        # macOS native alerts can omit the window title; the visible guidance
+        # and recovery action are the cross-platform contract.
+        self.assertIn('浏览器登录', dialog.text())
+        self.assertTrue(any(button.text() == '前往重新登录' for button in dialog.buttons()))
         next(button for button in dialog.buttons() if button.text() == '稍后').click()
         friends = self.open_friends()
         self.assertEqual(self.item(friends, 'friends-stale-recovery').property('text'), '重新登录')

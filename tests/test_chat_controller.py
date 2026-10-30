@@ -98,7 +98,7 @@ class ChatControllerTests(unittest.TestCase):
         self.assertTrue(controller.view['nodes'][0]['personalCode'])
         controller.reload_store()
         self.assertTrue(controller.view['nodes'][0]['personalCode'])
-        self.assertIn('个人接入码已更新', controller.view['notice'])
+        self.assertIn('节点账号已更新', controller.view['notice'])
 
     def test_node_selection_cannot_bypass_active_room_lock(self):
         controller = self.controller

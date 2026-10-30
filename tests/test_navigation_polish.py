@@ -42,9 +42,11 @@ class NavigationPolishTests(LauncherQmlCase):
         QTest.keyClick(page.host.quick, Qt.Key_Escape)
         self.wait_until(lambda: not page.view_controller._log_timer.isActive())
         self.assertFalse(page.view_controller._log_timer.isActive())
-        with patch.object(page, 'start_install') as retry:
+        with patch.object(page, '_start_worker') as retry:
             self.click(page.host, 'task-action-failed-fixture')
-        self.assertEqual(retry.call_args.args[:2], ('1.21.8-Forge', str(self.game_dir)))
+        self.assertEqual(retry.call_args.args[0]['id'], 'failed-fixture')
+        self.assertEqual(retry.call_args.args[0]['version'], '1.21.8-Forge')
+        self.assertEqual(len(page._tasks), 2)
         self.assert_no_qml_errors()
 
     def test_opacity_defaults_clamps_saves_applies_and_survives_restart(self):

@@ -757,6 +757,9 @@ def _run_loader_install(loader, minecraft_version, loader_version, directory, ja
     ensure_vanilla()
     if cancel.is_set():
         raise InterruptedError("安装已取消")
+    if loader in ('Forge', 'NeoForge'):
+        from core.java_runtime import prepare_installer_java
+        java = prepare_installer_java(loader, directory, minecraft_version, java, monitored, cancel)
     if loader == "NeoForge":
         installed = _neo_forge(loader_version, directory, java, callback, cancel, source)
         return _flatten_forge_version(directory, installed, minecraft_version, before_versions, identity)

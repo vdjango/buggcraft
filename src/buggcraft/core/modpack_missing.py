@@ -5,7 +5,7 @@ import threading
 
 import requests
 
-from core.downloads import MinecraftDownloader
+from core.downloads import MinecraftDownloader, DownloadSourcesExhausted
 
 
 def unavailable_mod(path, error):
@@ -13,6 +13,8 @@ def unavailable_mod(path, error):
     relative = PurePosixPath(path)
     if not relative.parts or relative.parts[0].casefold() != 'mods' or relative.suffix.casefold() != '.jar':
         return False
+    if isinstance(error, DownloadSourcesExhausted):
+        return bool(error.source_errors) and all(unavailable_mod(path, item) for item in error.source_errors)
     current, seen = error, set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
