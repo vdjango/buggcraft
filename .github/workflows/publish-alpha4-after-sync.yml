@@ -1,24 +1,57 @@
-name: Publish launcher alpha.4 after synchronization
+name: Publish validated launcher alpha.4
 
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-alpha4-after-sync.yml']
   workflow_run:
     workflows: ["Package launcher"]
     types: [completed]
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish:
     if: >-
-      github.event.workflow_run.event == 'push' &&
+      github.event_name == 'push' ||
+      (github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'v1.0.1-alpha.4' &&
       github.event.workflow_run.head_sha == '56139a20fb2eacf6054fc47e63b080d715e8802a' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
-      - name: Publish the synchronized release
+      - uses: actions/checkout@v4
+        with:
+          ref: 56139a20fb2eacf6054fc47e63b080d715e8802a
+      - name: Verify the build and complete release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          from require_main_build import require_success, _get_json, PLATFORMS
+          repo, token = os.environ['GITHUB_REPOSITORY'], os.environ['GH_TOKEN']
+          sha = '56139a20fb2eacf6054fc47e63b080d715e8802a'
+          run = require_success(repo, sha, token)
+          base = 'https://api.github.com/repos/' + repo
+          assert _get_json(base + '/commits/v1.0.1-alpha.4', token)['sha'] == sha
+          releases = _get_json(base + '/releases?per_page=100', token)
+          release = next(r for r in releases if r['tag_name'] == 'v1.0.1-alpha.4')
+          required = {'Buggcraft.exe', 'Buggcraft', 'Buggcraft-linux-arm64',
+                      'Buggcraft-runtime-windows-x64.zip', 'Buggcraft-macos-x86_64.zip',
+                      'Buggcraft-macos-arm64.zip', 'BUGGCRAFT_VERSION.txt',
+                      'Buggcraft-source.tar.gz', 'LICENSE'}
+          required.update('SHA256SUMS-' + p + '.txt' for p in PLATFORMS)
+          uploaded = {a['name'] for a in release['assets']
+                      if a['state'] == 'uploaded' and a['size'] > 0}
+          assert required <= uploaded, 'Release assets are incomplete'
+          print('Verified build', run['id'], 'and', len(uploaded), 'release assets')
+          PY
+      - name: Publish the validated release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
