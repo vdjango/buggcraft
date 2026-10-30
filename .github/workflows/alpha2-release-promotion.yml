@@ -1,110 +1,15 @@
-name: Promote verified alpha 2 launcher
+﻿name: Retry alpha 2 download-site sync
 on:
   push:
     branches: [ci/alpha2-release-promotion]
     paths: [.github/workflows/alpha2-release-promotion.yml]
 permissions:
   actions: write
-  contents: write
-concurrency:
-  group: alpha2-launcher-promotion-${{ github.sha }}
-  cancel-in-progress: false
 jobs:
-  promote:
+  retry:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
     steps:
-      - name: Require current main preflight and packaging before alpha 2
+      - name: Rerun failed publication job with existing build artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          python3 -u - <<'PY'
-          import json, os, time
-          from urllib.request import Request, urlopen
-          from urllib.error import HTTPError, URLError
-          from urllib.parse import urlencode
-          base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
-          token = os.environ['GH_TOKEN']
-          sha = 'f98de3aa18329b43a9e70f57d8dc959c4c564aa3'
-          deadline = time.monotonic() + 170 * 60
-          def request(path, payload=None):
-              url = path if path.startswith('https://') else base + path
-              headers = {'Authorization':'Bearer ' + token, 'Accept':'application/vnd.github+json'}
-              body = None if payload is None else json.dumps(payload).encode()
-              if body is not None:
-                  headers['Content-Type'] = 'application/json'
-              for attempt in range(3):
-                  try:
-                      with urlopen(Request(url, data=body, headers=headers), timeout=30) as response:
-                          content = response.read()
-                      return json.loads(content) if content else None
-                  except (HTTPError, URLError, TimeoutError) as error:
-                      if isinstance(error, HTTPError) and error.code not in (429, 500, 502, 503, 504):
-                          raise
-                      if attempt == 2:
-                          raise
-                      time.sleep(5 * (attempt + 1))
-          # Stop superseded CI jobs; the current main commit replaces them.
-          previous_sha = '101f99f0ce50229fe1b7203e1e87751d4d267e1c'
-          previous = request('/actions/runs?' + urlencode({'head_sha':previous_sha,'per_page':100}))['workflow_runs']
-          previous += [request('/actions/runs/41031850721')]
-          for old in previous:
-              if old['status'] != 'completed':
-                  request('/actions/runs/' + str(old['id']) + '/cancel', {})
-                  print('Cancelled superseded run', old['id'], flush=True)
-          releases = request('/releases?per_page=100')
-          existing = [r for r in releases if r['tag_name'] == 'v1.0.1-alpha.2']
-          print('Existing alpha 2 release:', [{'id':r['id'], 'draft':r['draft']} for r in existing], flush=True)
-          if existing:
-              raise SystemExit('Alpha 2 already has release assets; no tag changes requested')
-          def wait_build(workflow):
-              branch = 'main'
-              while time.monotonic() < deadline:
-                  query = urlencode({'branch':branch, 'event':'push', 'per_page':100})
-                  runs = request('/actions/workflows/' + workflow + '/runs?' + query)['workflow_runs']
-                  matching = [r for r in runs if r['head_sha'] == sha]
-                  if not matching:
-                      print('Waiting for', branch, sha, flush=True)
-                      time.sleep(30)
-                      continue
-                  run = matching[0]
-                  print(workflow, run['id'], run['status'], run['conclusion'], flush=True)
-                  if run['status'] != 'completed':
-                      time.sleep(30)
-                      continue
-                  if run['conclusion'] != 'success':
-                      raise SystemExit(branch + ' build failed; no release requested')
-                  jobs = request('/actions/runs/' + str(run['id']) + '/jobs?per_page=100')['jobs']
-                  packages = [j for j in jobs if j['name'].startswith('package (')]
-                  assert len(packages) == 5 and all(j['conclusion'] == 'success' for j in packages)
-                  targets = {'windows-x64','linux-x86_64','linux-arm64','macos-x86_64','macos-arm64'}
-                  assert all(any(p in j['name'] for j in packages) for p in targets)
-                  assert any(j['name'] == 'validate' and j['conclusion'] == 'success' for j in jobs)
-                  return
-              raise SystemExit('Build verification timed out; no release requested')
-          wait_build('package.yml')
-          assert request('/branches/main')['commit']['sha'] == sha, 'main moved; verify the new commit'
-          expected_assets = {
-              'buggcraft-native-0.3.5-windows-x64.zip',
-              'buggcraft-native-0.3.5-linux-x64.tar.gz',
-              'buggcraft-native-0.3.5-macos-x64.tar.gz',
-              'buggcraft-native-0.3.5-macos-arm64.tar.gz',
-          }
-          while time.monotonic() < deadline:
-              try:
-                  native_release = request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.5')
-              except HTTPError as error:
-                  if error.code != 404:
-                      raise
-                  time.sleep(30)
-                  continue
-              if not native_release['draft'] and expected_assets <= {asset['name'] for asset in native_release['assets']}:
-                  break
-              time.sleep(30)
-          else:
-              raise SystemExit('Native v0.3.5 release is incomplete; launcher promotion stopped')
-          request('/actions/workflows/release-launcher.yml/dispatches',
-                  {'ref':'main','inputs':{'version':'1.0.1-alpha.2'}})
-          print('Requested v1.0.1-alpha.2 for validated integrated commit ' + sha, flush=True)
-          PY
+        run: gh api -X POST repos/vdjango/buggcraft/actions/runs/41057658766/rerun-failed-jobs
