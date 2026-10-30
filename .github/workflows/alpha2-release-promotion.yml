@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - name: Require current main packaging and client regression before alpha 2
+      - name: Require current main preflight and packaging before alpha 2
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -26,8 +26,8 @@ jobs:
           from urllib.parse import urlencode
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          sha = '101f99f0ce50229fe1b7203e1e87751d4d267e1c'
-          native_sha = '1bee479ef1d9f2fbd6d906956a8fa5b28cdc4007'
+          sha = '514eac76915c7ff39344f612fb3f35077acbe4d3'
+          native_sha = 'f5f0e4433ed8b935c071ab8ae1f8926939b52e83'
           deadline = time.monotonic() + 170 * 60
           def request(path, payload=None):
               url = path if path.startswith('https://') else base + path
@@ -46,8 +46,8 @@ jobs:
                       if attempt == 2:
                           raise
                       time.sleep(5 * (attempt + 1))
-          # Stop superseded jobs before building the dependency correction.
-          previous_sha = 'f2ca41cb41a5c71da32623e45b8b7d125cb154ea'
+          # Stop superseded CI jobs; the current main commit replaces them.
+          previous_sha = '101f99f0ce50229fe1b7203e1e87751d4d267e1c'
           previous = request('/actions/runs?' + urlencode({'head_sha':previous_sha,'per_page':100}))['workflow_runs']
           previous += [request('/actions/runs/41031850721')]
           for old in previous:
@@ -77,21 +77,36 @@ jobs:
                   if run['conclusion'] != 'success':
                       raise SystemExit(branch + ' build failed; no release requested')
                   jobs = request('/actions/runs/' + str(run['id']) + '/jobs?per_page=100')['jobs']
-                  if workflow == 'package.yml':
-                      packages = [j for j in jobs if j['name'].startswith('package (')]
-                      assert len(packages) == 5 and all(j['conclusion'] == 'success' for j in packages)
-                      targets = {'windows-x64','linux-x86_64','linux-arm64','macos-x86_64','macos-arm64'}
-                      assert all(any(p in j['name'] for j in packages) for p in targets)
-                  else:
-                      assert {j['name'] for j in jobs} == {'regression (windows-latest)', 'regression (ubuntu-24.04)'}
-                      assert all(j['conclusion'] == 'success' for j in jobs)
+                  packages = [j for j in jobs if j['name'].startswith('package (')]
+                  assert len(packages) == 5 and all(j['conclusion'] == 'success' for j in packages)
+                  targets = {'windows-x64','linux-x86_64','linux-arm64','macos-x86_64','macos-arm64'}
+                  assert all(any(p in j['name'] for j in packages) for p in targets)
+                  assert any(j['name'] == 'validate' and j['conclusion'] == 'success' for j in jobs)
                   return
               raise SystemExit('Build verification timed out; no release requested')
           wait_build('package.yml')
-          wait_build('client-regression.yml')
           assert request('/branches/main')['commit']['sha'] == sha, 'main moved; verify the new commit'
           native = request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/branches/main')
           assert native['commit']['sha'] == native_sha, 'Native fix has not been integrated into remote main'
+          expected_assets = {
+              'buggcraft-native-0.3.5-windows-x64.zip',
+              'buggcraft-native-0.3.5-linux-x64.tar.gz',
+              'buggcraft-native-0.3.5-macos-x64.tar.gz',
+              'buggcraft-native-0.3.5-macos-arm64.tar.gz',
+          }
+          while time.monotonic() < deadline:
+              try:
+                  native_release = request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.5')
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+                  time.sleep(30)
+                  continue
+              if not native_release['draft'] and expected_assets <= {asset['name'] for asset in native_release['assets']}:
+                  break
+              time.sleep(30)
+          else:
+              raise SystemExit('Native v0.3.5 release is incomplete; launcher promotion stopped')
           request('/actions/workflows/release-launcher.yml/dispatches',
                   {'ref':'main','inputs':{'version':'1.0.1-alpha.2'}})
           print('Requested v1.0.1-alpha.2 for validated integrated commit ' + sha, flush=True)
