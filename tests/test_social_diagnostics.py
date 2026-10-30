@@ -104,6 +104,9 @@ class SocialDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs('hookup.native_routes', level='DEBUG') as logs:
             pending = asyncio.create_task(bridge._request('social.operate', {}))
             try:
+                # Let the request reach the held lock before timing its wait.
+                # Windows may otherwise start the task late in the sleep period.
+                await asyncio.sleep(0)
                 await asyncio.sleep(.04)
             finally:
                 bridge.request_lock.release()
