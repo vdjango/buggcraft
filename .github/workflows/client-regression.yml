@@ -13,6 +13,7 @@ on:
       - 'scripts/build_bridge.py'
       - 'scripts/require_main_build.py'
       - 'scripts/release_launcher_tag.py'
+      - 'scripts/check_ci_contract.py'
       - 'tests/**'
       - 'docs/guides/启动器发布检查清单.md'
       - '.github/workflows/package.yml'
@@ -29,6 +30,7 @@ on:
       - 'scripts/build_bridge.py'
       - 'scripts/require_main_build.py'
       - 'scripts/release_launcher_tag.py'
+      - 'scripts/check_ci_contract.py'
       - 'tests/**'
       - 'docs/guides/启动器发布检查清单.md'
       - '.github/workflows/package.yml'
@@ -73,6 +75,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
+            requirements-test.txt
             native-source/requirements.txt
       - name: Prepare Linux dependencies
         if: runner.os == 'Linux'
@@ -87,7 +90,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
       - name: Install test dependencies
-        run: python -m pip install -r requirements.txt -r native-source/requirements.txt pytest pytest-subtests
+        run: python -m pip install -r requirements.txt -r requirements-test.txt -r native-source/requirements.txt
       - name: Build production C++ node and bridge
         run: |
           mkdir -p build/client-regression

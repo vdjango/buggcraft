@@ -1,6 +1,24 @@
 name: Package launcher
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'packaging/**'
+      - 'build*'
+      - 'requirements*.txt'
+      - 'scripts/stage_release.py'
+      - 'scripts/build_bridge.py'
+      - 'scripts/require_main_build.py'
+      - 'scripts/release_launcher_tag.py'
+      - 'scripts/check_ci_contract.py'
+      - 'tests/**'
+      - 'docs/guides/启动器发布检查清单.md'
+      - '.github/workflows/package.yml'
+      - '.github/workflows/client-regression.yml'
+      - '.github/workflows/release-launcher.yml'
   push:
     branches: [main, 'release/**']
     tags: ['v*']
@@ -14,6 +32,7 @@ on:
       - 'scripts/build_bridge.py'
       - 'scripts/require_main_build.py'
       - 'scripts/release_launcher_tag.py'
+      - 'scripts/check_ci_contract.py'
       - 'tests/**'
       - 'docs/guides/启动器发布检查清单.md'
       - '.github/workflows/package.yml'
@@ -43,6 +62,8 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v4
+      - name: Check CI contracts before platform builds
+        run: python scripts/check_ci_contract.py
       - name: Require main validation before building a release tag
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -115,6 +136,7 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-build.txt
+            requirements-test.txt
       - name: Test release file validation
         run: python -m unittest tests.test_release_staging tests.test_release_platform_sync -v
       - name: Install build dependencies
@@ -144,7 +166,7 @@ jobs:
           ctest --test-dir native-source/build --build-config Release --output-on-failure
       - name: Test launcher against installed C++ bridge DLL and executable
         run: |
-          python -m pip install pytest
+          python -m pip install -r requirements-test.txt
           python - <<'PY'
           import os, pathlib, subprocess, sys
           package = pathlib.Path('dist/native-runtime').resolve()
