@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import json
 import logging
 import os
@@ -25,7 +27,7 @@ from utils.download_address import display_address, source_name
 from core.downloads import DownloadCancelled, DownloadCancellation, MinecraftDownloader, download_error_message
 from core.loaders import install_loader
 from core.modpacks import suggested_name
-from core.transfer_metrics import TransferMeter
+from core.transfer_metrics import ProgressGate, TransferMeter
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +64,8 @@ class TaskHistoryController(QObject):
                      status=download_error_message(task.get('status', '')),
                      canRetry=task['id'] in self.page._external_retries,
                      speed=task.get('speed', 0) if task.get('state') in TasksPage.ACTIVE and time.monotonic() - task.get('_speedAt', 0) < 3 else 0) for task in self._tasks
-                if query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
-                             " ".join(item.get('name', '') for item in task.get('files', []))).casefold()
+                if (not query or query in (task.get("version", "") + " " + task.get("game_dir", "") + " " +
+                                      " ".join(item.get('name', '') for item in task.get('files', []))).casefold())
                 and (self._filter == "全部记录" or task.get("state") == self._filter
                      or (self._filter in ("进行中", "正在安装") and task.get("state") in TasksPage.ACTIVE))]
 
@@ -162,7 +164,7 @@ class DownloadWorkerSignals(QObject):
     status = Signal(str, str)
     # Byte totals may exceed Qt's signed 32-bit int (large modpacks).
     progress = Signal(str, object, object)
-    file_event = Signal(str, object)
+    file_events = Signal(str, object)
     resolved = Signal(str, str)
     downloaded = Signal(str, object)
     pack_ready = Signal(str, str)
@@ -193,11 +195,73 @@ class DownloadWorker(QRunnable):
         self.isolated = isolated
         self.cancel_event = DownloadCancellation()
         self.restart_for_source = False
+        self._ui_gate = ProgressGate()
+        self._progress_lock = threading.Lock()
+        self._last_progress_maximum = None
+        self._last_progress_current = None
+        self._file_event_lock = threading.Lock()
+        self._pending_file_events = {}
+        self._last_file_event_emit = 0.0
+        self._file_event_timer = None
         self.signals = DownloadWorkerSignals()
+
+    def _report_progress(self, current, maximum):
+        current, maximum = int(current), int(maximum)
+        with self._progress_lock:
+            phase_changed = maximum >= 0 and maximum != self._last_progress_maximum
+            restarted = (current >= 0 and self._last_progress_current is not None and
+                         current < self._last_progress_current)
+            if maximum >= 0:
+                self._last_progress_maximum = maximum
+            if current >= 0:
+                self._last_progress_current = current
+            emit = self._ui_gate.allow('progress', force=phase_changed or restarted or current < 0 or
+                                       maximum > 0 and current >= maximum)
+        if emit:
+            self.signals.progress.emit(self.task_id, current, maximum)
+
+    def _report_status(self, value):
+        value = str(value)
+        routine = value.startswith(('正在下载 ', '正在校验 ', '正在解析下载源',
+                                    '正在续传 ', '已下载并校验 '))
+        if self._ui_gate.allow('status', force=not routine):
+            self.signals.status.emit(self.task_id, value)
+
+    def _report_file_event(self, meter, event):
+        with self._file_event_lock:
+            update = meter.feed(event)
+            key = update.get('key') or update.get('path') or update['name']
+            now = time.monotonic()
+            self._pending_file_events[key] = dict(self._pending_file_events.get(key, {}), **update)
+            flush = (now - self._last_file_event_emit >= .1 or
+                     len(self._pending_file_events) >= 128 or
+                     update.get('state') in ('failed', 'cancelled'))
+            if flush:
+                self._flush_file_events_locked()
+            elif self._file_event_timer is None:
+                self._file_event_timer = threading.Timer(.1, self._flush_file_events)
+                self._file_event_timer.daemon = True
+                self._file_event_timer.start()
+
+    def _flush_file_events(self):
+        with self._file_event_lock:
+            self._flush_file_events_locked()
+
+    def _flush_file_events_locked(self):
+        if self._file_event_timer is not None:
+            self._file_event_timer.cancel()
+            self._file_event_timer = None
+        if not self._pending_file_events:
+            return
+        events = list(self._pending_file_events.values())
+        self._pending_file_events.clear()
+        self._last_file_event_emit = time.monotonic()
+        self.signals.file_events.emit(self.task_id, events)
 
     def confirm_missing_mods(self, mods):
         from ui.dialog.modpack_missing import MissingModDecision
         decision = MissingModDecision(mods)
+        self._flush_file_events()
         self.signals.status.emit(self.task_id, '有模组暂时无法下载，等待选择是否跳过…')
         self.signals.missing_mods.emit(self.task_id, decision)
         return decision.wait(self.cancel_event)
@@ -205,12 +269,10 @@ class DownloadWorker(QRunnable):
     @Slot()
     def run(self):
         try:
-            progress = lambda current, maximum: self.signals.progress.emit(
-                self.task_id, int(current), int(maximum)
-            )
+            progress = self._report_progress
             meter = TransferMeter()
-            file_event = lambda event: self.signals.file_event.emit(self.task_id, meter.feed(event))
-            status = lambda value: self.signals.status.emit(self.task_id, str(value))
+            file_event = lambda event: self._report_file_event(meter, event)
+            status = self._report_status
             if self.addons:
                 from core.loader_rules import incompatibility
                 for addon in self.addons:
@@ -283,13 +345,16 @@ class DownloadWorker(QRunnable):
             message = '整合包导入完成' if self.modpack else '内容下载完成' if self.content else f"{self.loader + ' ' if self.loader else ''}安装完成"
             if self.modpack and importer.skipped_mods:
                 message += f'，已跳过 {len(importer.skipped_mods)} 个模组；联机前请按房主实际使用情况补齐。'
+            self._flush_file_events()
             self.signals.finished.emit(self.task_id, True, message)
         except DownloadCancelled as exc:
+            self._flush_file_events()
             self.signals.finished.emit(self.task_id, False, str(exc))
         except Exception as exc:
             logger.exception("Download/install failed: version=%s kind=%s source=%s", self.version,
                              self.content.get('kind') if self.content else 'modpack' if self.modpack else 'game', self.source)
             self.signals.status.emit(self.task_id, '详细错误：' + str(exc))
+            self._flush_file_events()
             self.signals.finished.emit(self.task_id, False, download_error_message(exc))
 
 
@@ -323,8 +388,11 @@ class TasksPage(QWidget):
         self.view_controller = TaskHistoryController(self)
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
-        self._save_timer.setInterval(500)
-        self._save_timer.timeout.connect(self._flush_history)
+        self._save_timer.setInterval(2000)
+        self._save_timer.timeout.connect(self._queue_history_save)
+        self._save_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='download-history')
+        self._save_lock = threading.Lock()
+        self._save_revision = 0
         self.init_ui()
         self.refresh_tasks()
         self._flush_history()
@@ -378,14 +446,14 @@ class TasksPage(QWidget):
             logger.exception("Unable to read download task history")
             return []
 
-    def _save_history(self):
+    def _save_history(self, tasks=None):
         os.makedirs(os.path.dirname(self.history_path), exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(
             prefix=".download-history-", dir=os.path.dirname(self.history_path)
         )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-                json.dump(self._tasks, output, ensure_ascii=False, indent=2)
+                json.dump(self._tasks if tasks is None else tasks, output, ensure_ascii=False, indent=2)
                 output.flush()
                 os.fsync(output.fileno())
             os.replace(temporary, self.history_path)
@@ -545,7 +613,7 @@ class TasksPage(QWidget):
                                 content_source=task['content_source'])
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
-        worker.signals.file_event.connect(self.update_file_event)
+        worker.signals.file_events.connect(self.update_file_events)
         worker.signals.resolved.connect(self.resolve_version)
         worker.signals.downloaded.connect(self.resolve_files)
         worker.signals.pack_ready.connect(self.resolve_pack)
@@ -754,6 +822,21 @@ class TasksPage(QWidget):
         task = self._find_task(task_id)
         if not task:
             return
+        self._apply_file_event(task_id, task, event)
+        self._update_row(task)
+        self._schedule_save()
+
+    @Slot(str, object)
+    def update_file_events(self, task_id, events):
+        task = self._find_task(task_id)
+        if not task or not events:
+            return
+        for event in events:
+            self._apply_file_event(task_id, task, event)
+        self._update_row(task)
+        self._schedule_save()
+
+    def _apply_file_event(self, task_id, task, event):
         if 'url' in event:
             event = dict(event, url=display_address(event['url']))
         files = task.setdefault('files', [])
@@ -770,16 +853,12 @@ class TasksPage(QWidget):
         entry.update(event)
         if event.get('url'):
             entry['source'] = source_name(event['url'])
-        if event.get('state') == 'downloading' and entry.get('url'):
+        if entry.get('url') and event.get('state') in ('downloading', 'verifying', 'verified', 'cached'):
             task['download_source'] = entry.get('source', '')
             if entry['url'] != previous_url:
                 self._log(task, f"下载地址：{entry['name']} · {entry['url']}")
         if 'task_speed' in event:
             task.update(speed=event['task_speed'], _speedAt=time.monotonic())
-        self._update_row(task)
-        # Only the open detail view needs byte updates; avoid rebuilding every
-        # task row for each chunk of thousands of assets.
-        self._schedule_save()
 
     @Slot(str, bool, str)
     def finish_task(self, task_id, succeeded, message):
@@ -848,12 +927,32 @@ class TasksPage(QWidget):
         if not self._save_timer.isActive():
             self._save_timer.start()
 
+    def _queue_history_save(self):
+        # The snapshot is cheap compared with JSON formatting and fsync. Only
+        # the immutable copy crosses threads; the live task list stays on Qt.
+        snapshot = deepcopy(self._tasks)
+        self._save_revision += 1
+        revision = self._save_revision
+
+        def save():
+            with self._save_lock:
+                if revision != self._save_revision:
+                    return
+                try:
+                    self._save_history(snapshot)
+                except OSError:
+                    logger.exception("Unable to persist download task history")
+
+        self._save_executor.submit(save)
+
     def _flush_history(self):
         self._save_timer.stop()
-        try:
-            self._save_history()
-        except OSError:
-            logger.exception("Unable to persist download task history")
+        self._save_revision += 1
+        with self._save_lock:
+            try:
+                self._save_history()
+            except OSError:
+                logger.exception("Unable to persist download task history")
 
     def _log(self, task, message):
         log = task.setdefault("logs", [])
@@ -922,6 +1021,7 @@ class TasksPage(QWidget):
             if task and task["state"] in self.ACTIVE:
                 self.task_action(task_id)
         self._flush_history()
+        self._save_executor.shutdown(wait=False, cancel_futures=True)
         return not self._workers
 
     def clear_completed(self):

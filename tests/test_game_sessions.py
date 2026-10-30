@@ -130,6 +130,25 @@ class GameSessionTests(unittest.TestCase):
         finally:
             self.sessions._sessions = []
 
+    def test_memory_warning_can_be_declined_without_reporting_game_crash(self):
+        mods = self.root / 'game/versions/fixture/mods'
+        mods.mkdir(parents=True)
+        for index in range(44):
+            (mods / f'mod-{index}.jar').touch()
+        stopped = QSignalSpy(self.sessions.signals.stopped)
+        warnings = []
+
+        def decline(message, request):
+            warnings.append(message)
+            request['event'].set()
+
+        self.sessions.signals.preflight_confirmation.connect(decline)
+        self.assertTrue(self.sessions.start())
+        self.wait_for(lambda: not self.sessions._sessions)
+        self.assertIn('44 个已启用模组', warnings[0])
+        self.assertEqual(stopped.at(0), [0])
+        self.assertFalse(self.sessions.running)
+
     def test_manual_stop_is_not_reported_as_crash_but_unexpected_exit_is(self):
         stopped = QSignalSpy(self.sessions.signals.stopped)
         self.assertTrue(self.sessions.start())

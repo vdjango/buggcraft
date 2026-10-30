@@ -1070,6 +1070,38 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.assert_no_qml_errors()
         self.finish_test()
 
+    def test_periodic_history_save_uses_background_snapshot(self):
+        from threading import get_ident
+
+        tasks = self.window.download_page.tasks_page
+        task_id = tasks.track_room_preparation('History', self.game_dir, {}, Event())
+        task = tasks._find_task(task_id)
+        task['progress'] = 1
+        entered, release = Event(), Event()
+        self.addCleanup(release.set)
+        main_thread, writer_threads = get_ident(), []
+        original_save = tasks._save_history
+
+        def blocked_save(snapshot):
+            writer_threads.append(get_ident())
+            entered.set()
+            release.wait(5)
+            original_save(snapshot)
+
+        with patch.object(tasks, '_save_history', side_effect=blocked_save):
+            try:
+                tasks._queue_history_save()
+                self.wait_for(entered.is_set, 'history writer starts while Qt still processes events')
+                self.assertNotEqual(writer_threads[0], main_thread)
+                task['progress'] = 9
+            finally:
+                release.set()
+            tasks._save_executor.submit(lambda: None).result(timeout=5)
+        saved = json.loads(Path(tasks.history_path).read_text(encoding='utf-8'))
+        self.assertEqual(saved[0]['progress'], 1)
+        self.assertEqual(task['progress'], 9)
+        self.finish_test()
+
     def test_history_reopens_from_disk_and_completed_content_can_reinstall(self):
         _page, _controller, dialog = self.content_dialog("resourcepack")
         self.click_ui(dialog, "content-download-confirm")

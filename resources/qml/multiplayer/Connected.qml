@@ -54,6 +54,48 @@ ColumnLayout {
         onSettingsRequested: roomSettings.open()
     }
     Surface {
+        objectName: "room-connecting-card"
+        visible: !connected.online && !connected.ended
+        Layout.fillWidth: true; Layout.fillHeight: true
+        color: "#251e32"; border.color: "#735d95"
+        ColumnLayout {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 64, 440)
+            spacing: 14
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                width: 58; height: 58; radius: 18
+                color: "#42315f"; border.color: "#8d70bd"
+                BusyIndicator { anchors.centerIn: parent; width: 36; height: 36; running: connected.visible && !connected.online && !connected.ended }
+            }
+            CopyText {
+                objectName: "room-connecting-title"
+                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                text: connected.record.state === "reconnecting" ? "正在重新连接房间" : "正在加入房主的房间"
+                color: "#f2e9ff"; font.pixelSize: 18; font.bold: true
+            }
+            CopyText {
+                objectName: "room-connecting-detail"
+                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                text: connected.record.detail || "正在与联机节点建立连接，请稍候…"
+                color: "#bfb1d2"; font.pixelSize: 12; wrapMode: Text.Wrap
+            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#554369" }
+            CopyText {
+                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                text: "连接完成后会自动显示房间成员、游戏配置和聊天。"
+                color: "#a99bbd"; font.pixelSize: 11; wrapMode: Text.Wrap
+            }
+            ActionButton {
+                objectName: "cancel-room-connecting"
+                Layout.alignment: Qt.AlignHCenter
+                text: "取消加入"; quiet: true
+                visible: !connected.host
+                onClicked: lobby.act("stop", {id:vm.selected})
+            }
+        }
+    }
+    Surface {
         objectName: "room-public-guide"
         visible: connected.showPublicGuide
         Layout.fillWidth: true; implicitHeight: 48
@@ -92,6 +134,10 @@ ColumnLayout {
                         "  ·  " + (connected.game.mods_count || 0) + " 个模组"
                     font.pixelSize: 11; color: "#d8cfea"; elide: Text.ElideRight; wrapMode: Text.NoWrap
                 }
+            }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 8
+                Item { Layout.fillWidth: true }
                 ActionButton {
                     objectName: "show-room-mods"; text: "模组列表"; implicitHeight: 27
                     onClicked: { lobby.act("loadMods", {}); modsPopup.open() }

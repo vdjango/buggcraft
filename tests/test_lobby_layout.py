@@ -931,6 +931,33 @@ class LobbyLayoutTests(unittest.TestCase):
         snapshot.parent.mkdir(exist_ok=True)
         self.assertTrue(self.window.grabWindow().save(str(snapshot)))
 
+    def test_room_connecting_state_and_online_members_layout(self):
+        from PySide6.QtCore import QPointF
+        room = dict(id='mine', title='Friend world', role='client', state='connecting',
+                    detail='Connecting to node', game=dict(version='1.21.1'),
+                    lobby=dict(online=2, ready=1, self_id='guest', members=[
+                        dict(id='host', name='Host', online=True, state='ready'),
+                        dict(id='guest', name='Guest', online=True, state='idle'),
+                        dict(id='old', name='Old session', online=False, state='idle')]))
+        self.backend._view.update(page='connected', selected='mine', connections=[room])
+        self.backend.viewChanged.emit()
+        QTest.qWait(60)
+        self.assertTrue(find_item(self.window, 'room-connecting-card').isVisible())
+        self.assertIn('Connecting to node', find_item(self.window, 'room-connecting-detail').property('text'))
+        room = dict(room, state='online', availability='ready', nodeName='Test node',
+                    nodeRegion='Test region', nodeLatencyMs=15, latency_ms=25)
+        self.backend._view['connections'] = [room]
+        self.backend.viewChanged.emit()
+        QTest.qWait(60)
+        self.assertFalse(find_item(self.window, 'room-connecting-card').isVisible())
+        self.click('room-tab-members')
+        QTest.qWait(30)
+        self.assertEqual(find_item(self.window, 'room-members-list').property('count'), 2)
+        summary = find_item(self.window, 'room-summary')
+        latency = find_item(self.window, 'room-node-latency')
+        self.assertLessEqual(latency.mapToScene(QPointF(0, latency.height())).y(),
+                             summary.mapToScene(QPointF(0, summary.height())).y())
+
     def test_top_level_title_bar_identifies_current_page_and_does_not_overlap_window_controls(self):
         for page, expected in (('hall', '· 联机大厅'), ('nodes', '联机节点')):
             if page == 'nodes':

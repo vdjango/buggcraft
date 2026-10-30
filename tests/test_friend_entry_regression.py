@@ -1,4 +1,5 @@
 """Friends survive service failures; only verified identity changes reset them."""
+import asyncio
 import base64
 import json
 import os
@@ -7,7 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
@@ -58,6 +59,19 @@ class FriendEntryRegressionTests(unittest.TestCase):
     def fail_refresh(self, message='node timeout'):
         self.backend.finish('socialstatus:' + self.backend.social_generation + ':' + self.backend.node_path,
                             None, message)
+
+    def test_stale_room_presence_retries_without_hiding_friends(self):
+        self.backend._state['socialCapabilities'] = {'room_presence': True}
+        self.backend.player_network_profile = {'type': 'unknown'}
+        with patch.object(self.backend, '_friend_room_presence', return_value={'room': {'id': 'stale'}}), \
+                patch.object(self.backend, 'job') as job, \
+                patch('hookup.social.status', new_callable=AsyncMock) as status:
+            status.side_effect = [RuntimeError('room route rejected'), social_state()]
+            self.backend.refresh_friends()
+            result = asyncio.run(job.call_args.args[1])
+        self.assertEqual(result['state']['friends'][0]['username'], 'Alice')
+        self.assertEqual(status.await_count, 2)
+        self.assertNotIn('room', status.await_args_list[1].args[1])
 
     def test_personal_account_entry_before_first_success_and_after_failure(self):
         self.assertTrue(self.backend.view['friendEntryAvailable'])

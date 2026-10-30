@@ -7,7 +7,9 @@ RadioButton {
     property string description: ""
     property bool canToggle: false
     signal chosen()
-    autoExclusive: false
+    // Radio choices must always keep exactly one selected. Only explicit
+    // standalone toggles may be switched off.
+    autoExclusive: !canToggle
     implicitHeight: 34
     implicitWidth: 220
     leftPadding: 32

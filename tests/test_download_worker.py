@@ -9,8 +9,9 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
-from PySide6.QtTest import QSignalSpy
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication
+from core.transfer_metrics import TransferMeter
 from ui.pages.download.tasks import DownloadWorker
 
 
@@ -27,6 +28,33 @@ class DownloadWorkerTests(unittest.TestCase):
         finished = QSignalSpy(worker.signals.finished)
         worker.run()
         return worker, resolved, finished
+
+    def test_file_updates_batch_and_idle_flush_preserves_live_speed(self):
+        worker = DownloadWorker('batch', '1.21.8', 'unused', '官方')
+        meter = TransferMeter()
+        received = QSignalSpy(worker.signals.file_events)
+        worker._report_file_event(meter, dict(key='jar', name='jar', state='pending', done=0))
+        worker._report_file_event(meter, dict(key='jar', name='jar', state='downloading', done=0))
+        for done in range(1, 51):
+            worker._report_file_event(meter, dict(key='jar', name='jar',
+                                                  state='downloading', done=done, total=100))
+        self.assertLessEqual(received.count(), 2)
+        for _ in range(30):
+            if received.count() >= 2:
+                break
+            QTest.qWait(20)
+        self.assertGreaterEqual(received.count(), 2, 'idle transfer must publish its last byte update')
+        latest = received.at(received.count() - 1)[1][0]
+        self.assertEqual(latest['done'], 50)
+        self.assertGreater(latest['task_speed'], 0)
+
+    def test_phase_reset_with_same_maximum_is_not_throttled(self):
+        worker = DownloadWorker('progress', '1.21.8', 'unused', '官方')
+        received = QSignalSpy(worker.signals.progress)
+        worker._report_progress(8, 10)
+        worker._report_progress(0, 10)
+        self.assertEqual(received.count(), 2)
+        self.assertEqual(received.at(1)[1:], [0, 10])
 
     def test_vanilla_worker_publishes_success_without_a_loader_version(self):
         with tempfile.TemporaryDirectory() as temporary:

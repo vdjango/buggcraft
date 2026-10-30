@@ -96,6 +96,7 @@ class GameSessions(QObject):
         launcher.signals.stopped.connect(lambda code: self._stopped(record, code))
         launcher.signals.error.connect(self.signals.error)
         launcher.signals.java_required.connect(self.signals.java_required)
+        launcher.signals.preflight_confirmation.connect(self.signals.preflight_confirmation)
         launcher.start()
         # The worker clears launcher.start_thread in its first finished slot;
         # retain the QThread until our own completion slot has also run.
@@ -119,7 +120,9 @@ class GameSessions(QObject):
 
     def _finished(self, record):
         if record['phase'] != 'exited':
-            self._stopped(record, 1)
+            if record['launcher'].start_cancelled:
+                record['stop_requested'] = True
+            self._stopped(record, 0 if record.get('stop_requested') else 1)
         self._sessions.remove(record)
         record['launcher'].deleteLater()
         self.changed.emit()

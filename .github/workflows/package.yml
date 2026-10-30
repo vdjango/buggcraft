@@ -163,12 +163,12 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x64
-            native_asset: buggcraft-native-0.3.5-windows-x64.zip
+            native_asset: ''
             arch: x64
             python: '3.11'
           - os: ubuntu-24.04
             platform: linux-x86_64
-            native_asset: buggcraft-native-0.3.5-linux-x64.tar.gz
+            native_asset: ''
             arch: x64
             python: '3.11'
           - os: ubuntu-24.04-arm
@@ -178,12 +178,12 @@ jobs:
             python: '3.12'
           - os: macos-15-intel
             platform: macos-x86_64
-            native_asset: buggcraft-native-0.3.5-macos-x64.tar.gz
+            native_asset: ''
             arch: x64
             python: '3.11'
           - os: macos-15
             platform: macos-arm64
-            native_asset: buggcraft-native-0.3.5-macos-arm64.tar.gz
+            native_asset: ''
             arch: arm64
             python: '3.11'
     runs-on: ${{ matrix.os }}
@@ -191,7 +191,7 @@ jobs:
       PYTHONIOENCODING: utf-8
       QT_QPA_PLATFORM: offscreen
       QT_QUICK_BACKEND: software
-    # Preflight passed in validate; reuse the pinned native runtime when cached.
+    # Preflight passed in validate; build and cache the pinned native source.
     timeout-minutes: 90
     defaults:
       run:
@@ -217,7 +217,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dist/native-runtime
-          key: native-runtime-v2-${{ matrix.platform }}-f5f0e4433ed8b935c071ab8ae1f8926939b52e83
+          key: native-runtime-v2-${{ matrix.platform }}-0b71cbdf879622415d1a4d3465ef4efb6194dcc9
       - name: Download tested native release assets
         id: native_download
         if: steps.native-cache.outputs.cache-hit != 'true' && matrix.native_asset != ''
@@ -250,7 +250,7 @@ jobs:
           import json
           from pathlib import Path
           metadata = json.loads(Path('dist/native-runtime/share/buggcraft-native/build-info.json').read_text())
-          if metadata.get('commit') != 'f5f0e4433ed8b935c071ab8ae1f8926939b52e83':
+          if metadata.get('commit') != '0b71cbdf879622415d1a4d3465ef4efb6194dcc9':
               raise SystemExit('Downloaded native runtime does not match the pinned source revision')
           PY
       - name: Check out pinned native multiplayer implementation
@@ -258,7 +258,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: f5f0e4433ed8b935c071ab8ae1f8926939b52e83
+          ref: 0b71cbdf879622415d1a4d3465ef4efb6194dcc9
           path: native-source
       - uses: actions/setup-python@v5
         with:

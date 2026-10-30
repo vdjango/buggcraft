@@ -102,6 +102,44 @@ class LauncherProcessTests(unittest.TestCase):
         self.assertIn('-Xmx4096M', self.options['jvmArguments'])
         self.assertEqual(self.manager.get_setting('memory.allocation'), 3072)
 
+    def test_low_memory_cancel_never_starts_game(self):
+        mods = self.root / 'versions/fixture/mods'
+        mods.mkdir(parents=True)
+        for index in range(44):
+            (mods / f'mod-{index}.jar').touch()
+        self.manager.set_setting('memory.allocation', 1024)
+        warnings = []
+
+        def decline(message, request):
+            warnings.append(message)
+            request['event'].set()
+
+        self.launcher.signals.preflight_confirmation.connect(decline)
+        with self.assertRaises(InterruptedError):
+            self._start()
+        self.assertIn('44 个已启用模组', warnings[0])
+        self.assertFalse(self.record.exists())
+        self.assertIsNone(self.launcher.process)
+
+    def test_low_memory_user_can_still_start(self):
+        mods = self.root / 'versions/fixture/mods'
+        mods.mkdir(parents=True)
+        for index in range(44):
+            (mods / f'mod-{index}.jar').touch()
+        self.manager.set_setting('memory.allocation', 1024)
+        warnings = []
+
+        def accept(message, request):
+            warnings.append(message)
+            request['accepted'] = True
+            request['event'].set()
+
+        self.launcher.signals.preflight_confirmation.connect(accept)
+        self._start()
+        self.assertIn('建议至少 4096 MiB', warnings[0])
+        self.assertIn('-Xmx1024M', self.options['jvmArguments'])
+        self.assertTrue(self.record.exists())
+
     def test_prelaunch_command_runs_in_instance_directory_and_preserves_arguments(self):
         before = self.work / 'prelaunch.py'
         before.write_text("from pathlib import Path\nPath('prelaunch-ok').write_text('done')\n")

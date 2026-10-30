@@ -8,6 +8,18 @@ from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
 class AllLauncherPagesTests(LauncherQmlCase):
+    def test_memory_preflight_uses_styled_launcher_dialog_and_allows_override(self):
+        request = {'event': threading.Event(), 'accepted': False}
+        self.window.minecraft_preflight_confirmation('44 mods need more memory', request)
+        dialog = self.window._preflight_dialog
+        self.assertTrue(dialog.isVisible())
+        self.assertIn('44 mods', dialog.controller.detail)
+        self.assertFalse(request['event'].is_set())
+        dialog.controller.actionRequested.emit('仍然启动')
+        self.pump()
+        self.assertTrue(request['event'].is_set())
+        self.assertTrue(request['accepted'])
+
     def test_enabling_notification_sound_can_preview_a_chime(self):
         from utils.social_sound import SocialSound
         controller = self.window.settings_page.general_page.controller
@@ -651,6 +663,27 @@ class AllLauncherPagesTests(LauncherQmlCase):
         self.pump()
         self.assertFalse(page.memory_timer.isActive())
         self.assert_no_qml_errors()
+
+    def test_settings_radio_group_always_keeps_one_choice(self):
+        self.window.switch_pages('设置')
+        self.window.settings_page.global_tab_btn_clicked()
+        page = self.window.settings_page.global_version_page
+        self.pump()
+        first = self.item(page, 'setting-option-minecraft.isolation-0')
+        second = self.item(page, 'setting-option-minecraft.isolation-1')
+        selected = first if first.property('checked') else second
+        selected_name = selected.objectName()
+        other_name = second.objectName() if selected is first else first.objectName()
+        self.click(page, selected_name)
+        self.pump()
+        self.assertTrue(self.item(page, selected_name).property('checked'))
+        first = self.item(page, 'setting-option-minecraft.isolation-0')
+        second = self.item(page, 'setting-option-minecraft.isolation-1')
+        self.assertEqual(int(first.property('checked')) + int(second.property('checked')), 1)
+        self.click(page, other_name)
+        self.pump()
+        self.assertTrue(self.item(page, other_name).property('checked'))
+        self.assertFalse(self.item(page, selected_name).property('checked'))
 
     def test_settings_descriptions_and_game_list_use_existing_bounds_and_row_style(self):
         from PySide6.QtCore import QPointF

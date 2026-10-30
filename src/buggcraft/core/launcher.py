@@ -27,6 +27,7 @@ from core.launch_options import (split_arguments, redacted_command, offline_uuid
 from core.downloads import verified_installation
 from core.launch_preparation import prepare_inherited, inherited_command, deduplicate_classpath
 from core.memory import AdvancedMemoryRecommender
+from core.launch_preflight import check_launch_memory, LaunchMemoryWarning
 from core.java_runtime import select_java, java_policy, JavaRuntimeUnavailable
 from core.java_downloads import catalogue as java_catalogue, install_available as install_java
 from utils.path_helper import get_launcher_directory
@@ -43,6 +44,7 @@ class MinecraftSignals(QObject):
     stopped = Signal(int)  # 退出代码
     error = Signal(str)
     java_required = Signal(str, int, str)
+    preflight_confirmation = Signal(str, object)
     progress = Signal(int)  # 进度百分比
     java_install_progress = Signal(str, int, int)
     java_installed = Signal(object)
@@ -101,7 +103,8 @@ class StartGameThread(QThread):
         try:
             self.launcher._start_game()
         except InterruptedError:
-            logger.info('Java preparation cancelled; game launch was skipped')
+            self.launcher.start_cancelled = True
+            logger.info('Game launch cancelled before process start')
         except JavaRuntimeUnavailable as exc:
             self.launcher.signals.java_required.emit(exc.version, exc.required, str(exc))
         except Exception as e:
@@ -123,6 +126,7 @@ class MinecraftLibLauncher(QObject):
         self.stopping = False
         self.output_thread = None
         self.start_thread = None
+        self.start_cancelled = False
         self._java_cancel = threading.Event()
         
         self.minecraft_directory = self.settings_manager.get_setting('minecraft.directory.enable')
@@ -192,6 +196,7 @@ class MinecraftLibLauncher(QObject):
             self.signals.error.emit("游戏已经在运行中")
             return
         self._java_cancel.clear()
+        self.start_cancelled = False
         
         # 创建并启动 Qt 线程
         self.start_thread = StartGameThread(self)
@@ -450,6 +455,27 @@ class MinecraftLibLauncher(QObject):
                 [arg for arg in command if arg != "None" and arg is not None])
 
             # 打印命令用于调试
+            # Check the final heap, including advanced JVM overrides, after
+            # room preparation has installed the actual mod files.
+            try:
+                mod_count, heap_mib, required_mib = check_launch_memory(
+                    options['gameDirectory'], command, jvmArguments,
+                    available_mib=int(psutil.virtual_memory().available // 1048576))
+            except LaunchMemoryWarning as warning:
+                self.signals.output.emit(f'启动前内存提醒：{warning}')
+                request = {'event': threading.Event(), 'accepted': False}
+                self.signals.preflight_confirmation.emit(str(warning), request)
+                deadline = time.monotonic() + 300
+                while not request['event'].wait(0.1):
+                    if self._java_cancel.is_set() or time.monotonic() >= deadline:
+                        raise InterruptedError('启动前内存确认已取消或超时')
+                if self._java_cancel.is_set() or not request['accepted']:
+                    raise InterruptedError('用户选择返回调整内存')
+                self.signals.output.emit('用户已确认内存提醒，仍然启动游戏。')
+            else:
+                self.signals.output.emit(
+                    f'启动前检查通过：已启用模组 {mod_count} 个；实际游戏内存 {heap_mib} MiB'
+                    + (f'；此模组数量建议至少 {required_mib} MiB' if required_mib else ''))
             safe_command = redacted_command(command, self.token)
             self.signals.output.emit(f"启动命令: {' '.join(safe_command)}")
 

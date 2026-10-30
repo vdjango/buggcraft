@@ -84,6 +84,24 @@ class RoomPreparationControllerTests(unittest.TestCase):
         self.assertEqual(record['prepareProgress'], 2)
         self.assertEqual(record['prepareLogs'][-1]['category'], 'mods')
 
+    def test_download_batch_updates_history_and_paints_once(self):
+        record = self.controller.records['room']
+        record.update(preparing=True, prepareTask='current', prepareLogs=[])
+        history = Mock()
+        self.controller.preparation_tasks['room'] = 'history-task'
+        events = [dict(kind='download', key='game.jar', name='game.jar',
+                       state='downloading', done=0, total=1024, task_speed=0),
+                  dict(kind='download', key='game.jar', name='game.jar',
+                       state='verified', done=1024, total=1024, task_speed=2048)]
+        with patch.object(self.controller, 'preparation_history', return_value=history), \
+                patch.object(self.controller, 'publish_connections') as publish:
+            self.controller.update_preparation_event('room',
+                dict(kind='batch', task='current', events=events))
+            publish.assert_not_called()
+            self.assertEqual(record['prepareFileDone'], 1024)
+            self.assertEqual(history.room_preparation_event.call_count, 2)
+            self.controller.preparation_view_timer.stop()
+
     def test_shared_logs_remove_secrets_paths_and_download_addresses_before_upload(self):
         from ui.room_preparation import shared_log_text
         message = shared_log_text('sodium.jar C:\\Users\\Alice\\mods\\sodium.jar password=secret https://example.test/private buggnode1-private')

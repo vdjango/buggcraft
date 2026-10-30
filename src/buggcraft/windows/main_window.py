@@ -6,7 +6,7 @@ import logging
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout
 )
-from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect, QEvent, QObject
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect, QEvent, QObject, Slot
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
 
 from utils.helpers import scale_component
@@ -64,6 +64,8 @@ class MinecraftLauncher(QMainWindow):
         self._launch_error_reported = False
         self._java_install_dialog = None
         self._game_file_dialog = None
+        self._preflight_dialog = None
+        self._preflight_request = None
         self._game_file_active = False
         self._game_file_hidden = False
         self._game_file_status = '正在检查游戏文件…'
@@ -266,6 +268,7 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
         self.launcher.signals.java_required.connect(self.minecraft_java_required)
+        self.launcher.signals.preflight_confirmation.connect(self.minecraft_preflight_confirmation)
         self.launcher.signals.java_install_progress.connect(self.minecraft_java_install_progress)
         self.launcher.signals.java_installed.connect(self.minecraft_java_installed)
         self.launcher.signals.game_file_preparation_started.connect(self.minecraft_game_file_preparation_started)
@@ -273,6 +276,47 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.game_file_preparation_finished.connect(self._close_game_file_progress)
         self.launcher.signals.progress.connect(self.minecraft_handle_progress)
     
+    @Slot(str, object)
+    def minecraft_preflight_confirmation(self, warning, request):
+        """Show the existing launcher dialog style without blocking the UI."""
+        if self._closing:
+            request['event'].set()
+            return
+        self._close_game_file_progress()
+        self._close_java_progress()
+        if not self.isVisible():
+            self.showNormal()
+        if self._preflight_dialog is None:
+            dialog = QmlDialog(self, width=620, height=350,
+                               title='启动前检查', actions=['返回调整', '仍然启动'],
+                               primary_action='返回调整')
+            dialog.controller.actionRequested.connect(self._preflight_choice)
+            dialog.finished.connect(self._preflight_finished)
+            self._preflight_dialog = dialog
+        self._preflight_request = request
+        dialog = self._preflight_dialog
+        dialog.controller.message = '当前游戏内存配置存在风险'
+        dialog.controller.detail = warning + '\n\n继续启动可能导致卡顿或闪退。'
+        dialog.controller.changed.emit()
+        dialog.open()
+        dialog.raise_()
+
+    def _preflight_choice(self, action):
+        request = self._preflight_request
+        if request is None:
+            return
+        if action == '仍然启动':
+            request['accepted'] = True
+            self._preflight_dialog.accept()
+        else:
+            self._preflight_dialog.reject()
+
+    def _preflight_finished(self, _result):
+        request = self._preflight_request
+        self._preflight_request = None
+        if request is not None:
+            request['event'].set()
+
     def minecraft_not_java_runtime(self):
         """打开启动器检查Java环境"""
         if self._closing:

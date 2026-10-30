@@ -25,6 +25,7 @@ from hookup.storage import LobbyStore
 from hookup.nodes import probe, save_json, profile_data, remember, node_identity
 from hookup.social import check_expiry, credential_expiry, ExpiredNodeCredential, EXPIRED_CODE_MESSAGE
 from core.content_mirrors import configured_source
+from core.transfer_metrics import EventBatcher, ProgressGate
 from utils.instances import installed_instance_ids, running_games, lan_world_token
 from utils.clipboard import cancel_copy, copy_text
 from ui.room_preparation import RoomPreparation
@@ -101,6 +102,10 @@ class MultiplayerController(RoomPreparation, QObject):
         self.instance_source = None
         self.preparations = {}
         self.preparation_tasks = {}
+        self.preparation_view_timer = QTimer(self)
+        self.preparation_view_timer.setSingleShot(True)
+        self.preparation_view_timer.setInterval(100)
+        self.preparation_view_timer.timeout.connect(self.publish_connections)
         self.pending_preparation_check = None
         self.external_running = None
         self.runtime_job = False
@@ -1311,6 +1316,7 @@ class MultiplayerController(RoomPreparation, QObject):
         return name
 
     def publish_connections(self):
+        self.preparation_view_timer.stop()
         records = [dict(record) for record in reversed(self.records.values())]
         selected = next((r for r in records if r['id'] == self._state['selected']), {})
         self.patch(connections=records, chatMessages=selected.get('chatMessages', []),
@@ -1612,17 +1618,38 @@ class MultiplayerController(RoomPreparation, QObject):
         self.report_room_state(name, 'checking', 'configuration')
         self.publish_connections()
         preparation_task = record['prepareTask']
+        batcher = EventBatcher(lambda events: self.preparation_event.emit(
+            name, dict(kind='batch', task=preparation_task, events=events)))
+        gate = ProgressGate()
+        first_speed_reported = threading.Event()
         def report(status, done, total):
-            self.preparation_event.emit(name, dict(kind='status', task=preparation_task,
-                status=str(status)[:160], done=done, total=total))
+            label = str(status)
+            routine = label.startswith(('正在下载 ', '正在校验 ', '正在解析下载源',
+                                         '正在续传 ', '已下载并校验 '))
+            if gate.allow('routine-status' if routine else ('status', label),
+                          force=total > 0 and done >= total):
+                batcher.add(dict(kind='status', status=str(status)[:160], done=done, total=total))
+        def event(value):
+            if value.get('kind') == 'download' and value.get('state') == 'downloading':
+                key = value.get('key') or value.get('path') or value['name']
+                first_speed = value.get('task_speed', 0) > 0 and not first_speed_reported.is_set()
+                if first_speed:
+                    first_speed_reported.set()
+                if not gate.allow(('download', key), force=first_speed):
+                    return
+            batcher.add(value)
         java = settings.get_version_setting('java.path', None)
         source = settings.get_setting('settings.general.mirrors', '自动')
         existing_instance = ({'version': self.instance_source[1], 'game_directory': self.instance_source[2]}
                              if mode == 'existing' else None)
-        self.job('prepare:' + name, prepare_configuration(endpoint, directory, java, source, cancel, report,
-                 event=lambda event: self.preparation_event.emit(name, dict(event, task=preparation_task)),
-                 existing_instance=existing_instance,
-                 content_source=configured_source(settings)))
+        content_source = configured_source(settings)
+        async def prepare():
+            try:
+                return await prepare_configuration(endpoint, directory, java, source, cancel, report,
+                    event=event, existing_instance=existing_instance, content_source=content_source)
+            finally:
+                batcher.flush()
+        self.job('prepare:' + name, prepare())
 
     def preparation_history(self):
         parent = getattr(self.launcher_page, 'parent', None)
@@ -1639,8 +1666,18 @@ class MultiplayerController(RoomPreparation, QObject):
         record = self.records.get(name)
         if not record or not record.get('preparing') or event.get('task', record.get('prepareTask')) != record.get('prepareTask'):
             return
+        if event.get('kind') == 'batch':
+            for item in event['events']:
+                self._apply_preparation_event(name, record, item)
+            if not self.preparation_view_timer.isActive():
+                self.preparation_view_timer.start()
+            return
+        self._apply_preparation_event(name, record, event)
+        self.publish_connections()
+
+    def _apply_preparation_event(self, name, record, event):
         if event.get('kind') == 'status':
-            self.update_preparation(name, event['status'], event['done'], event['total'])
+            self.update_preparation(name, event['status'], event['done'], event['total'], publish=False)
             return
         task_id = self.preparation_tasks.get(name)
         history = self.preparation_history()
@@ -1673,10 +1710,8 @@ class MultiplayerController(RoomPreparation, QObject):
             self.report_room_state(name, 'downloading', record.get('prepareStage', 'game'),
                 done=record.get('prepareProgress', 0), total=record.get('prepareMaximum', 0),
                 speed=event.get('task_speed', 0))
-        self.publish_connections()
-
     @Slot(str, str, object, object)
-    def update_preparation(self, name, status, done, total):
+    def update_preparation(self, name, status, done, total, *, publish=True):
         task_id = self.preparation_tasks.get(name)
         history = self.preparation_history()
         if task_id and history:
@@ -1692,7 +1727,8 @@ class MultiplayerController(RoomPreparation, QObject):
                           prepareMaximum=max(0, total))
             self.report_room_state(name, 'verifying' if stage == 'verify' else 'installing' if stage in ('game', 'loader', 'java') else 'downloading',
                                    stage, done=max(0, done), total=max(0, total))
-            self.publish_connections()
+            if publish:
+                self.publish_connections()
 
     def forget_room(self, name, notice):
         cancel = self.preparations.get(name)
@@ -1731,8 +1767,18 @@ class MultiplayerController(RoomPreparation, QObject):
             network_profile = dict(self.player_network_profile)
             if presence is not None:
                 presence['network_profile'] = dict(network_profile)
+            try:
+                state = await status(profile, presence) if presence is not None else await status(profile)
+            except Exception as error:
+                if not presence or 'room' not in presence:
+                    raise
+                logging.getLogger('hookup.social').warning(
+                    'social_room_presence_retry_without_room error=%s', type(error).__name__)
+                # A stale room route must not make the entire friend list
+                # appear offline. Publish ordinary presence and retry once.
+                state = await status(profile, {'network_profile': network_profile})
             return dict(path=path, network_profile=network_profile,
-                        state=await status(profile, presence) if presence is not None else await status(profile))
+                        state=state)
         self.job('socialstatus:' + self.social_generation + ':' + path, check())
 
     def refresh_network_profile(self):
@@ -2462,6 +2508,7 @@ class MultiplayerController(RoomPreparation, QObject):
             if self.credential_prompt_dialog is not None:
                 self.credential_prompt_dialog.close()
             self.room_report_timer.stop()
+            self.preparation_view_timer.stop()
             self.room_reports.clear()
             self.room_search_timer.stop()
             self.friend_timer.stop()

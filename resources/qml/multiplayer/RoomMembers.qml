@@ -13,7 +13,7 @@ ColumnLayout {
         var rows = members.snapshot.members || []
         var managerId = members.snapshot.manager_id || ""
         var providerId = members.snapshot.provider_id || ""
-        return rows.map(function(row) {
+        return rows.filter(function(row) { return row.online !== false }).map(function(row) {
             var copy = {}
             for (var key in row) copy[key] = row[key]
             copy.manager = !!row.manager || (!!managerId && row.id === managerId)

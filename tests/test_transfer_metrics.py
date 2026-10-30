@@ -1,5 +1,7 @@
 """Concurrent byte rates, reuse and retry accounting without timing sleeps."""
-from core.transfer_metrics import TransferMeter
+from threading import Event
+
+from core.transfer_metrics import EventBatcher, ProgressGate, TransferMeter
 
 
 def test_concurrent_files_have_independent_rates_and_aggregate_correctly():
@@ -42,3 +44,32 @@ def test_partial_offset_and_fast_completion_are_accounted_as_network_bytes_only(
     assert completed['speed'] == 0
     cached = meter.feed(dict(name='cached', state='cached', done=10000000))
     assert cached['task_speed'] == 2048
+
+
+def test_progress_gate_keeps_first_update_and_completion():
+    clock = [0.0]
+    gate = ProgressGate(interval=.1, clock=lambda: clock[0])
+    assert gate.allow('file')
+    assert not gate.allow('file')
+    assert gate.allow('file', force=True)
+    clock[0] = .11
+    assert gate.allow('file')
+
+
+def test_event_batcher_drains_after_idle_and_preserves_order():
+    arrived = Event()
+    received = []
+
+    def receive(batch):
+        received.extend(batch)
+        arrived.set()
+
+    batcher = EventBatcher(receive, interval=.02, limit=8)
+    batcher.add(1)
+    assert arrived.wait(.5)
+    arrived.clear()
+    batcher.add(2)
+    assert arrived.wait(.5)
+    batcher.add(3)
+    batcher.flush()
+    assert received == [1, 2, 3]

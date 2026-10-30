@@ -7,9 +7,10 @@ Surface {
     id: header
     property var roomView
     signal settingsRequested()
-    Layout.fillWidth: true; implicitHeight: 110
+    Layout.fillWidth: true; implicitHeight: body.implicitHeight + 24
     color: "#211d2b"; border.color: "#49415c"
     ColumnLayout {
+        id: body
         anchors.fill: parent; anchors.margins: 12; spacing: 6
         RowLayout {
             Layout.fillWidth: true; spacing: 8
