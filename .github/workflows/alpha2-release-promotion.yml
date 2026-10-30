@@ -11,12 +11,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   promote:
-    # User paused publication while domain-based node entry is integrated.
-    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - name: Require both integrated builds before requesting alpha 2
+      - name: Require current main packaging and client regression before alpha 2
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -28,8 +26,8 @@ jobs:
           from urllib.parse import urlencode
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          sha = '6d549ba661b92df82ca0f5af6c8ba6f71f4df03b'
-          native_sha = '259c79360a7b1b55b0c4629d555d5112c310cf7b'
+          sha = '9c679c544ee63656bdf4ed56ffd4c0e9328540d2'
+          native_sha = '1bee479ef1d9f2fbd6d906956a8fa5b28cdc4007'
           deadline = time.monotonic() + 170 * 60
           def request(path, payload=None):
               url = path if path.startswith('https://') else base + path
@@ -53,31 +51,36 @@ jobs:
           print('Existing alpha 2 release:', [{'id':r['id'], 'draft':r['draft']} for r in existing], flush=True)
           if existing:
               raise SystemExit('Alpha 2 already has release assets; no tag changes requested')
-          def wait_build(branch):
+          def wait_build(workflow):
+              branch = 'main'
               while time.monotonic() < deadline:
                   query = urlencode({'branch':branch, 'event':'push', 'per_page':100})
-                  runs = request('/actions/workflows/package.yml/runs?' + query)['workflow_runs']
+                  runs = request('/actions/workflows/' + workflow + '/runs?' + query)['workflow_runs']
                   matching = [r for r in runs if r['head_sha'] == sha]
                   if not matching:
                       print('Waiting for', branch, sha, flush=True)
                       time.sleep(30)
                       continue
                   run = matching[0]
-                  print(branch, run['id'], run['status'], run['conclusion'], flush=True)
+                  print(workflow, run['id'], run['status'], run['conclusion'], flush=True)
                   if run['status'] != 'completed':
                       time.sleep(30)
                       continue
                   if run['conclusion'] != 'success':
                       raise SystemExit(branch + ' build failed; no release requested')
                   jobs = request('/actions/runs/' + str(run['id']) + '/jobs?per_page=100')['jobs']
-                  packages = [j for j in jobs if j['name'].startswith('package (')]
-                  assert len(packages) == 5 and all(j['conclusion'] == 'success' for j in packages)
-                  targets = {'windows-x64','linux-x86_64','linux-arm64','macos-x86_64','macos-arm64'}
-                  assert all(any(p in j['name'] for j in packages) for p in targets)
+                  if workflow == 'package.yml':
+                      packages = [j for j in jobs if j['name'].startswith('package (')]
+                      assert len(packages) == 5 and all(j['conclusion'] == 'success' for j in packages)
+                      targets = {'windows-x64','linux-x86_64','linux-arm64','macos-x86_64','macos-arm64'}
+                      assert all(any(p in j['name'] for j in packages) for p in targets)
+                  else:
+                      assert {j['name'] for j in jobs} == {'regression (windows-latest)', 'regression (ubuntu-24.04)'}
+                      assert all(j['conclusion'] == 'success' for j in jobs)
                   return
               raise SystemExit('Build verification timed out; no release requested')
-          wait_build('release/alpha2-integration')
-          wait_build('main')
+          wait_build('package.yml')
+          wait_build('client-regression.yml')
           assert request('/branches/main')['commit']['sha'] == sha, 'main moved; verify the new commit'
           native = request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/branches/main')
           assert native['commit']['sha'] == native_sha, 'Native fix has not been integrated into remote main'
