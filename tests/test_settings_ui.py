@@ -108,7 +108,7 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
                    'disabled multi-open state survives a fresh settings read')
         for key, values in (
                 ('settings.general.mirrors', ['自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI',
-                                              '自动（官方优先，失败切换镜像）']),
+                                              'MCMirror', '自动（官方优先，失败切换镜像）']),
                 ('settings.general.content_mirror', ['自动测速', 'CurseForge', 'Modrinth', 'MCIM'])):
             for index, expected in enumerate(values):
                 self.select_choice(page, key, index)

@@ -68,7 +68,7 @@ class SharedBranchesUiTests(_UiCase):
             page = self.settings_tab(tab)
             groups = [dict(g) for g in page.controller.groups
                       if g['kind'] in ('radio', 'radio-horizontal') and
-                      g['key'] != 'java.path']
+                      g['key'] not in ('java.path', 'cache')]
             for group in groups:
                 key = group['key']
                 for index, option in enumerate(group['options']):

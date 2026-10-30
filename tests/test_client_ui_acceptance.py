@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 from unittest.mock import Mock, patch
 
@@ -815,6 +816,9 @@ class ClientUiUpdateTests(ClientUiAcceptanceCase):
 
 class ClientUiDownloadTests(ClientUiAcceptanceCase):
     def test_client_ui_download_and_modpack_import(self):
+        # The shared fixture starts with this instance installed. Exercise a
+        # fresh download instead of triggering the duplicate-name dialog.
+        shutil.rmtree(self.game_dir / 'versions' / '1.21.8', ignore_errors=True)
         self.navigate("launcher-nav-download")
         page = self.window.download_page.games_page
         page.ensure_loaded()

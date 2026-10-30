@@ -416,6 +416,10 @@ class HomeChecklistUiTests(_HomeCase):
             self.click_ui(page, "instance-remove-directory-" + str(self.game_dir))
             dialog = page.controller._delete_dialog
             self.check("永久删除" in dialog.controller.detail, "directory confirmation describes actual deletion")
+            if confirm:
+                self.click_ui(dialog, "keep-game-directory")
+                self.check(dialog.controller.data["keepDirectory"] == "false",
+                           "explicit permanent-delete choice removes local files")
             self.screenshot_ui("home-directory-delete-" + str(confirm), dialog)
             self.click_ui(dialog, "dialog-action-1" if confirm else "dialog-action-0")
             self.wait_for(lambda: page.controller._delete_dialog is None

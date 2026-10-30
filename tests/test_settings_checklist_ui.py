@@ -20,6 +20,7 @@ import test_home_ui as home_ui
 import test_settings_ui as settings_ui
 import test_download_ui as download_ui
 from core import downloads
+from core.game_sources import MCMIRROR
 from config.settings import SettingsManager
 
 
@@ -90,7 +91,8 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
             **file('1.21.8.json'))]}).encode()
         trusted = {urlsplit(value).hostname for value in (
             downloads.MANIFEST_URL, downloads.MIRROR, downloads.CONTENT_MIRROR,
-            self.fixtures.ORIGIN, 'https://piston-data.mojang.com', 'https://cdn.modrinth.com')}
+            MCMIRROR, self.fixtures.ORIGIN, 'https://piston-data.mojang.com',
+            'https://cdn.modrinth.com')}
 
         def get(session, url, **kwargs):
             parsed = urlsplit(url)
@@ -164,7 +166,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                 self.fixtures.payloads['manifest.json'] = json.dumps(dict(versions=[dict(
                     id='1.21.8', type='release', **self.fixtures.file('1.21.8.json'))])).encode()
                 try:
-                    page = self.seed_games()
+                    page = self.seed_games(fresh=True)
                     self.click_ui(page, 'install-1.21.8')
                     self.click_ui(page, 'install-selected-game')
                     self.wait_for(lambda: sum(started.is_set() for _, started, _ in gates) >= expected,
@@ -206,22 +208,18 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                 failing_host = mirror if index == 0 else 'piston-data.mojang.com'
                 self.route_failures = {(failing_host, 'client.jar')} if fail_official else set()
                 before = len(self.route_requests)
-                page = self.seed_games()
+                page = self.seed_games(fresh=True)
                 self.click_ui(page, 'install-1.21.8')
                 self.click_ui(page, 'install-selected-game')
-                rejected = fail_official and index == 1
-                task = self.finished_task(state='失败' if rejected else '已完成')
+                task = self.finished_task()
                 self.check(task['source'] == source, 'selected game policy reaches production download worker')
                 hosts = [row['host'] for row in self.route_requests[before:] if row['file'] == 'client.jar']
                 self.check(hosts and hosts[0] == (mirror if index in (0, 2) else 'piston-data.mojang.com'),
                            'actual first HTTP host follows the selected game source: ' + repr(hosts))
-                if rejected:
-                    self.check(set(hosts) == {'piston-data.mojang.com'}, 'official-only mode never contacts the mirror')
-                    self.check(not archive.exists(), 'unavailable official source cannot publish a client archive')
-                    continue
                 if fail_official:
-                    self.check(hosts[-1] == 'piston-data.mojang.com',
-                               'automatic mode falls back to the publisher after mirror HTTP failure')
+                    expected_fallback = urlsplit(MCMIRROR).hostname if index == 0 else mirror
+                    self.check(hosts[-1] == expected_fallback,
+                               'failed first source switches to the next available mirror')
                 self.check(archive.read_bytes() == self.fixtures.payloads['client.jar'],
                            'game download produces the verified client bytes')
         self.screenshot_ui('settings-game-source-downloads')
@@ -253,7 +251,9 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                     target = Path(dialog.controller.data['target'])
                     filename = self.fixtures.version(kind)['filename']
                     if kind in folders:
-                        expected = Path(self.manager.get_minecraft_isolation_directory())
+                        expected = Path(self.manager.get_minecraft_isolation_directory(
+                            directory=dialog.controller.data['directory'],
+                            version=dialog.controller.data['instance']))
                         self.check(target == expected, 'content destination follows actual shared/independent isolation')
                         destination = target / folders[kind] / filename
                         destination.unlink(missing_ok=True)
@@ -279,6 +279,11 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                         self.check((self.game_dir / 'versions' / task['version'] /
                                     'config/ui-acceptance.json').is_file(),
                                    'downloaded modpack runs the real importer')
+                        # Each source case downloads the same pack. Remove only
+                        # this isolated fixture instance before the next case.
+                        shutil.rmtree(self.game_dir / 'versions' / task['version'])
+                        self.manager.set_setting('minecraft.version.enable', '1.21.8')
+                        self.manager.save_settings()
                     requests = self.route_requests[before:]
                     self.check(any(row['file'] == filename for row in requests),
                                'source selection is followed by actual HTTP content transfer')

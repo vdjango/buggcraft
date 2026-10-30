@@ -1,6 +1,7 @@
 """Isolated launcher fixture: no user config, games, or external requests."""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -21,6 +22,7 @@ from PySide6.QtQuickWidgets import QQuickWidget
 import shiboken6
 import config.settings as settings
 from windows.main_window import MinecraftLauncher
+from utils.path_helper import filesystem_path
 
 
 def send_mouse_event(widget, event_type, pos, *, button=Qt.NoButton,
@@ -70,7 +72,13 @@ class LauncherQmlCase(unittest.TestCase):
         # macOS exposes temporary directories through both /var and /private/var.
         # Use the same canonical paths as the production installers and history.
         self.directory = Path(self.temp.name).resolve()
-        self.addCleanup(self.temp.cleanup)
+        def cleanup_fixture():
+            # Pack receipts can exceed MAX_PATH under a Windows user profile.
+            # Match the installer's extended-path handling during cleanup.
+            if os.name == 'nt' and self.directory.exists():
+                shutil.rmtree(filesystem_path(self.directory))
+            self.temp.cleanup()
+        self.addCleanup(cleanup_fixture)
         self.game_dir = self.directory / 'games'
         for name in ('1.20.1', '1.21.8', '长名称测试-' + 'instance-' * 6):
             target = self.game_dir / 'versions' / name / (name + '.json')

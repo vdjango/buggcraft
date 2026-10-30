@@ -90,11 +90,12 @@ class ContentBrowserTests(LauncherQmlCase):
         thread.start()
         get = requests.get
         def local_get(url, **kwargs):
-            self.assertTrue(url.startswith('https://mod.mcimirror.top/test-'))
+            self.assertTrue(url.startswith('https://cdn.modrinth.com/test-'))
             return get(f'http://127.0.0.1:{server.server_port}/fixture', **kwargs)
         downloads = self.window.download_page
         controller = downloads.content_page.controller
         try:
+            self.manager.set_setting('settings.general.content_mirror', 'Modrinth')
             with patch('core.downloads._DownloadSession.get', side_effect=local_get):
                 for isolated in (False, True):
                     self.manager.set_setting('minecraft.isolation', isolated)

@@ -20,6 +20,9 @@ class MissingModsUiTests(_UiCase):
         for worker in list(tasks._workers.values()):
             worker.cancel_event.set()
         self.wait_for(lambda: not tasks._workers, 'all import workers release before destroying Qt')
+        # The Qt finished signal can be delivered just before QRunnable.run
+        # returns. Join that final turn before removing its cache directory.
+        self.assertTrue(tasks.pool.waitForDone(5000), 'all import QRunnables exit before fixture cleanup')
         super().tearDown()
 
     def pack(self, *, missing=True):
