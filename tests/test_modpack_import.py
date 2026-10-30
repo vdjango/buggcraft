@@ -76,13 +76,18 @@ class ModpackTests(unittest.TestCase):
         compact, standard = self.root / 'compact.buggpack', self.root / 'standard.buggpack'
         result = export_pack(source, 'Pack', compact, game_directory=source)
         export_pack(source, 'Pack', standard, mode='standard', game_directory=source)
-        self.assertEqual(result['external_files'], 4)
+        self.assertEqual(result['external_files'], 3)
         self.assertLess(compact.stat().st_size, standard.stat().st_size)
         info = inspect_pack(compact)
         self.assertEqual((info.loader, info.loader_version), ('Forge', '47.4.0'))
-        self.assertEqual(len([i for i in info.files if not i['embedded']]), 4)
+        self.assertEqual(len([i for i in info.files if not i['embedded']]), 3)
+        self.assertTrue(all(i['embedded'] for i in info.files if i['path'].startswith('mods/')))
+        with zipfile.ZipFile(compact) as pack:
+            self.assertEqual(pack.read('files/mods/mod.jar'), payloads['mods/mod.jar'])
+            self.assertEqual(pack.read('files/mods/local.jar'), b'local-only')
         payloads['resourcepacks/shared.zip'] = shared_resource.read_bytes()
         def fetch(downloader, url, relative, *args):
+            self.assertFalse(relative.startswith('mods/'), 'local mods must not require a public URL')
             target = downloader.inside(relative)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payloads[relative])
@@ -94,9 +99,45 @@ class ModpackTests(unittest.TestCase):
             self.assertEqual((self.game / 'versions/Imported' / relative).read_bytes(), payload)
         self.assertEqual((self.game / 'versions/Imported/mods/local.jar').read_bytes(), b'local-only')
         # A changed resource must be embedded even when an old download record exists.
-        (instance / 'mods/mod.jar').write_bytes(b'changed')
+        (instance / 'resourcepacks/textures.zip').write_bytes(b'changed')
         changed = self.root / 'changed.buggpack'
-        self.assertEqual(export_pack(source, 'Pack', changed, game_directory=source)['external_files'], 3)
+        self.assertEqual(export_pack(source, 'Pack', changed, game_directory=source)['external_files'], 2)
+
+    def test_compact_export_links_public_mod_and_keeps_unavailable_mod(self):
+        source = self.root / 'mixed-source'
+        instance = source / 'versions/Pack'
+        (instance / 'mods').mkdir(parents=True)
+        (instance / 'Pack.json').write_text(json.dumps({'id': 'Pack', 'clientVersion': '1.20.1'}))
+        public, private = instance / 'mods/public.jar', instance / 'mods/private.jar'
+        public.write_bytes(os.urandom(65536))
+        private.write_bytes(b'local unpublished build')
+        url = 'https://cdn.modrinth.com/data/test/public.jar'
+        self.public_mod_lookup.return_value = {
+            'mods/public.jar': {'sha1': hashlib.sha1(public.read_bytes()).hexdigest(),
+                                'size': public.stat().st_size, 'downloads': [url]},
+        }
+        archive = self.root / 'mixed.buggpack'
+        progress = []
+        self.assertEqual(export_pack(source, 'Pack', archive,
+                         progress=lambda *row: progress.append(row))['external_files'], 1)
+        standard = self.root / 'mixed-standard.buggpack'
+        export_pack(source, 'Pack', standard, mode='standard')
+        self.assertGreater(standard.stat().st_size - archive.stat().st_size, 60000)
+        self.assertEqual([row[1] / row[2] for row in progress if row[2]],
+                         sorted(row[1] / row[2] for row in progress if row[2]))
+        with zipfile.ZipFile(archive) as pack:
+            manifest = json.loads(pack.read('buggcraft.pack.json'))
+            files = {item['path']: item for item in manifest['files']}
+            self.assertEqual(files['mods/public.jar']['downloads'], [url])
+            self.assertFalse(files['mods/public.jar']['embedded'])
+            self.assertNotIn('files/mods/public.jar', pack.namelist())
+            self.assertTrue(files['mods/private.jar']['embedded'])
+            self.assertEqual(pack.read('files/mods/private.jar'), private.read_bytes())
+
+        # If a file changes after source discovery, it must be embedded.
+        self.public_mod_lookup.return_value['mods/public.jar']['sha1'] = '0' * 40
+        changed = self.root / 'changed-mixed.buggpack'
+        self.assertEqual(export_pack(source, 'Pack', changed)['external_files'], 0)
 
     def test_isolated_export_excludes_unrelated_shared_mods_and_saves(self):
         source = self.root / 'isolated-source'
@@ -113,11 +154,39 @@ class ModpackTests(unittest.TestCase):
         with zipfile.ZipFile(archive) as result:
             self.assertEqual(set(result.namelist()), {'buggcraft.pack.json', 'files/config/local.txt'})
 
+    def test_standard_export_can_be_imported_as_a_new_instance(self):
+        source = self.root / 'standard-source'
+        instance = source / 'versions' / 'Pack'
+        instance.mkdir(parents=True)
+        (instance / 'Pack.json').write_text(json.dumps({
+            'id': 'Pack', 'clientVersion': '1.20.1',
+            'buggcraftModpack': {'minecraft': '1.20.1', 'loader': 'Forge',
+                                 'loaderVersion': '47.4.0'}}), encoding='utf-8')
+        (instance / 'mods').mkdir()
+        (instance / 'mods/local.jar').write_bytes(b'local mod')
+        (source / 'config').mkdir()
+        (source / 'config/shared.txt').write_bytes(b'shared configuration')
+        archive = self.root / 'standard.buggpack'
+
+        export_pack(source, 'Pack', archive, mode='standard', game_directory=source)
+        info = inspect_pack(archive)
+        self.assertEqual(info.source, 'Buggcraft')
+        self.assertTrue(all(item['embedded'] for item in info.files))
+        with patch('core.modpacks.install_loader', side_effect=self.install_loader):
+            self.assertEqual(ModpackImporter(self.game).install(archive, 'ImportedStandard'),
+                             'ImportedStandard')
+        imported = self.game / 'versions' / 'ImportedStandard'
+        self.assertEqual((imported / 'mods/local.jar').read_bytes(), b'local mod')
+        self.assertEqual((imported / 'config/shared.txt').read_bytes(), b'shared configuration')
+
     def setUp(self):
         # Loader fixtures create the vanilla files without network access.
         vanilla = patch.object(ModpackImporter, '_install_vanilla', return_value=None)
         vanilla.start()
         self.addCleanup(vanilla.stop)
+        public_mods = patch('core.modpack_sources.find_public_mod_downloads', return_value={})
+        self.public_mod_lookup = public_mods.start()
+        self.addCleanup(public_mods.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -297,9 +366,19 @@ class ModpackTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         jobs = [(f'http://127.0.0.1:{server.server_port}/mod', 'mods/downloaded.jar',
                  hashlib.sha1(payload).hexdigest(), len(payload))]
+        resource_done = threading.Event()
+        original_fetch = MinecraftDownloader.fetch
+        def fetch(downloader, *args, **kwargs):
+            result = original_fetch(downloader, *args, **kwargs)
+            resource_done.set()
+            return result
+        def loader_failure(*args, **kwargs):
+            self.assertTrue(resource_done.wait(5), 'the verified file must finish before the loader fails')
+            raise RuntimeError('loader failed')
         with patch.dict(os.environ, {'NO_PROXY': '127.0.0.1', 'no_proxy': '127.0.0.1'}), \
                 patch.object(CurseForgeClient, 'resolve', return_value=jobs), \
-                patch('core.modpacks.install_loader', side_effect=RuntimeError('loader failed')):
+                patch.object(MinecraftDownloader, 'fetch', fetch), \
+                patch('core.modpacks.install_loader', side_effect=loader_failure):
             with self.assertRaisesRegex(RuntimeError, 'loader failed'):
                 ModpackImporter(self.game).install(self.archive, 'My-Pack')
         self.assertFalse((self.game / 'versions' / 'My-Pack').exists())
@@ -333,7 +412,8 @@ class ModpackTests(unittest.TestCase):
             with self.assertRaises(DownloadCancelled):
                 importer.install(self.archive, 'cancelled')
         self.assertFalse((self.game / 'versions' / 'cancelled').exists())
-        self.assertEqual(list((self.game / '.buggcraft-downloads/modpacks').glob('*/instance-*')), [])
+        from utils.storage_paths import game_cache
+        self.assertEqual(list((game_cache(self.game) / 'modpacks').glob('*/instance-*')), [])
 
     def test_combined_pack_preserves_natives_and_existing_vanilla_install(self):
         self.manifest['files'] = []

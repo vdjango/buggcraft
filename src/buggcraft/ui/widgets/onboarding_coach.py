@@ -186,7 +186,7 @@ class _Spotlight(QWidget):
     @staticmethod
     def _focus_terms(step):
         """Return a few short labels that make the requested action scannable."""
-        terms = ("设置", "语言", "翻译", "点击", "Enter", "启动器接入码", "创建房间", "简体中文", "自动", "提示", "好友", "Minecraft")
+        terms = ("设置", "语言", "翻译", "点击", "Enter", "节点地址", "创建房间", "简体中文", "自动", "提示", "好友", "Minecraft")
         return tuple(term for term in terms if term in step["body"])[0:3]
 
 
@@ -207,9 +207,9 @@ class OnboardingCoach(QObject):
         dict(target="open-lobby-home", title="先认识联机提醒",
              body="现在是联机按钮的正常状态。选择‘首页提示’时，游戏开放局域网后，这里会闪烁提醒；需要你点击才会处理。点击下方按钮，先体验一次闪烁。", window="launcher", action="lobby", demo="multiplayer", key_next=True, button="体验闪烁"),
         dict(target="tutorial-friends-target", title="好友通知会闪烁",
-             body="收到好友请求或房间邀请时，好友按钮会像这样闪烁，并显示未读数量。这只是通知演示，无需添加好友；实际使用时，先添加启动器接入码，才会显示真实好友按钮。", window="launcher", action="friends", demo="friends", key_next=True),
+             body="收到好友请求或房间邀请时，好友按钮会像这样闪烁，并显示未读数量。这只是通知演示，无需添加好友；实际使用时，先填写节点地址并在浏览器登录，才会显示真实好友按钮。", window="launcher", action="friends", demo="friends", key_next=True),
         dict(target="node-picker", title="查看联机节点入口", demo="node",
-             body="点击发光的下拉框查看选项。教学期间‘添加与管理节点’会被锁定，不会进入添加页面；真实使用时再选择它，粘贴启动器接入码并连接节点。本次只查看入口，随后直接继续。", window="lobby", key_next=True),
+             body="点击发光的下拉框查看选项。教学期间‘添加与管理节点’会被锁定，不会进入添加页面；真实使用时再选择它，填写节点域名或 IP，在浏览器登录并连接节点。本次只查看入口，随后直接继续。", window="lobby", key_next=True),
         dict(target="rooms-list", title="发现房间",
              body="添加节点并连接成功后，公开房间会显示在这里。没有节点时不会显示房间，这是正常状态。按 Enter 继续。", window="lobby", key_next=True),
         dict(target="create-mode-prepare", title="可以先开房再准备", demo="create",
@@ -217,7 +217,7 @@ class OnboardingCoach(QObject):
         dict(target="create-mode-world", title="也可以关联已开放的世界", demo="create-world",
              body="如果你已经进入 Minecraft 并选择了‘对局域网开放’，点击这个选项，再从扫描结果里选择世界。这个方式会检查真实游戏端口。按 Enter 继续。", window="lobby", key_next=True),
         dict(target="create-node-unavailable", title="为什么现在不能创建",
-             body="创建房间和好友功能都需要先添加启动器接入码。本次演示按未添加接入码的状态展示，所以创建按钮不可用；实际添加并连接节点后即可操作。", window="lobby", key_next=True),
+             body="创建房间和好友功能都需要先填写节点地址并登录。本次演示按尚未登录节点的状态展示，所以创建按钮不可用；实际登录并连接节点后即可操作。", window="lobby", key_next=True),
         dict(target="create-next", title="确认后创建房间",
              body="选好游戏配置和创建方式后，点击这里创建房间。不必等游戏启动；选择关联世界时，先选好开放的世界。点击完成或按 Enter，将关闭联机大厅并返回首页。", window="lobby", key_next=True, button="完成教学"),
     ]

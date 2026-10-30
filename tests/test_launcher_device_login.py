@@ -1,9 +1,11 @@
 import asyncio
 import base64
 import json
+from io import BytesIO
 from pathlib import Path
 import sys
 import tempfile
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -18,6 +20,38 @@ from hookup.profiles import RelayProfile
 
 
 class LauncherDeviceCredentialTests(unittest.TestCase):
+    def test_topology_public_token_recovers_matching_device_key_for_friends(self):
+        from hookup import device_login, social
+
+        values = {}
+        keyring = types.SimpleNamespace(
+            get_keyring=lambda: types.SimpleNamespace(priority=1),
+            set_password=lambda service, name, value: values.__setitem__((service, name), value),
+            get_password=lambda service, name: values.get((service, name)),
+        )
+        with patch.dict(sys.modules, {'keyring': keyring}), tempfile.TemporaryDirectory() as folder:
+            for account in ('first-account', 'second-account'):
+                key = ec.generate_private_key(ec.SECP256R1())
+                grant = {'p': 'buggcraft-launcher-device-v1', 'i': 'issuer-id',
+                         'r': account + '-device', 'd': device_login.public_jwk(key)}
+                payload = {'g': grant, 'a': account, 'e': int(time.time()) + 3600}
+                encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+                public_token = 'acct1.' + encoded + '.signature'
+                device_login.save_private_key(grant['r'], key)
+                path = Path(folder) / 'node.json'
+                # Native topology only returns the public part, including after switching accounts.
+                save_json(path, {'server_host': 'node.example', 'server_port': 3333,
+                    'server_public_key': 'ssh-ed25519 AAAA', 'token': public_token})
+                profile = RelayProfile.load(path)
+                self.assertEqual(profile.token, public_token + '~' + device_login._private_scalar(key))
+                self.assertEqual(social.credential(profile)[0]['a'], account)
+                self.assertNotIn(device_login._private_scalar(key), path.read_text(encoding='utf-8'))
+
+                wrong_key = ec.generate_private_key(ec.SECP256R1())
+                device_login.save_private_key(grant['r'], wrong_key)
+                with self.assertRaisesRegex(ValueError, '登录密钥不可用'):
+                    RelayProfile.load(path)
+
     def test_device_token_is_stored_in_system_vault_reference(self):
         values = {}
         keyring = types.SimpleNamespace(
@@ -65,12 +99,13 @@ class LauncherDeviceCredentialTests(unittest.TestCase):
         approved = {'status': 'approved', 'profile': {'server_host': 'node.example'}}
         replies.extend((start, approved))
         with patch.object(device_login, '_keyring'), \
-             patch.object(device_login, 'get_status', return_value={'launcher_login': 1}), \
+             patch.object(device_login, 'get_status') as status, \
              patch.object(device_login, 'request', side_effect=request):
             result, private_key = asyncio.run(device_login.begin('desktop', True, 'node.example'))
             response = asyncio.run(device_login.poll(result, private_key))
 
         self.assertEqual(response, approved)
+        status.assert_not_called()
         self.assertEqual(calls[0][0], '/api/launcher/start')
         self.assertEqual(calls[0][2], 'https://node.example')
         self.assertEqual(calls[0][1]['name'], 'desktop')
@@ -103,6 +138,64 @@ class LauncherDeviceCredentialTests(unittest.TestCase):
                 _open(Request('https://attacker.example/api/launcher/poll', data=b'{}'),
                       'https://node.example', timeout=1)
             build_opener.assert_not_called()
+
+    def test_status_and_every_device_post_use_launcher_identity(self):
+        from hookup import device_login
+        from utils.http_identity import USER_AGENT
+
+        def response(call, origin, timeout):
+            self.assertEqual(origin, 'https://node.example')
+            self.assertEqual(call.get_header('User-agent'), USER_AGENT)
+            self.assertEqual(call.get_header('Accept'), 'application/json')
+            self.assertEqual(call.get_header('Cache-control'), 'no-store')
+            if call.get_method() == 'POST':
+                self.assertEqual(call.get_header('Content-type'), 'application/json')
+                self.assertEqual(json.loads(call.data), {'id': 'device-id'})
+            return BytesIO(b'{"status":"ok"}')
+
+        with patch.object(device_login, '_open', side_effect=response) as opened:
+            self.assertEqual(device_login.get_status('node.example'), {'status': 'ok'})
+            for path in ('start', 'poll', 'challenge', 'refresh'):
+                self.assertEqual(device_login.request('/api/launcher/' + path,
+                    {'id': 'device-id'}, 'node.example'), {'status': 'ok'})
+        self.assertEqual(opened.call_count, 5)
+
+    def test_proxy_and_node_errors_are_readable_without_html(self):
+        from urllib.error import HTTPError
+        from hookup import device_login
+
+        cases = (
+            (b'{"cloudflare_error":true,"error_code":1010}', '节点代理拒绝'),
+            (b'error code: 1010', '节点代理拒绝'),
+            (b'<html>cf-error-details</html>', '节点代理拒绝'),
+            ('{"error":"设备授权已失效"}'.encode(), '设备授权已失效'),
+            ('Origin rejected'.encode(), 'Origin rejected'),
+            (b'<html>Internal error</html>', '节点暂时无法处理'),
+            (b'{"error":{"detail":"invalid"}}', '节点暂时无法处理'),
+        )
+        for body, message in cases:
+            with self.subTest(body=body):
+                error = HTTPError('https://node.example/api/status', 403, 'Forbidden',
+                                  {'Server': 'cloudflare'}, BytesIO(body))
+                with patch.object(device_login, '_open', side_effect=error):
+                    with self.assertRaises(ValueError) as caught:
+                        device_login.get_status('node.example')
+                self.assertIn(message, str(caught.exception))
+                self.assertIn('HTTP 403', str(caught.exception))
+                self.assertNotIn('<html>', str(caught.exception))
+
+    def test_status_and_post_reject_invalid_or_oversized_responses(self):
+        from hookup import device_login
+
+        for body in (b'<html>proxy challenge</html>', b'[]', b'\xff', b' ' * 65537):
+            for operation in ('status', 'post'):
+                with self.subTest(body=body[:30], operation=operation):
+                    with patch.object(device_login, '_open', return_value=BytesIO(body)):
+                        with self.assertRaises(ValueError):
+                            if operation == 'status':
+                                device_login.get_status('node.example')
+                            else:
+                                device_login.request('/api/launcher/start', {}, 'node.example')
 
 
 if __name__ == '__main__':

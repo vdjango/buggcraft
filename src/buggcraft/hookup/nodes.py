@@ -134,13 +134,15 @@ def remember(profile, nodes):
         save_json(profile._source + '.network.json', cleaned)
 
 
-async def probe(profile):
+async def probe(profile, *, topology=True):
     from .rooms import connect_directory, request
     async with await connect_directory(profile, failover=False) as conn:
         result = await request(conn, 'ping')
         name = result.get('name', '')
         if isinstance(name, str) and 1 <= len(name) <= 80 and all(c.isprintable() for c in name):
             object.__setattr__(profile, '_name', name)
+        if not topology:
+            return profile
         try:
             result = await request(conn, 'topology')
             remember(profile, result['nodes'])

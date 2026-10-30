@@ -37,7 +37,7 @@ Buggcraft 是一个开源的 Minecraft Java 版启动器。它提供游戏版本
 
 Windows 启动器可作为单个 `Buggcraft.exe` 分发。首次启动时，它会将应用运行时释放到用户缓存，之后复用该缓存；游戏目录默认位于启动器旁边的 `.minecraft`。正式发行包和对应的校验文件请从 Releases 下载，不要把 Windows 启动器误认为完整运行时之外的游戏文件。
 
-源码构建和 GitHub Actions 产物请参阅[打包说明](docs/technical/windows-packaging.md)、[macOS 打包说明](docs/technical/macos-packaging.md)和[构建下载说明](docs/technical/github-builds.md)。平台构建由 [Package launcher 工作流](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)执行。
+源码构建和 GitHub Actions 产物请参阅[打包说明](docs/technical/Windows打包指南.md)、[macOS 打包说明](docs/technical/macOS打包指南.md)和[构建下载说明](docs/technical/GitHub构建.md)。平台构建由 [Package launcher 工作流](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)执行。
 
 ## 基本使用
 
@@ -62,7 +62,7 @@ Windows 启动器可作为单个 `Buggcraft.exe` 分发。首次启动时，它�
 3. 房主通过好友邀请或房间邀请码邀请朋友。好友接受邀请后，选择相同或兼容的游戏实例并连接启动器提供的地址。
 4. 遇到连接问题时，可在大厅选择“仅通过节点中转”；P2P 直连是否可用取决于双方的路由器、NAT 和防火墙环境。
 
-完整操作见[联机与节点使用指南](docs/guides/relay-usage.md)。发生闪退、下载失败或联机异常时，可从大厅导出诊断包。分享前请检查并移除账号接入码、房间密钥等私密信息；诊断包可能包含系统信息、本机路径和网络探测结果。
+完整操作见[联机与节点使用指南](docs/guides/联机节点使用指南.md)。发生闪退、下载失败或联机异常时，可从大厅导出诊断包。分享前请检查并移除账号接入码、房间密钥等私密信息；诊断包可能包含系统信息、本机路径和网络探测结果。
 
 ## 项目关系
 
@@ -77,7 +77,7 @@ Windows 启动器可作为单个 `Buggcraft.exe` 分发。首次启动时，它�
 
 桌面应用使用 Python、Qt for Python（PySide6）和 QML；Minecraft 文件安装与版本管理使用 `minecraft-launcher-lib`。联机传输依赖与启动器版本绑定的 `minecraft-tunnel-native` 原生运行库。Windows 与 macOS 使用独立打包配置，构建入口位于 [`build.py`](build.py) 与 [`build_macos.sh`](build_macos.sh)。
 
-从源码启动界面的基本步骤如下。完整运行和桥接库准备要求请先阅读[第三方桥接接入说明](docs/technical/bridge-integration.md)。
+从源码启动界面的基本步骤如下。完整运行和桥接库准备要求请先阅读[第三方桥接接入说明](docs/technical/启动器桥接集成.md)。
 
 ```powershell
 git clone https://github.com/vdjango/buggcraft.git
@@ -94,7 +94,7 @@ $env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-构建依赖和发行流程见[Windows 打包](docs/technical/windows-packaging.md)、[macOS 打包](docs/technical/macos-packaging.md)及 [GitHub Actions 工作流](.github/workflows/package.yml)。联机核心的单独构建方式见 [`minecraft-tunnel-native` 构建文档](https://github.com/vdjango/minecraft-tunnel-native/blob/main/docs/build.md)。
+构建依赖和发行流程见[Windows 打包](docs/technical/Windows打包指南.md)、[macOS 打包](docs/technical/macOS打包指南.md)及 [GitHub Actions 工作流](.github/workflows/package.yml)。联机核心的单独构建方式见 [`minecraft-tunnel-native` 构建文档](https://github.com/vdjango/minecraft-tunnel-native/blob/main/docs/构建指南.md)。
 
 ## 问题反馈与贡献
 
@@ -105,3 +105,5 @@ $env:PYTHONPATH = "$PWD\src"
 ## 许可证
 
 Buggcraft 使用 [GNU Affero General Public License v3.0 或更高版本](LICENSE) 发布。使用的第三方组件及其许可条件以仓库中的依赖清单和发行包许可文件为准。
+
+更多项目文档见 [文档索引](docs/文档索引.md)。

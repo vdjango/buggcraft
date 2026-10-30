@@ -23,7 +23,8 @@ class OnefilePackagingTests(unittest.TestCase):
             self.assertIn('--onefile-as-archive', command)
             self.assertIn('--launcher-native=' + str(native.resolve()), command)
             cache = next(value for value in command if value.startswith('--onefile-tempdir-spec='))
-            self.assertIn('{CACHE_DIR}/Buggcraft/', cache)
+            self.assertIn('{PROGRAM_DIR}/.buggcraft/runtime/Buggcraft/', cache)
+            self.assertNotIn('{CACHE_DIR}', cache)
             self.assertNotIn('{TEMP}', cache)
             self.assertIn('--windows-console-mode=disable', command)
             with self.assertRaisesRegex(ValueError, 'native'):

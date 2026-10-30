@@ -69,6 +69,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Label { objectName: "instance-heading"; Layout.fillWidth: true; text: "游戏实例"; font.pixelSize: 14; font.weight: Font.DemiBold; color: "#f2edf8" }
+                ActionButton { objectName: "instance-restore-removed"; visible: root.state.removedCount > 0; text: "恢复已移除实例（" + root.state.removedCount + "）"; onClicked: instancesPage.restoreRemoved() }
             }
             Label {
                 objectName: "instance-status"

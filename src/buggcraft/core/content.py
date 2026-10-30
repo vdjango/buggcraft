@@ -201,8 +201,9 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
     if not jobs:
         raise ValueError('项目版本没有有效下载文件')
     downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status,
-                                     file_event=file_event)
+                                     file_event=file_event, retries=6)
     downloader.content_source = content_source
+    downloader.resolve_content_sources = True
     # Parallel files already fill the connection budget; segment only a lone
     # large artifact rather than multiplying every worker into four sockets.
     downloader.parallel_content = len(jobs) == 1

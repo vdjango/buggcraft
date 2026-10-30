@@ -220,8 +220,9 @@ class RecordController(QObject):
         self._status = f'正在准备 {package.vendor} Java {package.version}…'
         self.changed.emit()
 
+        from utils.storage_paths import active_storage_root
         task = _JavaWork(lambda progress: install_java(package,
-            get_launcher_directory() / '.buggcraft' / 'java', cancel=self.cancel, report=progress), self._java_install_finished)
+            active_storage_root() / 'java', cancel=self.cancel, report=progress), self._java_install_finished)
         task.signals.progress.connect(self._java_progress)
         self.pool.start(task)
 

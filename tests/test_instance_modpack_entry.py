@@ -41,9 +41,15 @@ class InstanceModpackEntryTests(LauncherQmlCase):
                 patch('ui.pages.qml_instances.QFileDialog.getSaveFileName', return_value=(str(archive), 'Buggcraft package')):
             self.click(page, 'instance-export-1.21.8')
             dialog = page.controller._export_dialog
+            sources = self.item(dialog.host, 'export-source-links').property('text')
+            self.assertIn('modrinth.com', sources)
+            self.assertIn('curseforge.com', sources)
             self.snapshot('modpack-export-modes', dialog)
             self.click(dialog.host, 'dialog-action-0')
             self.wait_until(started.is_set)
+            self.assertTrue(self.item(dialog.host, 'export-progress-bar').isVisible())
+            self.assertGreater(self.item(dialog.host, 'export-progress-fill').width(), 0)
+            self.assertLess(dialog.controller.progress, 1.)
             before = len(ticks)
             self.wait_until(lambda: len(ticks) > before + 2)
             self.assertNotEqual(worker_threads[0], threading.get_ident())

@@ -28,7 +28,10 @@ def lan_world_token(game_directory):
     return None
 
 
-def installed_instance_ids(directory):
+REMOVED_MARKER = '.buggcraft-removed'
+
+
+def installed_instance_ids(directory, *, include_removed=False):
     if not directory:
         return []
     try:
@@ -37,6 +40,8 @@ def installed_instance_ids(directory):
         for folder in versions.iterdir():
             metadata = folder / (folder.name + '.json')
             if not folder.is_dir() or not metadata.is_file():
+                continue
+            if not include_removed and (folder / REMOVED_MARKER).is_file():
                 continue
             try:
                 data = json.loads(metadata.read_text(encoding='utf-8-sig'))
@@ -67,7 +72,7 @@ def running_games(directory):
                 continue
             game_dir = Path(arguments[arguments.index('--gameDir') + 1]).resolve()
             version = arguments[arguments.index('--version') + 1]
-            if not game_dir.is_relative_to(root) or version not in installed_instance_ids(root):
+            if not game_dir.is_relative_to(root) or version not in installed_instance_ids(root, include_removed=True):
                 continue
             found.append((str(root), version, str(game_dir)))
         except (psutil.Error, IndexError, OSError, ValueError):

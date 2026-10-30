@@ -656,8 +656,12 @@ class ContentBrowserController(QObject):
         kind, directory, identity = data['kind'], data['directory'], data['instance']
         if kind == 'modpack':
             from utils.path_helper import get_default_minecraft_dir
+            from utils.storage_paths import game_cache
+            import hashlib
+            import json
             directory = directory or str(get_default_minecraft_dir())
-            data.update(target=str(Path(directory) / 'downloads'), directory=directory,
+            cache_key = hashlib.sha256(json.dumps(version, sort_keys=True).encode()).hexdigest()[:20]
+            data.update(target=str(game_cache(directory) / 'pack-archives' / cache_key), directory=directory,
                         compatibility='整合包将创建独立游戏实例，游戏版本和加载器由整合包决定。',
                         compatibilityState='info', targetValid=True, environment='独立游戏实例', error='')
         elif identity not in self._installed_instances(directory):
@@ -714,6 +718,10 @@ class ContentBrowserController(QObject):
             self.status = "下载已加入任务列表。"
             dialog.accept()
             self.pageRequested.emit("tasks")
+        elif self.download_pages.tasks_page._install_conflict_dialog is not None:
+            # The instance naming dialog continues this request. Close this
+            # confirmation so two modal dialogs do not compete for focus.
+            dialog.accept()
         else:
             dialog.controller.data['error'] = dialog.controller.data.get('error') or '该下载任务已存在，请在下载记录中查看。'
         dialog.controller.working = False

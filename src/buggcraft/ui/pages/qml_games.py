@@ -196,7 +196,15 @@ class GameCatalogueController(QObject):
 
     @Slot()
     def backToGames(self):
+        self.reset_install()
+
+    def reset_install(self):
         self.install_view = 'catalogue'
+        self.game = self.loader = self.loader_version = self.pending_component = ''
+        self.loader_options = []
+        self.component_versions = []
+        self.addons = {}
+        self.loader_status = ''
         self.loader_sequence += 1
         self.loader_busy = False
         self.changed.emit()
@@ -323,12 +331,8 @@ class GamesPage(QmlPage):
         directory = self.settings_manager.get_setting('minecraft.directory.enable')
         identity = version
         if loader:
-            if loader == 'NeoForge':
-                identity = f'neoforge-{loader_version}'
-            elif loader in ('Fabric', 'Quilt'):
-                identity = f'{loader.lower()}-loader-{loader_version}-{version}'
-            else:
-                identity = f'{version}-forge-{loader_version}'
+            from core.loaders import loader_instance_id
+            identity = loader_instance_id(loader, version, loader_version)
         return self.parent.tasks_page.start_install(identity, directory, loader or None,
                                                     version if loader else None, loader_version or None,
                                                     addons=addons or [])

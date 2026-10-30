@@ -2,7 +2,6 @@
 from pathlib import Path
 from PySide6.QtCore import QObject, Property, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import QDialog, QVBoxLayout
-from ui.pages.qml_host import QmlPage
 from utils.clipboard import copy_text
 
 
@@ -71,6 +70,7 @@ class QmlDialog(QDialog):
                  actions=None, width=550, height=320, primary_action=None, danger_action='',
                  source='DialogContent.qml', data=None):
         super().__init__(parent)
+        from ui.pages.qml_host import QmlPage
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setWindowTitle(title)
         self.resize(width, height)

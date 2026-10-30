@@ -30,19 +30,21 @@ def successful_session_counts(summary):
     return {'direct_successes': direct, 'relay_successes': relay}
 
 
-async def collect_network_profile():
-    """Run bounded network detection and local evidence scans off the UI thread."""
-    def collect():
-        from utils.diagnostics import connection_session_directory
+async def collect_network_profile(on_type=None):
+    """Report the quick probe before scanning potentially large local journals."""
+    def detect_type():
         from utils.nat_probe import probe_network
+        try:
+            return classify_network(probe_network(budget=3.0))
+        except Exception:
+            return 'unknown'
+
+    def collect_counts():
+        from utils.diagnostics import connection_session_directory
         from utils.p2p_evidence import summarize_player_logs
 
+        result = {'direct_successes': 0, 'relay_successes': 0}
         directory = connection_session_directory()
-        result = {'type': 'unknown', 'direct_successes': 0, 'relay_successes': 0}
-        try:
-            result['type'] = classify_network(probe_network(budget=8.0))
-        except Exception:
-            pass
         if directory:
             try:
                 players = Path(directory).parent / 'players'
@@ -55,4 +57,7 @@ async def collect_network_profile():
                 pass
         return result
 
-    return await asyncio.to_thread(collect)
+    network_type = await asyncio.to_thread(detect_type)
+    if on_type is not None:
+        on_type(network_type)
+    return {'type': network_type, **await asyncio.to_thread(collect_counts)}

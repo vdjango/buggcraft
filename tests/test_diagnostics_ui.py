@@ -33,6 +33,23 @@ _REAL_JOB = MultiplayerController.job
 
 
 class DiagnosticsUiTests(_UiCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if os.name == 'nt' and cls.app.platformName() == 'offscreen':
+            from PySide6.QtGui import QFontDatabase, QFont
+            QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
+            cls.app.setFont(QFont('Microsoft YaHei'))
+
+    def text_ui(self, host, name, value):
+        self.click_ui(host, name)
+        QTest.keyClick(host.quick, Qt.Key_A, Qt.ControlModifier)
+        event = QInputMethodEvent()
+        event.setCommitString(value)
+        self.app.sendEvent(host.quick, event)
+        self.record('textInput', name, value)
+        self.pause_ui()
+
     def record(self, kind, target, detail=''):
         super().record(kind, target, detail)
         with (self.output / 'live-actions.jsonl').open('a', encoding='utf-8') as log:
@@ -209,13 +226,18 @@ class DiagnosticsUiTests(_UiCase):
         timer.start()
         return timer, pending, errors
 
-    def submit(self, *, title='Network diagnostics', description='Heartbeat and ICE connection failure', consent=True):
-        timer, pending, errors = self.modal_actions([('title', title), ('description', description), ('consent', consent)])
+    def open_feedback(self, content=''):
         self.click_ui(self.dialog, 'submit-diagnostics')
-        timer.stop()
-        if errors:
-            raise errors[0]
-        self.check(not pending, 'All actual title/description/consent dialogs were exercised')
+        self.wait_for(lambda: self.backend.feedback_dialog is not None, 'single feedback form opens')
+        form = self.backend.feedback_dialog
+        if content:
+            self.text_ui(form, 'feedback-content', content)
+        return form
+
+    def submit(self, *, content='Network diagnostics\nHeartbeat and ICE connection failure'):
+        form = self.open_feedback(content)
+        self.click_ui(form, 'feedback-submit')
+        self.check(self.backend.feedback_dialog is None, 'one submit closes the form and returns to the lobby')
 
     def wait_job(self, key):
         self.wait_for(lambda: key not in self.backend.jobs, key + ' completed', 45000)
@@ -292,7 +314,7 @@ class DiagnosticsUiTests(_UiCase):
     def test_submit_click_uploads_to_current_node_and_federated_admin_download(self):
         self.start_node()
         title = '上海节点联机心跳与协商诊断'
-        description = '房主在上海，玩家在宿迁。\n复现：加入后等待，确认网络与游戏日志。🧪'
+        description = title + '\n房主在上海，玩家在宿迁。\n复现：加入后等待，确认网络与游戏日志。🧪'
         from utils.feedback_upload import submit_diagnostics
         upload_allowed = threading.Event()
         async def paused_upload(*args, **kwargs):
@@ -304,7 +326,7 @@ class DiagnosticsUiTests(_UiCase):
             return await submit_diagnostics(*args, **kwargs)
         with patch('utils.feedback_upload.submit_diagnostics', side_effect=paused_upload):
             try:
-                self.submit(title=title, description=description)
+                self.submit(content=description)
                 self.check('feedback-upload' in self.backend.jobs, 'Actual asynchronous upload started')
                 # Reject unexpected dialogs so a broken duplicate guard fails
                 # an assertion instead of hanging a nested Qt modal loop.
@@ -338,34 +360,32 @@ class DiagnosticsUiTests(_UiCase):
 
     def test_invalid_metadata_fails_before_network_collection_or_node_upload(self):
         self.start_node()
-        for title, description in ((' \t ', 'Failure'), ('T' * 121, 'Failure'),
-                                   ('Network', 'D' * 4001), ('网络', '卡' * 3000)):
-            self.submit(title=title, description=description)
-            self.wait_job('feedback-upload')
-            self.check(bool(self.backend.view['error']) and '上传未完成' in self.backend.view['notice'],
-                       'Invalid metadata reports failure through actual asynchronous worker')
-            self.check('反馈已提交' not in self.backend.view['notice'] and
-                       not list(self.logs.glob('p2p-sessions/network-export-*')),
-                       'Rejected metadata creates no network snapshot or success notice')
+        form = self.open_feedback()
+        for content in (' \t ', 'D' * 4001):
+            self.text_ui(form, 'feedback-content', content)
+            self.check(not self.item(form, 'feedback-submit').isEnabled(), 'blank or oversized content cannot be submitted')
+        self.text_ui(form, 'feedback-content', '卡' * 3000)
+        self.click_ui(form, 'feedback-submit')
+        self.check('6500' in self.item(form, 'feedback-error').property('text'), 'UTF-8 limit is explained inside the form')
+        self.check('feedback-upload' not in self.backend.jobs and not list(self.logs.glob('p2p-sessions/network-export-*')),
+                   'Rejected input never collects data')
+        self.click_ui(form, 'feedback-cancel')
         self.check(self.node_call(op='inspect')['count'] == 0, 'Invalid metadata never reaches node feedback storage')
         self.assert_no_qml_errors()
         self.finish_test()
 
     def test_cancel_consent_or_anonymous_never_collects_or_uploads(self):
         self.start_node()
-        for actions in ([('title', None)], [('title-escape', None)], [('title-close', None)],
-                        [('title', 'Network'), ('description', None)],
-                        [('title', 'Network'), ('description-escape', None)],
-                        [('title', 'Network'), ('description-close', None)],
-                        [('title', 'Network'), ('description', 'Failed'), ('consent', False)],
-                        [('title', 'Network'), ('description', 'Failed'), ('consent', 'escape')],
-                        [('title', 'Network'), ('description', 'Failed'), ('consent', 'close')]):
-            timer, pending, errors = self.modal_actions(actions)
-            self.click_ui(self.dialog, 'submit-diagnostics')
-            timer.stop()
-            if errors:
-                raise errors[0]
-            self.check(not pending and 'feedback-upload' not in self.backend.jobs, 'Dismissed consent cannot start upload')
+        for action in ('feedback-cancel', 'escape', 'close', 'feedback-close'):
+            form = self.open_feedback('刚刚加入房间后无法连接，希望协助排查。')
+            if action == 'escape':
+                self.key_ui(form, Qt.Key_Escape, 'feedback-escape')
+            elif action == 'close':
+                form.close()
+            else:
+                self.click_ui(form, action)
+            self.pump()
+            self.check(self.backend.feedback_dialog is None and 'feedback-upload' not in self.backend.jobs, 'Dismissed consent cannot start upload')
             self.check(self.dialog.isVisible(), 'Native dialog cancellation preserves the lobby window')
             self.check(not list(self.logs.glob('p2p-sessions/network-export-*')), 'Dismissal does not collect network data')
         self.backend.patch(socialReady=False)
@@ -375,6 +395,28 @@ class DiagnosticsUiTests(_UiCase):
         self.check(self.node_call(op='inspect')['count'] == 0, 'No feedback from cancelled or anonymous action')
         self.key_ui(self.dialog, Qt.Key_Escape, 'lobby-escape-after-native-dialog')
         self.check(not self.dialog.isVisible(), 'Lobby Escape works again when no native modal is open')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_single_form_explains_collection_and_preserves_draft(self):
+        self.start_node()
+        self.check(self.item(self.dialog, 'submit-diagnostics').property('text') == '反馈问题', 'entry uses feedback wording')
+        form = self.open_feedback('点击加入房间后卡在连接中。\n刚刚更新了游戏版本。')
+        disclosure = self.item(form, 'feedback-collection-info').property('text')
+        self.check(all(term in disclosure for term in ('Java', '模组', '网络地址', 'DNS', '日志', '崩溃')), 'actual collection categories disclosed')
+        privacy = self.item(form, 'feedback-privacy-info').property('text')
+        self.check(all(term in privacy for term in ('脱敏', '聊天', '存档', '设置')), 'privacy limits are explained')
+        self.check('Local test node' in self.item(form, 'feedback-recipient').property('text'), 'recipient identified before consent')
+        recipient = self.item(form, 'feedback-recipient')
+        footer = self.item(form, 'feedback-submit')
+        self.check(recipient.mapToScene(recipient.boundingRect().bottomRight()).y() <
+                   footer.mapToScene(footer.boundingRect().topLeft()).y(), 'recipient text fits above submit controls')
+        self.screenshot_ui('feedback-form', form)
+        self.click_ui(form, 'feedback-cancel')
+        form = self.open_feedback()
+        self.check('刚刚更新' in self.item(form, 'feedback-content').property('text'), 'cancelled draft survives reopening')
+        self.click_ui(form, 'feedback-close')
+        self.check(self.node_call(op='inspect')['count'] == 0, 'opening a form never uploads')
         self.assert_no_qml_errors()
         self.finish_test()
 

@@ -70,7 +70,7 @@ class SettingsManager:
         Args:
             config_file: 配置文件路径，如果为None则使用默认路径
         """
-        self.config_path = config_path if config_path is not None else get_launcher_directory() / '.buggcraft'
+        self.config_path = config_path if config_path is not None else get_conf_or_cache_manager()[1]
         self._save_lock = threading.RLock()
         self.config_file = os.path.join(self.config_path, 'settings.json')
         
@@ -120,6 +120,7 @@ class SettingsManager:
 
         # 默认配置
         self.default_settings = {
+            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "Modrinth"}},
             "minecraft": minecraft,
             "translation": {"enabled": False, "source": "Buggcraft"},
             "onboarding": {"completed": False, "game_preferences": []},
@@ -193,10 +194,15 @@ class SettingsManager:
     def _ensure_game_directory(self):
         minecraft = self.current_settings['minecraft']
         directory = minecraft['directory']
+        default = str(get_default_minecraft_dir())
         if not directory.get('enable'):
-            directory['enable'] = str(get_default_minecraft_dir())
-            if directory['enable'] not in (directory.get('installed') or []):
-                directory['installed'] = (directory.get('installed') or []) + [directory['enable']]
+            directory['enable'] = default
+        if directory['enable'] == default:
+            # A fresh portable installation must offer a usable game directory
+            # immediately, before a game download or launch creates anything.
+            Path(default).mkdir(parents=True, exist_ok=True)
+            if default not in (directory.get('installed') or []):
+                directory['installed'] = (directory.get('installed') or []) + [default]
     
     def save_settings(self, file_path: Optional[str] = None) -> bool:
         """
@@ -411,28 +417,16 @@ def get_settings_manager() -> SettingsManager:
     return _settings_manager_instance
 
 def set_conf_manager(name):
-    """设置配置文件路径"""
-    conf_path = os.path.join(get_launcher_directory(), '.buggcraft')
+    """Schedule a portable storage migration for the next launch."""
+    from utils.storage_paths import request_storage
     if name == '~/.buggcraft/':
-        conf_path = os.path.join(Path.home(), '.buggcraft')
-    elif name == '.buggcraft/':
-        conf_path = os.path.join(get_launcher_directory(), '.buggcraft')
-    else:
-        conf_path = os.path.join(os.path.abspath(name), '.buggcraft')
-    
-    conf_setpath = Path.home() / '.buggcraft'
-    if not conf_setpath.exists():
-        Path(Path.home() / '.buggcraft').mkdir(exist_ok=True)
-    
-    with open(conf_setpath / 'conf', 'w', encoding='utf-8') as f:
-        f.write(json.dumps({'path': conf_path, 'name': name}))
+        raise ValueError('启动器文件保存在启动器文件夹或自定义缓存目录，不使用用户目录。')
+    target = get_launcher_directory() / '.buggcraft' if name == '.buggcraft/' else Path(name)
+    request_storage(target)
 
 def get_conf_or_cache_manager():
-    """读取配置文件路径"""
-    conf_setpath = Path.home() / '.buggcraft' / 'conf'
-    if not conf_setpath.exists():
-        return '.buggcraft/', os.path.join(get_launcher_directory(), '.buggcraft')
-
-    with open(conf_setpath, 'r', encoding='utf-8') as f:
-        s = json.load(f)
-        return s.get('name', '.buggcraft/'), s.get('path', os.path.join(get_launcher_directory(), '.buggcraft'))
+    """Resolve only the location file beside the launcher, never a user profile."""
+    from utils.storage_paths import storage_root
+    root = storage_root()
+    name = '.buggcraft/' if root == get_launcher_directory() / '.buggcraft' else str(root)
+    return name, str(root)

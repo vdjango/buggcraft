@@ -267,7 +267,7 @@ ColumnLayout {
     CopyText {
         objectName: "create-node-unavailable"; Layout.fillWidth: true
         visible: !vm.nodeAvailable; color: "#dfbd92"; font.pixelSize: 12
-        text: vm.nodeIndex < 0 ? "请先添加启动器接入码并连接节点，才能创建房间。" : "联机节点暂不可用，请返回大厅刷新节点后继续。"
+        text: vm.nodeIndex < 0 ? "请先添加节点地址，在浏览器登录并连接节点，才能创建房间。" : "联机节点暂不可用，请返回大厅刷新节点后继续。"
     }
     RowLayout {
         objectName: "create-footer"

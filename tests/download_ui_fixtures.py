@@ -52,6 +52,7 @@ class DownloadCatalogueFixtures:
         if error:
             raise ConnectionError("Version files unavailable: fixture 503")
         base = self.files.version(kind)
+        base['source'] = project.get('source', 'Modrinth')
         if game:
             base["game_versions"] = [game]
         if not self.many_files:

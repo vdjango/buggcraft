@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RegressionWiringTests(unittest.TestCase):
     def test_documented_launcher_cases_resolve_to_real_test_methods(self):
-        document = (ROOT / 'docs/technical/reported-issues-regression-20261029.md').read_text(encoding='utf-8')
+        document = (ROOT / 'docs/technical/已报告问题回归-20261029.md').read_text(encoding='utf-8')
         references = re.findall(r'`(test_\w+\.py(?:::\w+)*)`', document)
         self.assertTrue(references, 'The regression document must identify runnable cases')
         for reference in references:

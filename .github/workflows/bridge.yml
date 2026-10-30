@@ -9,7 +9,7 @@ on:
       - 'packaging/bridge*'
       - 'requirements-bridge*.txt'
       - 'scripts/build_bridge.py'
-      - 'docs/technical/bridge-integration.md'
+      - 'docs/technical/启动器桥接集成.md'
       - '.github/workflows/bridge.yml'
   workflow_dispatch:
 
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 1b0ae15041ef0aa406415338451f23cdecb37e83
+          ref: 1bee479ef1d9f2fbd6d906956a8fa5b28cdc4007
           path: native-source
       - uses: actions/setup-python@v5
         with:

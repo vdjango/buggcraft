@@ -50,8 +50,34 @@ async def _download_room_mod(endpoint, item, base, target, source, cancel, progr
     """Exhaust the configured source, then permit an established P2P fallback."""
     # Staging directories are disposable. Keep verified content and public
     # download checkpoints outside them, keyed by the authenticated manifest.
-    cache = Path(base) / '.buggcraft-downloads' / 'room-content' / item['sha256']
+    from utils.storage_paths import game_cache
+    from utils.path_helper import filesystem_path
+    from utils.payload_cache import FileLock
+    import errno
+    cache = filesystem_path(game_cache(base) / 'room-content' / item['sha256'])
     cache.mkdir(parents=True, exist_ok=True)
+    # Different files and preparations may share the same verified bytes.
+    # Serialize their cache writes without blocking the event loop or replacing
+    # content that another worker is currently verifying/copying on Windows.
+    while True:
+        if cancel.is_set():
+            raise InterruptedError('安装已取消。')
+        try:
+            lease = FileLock(cache / '.transfer.lock')
+            break
+        except OSError as exc:
+            if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                raise
+            await asyncio.sleep(.05)
+    try:
+        return await _download_room_mod_locked(endpoint, item, base, target, source,
+                                                cancel, progress, host_ready, cache)
+    finally:
+        lease.close()
+
+
+async def _download_room_mod_locked(endpoint, item, base, target, source, cancel,
+                                    progress, host_ready, cache):
     cached = cache / 'content'
     if cached.is_file():
         try:
@@ -191,7 +217,7 @@ async def fetch_public_mod(item, base, target, source, cancel, progress):
         return False
     try:
         from core.content_mirrors import get_modrinth
-        content_source = source if source in ('官方', 'MCIM', '自动测速') else '自动测速'
+        content_source = source if source in ('自动测速', 'CurseForge', 'Modrinth', 'MCIM', '官方') else '自动测速'
         metadata = await asyncio.to_thread(get_modrinth, '/version_file/' + item['sha1'],
                                            {}, cancel, content_source)
         candidates = []
@@ -210,10 +236,11 @@ async def fetch_public_mod(item, base, target, source, cancel, progress):
                 parsed.username or parsed.password or parsed.port not in (None, 443)):
             return False
         from core.downloads import MinecraftDownloader
-        relative = target.relative_to(base).as_posix()
-        downloader = MinecraftDownloader(base, source=source, cancel=cancel, workers=1)
+        relative = target.name
+        downloader = MinecraftDownloader(target.parent, source=source, cancel=cancel, workers=1, retries=6)
         downloader.parallel_content = False  # Room files already share a bounded pool.
         downloader.content_source = content_source
+        downloader.resolve_content_sources = True
         await asyncio.to_thread(downloader.fetch, url, relative, item['sha1'], item['size'],
                                 file_progress=progress)
         item['downloads'] = [url]
@@ -240,7 +267,10 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     count = game.get('mods_count', len(game.get('mods', [])))
     # Fetch and validate before creating a new configuration. No arbitrary URLs
     # or executable paths from a peer are used by the installer.
-    items = await fetch_manifest(endpoint) if count else []
+    try:
+        items = await fetch_manifest(endpoint) if count else []
+    except ConnectionError as exc:
+        raise ConnectionError('房主文件清单获取失败：' + str(exc)) from exc
     resource_items = []
     resource_count = game.get('resources_count', len(game.get('resources', [])))
     if resource_count:
@@ -276,7 +306,8 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     game_task = None
     identity = 'room-' + re.sub('[^A-Za-z0-9_-]', '-', game['version']) + '-' + secrets.token_hex(4)
     published = base / 'versions' / identity
-    target = base / '.buggcraft-downloads' / 'room-preparation' / identity
+    from utils.storage_paths import game_cache
+    target = game_cache(base) / 'room-preparation' / identity
     target.mkdir(parents=True, exist_ok=False)
     marker = target / '.buggcraft-preparing'
     marker.write_text('Room preparation in progress', encoding='utf8')
@@ -286,9 +317,17 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
             game_meter = TransferMeter()
 
             async def prepare_game():
-                installed = await asyncio.to_thread(
-                    install_game, game, str(directory), java, source, signal, report,
-                    lambda value: event(dict(game_meter.feed(value), kind='download', content='game')))
+                try:
+                    installed = await asyncio.to_thread(
+                        install_game, game, str(directory), java, source, signal, report,
+                        lambda value: event(dict(game_meter.feed(value), kind='download', content='game')))
+                except (InterruptedError, DownloadCancelled):
+                    raise
+                except Exception as exc:
+                    prefix = '加载器安装失败：' if expected_loader != 'vanilla' else '游戏下载失败：'
+                    if isinstance(exc, ValueError):
+                        raise ValueError(prefix + str(exc)) from exc
+                    raise RuntimeError(prefix + str(exc)) from exc
                 metadata = await asyncio.to_thread(resolved_metadata, base, installed)
                 loader, _ = metadata_loader(metadata)
                 if loader != expected_loader or (items and loader == 'vanilla'):
@@ -386,6 +425,15 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                         resource_failures.append(item['name'])
                         return
                     aborted.set()
+                    if isinstance(exc, InterruptedError):
+                        raise
+                    if not optional:
+                        message = '模组下载失败（' + item['name'] + '）：' + str(exc)
+                        if isinstance(exc, ValueError):
+                            raise ValueError(message) from exc
+                        if isinstance(exc, (ConnectionError, OSError)):
+                            raise ConnectionError(message) from exc
+                        raise RuntimeError(message) from exc
                     raise
                 with progress_lock:
                     completed_bytes += item['size']
@@ -425,12 +473,35 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
         if any(current_game.get(key) != game.get(key) for key in
                ('version', 'loader', 'loader_version', 'mods_hash')):
             raise ValueError('安装期间房间配置发生变化，请按最新配置重试。')
-        # Inherit installed libraries and vanilla assets; game data and mods use
-        # this new directory, including when global version isolation is disabled.
+        # A room is a standalone version for this launcher and for PCL/HMCL.
+        # Give it its own client JAR and natives instead of leaving an alias
+        # whose version JSON points at another version folder.
+        from core.launch_preparation import exclude_version_jar_from_bootstrap_scan, version_chain
+        chain = version_chain(base, installed)
+        jar_owner = next((layer.get('jar') for _, layer in chain if layer.get('jar')), None)
+        if jar_owner is None:
+            jar_owner = next((name for name, _ in chain if
+                              (base / 'versions' / name / (name + '.jar')).is_file()), None)
+        if (not isinstance(jar_owner, str) or jar_owner in ('.', '..') or
+                any(char in jar_owner for char in ('/', chr(92), ':'))):
+            raise ValueError('加载器安装失败：找不到可用的游戏核心文件。')
+        core = base / 'versions' / jar_owner / (jar_owner + '.jar')
+        if not core.is_file():
+            raise FileNotFoundError('加载器安装失败：缺少游戏核心文件 ' + str(core))
+        shutil.copy2(core, target / (identity + '.jar'))
+        for name, _ in reversed(chain):
+            natives = base / 'versions' / name / 'natives'
+            if natives.is_dir():
+                shutil.copytree(natives, target / 'natives', dirs_exist_ok=True)
+        # Libraries and assets remain shared beneath .minecraft, as in a
+        # conventional standalone Minecraft version.
         isolated = dict(metadata, id=identity, buggcraftRoom={'version': game['version'],
                         'parent': installed, 'mods_hash': actual,
                         'resources_hash': (manifest_hash(resource_items)
                                            if resource_items and not resource_failures else '')})
+        isolated.pop('inheritsFrom', None)
+        isolated.pop('jar', None)
+        exclude_version_jar_from_bootstrap_scan(isolated, identity)
         (target / (identity + '.json')).write_text(json.dumps(isolated, ensure_ascii=False, indent=2), encoding='utf8')
         receipt_path = base / 'versions' / game['version'] / '.buggcraft-complete.json'
         if receipt_path.is_file():
@@ -438,9 +509,12 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
             receipt['version'] = identity
             receipt['files'].append({'path': str((published / (identity + '.json')).relative_to(base)),
                                     'sha1': hashlib.sha1((target / (identity + '.json')).read_bytes()).hexdigest()})
+            receipt['files'].append({'path': str((published / (identity + '.jar')).relative_to(base)),
+                                    'sha1': hashlib.sha1((target / (identity + '.jar')).read_bytes()).hexdigest()})
             (target / '.buggcraft-complete.json').write_text(json.dumps(receipt), encoding='utf8')
         published.parent.mkdir(parents=True, exist_ok=True)
-        target.rename(published)
+        from utils.storage_paths import publish_directory
+        publish_directory(target, published)
         (published / marker.name).unlink()
         event(dict(kind='complete', version=identity, loader=loader))
         report('游戏配置已准备完成', 1, 1)

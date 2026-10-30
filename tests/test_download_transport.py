@@ -15,12 +15,130 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
-from core.downloads import MinecraftDownloader, DownloadCancelled, _DownloadSession, _MirrorHealth
+from core.downloads import MinecraftDownloader, DownloadCancelled, CONTENT_MIRROR, _DownloadSession, _MirrorHealth
 from utils.http_identity import USER_AGENT
 import requests
 
 
 class DownloadTransportTests(unittest.TestCase):
+    def test_all_source_failures_reach_ui_with_each_cause_and_no_raw_transport_dump(self):
+        from core.downloads import download_error_message, DownloadSourcesExhausted
+        hosts = []
+        def get(_session, url, **_kwargs):
+            host = urlsplit(url).hostname
+            hosts.append(host)
+            if host == 'mirror.minguncle.cn':
+                response = requests.Response()
+                response.status_code = 404
+                raise requests.HTTPError(response=response)
+            raise requests.Timeout('HTTPSConnectionPool raw transport detail')
+        downloader = MinecraftDownloader(self.temp.name, source='BMCLAPI', retries=2)
+        with patch.object(_DownloadSession, 'get', get):
+            with self.assertRaises(DownloadSourcesExhausted) as raised:
+                downloader.fetch('https://libraries.minecraft.net/example.jar', 'libraries/example.jar',
+                    hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        message = download_error_message(raised.exception)
+        self.assertEqual(hosts, ['bmclapi2.bangbang93.com', 'mirror.minguncle.cn', 'libraries.minecraft.net'])
+        self.assertIn('BMCLAPI：连接或读取超时', message)
+        self.assertIn('MCMirror：文件不存在（404）', message)
+        self.assertIn('Mojang：连接或读取超时', message)
+        self.assertNotIn('HTTPSConnectionPool', message)
+
+    def test_cancellation_wakes_blocked_https_body_and_preserves_partial_bytes(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from datetime import datetime, timedelta, timezone
+        import ipaddress
+        import ssl
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from core.downloads import DownloadCancellation
+
+        key = ec.generate_private_key(ec.SECP256R1())
+        name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, 'localhost')])
+        now = datetime.now(timezone.utc)
+        cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+                .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=1))
+                .not_valid_after(now + timedelta(hours=1))
+                .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]), False)
+                .sign(key, hashes.SHA256()))
+        certificate, private = Path(self.temp.name) / 'cert.pem', Path(self.temp.name) / 'key.pem'
+        certificate.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+        private.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                             serialization.NoEncryption()))
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certificate, private)
+        started, release = threading.Event(), threading.Event()
+        payload = self.payload
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload[:len(payload) // 2])
+                self.wfile.flush()
+                started.set()
+                release.wait(5)
+                try:
+                    self.wfile.write(payload[len(payload) // 2:])
+                except OSError:
+                    pass
+            def log_message(self, *args):
+                pass
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.downloader.cancel = cancel = DownloadCancellation()
+        original_get = _DownloadSession.get
+        def get(session, url, **kwargs):
+            return original_get(session, url, verify=str(certificate), **kwargs)
+        try:
+            with patch.object(_DownloadSession, 'get', get), ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(self.downloader.fetch, f'https://127.0.0.1:{server.server_port}/artifact',
+                                     'tls-resume.jar', hashlib.sha1(payload).hexdigest(), len(payload))
+                self.assertTrue(started.wait(3))
+                # Wait for actual disk progress before interrupting the TLS body.
+                deadline = time.monotonic() + 2
+                part = Path(self.temp.name) / 'tls-resume.jar.buggcraft-part'
+                while time.monotonic() < deadline and (not part.exists() or not part.stat().st_size):
+                    time.sleep(.01)
+                before = time.monotonic()
+                cancel.set()
+                with self.assertRaises(DownloadCancelled):
+                    future.result(timeout=1)
+                self.assertLess(time.monotonic() - before, 1)
+                self.assertTrue(0 < part.stat().st_size < len(payload))
+                self.assertTrue(part.with_name(part.name + '.json').is_file())
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_launch_library_repair_falls_back_and_emits_byte_progress(self):
+        from core import loaders
+        events, hosts = [], []
+        original_get = _DownloadSession.get
+        def get(session, url, **kwargs):
+            hosts.append(urlsplit(url).hostname)
+            if urlsplit(url).hostname == 'bmclapi2.bangbang93.com':
+                raise requests.ConnectionError('mirror unavailable')
+            return original_get(session, self.url, **kwargs)
+        target = Path(self.temp.name) / 'libraries/gson.jar'
+        routed = loaders._routed_downloader(
+            lambda *a, **kw: self.fail('repair bypassed the verified downloader'), '自动')
+        with patch.object(_DownloadSession, 'get', get):
+            routed('https://libraries.minecraft.net/gson.jar', target,
+                   callback={'fileEvent': events.append}, sha1=hashlib.sha1(self.payload).hexdigest(),
+                   minecraft_directory=self.temp.name)
+        self.assertEqual(hosts, ['bmclapi2.bangbang93.com', 'mirror.minguncle.cn'])
+        self.assertEqual(target.read_bytes(), self.payload)
+        self.assertTrue(any(event['state'] == 'downloading' and event.get('done', 0) > 0
+                            and event.get('total') == len(self.payload) for event in events))
+        self.assertEqual(events[-1]['state'], 'verified')
+        self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part*')))
+
     def test_install_fetches_core_libraries_assets_logging_and_extracts_natives(self):
         native = io.BytesIO()
         with ZipFile(native, 'w') as archive:
@@ -60,6 +178,22 @@ class DownloadTransportTests(unittest.TestCase):
             self.assertEqual((root / path).read_bytes(), payload, path)
         self.assertTrue((root / 'versions/component-fixture/.buggcraft-complete.json').is_file())
         self.assertCountEqual(self.requests, payloads.keys())
+
+    def test_standalone_repair_preserves_existing_loader_core(self):
+        from core.downloads import verified_installation
+        root = Path(self.temp.name)
+        core = root / 'versions/loader-fixture/loader-fixture.jar'
+        core.parent.mkdir(parents=True)
+        with ZipFile(core, 'w') as archive:
+            archive.writestr('META-INF/MANIFEST.MF', 'Manifest-Version: 1.0')
+        original = core.read_bytes()
+        metadata = {'id': 'loader-fixture', 'downloads': {'client': {
+            'url': self.url, 'sha1': hashlib.sha1(self.payload).hexdigest(),
+            'size': len(self.payload)}}, 'libraries': []}
+        self.downloader.install_metadata('loader-fixture', metadata, preserve_client=True)
+        self.assertEqual(core.read_bytes(), original)
+        self.assertEqual(self.requests, [])
+        self.assertTrue(verified_installation(root, 'loader-fixture'))
 
     def test_file_events_report_real_bytes_verification_and_cached_reuse(self):
         events = []
@@ -191,7 +325,8 @@ class DownloadTransportTests(unittest.TestCase):
                             break
                         time.sleep(0.03)
                     return
-                if fixture.mode and (len(fixture.requests) == 1 or fixture.mode == 'persistent'):
+                if fixture.mode and (len(fixture.requests) == 1 or fixture.mode == 'persistent'
+                                     or fixture.mode == 'six-interruptions' and len(fixture.requests) <= 6):
                     self.wfile.write(fixture.payload[offset:offset + 65536])
                     self.close_connection = True
                 else:
@@ -237,15 +372,28 @@ class DownloadTransportTests(unittest.TestCase):
         release = (Path(__file__).resolve().parents[1] / 'resources/app-version.txt').read_text(encoding='ascii').strip()
         self.assertEqual(USER_AGENT, 'BUGG | ' + release)
         url = self.url.replace('/artifact', '/redirect')
+        events = []
+        self.downloader.file_event = events.append
         target = self.downloader.fetch(url, 'redirect.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(target.read_bytes(), self.payload)
         self.assertEqual(self.requests, ['/redirect', '/artifact'])
         self.assertEqual(self.user_agents, [USER_AGENT, USER_AGENT])
+        self.assertEqual([event['url'] for event in events if 'url' in event], [url, self.url])
         self.requests.clear()
         self.mode = 'resume'
         self.downloader.fetch(self.url, 'retry.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(self.ranges[-2:], [None, 'bytes=65536-'])
         self.assertTrue(all(value == USER_AGENT for value in self.user_agents))
+
+    def test_download_address_events_hide_query_credentials_without_changing_the_request(self):
+        events = []
+        self.downloader.file_event = events.append
+        url = self.url + '?token=private-test-token&signature=private-test-signature'
+        target = self.downloader.fetch(url, 'signed.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(target.read_bytes(), self.payload)
+        self.assertEqual(self.requests, [urlsplit(url).path + '?' + urlsplit(url).query])
+        self.assertEqual([event['url'] for event in events if 'url' in event], [self.url])
+        self.assertNotIn('private-test-', json.dumps(events))
 
     def test_rejected_hash_never_replaces_existing_file_and_removes_partial(self):
         path = Path(self.temp.name) / 'existing.jar'
@@ -271,6 +419,99 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(self.ranges, [None, 'bytes=65536-'])
         self.assertEqual(progress[-1], (len(self.payload), len(self.payload)))
         self.assertFalse(path.with_name(path.name + '.buggcraft-part').exists())
+
+    def test_deep_portable_cache_resumes_and_reuses_verified_artifact(self):
+        from utils.path_helper import filesystem_path
+        import shutil
+        relative = Path('deep-cache') / ('portable-cache-' * 7) / ('loader-library-' * 6) / 'artifact.jar'
+        expected = Path(self.temp.name) / relative
+        self.assertGreater(len(str(expected)), 260)
+        self.mode = 'resume'
+        digest = hashlib.sha1(self.payload).hexdigest()
+        try:
+            actual = self.downloader.fetch(self.url, relative, digest, len(self.payload))
+            self.assertEqual(actual, expected)
+            self.assertEqual(filesystem_path(actual).read_bytes(), self.payload)
+            self.assertEqual(self.ranges, [None, 'bytes=65536-'])
+            self.downloader.fetch(self.url, relative, digest, len(self.payload))
+            self.assertEqual(len(self.requests), 2)
+            self.assertFalse(filesystem_path(str(actual) + '.buggcraft-part.json').exists())
+        finally:
+            shutil.rmtree(filesystem_path(Path(self.temp.name) / 'deep-cache'), ignore_errors=True)
+
+    def test_six_automatic_retries_resume_without_restarting_or_visible_error(self):
+        self.payload = bytes(range(256)) * 2048
+        self.mode = 'six-interruptions'
+        self.downloader.retries = 6
+        events = []
+        self.downloader.file_event = events.append
+        digest = hashlib.sha1(self.payload).hexdigest()
+        with patch.object(self.downloader.cancel, 'wait', return_value=False):
+            path = self.downloader.fetch(self.url, 'mod.jar', digest, len(self.payload))
+        self.assertEqual(path.read_bytes(), self.payload)
+        self.assertEqual(self.ranges, [None] + [f'bytes={65536 * i}-' for i in range(1, 7)])
+        self.assertEqual(len([event for event in events if event['state'] == 'retrying']), 6)
+        self.assertFalse(any(event.get('error') for event in events))
+        self.assertEqual(events[-1]['state'], 'verified')
+        self.assertFalse(path.with_name(path.name + '.buggcraft-part').exists())
+        self.downloader.fetch(self.url, 'mod.jar', digest, len(self.payload))
+        self.assertEqual(len(self.requests), 7)
+
+    def test_switching_publisher_on_retry_replaces_url_and_resumes_partial_bytes(self):
+        self.payload = bytes(range(256)) * 2048
+        self.mode = 'persistent'
+        self.downloader.retries = 0
+        self.downloader.content_source = 'Modrinth'
+        self.downloader.resolve_content_sources = True
+        events = []
+        self.downloader.file_event = events.append
+        sha1 = hashlib.sha1(self.payload).hexdigest()
+        modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
+        curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
+        original = _DownloadSession.get
+        requests_to_sources = []
+        def get(session, url, **kwargs):
+            requests_to_sources.append((urlsplit(url).hostname, kwargs.get('headers', {}).get('Range')))
+            return original(session, self.url, **kwargs)
+        with patch('core.content_routes.resolve_download_urls', return_value=[modrinth, curseforge]) as resolve, \
+             patch.object(_DownloadSession, 'get', get):
+            with self.assertRaises(RuntimeError):
+                self.downloader.fetch(modrinth, 'mod.jar', sha1, len(self.payload))
+            part = Path(self.temp.name) / 'mod.jar.buggcraft-part'
+            self.assertEqual(part.stat().st_size, 65536)
+            self.mode = None
+            self.downloader.content_source = 'CurseForge'
+            result = self.downloader.fetch(modrinth, 'mod.jar', sha1, len(self.payload))
+        self.assertEqual(result.read_bytes(), self.payload)
+        self.assertEqual(requests_to_sources,
+                         [('cdn.modrinth.com', None), ('edge.forgecdn.net', 'bytes=65536-')])
+        self.assertEqual([call.kwargs['preference'] for call in resolve.call_args_list],
+                         ['Modrinth', 'CurseForge'])
+        self.assertEqual([event['url'] for event in events if event.get('url') in (modrinth, curseforge)],
+                         [modrinth, curseforge])
+
+    def test_auto_measures_all_resolved_publishers_before_downloading(self):
+        modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
+        curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
+        self.downloader.content_source = '自动测速'
+        self.downloader.resolve_content_sources = True
+        original = _DownloadSession.get
+        hosts = []
+        def get(session, url, **kwargs):
+            hosts.append(urlsplit(url).hostname)
+            return original(session, self.url, **kwargs)
+        def rank(candidates, preference):
+            self.assertIn(curseforge, candidates)
+            self.assertIn(modrinth, candidates)
+            self.assertTrue(any(urlsplit(url).hostname == 'mod.mcimirror.top' for url in candidates))
+            return sorted(candidates, key=lambda url: url != curseforge)
+        with patch('core.content_routes.resolve_download_urls', return_value=[modrinth, curseforge]), \
+             patch('core.downloads._rank_content_candidates', side_effect=rank) as measured, \
+             patch.object(_DownloadSession, 'get', get):
+            result = self.downloader.fetch(modrinth, 'mod.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        measured.assert_called_once()
+        self.assertEqual(hosts, ['edge.forgecdn.net'])
+        self.assertEqual(result.read_bytes(), self.payload)
 
     def test_server_ignoring_range_restarts_without_duplicating_bytes(self):
         self.mode = 'ignore-range'
@@ -307,17 +548,53 @@ class DownloadTransportTests(unittest.TestCase):
         for url in urls:
             self.assertEqual(self.downloader.urls(url)[0], url)
         self.downloader.source = 'BMCLAPI'
-        # MCIM explicitly excludes mediafilez; retain its authenticated route.
-        media = 'https://mediafilez.forgecdn.net/files/123/4/a%20b.jar'
-        self.assertEqual(self.downloader.urls(media), [media, media.replace('mediafilez.', 'edge.')])
+        media = 'https://mediafilez.forgecdn.net/files/123/4/a%20b.jar?x=1'
+        for setting in ('自动测速', 'CurseForge', 'Modrinth', 'MCIM', '官方'):
+            with self.subTest(media_source=setting):
+                self.downloader.content_source = setting
+                self.assertEqual(self.downloader.urls(media), [media])
         self.downloader.content_source = '官方'
         self.assertEqual(self.downloader.urls(urls[0])[0], urls[0])
         self.downloader.source = '官方'
         self.downloader.content_source = 'MCIM'
         self.assertTrue(self.downloader.urls(urls[0])[0].startswith('https://mod.mcimirror.top/'))
+        self.downloader.content_source = '自动测速'
+        self.assertEqual([urlsplit(url).hostname for url in self.downloader.urls(urls[0])],
+                         ['mod.mcimirror.top', 'cdn.modrinth.com'])
+        self.assertEqual([urlsplit(url).hostname for url in self.downloader.urls(urls[1])],
+                         ['mod.mcimirror.top', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'])
         for url in ('https://cdn.modrinth.com.evil.org/x', 'https://user@cdn.modrinth.com/x',
                     'https://cdn.modrinth.com:444/x', 'https://github.com/a/b/releases/download/x.jar'):
             self.assertEqual(self.downloader.urls(url), [url])
+
+    def test_mcim_first_falls_back_to_publisher_with_existing_partial_bytes(self):
+        self.payload = bytes(range(256)) * 2048
+        self.mode = 'persistent'
+        self.downloader.content_source = 'MCIM'
+        self.downloader.retries = 6
+        original = _DownloadSession.get
+        routes = []
+        def get(session, url, **kwargs):
+            host = urlsplit(url).hostname
+            routes.append(host)
+            self.mode = 'persistent' if host == urlsplit(CONTENT_MIRROR).hostname else None
+            return original(session, self.url, **kwargs)
+        with (patch('core.downloads._rank_content_candidates',
+                    side_effect=lambda candidates, _: candidates),
+              patch.object(_DownloadSession, 'get', get)):
+            with patch.object(self.downloader.cancel, 'wait', return_value=False):
+                path = self.downloader.fetch('https://cdn.modrinth.com/data/id/version/mod.jar',
+                                             'mod.jar', hashlib.sha1(self.payload).hexdigest(),
+                                             len(self.payload))
+        self.assertEqual(path.read_bytes(), self.payload)
+        self.assertEqual(routes, ['mod.mcimirror.top', 'cdn.modrinth.com'])
+        self.assertEqual(self.ranges, [None, 'bytes=65536-'])
+
+    def test_official_only_ignores_cached_mcim_fallbacks(self):
+        self.downloader.content_source = '官方'
+        mirror = 'https://mod.mcimirror.top/data/id/version/mod.jar'
+        original = 'https://cdn.modrinth.com/data/id/version/mod.jar'
+        self.assertEqual(self.downloader.urls(mirror), [original])
 
     def test_cancel_after_partial_download_preserves_checkpoint_and_installed_file(self):
         path = Path(self.temp.name) / 'pack.zip'
@@ -564,8 +841,52 @@ class DownloadTransportTests(unittest.TestCase):
             result = self.downloader.fetch('https://cdn.modrinth.com/data/slow.mrpack', 'slow.mrpack',
                 hashlib.sha1(self.payload).hexdigest(), len(self.payload), sha512=hashlib.sha512(self.payload).hexdigest())
         self.assertEqual(result.read_bytes(), self.payload)
-        self.assertEqual(calls, [('mod.mcimirror.top', 0), ('cdn.modrinth.com', 65536)])
+        self.assertEqual([host for host, _ in calls], ['mod.mcimirror.top', 'cdn.modrinth.com'])
+        self.assertEqual(calls[0][1], 0)
+        self.assertTrue(0 < calls[1][1] < len(self.payload))
         self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part')))
+
+    def test_last_available_slow_mirror_finishes_instead_of_reporting_switch_failure(self):
+        import itertools
+        self.downloader.content_source = 'Modrinth'
+        original_get = _DownloadSession.get
+        calls = []
+
+        def get(session, url, **kwargs):
+            host = urlsplit(url).hostname
+            calls.append((host, kwargs['headers'].get('Range')))
+            if host == 'cdn.modrinth.com':
+                raise requests.Timeout('publisher timed out')
+            return original_get(session, self.url, **kwargs)
+
+        # Time advances faster than the stream to exercise low-speed detection.
+        ticks = itertools.count()
+        with patch.object(_DownloadSession, 'get', get), patch('core.downloads.time.monotonic', side_effect=lambda: next(ticks)):
+            result = self.downloader.fetch('https://cdn.modrinth.com/data/last-mirror.jar', 'last-mirror.jar',
+                hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(result.read_bytes(), self.payload)
+        self.assertEqual([host for host, _ in calls], ['cdn.modrinth.com', 'mod.mcimirror.top'])
+        self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
+
+    def test_last_available_mirror_retries_transient_failure_and_resumes(self):
+        self.downloader.content_source = 'Modrinth'
+        self.downloader.retries = 6
+        self.mode = 'resume'
+        original_get = _DownloadSession.get
+        calls = []
+
+        def get(session, url, **kwargs):
+            calls.append((urlsplit(url).hostname, kwargs['headers'].get('Range')))
+            if calls[-1][0] == 'cdn.modrinth.com':
+                raise requests.Timeout('publisher timed out')
+            return original_get(session, self.url, **kwargs)
+
+        with patch.object(_DownloadSession, 'get', get):
+            result = self.downloader.fetch('https://cdn.modrinth.com/data/retry-mirror.jar', 'retry-mirror.jar',
+                hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(result.read_bytes(), self.payload)
+        self.assertEqual(calls, [('cdn.modrinth.com', None), ('mod.mcimirror.top', None),
+                                 ('mod.mcimirror.top', 'bytes=65536-')])
 
     def test_fast_mirror_does_not_start_duplicate_official_download(self):
         self.downloader.content_source = 'MCIM'

@@ -44,7 +44,7 @@ class InstanceDeletionTests(LauncherQmlCase):
             controller, dialog = self.open_confirmation()
             self.assertFalse(self.item(dialog.host, 'dialog-action-0').property('primary'))
             self.assertFalse(self.item(dialog.host, 'dialog-action-0').property('danger'))
-            self.assertFalse(self.item(dialog.host, 'dialog-action-1').property('danger'))
+            self.assertTrue(self.item(dialog.host, 'dialog-action-1').property('danger'))
             if index % 2:
                 QTest.keyClick(dialog.quick, Qt.Key_Escape)
                 self.pump()
@@ -74,14 +74,66 @@ class InstanceDeletionTests(LauncherQmlCase):
         self.assertIn('目录已切换', dialog.controller.detail)
         self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
 
+    def test_instance_defaults_to_highlighted_permanent_delete_and_can_only_remove(self):
+        controller, dialog = self.open_confirmation()
+        self.assertFalse(self.item(dialog.host, 'keep-game-directory').property('checked'))
+        action = self.item(dialog.host, 'dialog-action-1')
+        self.assertTrue(action.property('danger'))
+        self.assertEqual(action.property('text'), '永久删除')
+        warning = self.item(dialog.host, 'delete-local-files-warning-text')
+        self.assertIn('会删除本地文件', warning.property('text'))
+        self.assertIn('无法撤销', warning.property('text'))
+        self.click(dialog.host, 'keep-game-directory')
+        self.assertFalse(action.property('danger'))
+        self.assertEqual(action.property('text'), '仅移除')
+        original = (self.game_dir / 'versions/1.20.1/1.20.1.json').read_bytes()
+        with patch('ui.pages.qml_instances.delete_minecraft_version') as delete_files:
+            self.delete_and_wait(controller, dialog)
+        delete_files.assert_not_called()
+        self.assertEqual((self.game_dir / 'versions/1.20.1/1.20.1.json').read_bytes(), original)
+        self.assertNotIn('1.20.1', [row['version'] for row in controller.view['versions']])
+        controller.reload()
+        self.assertNotIn('1.20.1', [row['version'] for row in controller.view['versions']])
+        controller.restoreRemoved()
+        self.assertIn('1.20.1', [row['version'] for row in controller.view['versions']])
+        self.assertEqual(controller.view['removedCount'], 0)
+        self.assert_no_qml_errors()
+
+    def test_removed_dependant_still_prevents_deleting_its_parent_files(self):
+        child = self.game_dir / 'versions/1.21.8'
+        (child / '1.21.8.json').write_text(json.dumps(dict(id='1.21.8', inheritsFrom='1.20.1')), encoding='utf-8')
+        controller, dialog = self.open_confirmation('1.21.8')
+        self.click(dialog.host, 'keep-game-directory')
+        self.delete_and_wait(controller, dialog)
+        controller, dialog = self.open_confirmation('1.20.1')
+        self.delete_and_wait(controller, dialog)
+        self.assertIn('依赖', dialog.controller.detail)
+        self.assertTrue((self.game_dir / 'versions/1.20.1').exists())
+
     def test_directory_cancel_and_delete_only_touch_temporary_games(self):
         controller, dialog = self.open_confirmation(str(self.game_dir), 'deleteDirectory')
         self.click(dialog.host, 'dialog-action-0')
         self.assertTrue(self.game_dir.exists())
         controller, dialog = self.open_confirmation(str(self.game_dir), 'deleteDirectory')
+        self.assertTrue(self.item(dialog.host, 'keep-game-directory').property('checked'))
+        self.click(dialog.host, 'keep-game-directory')
         self.delete_and_wait(controller, dialog)
         self.assertFalse(self.game_dir.exists())
         self.assertTrue(self.window.isVisible())
+        self.assert_no_qml_errors()
+
+    def test_remove_directory_can_keep_all_files_and_be_added_again(self):
+        original = (self.game_dir / 'versions/1.20.1/1.20.1.json').read_bytes()
+        controller, dialog = self.open_confirmation(str(self.game_dir), 'deleteDirectory')
+        self.assertTrue(self.item(dialog.host, 'keep-game-directory').property('checked'))
+        with patch('ui.pages.qml_instances.delete_minecraft_directory') as delete_files:
+            self.delete_and_wait(controller, dialog)
+        delete_files.assert_not_called()
+        self.assertEqual((self.game_dir / 'versions/1.20.1/1.20.1.json').read_bytes(), original)
+        self.assertNotIn(str(self.game_dir), self.manager.get_setting('minecraft.directory.installed'))
+        with patch('ui.pages.qml_instances.QFileDialog.getExistingDirectory', return_value=str(self.game_dir)):
+            controller.addDirectory()
+        self.assertIn(str(self.game_dir), self.manager.get_setting('minecraft.directory.installed'))
         self.assert_no_qml_errors()
 
     def test_delete_failure_reports_error_and_allows_retry(self):

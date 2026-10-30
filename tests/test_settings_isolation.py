@@ -11,13 +11,52 @@ from config.settings import SettingsManager
 
 
 class SettingsIsolationTests(unittest.TestCase):
+    def test_download_defaults_and_explicit_preferences_survive_reload(self):
+        from core.content_mirrors import configured_source
+
+        with tempfile.TemporaryDirectory() as folder:
+            manager = SettingsManager(folder)
+            self.assertEqual(manager.get_setting('settings.general.mirrors'), 'BMCLAPI')
+            self.assertEqual(configured_source(manager), 'Modrinth')
+            manager.set_setting('settings.general.mirrors', '官方')
+            manager.set_setting('settings.general.content_mirror', '自动测速')
+            self.assertTrue(manager.save_settings())
+            reloaded = SettingsManager(folder)
+            self.assertEqual(reloaded.get_setting('settings.general.mirrors'), '官方')
+            self.assertEqual(configured_source(reloaded), '自动测速')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
+        self.default_game = Path(self.temporary.name) / 'launcher' / '.minecraft'
+        default_patch = patch('config.settings.get_default_minecraft_dir', return_value=self.default_game)
+        default_patch.start()
+        self.addCleanup(default_patch.stop)
         self.manager = SettingsManager(self.temporary.name)
         self.root = str(Path(self.temporary.name) / 'minecraft')
         self.manager.set_setting('minecraft.directory.enable', self.root)
         self.manager.set_setting('minecraft.version.enable', '1.21.8-forge-58.0.0')
+
+    def test_first_start_creates_and_persists_launcher_default_game_directory(self):
+        self.assertTrue(self.default_game.is_dir())
+        saved = json.loads(Path(self.manager.config_file).read_text(encoding='utf-8'))
+        self.assertEqual(saved['minecraft']['directory'], {
+            'enable': str(self.default_game), 'installed': [str(self.default_game)]})
+        marker = self.default_game / 'existing-file.txt'
+        marker.write_text('keep existing files', encoding='utf-8')
+        reloaded = SettingsManager(self.temporary.name)
+        self.assertEqual(reloaded.get_setting('minecraft.directory.enable'), str(self.default_game))
+        self.assertEqual(reloaded.get_setting('minecraft.directory.installed'), [str(self.default_game)])
+        self.assertEqual(marker.read_text(encoding='utf-8'), 'keep existing files')
+
+    def test_existing_custom_game_directory_is_preserved_on_startup(self):
+        self.manager.set_setting('minecraft.directory.installed', [self.root])
+        self.assertTrue(self.manager.save_settings())
+        self.default_game.rmdir()
+        reloaded = SettingsManager(self.temporary.name)
+        self.assertEqual(reloaded.get_setting('minecraft.directory.enable'), self.root)
+        self.assertEqual(reloaded.get_setting('minecraft.directory.installed'), [self.root])
+        self.assertFalse(self.default_game.exists())
 
     def test_isolated_and_shared_data_dirs_follow_game_setting(self):
         expected = str(Path(self.root) / 'versions' / '1.21.8-forge-58.0.0')

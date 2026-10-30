@@ -165,6 +165,35 @@ class JavaDiscoveryTests(unittest.TestCase):
 
 
 class LaunchErrorQmlTests(LauncherQmlCase):
+    def test_missing_game_files_show_progress_until_preparation_finishes(self):
+        self.window.minecraft_game_file_preparation_started()
+        self.window._close_game_file_progress()
+        self.pump()
+        self.assertIsNone(self.window._game_file_dialog)
+
+        self.window.minecraft_game_file_preparation_started()
+        self.window.minecraft_game_file_preparation_progress('正在下载 gson.jar…', 2, 10)
+        self.window._show_game_file_progress()
+        self.pump()
+        dialog = self.window._game_file_dialog
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.controller.progress, 0.2)
+        self.assertIn('2 / 10 项', dialog.controller.detail)
+        self.window.minecraft_game_file_preparation_progress('正在下载 gson.jar…', 7, 10)
+        self.assertEqual(dialog.controller.progress, 0.7)
+
+        dialog.controller.action('后台继续')
+        self.assertFalse(dialog.isVisible())
+        self.assertTrue(self.window._game_file_hidden)
+        self.window._close_game_file_progress()
+        self.assertFalse(self.window._game_file_show_timer.isActive())
+        self.window.minecraft_game_file_preparation_started()
+        self.window._show_game_file_progress()
+        self.assertTrue(dialog.isVisible())
+        self.window._close_game_file_progress()
+        self.assertFalse(dialog.isVisible())
+        self.assert_no_qml_errors()
+
     def test_java_progress_dialog_uses_wrapped_detail_and_cancels_only_preparation(self):
         self.window.minecraft_java_install_progress('Downloading Java runtime', 5 * 1024 ** 2, 20 * 1024 ** 2)
         self.pump()

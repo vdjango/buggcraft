@@ -30,7 +30,8 @@ def extract_minecraft_head(skin_data, output_path=None, scale_factor=10):
         Exception: 如果处理过程中发生错误
     """
     # 创建临时文件保存皮肤数据
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+    from utils.storage_paths import temporary_directory, cache_directory
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=temporary_directory()) as temp_file:
         temp_file.write(skin_data)
         temp_path = temp_file.name
 
@@ -104,7 +105,7 @@ def extract_minecraft_head(skin_data, output_path=None, scale_factor=10):
         
         # 设置默认输出路径
         if output_path is None:
-            output_path = "minecraft_head.png"
+            output_path = str(cache_directory('skins') / 'minecraft_head.png')
         
         # 写入PNG文件
         with open(output_path, 'wb') as f:

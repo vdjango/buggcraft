@@ -38,28 +38,25 @@ using System.Drawing;
 }
 
 internal static class Program {
+    internal static string SelectStorageRoot() {
+        string root = AppDomain.CurrentDomain.BaseDirectory;
+        string location = Path.Combine(root, "buggcraft-storage.txt");
+        if (!File.Exists(location)) return Path.Combine(root, ".buggcraft");
+        string value = File.ReadAllText(location, Encoding.UTF8).Trim();
+        if (String.IsNullOrWhiteSpace(value) || value.IndexOfAny(new char[] {'\r', '\n', '\0'}) >= 0)
+            throw new IOException("启动器缓存位置文件无效：" + location);
+        return Path.GetFullPath(Path.IsPathRooted(value) ? value : Path.Combine(root, value));
+    }
     internal static string SelectRuntimeRoot(string requested) {
         if (requested != null) return Path.GetFullPath(requested);
-        string portable = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Buggcraft-runtime");
-        try {
-            Directory.CreateDirectory(portable);
-            string probe = Path.Combine(portable, ".write-test-" + Guid.NewGuid().ToString("N"));
-            using (var stream = new FileStream(probe, FileMode.CreateNew, FileAccess.Write,
-                                               FileShare.None, 1, FileOptions.DeleteOnClose)) { }
-            return portable;
-        } catch (UnauthorizedAccessException error) { Log.Exception("portable runtime directory is not writable", error); }
-        catch (IOException error) { Log.Exception("portable runtime directory is unavailable", error); }
-        string fallback = Path.Combine(Environment.GetFolderPath(
-            Environment.SpecialFolder.LocalApplicationData), "Buggcraft", "runtime");
-        Log.Write("runtime directory fallback", fallback);
-        return fallback;
+        return Path.Combine(SelectStorageRoot(), "runtime");
     }
     static string Option(string[] args, string name) {
         int index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
     }
     [STAThread] static int Main(string[] args) {
-        Log.Initialize(AppDomain.CurrentDomain.BaseDirectory);
+        Log.Initialize(Path.Combine(SelectStorageRoot(), "logs"));
         Log.Write("installer started", Log.SystemInformation());
         try {
             Release release;
@@ -136,15 +133,9 @@ internal static class Log {
     public static string FailureDirectory { get; private set; }
     public static string PathFor(string directory, string name) { return Path.Combine(directory, name); }
     public static void Initialize(string directory) {
-        try {
-            Directory.CreateDirectory(directory); path = PathFor(directory, "Buggcraft-install.log");
-            using (File.Open(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { }
-            Write("log file", path);
-        }
-        catch {
-            string fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Buggcraft", "logs");
-            Directory.CreateDirectory(fallback); path = PathFor(fallback, "Buggcraft-install.log"); Write("log file (fallback)", path);
-        }
+        Directory.CreateDirectory(directory); path = PathFor(directory, "Buggcraft-install.log");
+        using (File.Open(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { }
+        Write("log file", path);
     }
     public static void Write(string message, string details = "") {
         string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff zzz") + " [" + message + "]" +

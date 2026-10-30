@@ -48,7 +48,8 @@ class TaskHistoryQmlTests(unittest.TestCase):
         page._external_retries = {}
         page._tasks = [
             {"id": "active", "version": "1.21.8-Fabric", "game_dir": "E:/games/main",
-             "state": "进行中"},
+             "state": "进行中", "modpack": "pack.mrpack", "status": "安装完成",
+             "progress": 100, "maximum": 100},
             {"id": "failed", "version": "1.20.1-Forge", "game_dir": "E:/games/old",
              "state": "失败"},
         ]

@@ -25,7 +25,7 @@ ColumnLayout {
             anchors.fill: parent; anchors.leftMargin: 9; anchors.rightMargin: 6; spacing: 6
             CopyText {
                 objectName: "hall-network-type"; Layout.fillWidth: true
-                text: "你的网络类型：" + (!vm.playerNetworkProfileReady ? "正在判断…" : (vm.playerNetworkProfile || {}).type === "direct_easier" ? "较容易直连" : (vm.playerNetworkProfile || {}).type === "relay_likely" ? "可能需要中转" : "暂时无法判断") +
+                text: "你的网络类型：" + (!vm.playerNetworkTypeReady ? "正在判断…" : (vm.playerNetworkProfile || {}).type === "direct_easier" ? "较容易直连" : (vm.playerNetworkProfile || {}).type === "relay_likely" ? "可能需要中转" : "暂时无法判断") +
                     (!vm.playerNetworkProfileReady ? " · 正在读取近7天联机记录…" : " · 近7天：直连成功 " + ((vm.playerNetworkProfile || {}).direct_successes || 0) + " 次 · 中转成功 " + ((vm.playerNetworkProfile || {}).relay_successes || 0) + " 次")
                 font.pixelSize: 11; color: "#e1d7e9"; elide: Text.ElideRight
             }
@@ -39,7 +39,7 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: !!vm.socialError
         CopyText { objectName: "lobby-social-error"; Layout.fillWidth: true; text: vm.socialError || ""; color: "#e8b3b3"; font.pixelSize: 11; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
-        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? (vm.deviceManaged ? "重新登录" : "更换接入码") : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act((vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "replaceNodeCode" : "refreshFriends", {}) }
+        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "重新登录" : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act((vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "reloginNode" : "refreshFriends", {}) }
     }
     Rectangle {
         id: nodeBar
@@ -133,7 +133,7 @@ ColumnLayout {
             }
             CopyText {
                 objectName: "lobby-identity"; Layout.fillWidth: true
-                text: vm.nodeAccessExpired ? (vm.deviceManaged ? "登录已失效" : "接入码已过期") : vm.socialReady ? "已登录 · " + vm.socialName : vm.deviceManaged ? "账号待验证" : (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode ? "个人码待验证" : "匿名接入")
+                text: vm.nodeAccessExpired ? "登录已失效" : vm.socialReady ? "已登录 · " + vm.socialName : vm.deviceManaged || (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode) ? "账号待验证" : "匿名接入"
                 font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce"
                 wrapMode: Text.NoWrap; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight
             }
@@ -160,7 +160,7 @@ ColumnLayout {
             onClicked: lobby.act("navigate", {page:"join"})
         }
         ActionButton {
-            objectName: "submit-diagnostics"; text: "提交诊断"; quiet: true
+                objectName: "submit-diagnostics"; text: "反馈问题"; quiet: true
             Layout.preferredWidth: 76; Layout.preferredHeight: 32
             enabled: vm.socialReady && !vm.busy
             Accessible.name: "提交联机诊断日志到当前节点反馈系统"

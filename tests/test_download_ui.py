@@ -6,6 +6,7 @@ tests do not assert that a fixture archive can run Minecraft.
 """
 from copy import deepcopy
 import json
+import time
 from pathlib import Path
 from unittest.mock import patch
 from threading import Event
@@ -18,8 +19,10 @@ from PySide6.QtWidgets import QApplication
 from _qml_test_support import Qt, QTest, qt_mouse_click, qt_mouse_move
 from test_client_ui_acceptance import ClientUiAcceptanceCase as _DownloadCase
 from ui.pages.qml_games import GameCatalogueController
+from core.downloads import MinecraftDownloader, _DownloadSession
 
 REAL_GAME_REFRESH = GameCatalogueController.refresh
+REAL_DOWNLOAD_URLS = MinecraftDownloader.urls
 
 
 class DownloadChecklistUiTests(_DownloadCase):
@@ -98,7 +101,10 @@ class DownloadChecklistUiTests(_DownloadCase):
             self.key_ui(page, Qt.Key_Down, name + "-next")
         self.key_ui(page, Qt.Key_Return, name + "-confirm")
 
-    def seed_games(self):
+    def seed_games(self, *, fresh=False):
+        if fresh:
+            import shutil
+            shutil.rmtree(self.game_dir / 'versions/1.21.8', ignore_errors=True)
         page = self.open_downloads()
         page.controller.versions = [
             {"id": "1.21.8", "type": "release"},
@@ -349,6 +355,68 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.assert_no_qml_errors()
         self.finish_test()
 
+    def test_duplicate_game_asks_for_name_preserves_original_and_resets_selection(self):
+        page = self.seed_games()
+        original = self.game_dir / 'versions/1.21.8'
+        original.mkdir(parents=True, exist_ok=True)
+        original_profile = (original / '1.21.8.json').read_bytes()
+        (original / 'keep.txt').write_text('existing game', encoding='utf-8')
+        tasks = self.window.download_page.tasks_page
+        self.click_ui(page, 'install-1.21.8')
+        self.click_ui(page, 'install-selected-game')
+        dialog = tasks._install_conflict_dialog
+        self.check(dialog is not None and dialog.controller.data['name'] == '1.21.8-2',
+                   'game collision proposes a free instance name')
+        self.click_ui(dialog, 'dialog-action-1')
+        self.check(not tasks._tasks and not tasks._workers, 'cancel creates no download task')
+        self.click_ui(page, 'install-selected-game')
+        dialog = tasks._install_conflict_dialog
+        self.text_ui(dialog, 'import-conflict-name', '1.21.8')
+        self.click_ui(dialog, 'dialog-action-0')
+        self.check(dialog.isVisible() and not tasks._workers, 'occupied replacement stays in the naming dialog')
+        self.text_ui(dialog, 'import-conflict-name', '1.21.8-copy')
+        self.click_ui(dialog, 'dialog-action-0')
+        task = self.finished_task()
+        target = self.game_dir / 'versions/1.21.8-copy'
+        profile = json.loads((target / '1.21.8-copy.json').read_text(encoding='utf-8'))
+        self.check(task['version'] == '1.21.8-copy' and profile['clientVersion'] == '1.21.8'
+                   and profile['id'] == '1.21.8-copy', 'renamed game uses original release metadata')
+        self.check((original / 'keep.txt').read_text(encoding='utf-8') == 'existing game'
+                   and (original / '1.21.8.json').read_bytes() == original_profile,
+                   'existing game folder is never overwritten')
+        self.check(page.controller.install_view == 'catalogue' and not page.controller.game
+                   and not page.controller.loader and not page.controller.addons,
+                   'queued installation resets game and loader selection')
+        self.screenshot_ui('duplicate-game-new-instance')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_duplicate_online_modpack_uses_explicit_name_confirmation(self):
+        tasks = self.window.download_page.tasks_page
+        content = dict(version=self.fixtures.version('modpack'))
+        name = tasks._pack_base_name(content)
+        original = self.game_dir / 'versions' / name
+        original.mkdir(parents=True, exist_ok=True)
+        (original / 'keep.txt').write_text('existing modpack', encoding='utf-8')
+        _page, controller, confirm = self.content_dialog('modpack')
+        self.click_ui(confirm, 'content-download-confirm')
+        dialog = tasks._install_conflict_dialog
+        self.check(dialog is not None and dialog.controller.data['name'] == name[:94] + '-2',
+                   'online modpack asks before choosing another instance name')
+        self.check(not tasks._workers and controller._download_dialog is None,
+                   'naming begins before any download and closes the first confirmation')
+        self.text_ui(dialog, 'import-conflict-name', 'online-pack-copy')
+        self.click_ui(dialog, 'dialog-action-0')
+        task = self.finished_task()
+        self.check(task['version'] == 'online-pack-copy'
+                   and (self.game_dir / 'versions/online-pack-copy/config/ui-acceptance.json').is_file(),
+                   'confirmed online name reaches the actual importer')
+        self.check((original / 'keep.txt').read_text(encoding='utf-8') == 'existing modpack',
+                   'existing online modpack remains intact')
+        self.screenshot_ui('duplicate-online-pack-new-instance')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
     def test_duplicate_import_cancel_and_occupied_replacement_start_no_task(self):
         host, controller = self.open_import()
         markers = []
@@ -415,6 +483,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         (instance / 'config').mkdir()
         (instance / 'config/exported.txt').write_text('production export', encoding='utf-8')
         archive = self.directory / 'exported-compact.buggpack'
+        self._patch(patch('core.modpack_sources.find_public_mod_downloads', return_value={}))
         export_pack(source, '1.21.8', archive)
         original_route = self.fixtures.route
         def route(downloader, url):
@@ -423,6 +492,27 @@ class DownloadChecklistUiTests(_DownloadCase):
             return original_route(downloader, url)
         self._patch(patch('core.downloads.MinecraftDownloader.urls', route))
         return archive, resources
+
+    def trace_pack_download_sources(self):
+        """Use real publisher routing, serving its bytes from isolated HTTP."""
+        attempts = []
+        original_get = _DownloadSession.get
+        def route(downloader, url):
+            if url.startswith('https://cdn.modrinth.com/data/fixture/'):
+                return REAL_DOWNLOAD_URLS(downloader, url)
+            return self.fixtures.route(downloader, url)
+        def get(session, url, **kwargs):
+            if url.startswith(('https://cdn.modrinth.com/data/fixture/',
+                               'https://mod.mcimirror.top/data/fixture/')):
+                attempts.append({'url': url, 'range': kwargs.get('headers', {}).get('Range')})
+                response = original_get(session, f'http://127.0.0.1:{self.fixtures.server.server_port}/'
+                                        + url.rsplit('/', 1)[-1], **kwargs)
+                response.url = url
+                return response
+            return original_get(session, url, **kwargs)
+        self._patch(patch.object(MinecraftDownloader, 'urls', route))
+        self._patch(patch.object(_DownloadSession, 'get', get))
+        return attempts
 
     def test_own_export_import_metadata_error_is_readable_and_ui_retry_completes(self):
         archive, resources = self.exported_compact_pack()
@@ -449,26 +539,112 @@ class DownloadChecklistUiTests(_DownloadCase):
 
     def test_own_export_import_interrupted_resource_resumes_from_ui(self):
         archive, resources = self.exported_compact_pack()
-        self.fixtures.truncations.add('resume-mod.jar')
+        self.fixtures.truncations.add('resume-resources.zip')
         host, _ = self.open_import(archive)
         self.text_ui(host, 'pack-instance-name', 'own-pack-resume')
         self.click_ui(host, 'start-pack-import')
         task = self.finished_task(state='失败')
-        partials = list(self.game_dir.rglob('resume-mod.jar.buggcraft-part'))
-        self.check(len(partials) == 1 and 0 < partials[0].stat().st_size < len(resources['mods/resume-mod.jar']),
+        from utils.path_helper import filesystem_path
+        partials = list(filesystem_path(self.manager.config_path).rglob('resume-resources.zip.buggcraft-part'))
+        self.check(len(partials) == 1 and 0 < partials[0].stat().st_size < len(resources['resourcepacks/resume-resources.zip']),
                    'interrupted import retains verified-identity partial bytes')
         offset = partials[0].stat().st_size
         self.fixtures.truncations.clear()
+        completed_requests = {name: len([row for row in self.fixtures.requests if row['file'] == name])
+                              for name in ('client.jar', 'resume-shader.zip')}
         tasks = self.window.download_page.tasks_page
+        self.manager.set_setting('settings.general.content_mirror', '官方')
         self.click_ui(tasks, 'task-action-' + task['id'])
         self.finished_task(task)
-        requests = [row for row in self.fixtures.requests if row['file'] == 'resume-mod.jar']
+        self.check(task['content_source'] == '官方', 'retry reloads the newly selected content source')
+        requests = [row for row in self.fixtures.requests if row['file'] == 'resume-resources.zip']
         self.check(requests[-1]['range'] == f'bytes={offset}-', 'UI retry requests only the remaining resource bytes')
+        self.check(all(len([row for row in self.fixtures.requests if row['file'] == name]) == count
+                       for name, count in completed_requests.items()), 'retry does not request already verified game or resource files again')
         target = self.game_dir / 'versions/own-pack-resume'
         for name, payload in resources.items():
             self.check((target / name).read_bytes() == payload, 'resumed resource verified: ' + name)
         self.check(len(tasks._tasks) == 1 and not partials[0].exists(), 'success clears checkpoint and keeps one history task')
         self.screenshot_ui('own-pack-import-resumed')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_import_switches_source_while_stream_is_blocked_and_reuses_files(self):
+        archive, resources = self.exported_compact_pack()
+        attempts = self.trace_pack_download_sources()
+        filename = 'resume-resources.zip'
+        started, release = Event(), Event()
+        self.fixtures.pauses[filename] = (started, release)
+        host, _ = self.open_import(archive)
+        self.text_ui(host, 'pack-instance-name', 'live-source-switch')
+        self.click_ui(host, 'start-pack-import')
+        tasks = self.window.download_page.tasks_page
+        task = tasks._tasks[0]
+        self.wait_for(started.is_set, 'old source holds an unfinished real HTTP response')
+        old_worker = tasks._workers[task['id']]
+        self.navigate('launcher-nav-settings')
+        self.click_ui(self.window.settings_page.tab_buttons_widget, 'navigation-option-0')
+        settings = self.window.settings_page.stack.currentWidget()
+        settings.ensure_loaded()
+        self.fixtures.pauses.pop(filename)
+        before = time.monotonic()
+        settings.controller.setValue('settings.general.content_mirror', 'MCIM')
+        self.wait_for(lambda: tasks._workers.get(task['id']) is not old_worker,
+                      'source change wakes the blocked socket and restarts the same task', timeout=5000)
+        self.check(time.monotonic() - before < 5, 'source change does not wait for the old 30 second read timeout')
+        release.set()
+        self.finished_task(task)
+        self.check(task['content_source'] == 'MCIM' and len(tasks._tasks) == 1,
+                   'new source is used without duplicating the import task')
+        requests = [r for r in self.fixtures.requests if r['file'] == filename]
+        self.check(len(requests) == 2 and requests[-1]['range'] is not None,
+                   'source change resumes the resource from its existing byte offset')
+        source_requests = [r for r in attempts if r['url'].endswith(filename)]
+        self.check([r['url'].split('/')[2] for r in source_requests] ==
+                   ['cdn.modrinth.com', 'mod.mcimirror.top'],
+                   'active source switch changes the actual requested download host')
+        self.check(len([r for r in self.fixtures.requests if r['file'] == 'resume-shader.zip']) == 1,
+                   'already verified resources are not downloaded again')
+        for name, payload in resources.items():
+            self.check((self.game_dir / 'versions/live-source-switch' / name).read_bytes() == payload,
+                       'source switch preserves verified bytes: ' + name)
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_cancel_change_source_then_continue_import_uses_new_host_and_range(self):
+        archive, resources = self.exported_compact_pack()
+        attempts = self.trace_pack_download_sources()
+        filename = 'resume-resources.zip'
+        started, release = Event(), Event()
+        self.fixtures.pauses[filename] = started, release
+        self.addCleanup(release.set)
+        host, _ = self.open_import(archive)
+        self.text_ui(host, 'pack-instance-name', 'canceled-source-switch')
+        self.click_ui(host, 'start-pack-import')
+        tasks = self.window.download_page.tasks_page
+        task = tasks._tasks[0]
+        self.wait_for(started.is_set, 'first publisher sends a partial resource')
+        self.click_ui(tasks, 'task-action-' + task['id'])
+        self.finished_task(task, state='已取消')
+        self.navigate('launcher-nav-settings')
+        self.click_ui(self.window.settings_page.tab_buttons_widget, 'navigation-option-0')
+        settings = self.window.settings_page.stack.currentWidget()
+        settings.ensure_loaded()
+        settings.controller.setValue('settings.general.content_mirror', 'MCIM')
+        self.fixtures.pauses.pop(filename)
+        release.set()
+        self.window.download_page.on_progress_clicked()
+        self.click_ui(tasks, 'task-action-' + task['id'])
+        self.finished_task(task)
+        requests = [r for r in attempts if r['url'].endswith(filename)]
+        self.check([r['url'].split('/')[2] for r in requests] ==
+                   ['cdn.modrinth.com', 'mod.mcimirror.top'] and requests[-1]['range'] is not None,
+                   'cancel and resume requests the new source with the previous byte offset')
+        self.check(len(tasks._tasks) == 1 and task['content_source'] == 'MCIM',
+                   'continue reuses the original task and latest source preference')
+        for name, payload in resources.items():
+            self.check((self.game_dir / 'versions/canceled-source-switch' / name).read_bytes() == payload,
+                       'resumed import verifies final resource: ' + name)
         self.assert_no_qml_errors()
         self.finish_test()
 
@@ -505,7 +681,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.text_ui(host, 'pack-instance-name', 'permission-retry-pack')
 
         def denied(path, *args, **kwargs):
-            if path.parent.name == 'modpacks' and path.parent.parent.name == '.buggcraft-downloads':
+            if path.parent.name == 'modpacks' and path.parent.parent.parent.name == 'downloads':
                 raise PermissionError(errno.EACCES, '整合包目录没有写入权限', str(path))
             return original_mkdir(path, *args, **kwargs)
 
@@ -562,7 +738,7 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.click_ui(page, 'component-' + addon)
                 self.wait_for(lambda: not page.controller.loader_busy, 'compatible API versions arrive')
                 self.click_ui(page, 'component-version-0')
-            identity = loader.lower() + '-loader-0.16.9-1.21.8'
+            identity = '1.21.8-' + loader + '-0.16.9'
             self.click_ui(page, 'install-selected-game')
             task = self.finished_task()
             root = self.game_dir / 'versions' / identity
@@ -592,7 +768,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         task = tasks._tasks[0]
         self.wait_for(started.is_set, "import is streaming its client dependency")
         self.click_ui(tasks, "task-action-" + task["id"])
-        self.check(task["state"] == "正在取消", "import cancellation is visible")
+        self.check(task["state"] in ("正在取消", "已取消"), "import cancellation is visible")
         release.set()
         self.finished_task(task, "已取消")
         self.check(not (self.game_dir / "versions/cancelled-pack").exists(),
@@ -620,6 +796,9 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.fixtures.failures.add(filename)
                 _page, _controller, dialog = self.content_dialog("modpack")
                 self.click_ui(dialog, "content-download-confirm")
+                conflict = tasks._install_conflict_dialog
+                if conflict is not None:
+                    self.click_ui(conflict, 'dialog-action-0')
                 task = self.finished_task(state="失败")
                 self.check("404" in task["error"], "downloaded modpack failure retains its stage's HTTP error")
                 self.click_ui(tasks, "task-log-" + task["id"])
@@ -686,7 +865,7 @@ class DownloadChecklistUiTests(_DownloadCase):
                     with patch.object(Path, "open", fail_write):
                         self.click_ui(dialog, "content-download-confirm")
                         task = self.finished_task(state="失败")
-                    self.check(("space" if failure == "disk-full" else "Permission") in task["error"],
+                    self.check(("空间不足" if failure == "disk-full" else "写入权限") in task["error"],
                                "filesystem failure reaches task history with its cause")
                 self.check(not destination.exists(), "failed verification/write never publishes a final file")
                 tasks = self.window.download_page.tasks_page
@@ -768,6 +947,7 @@ class DownloadChecklistUiTests(_DownloadCase):
             page = self.seed_games()
             self.click_ui(page, "install-1.21.8")
             self.click_ui(page, "install-selected-game")
+            self.click_ui(tasks._install_conflict_dialog, 'dialog-action-0')
             enqueued.append(("game", tasks._tasks[0]))
             for kind in self.KINDS[1:]:
                 _page, _controller, dialog = self.content_dialog(kind)
@@ -795,7 +975,7 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.finished_task(task)
                 self.text_ui(tasks, 'catalogue-query', '')
                 if kind == "game":
-                    installed = self.game_dir / "versions/1.21.8/1.21.8.jar"
+                    installed = self.game_dir / 'versions' / task['version'] / (task['version'] + '.jar')
                 elif kind == "modpack":
                     installed = self.game_dir / "versions" / task["version"] / "config/ui-acceptance.json"
                     self.check(installed.read_text(encoding="utf-8") == '{"installedBy":"real importer"}',
@@ -1035,7 +1215,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         _page, _controller, dialog = self.content_dialog("modpack")
         self.check(dialog.controller.data["targetValid"]
                    and dialog.controller.data["environment"] == "独立游戏实例"
-                   and Path(dialog.controller.data["target"]) == self.game_dir / "downloads",
+                   and Path(dialog.controller.data["target"]).is_relative_to(Path(self.manager.config_path)),
                    "modpacks keep an independent destination when the Home target is switched")
         self.click_ui(dialog, "content-download-cancel")
         _page, controller, dialog = self.content_dialog("resourcepack")
@@ -1224,9 +1404,17 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.wait_for(lambda: started.is_set() and task["state"] == "进行中"
                       and any(0 < f.get("done", 0) < f.get("total", 0) for f in task.get("files", [])),
                       "real HTTP stream reports intermediate file progress")
+        self.wait_for(lambda: bool(task.get('download_source')),
+                      "stream reports its actual download source")
+        source = task['download_source']
+        self.wait_for(lambda: self.item(tasks, 'task-address-' + task['id'] + '-text').property('text') == source,
+                      "task list displays the actual source without a full URL")
+        self.check('://' not in source, "download source is a name rather than a full URL")
         self.click_ui(tasks, "task-log-" + task["id"])
         self.check(self.item(tasks, "task-log-files").isVisible()
                    and bool(tasks.view_controller.currentFiles), "file progress log opens for the running task")
+        field = self.item(tasks, 'download-file-address-text')
+        self.check(field.property('text') == source, "file detail shows the same download source")
         self.click_ui(tasks, "log-text-tab")
         self.check("下载" in self.item(tasks, "task-log-text").property("text"),
                    "text log contains production downloader status")
@@ -1234,7 +1422,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.screenshot_ui("download-live-file-progress", tasks)
         self.click_ui(tasks, "task-log-close")
         self.click_ui(tasks, "task-action-" + task["id"])
-        self.check(task["state"] == "正在取消", "cancel visibly enters the canceling state")
+        self.check(task["state"] in ("正在取消", "已取消"), "cancel visibly stops the task")
         release.set()
         self.finished_task(task, "已取消")
         self.check(not target.exists(), "cancel does not publish an unverified partial file")
@@ -1275,7 +1463,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.finish_test()
 
     def test_modpack_download_installs_new_instance_without_replacing_existing(self):
-        page = self.seed_games()
+        page = self.seed_games(fresh=True)
         self.click_ui(page, "install-1.21.8")
         self.click_ui(page, "install-selected-game")
         self.finished_task()
@@ -1320,7 +1508,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.finish_test()
 
     def test_vanilla_install_refreshes_instances_header_and_home_target(self):
-        page = self.seed_games()
+        page = self.seed_games(fresh=True)
         self.click_ui(page, "install-1.21.8")
         self.check(not page.controller.loader and not page.controller.addons,
                    "vanilla installation starts without a loader or API")

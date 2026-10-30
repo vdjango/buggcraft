@@ -12,7 +12,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, QTimer, Signal, Slot, Qt
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
 from config.settings import get_settings_manager
 from ui.pages.qml_host import QmlPage
 from utils.path_helper import get_default_minecraft_dir, filesystem_path
-from core.downloads import DownloadCancelled, MinecraftDownloader, download_error_message
+from utils.download_address import display_address, source_name
+from core.downloads import DownloadCancelled, DownloadCancellation, MinecraftDownloader, download_error_message
 from core.loaders import install_loader
 from core.modpacks import suggested_name
 from core.transfer_metrics import TransferMeter
@@ -166,6 +167,7 @@ class DownloadWorkerSignals(QObject):
     downloaded = Signal(str, object)
     pack_ready = Signal(str, str)
     archive_identified = Signal(str, str)
+    missing_mods = Signal(str, object)
     finished = Signal(str, bool, str)
 
 
@@ -189,8 +191,16 @@ class DownloadWorker(QRunnable):
         self.content = content
         self.addons = addons or []
         self.isolated = isolated
-        self.cancel_event = threading.Event()
+        self.cancel_event = DownloadCancellation()
+        self.restart_for_source = False
         self.signals = DownloadWorkerSignals()
+
+    def confirm_missing_mods(self, mods):
+        from ui.dialog.modpack_missing import MissingModDecision
+        decision = MissingModDecision(mods)
+        self.signals.status.emit(self.task_id, '有模组暂时无法下载，等待选择是否跳过…')
+        self.signals.missing_mods.emit(self.task_id, decision)
+        return decision.wait(self.cancel_event)
 
     @Slot()
     def run(self):
@@ -223,9 +233,10 @@ class DownloadWorker(QRunnable):
                 status('整合包下载并校验完成，正在安装…')
             if self.modpack:
                 from core.modpacks import ModpackImporter
-                ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
+                importer = ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
                                 status, progress, self.api_key, content_source=self.content_source,
-                                file_event=file_event).install(
+                                file_event=file_event, unavailable_mods=self.confirm_missing_mods)
+                importer.install(
                                     self.modpack, self.version, expected_archive_sha256=self.archive_sha256,
                                     archive_identified=lambda digest: self.signals.archive_identified.emit(self.task_id, digest))
             elif self.content:
@@ -240,7 +251,7 @@ class DownloadWorker(QRunnable):
                     "setProgress": lambda current: progress(current, -1),
                     "setMax": lambda maximum: progress(-1, maximum),
                     "fileEvent": file_event}, self.cancel_event,
-                    source=self.source)
+                    source=self.source, target_identity=self.version)
                 if not isinstance(version_id, str) or not version_id or version_id in ('.', '..') \
                         or any(char in version_id for char in ('/', '\\', ':')):
                     raise RuntimeError("加载器安装出的版本 ID 无效")
@@ -249,8 +260,12 @@ class DownloadWorker(QRunnable):
                 downloader = MinecraftDownloader(
                     self.game_dir, source=self.source, cancel=self.cancel_event,
                     status=status, progress=progress, file_event=file_event,
+                    retries=6,
                 )
-                downloader.install(self.version)
+                if self.base_version and self.base_version != self.version:
+                    downloader.install(self.base_version, identity=self.version)
+                else:
+                    downloader.install(self.version)
             if not self.content or self.modpack:
                 version_json = os.path.join(self.game_dir, "versions", self.version, f"{self.version}.json")
                 if not filesystem_path(version_json).is_file():
@@ -266,6 +281,8 @@ class DownloadWorker(QRunnable):
             if self.loader:
                 self.signals.resolved.emit(self.task_id, self.version)
             message = '整合包导入完成' if self.modpack else '内容下载完成' if self.content else f"{self.loader + ' ' if self.loader else ''}安装完成"
+            if self.modpack and importer.skipped_mods:
+                message += f'，已跳过 {len(importer.skipped_mods)} 个模组；联机前请按房主实际使用情况补齐。'
             self.signals.finished.emit(self.task_id, True, message)
         except DownloadCancelled as exc:
             self.signals.finished.emit(self.task_id, False, str(exc))
@@ -280,12 +297,14 @@ class TasksPage(QWidget):
     """显示正在安装的游戏、进度和可追溯的安装记录。"""
 
     installed = Signal(str, str)
+    game_queued = Signal()
     ACTIVE = ("等待中", "进行中", "正在取消")
 
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
         self.resource_path = parent.resource_path
+        self.game_queued.connect(parent.games_page.controller.reset_install)
         self.settings_manager = get_settings_manager()
         self.history_path = os.path.join(
             self.settings_manager.config_path, "download_history.json"
@@ -296,6 +315,9 @@ class TasksPage(QWidget):
         self._external_cancellations = {}
         self._external_retries = {}
         self._closing = False
+        self._install_conflict_dialog = None
+        from ui.dialog.modpack_missing import MissingModPrompts
+        self._mod_prompts = MissingModPrompts(self)
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(4)
         self.view_controller = TaskHistoryController(self)
@@ -383,7 +405,8 @@ class TasksPage(QWidget):
         return self.host.quick
 
     def start_install(self, version: str, game_dir: str, loader=None, base_version=None,
-                      loader_version=None, modpack=None, api_key=None, content=None, addons=None):
+                      loader_version=None, modpack=None, api_key=None, content=None, addons=None,
+                      *, _name_confirmed=False):
         """Record the requested install and run it off the UI thread."""
         if self._closing:
             return False
@@ -395,7 +418,7 @@ class TasksPage(QWidget):
             if game_dir not in directories:
                 self.settings_manager.set_setting("minecraft.directory.installed", directories + [game_dir])
             self.settings_manager.save_settings()
-        if any(
+        if content and content.get('kind') != 'modpack' and any(
             (task.get("version") == version or (content and content == task.get('content')))
             and task.get("game_dir") == game_dir
             and task.get("state") in self.ACTIVE
@@ -405,7 +428,19 @@ class TasksPage(QWidget):
             return False
 
         if content and content.get('kind') == 'modpack':
-            version = self._available_pack_name(content, game_dir)
+            if not _name_confirmed:
+                version = self._pack_base_name(content)
+
+        is_instance = not content or content.get('kind') == 'modpack'
+        if is_instance:
+            from core.modpacks import instance_name
+            instance_name(version)
+            if self._instance_name_occupied(version, game_dir):
+                self._show_install_conflict(dict(version=version, game_dir=game_dir, loader=loader,
+                    base_version=base_version or (version if not modpack and not content else None),
+                    loader_version=loader_version, modpack=modpack, api_key=api_key,
+                    content=content, addons=addons))
+                return False
 
         task_id = uuid.uuid4().hex
         task = {
@@ -435,18 +470,71 @@ class TasksPage(QWidget):
         self.view_controller.resetFilters()
         self._persist_and_refresh()
         self._start_worker(task, api_key)
+        if not modpack and not content:
+            self.game_queued.emit()
         self.parent.on_progress_clicked()
         return True
 
+    def _instance_name_occupied(self, name, game_dir):
+        root = filesystem_path(os.path.join(game_dir, 'versions'))
+        occupied = (root.exists() and any(item.name.casefold() == name.casefold() for item in root.iterdir()))
+        return occupied or any(os.path.normcase(os.path.abspath(item['game_dir'])) == os.path.normcase(game_dir)
+            and item['version'].casefold() == name.casefold() and item['state'] in self.ACTIVE for item in self._tasks)
+
+    def _show_install_conflict(self, request):
+        if self._install_conflict_dialog is not None:
+            self._install_conflict_dialog.raise_()
+            self._install_conflict_dialog.activateWindow()
+            return
+        from ui.dialog.qml_dialog import QmlDialog
+        base, number = request['version'][:94], 2
+        while self._instance_name_occupied(f'{base}-{number}', request['game_dir']):
+            number += 1
+        dialog = QmlDialog(self.window(), resources=self.resource_path, title='实例名称已存在',
+            message='请选择新的实例名称', detail=f'“{request["version"]}”已存在，已有文件将保留。',
+            source='ImportConflictDialog.qml', width=540, height=300,
+            actions=['使用新名称安装', '取消'], primary_action='使用新名称安装',
+            data=dict(instance=request['version'], name=f'{base}-{number}'))
+        dialog.setWindowModality(Qt.WindowModal)
+        self._install_conflict_dialog = dialog
+
+        def action(value):
+            if value != '使用新名称安装':
+                dialog.reject()
+                return
+            from core.modpacks import instance_name
+            try:
+                name = instance_name(str(dialog.controller.data.get('name', '')).strip())
+                if self._instance_name_occupied(name, request['game_dir']):
+                    raise ValueError('这个名称也已存在，请输入其他名称。')
+            except ValueError as exc:
+                dialog.set_message_text(str(exc))
+                return
+            if self.start_install(**dict(request, version=name), _name_confirmed=True):
+                dialog.accept()
+
+        def closed(_result):
+            self._install_conflict_dialog = None
+            dialog.shutdown()
+            QTimer.singleShot(0, dialog, dialog.deleteLater)
+        dialog.controller.actionRequested.connect(action)
+        dialog.finished.connect(closed)
+        dialog.show()
+
     def _start_worker(self, task, api_key=None):
+        task.pop('download_source', None)
+        task.pop('skipped_mods', None)
         source = self.settings_manager.get_setting(
-            "settings.general.mirrors", "自动选择下载源（自动选择速度快的源）"
+            "settings.general.mirrors", "BMCLAPI"
         )
         java = self.settings_manager.get_version_setting("java.path", None)
         task_id = task['id']
         task['source'] = source
-        from core.content_mirrors import configured_source
+        from core.content_mirrors import configured_source, display_source
         task['content_source'] = configured_source(self.settings_manager)
+        version = (task.get('content') or {}).get('version') or {}
+        provider = version.get('source') if isinstance(version, dict) else None
+        self._log(task, f"本次下载源：游戏与加载器={source}；模组与整合包={display_source(task['content_source'], provider)}")
         worker = DownloadWorker(task_id, task['version'], task['game_dir'], source,
                                 task.get('loader') or None, task.get('base_version') or None,
                                 task.get('loader_version') or None, java,
@@ -462,10 +550,28 @@ class TasksPage(QWidget):
         worker.signals.downloaded.connect(self.resolve_files)
         worker.signals.pack_ready.connect(self.resolve_pack)
         worker.signals.archive_identified.connect(self.resolve_archive)
+        worker.signals.missing_mods.connect(self._mod_prompts.request)
         worker.signals.finished.connect(self.finish_task)
         self._workers[task_id] = worker
         self.pool.start(worker)
         self._schedule_save()
+
+    def apply_download_sources(self):
+        """Restart active transfers with new preferences and existing checkpoints."""
+        from core.content_mirrors import configured_source
+        source = self.settings_manager.get_setting('settings.general.mirrors', 'BMCLAPI')
+        content_source = configured_source(self.settings_manager)
+        for task_id, worker in list(self._workers.items()):
+            task = self._find_task(task_id)
+            if not task or task['state'] not in ('等待中', '进行中'):
+                continue
+            if (worker.source, worker.content_source) == (source, content_source):
+                continue
+            worker.restart_for_source = True
+            task.update(state='正在取消', status='正在切换下载源，已下载进度会保留…', error='')
+            self._log(task, task['status'])
+            worker.cancel_event.set()
+        self._persist_and_refresh()
 
     def track_room_preparation(self, title, game_dir, game, cancel, *, retry=None, task_id=None):
         """Track the lobby's async installer in the same persistent history."""
@@ -537,10 +643,14 @@ class TasksPage(QWidget):
         self._log(task, message)
         self._persist_and_refresh()
 
-    def _available_pack_name(self, content, game_dir):
+    @staticmethod
+    def _pack_base_name(content):
         files = content.get('version', {}).get('files') or []
         primary = next((item for item in files if item.get('primary')), files[0] if files else {})
-        base = suggested_name(primary.get('filename') or 'Downloaded-Modpack.zip')
+        return suggested_name(primary.get('filename') or 'Downloaded-Modpack.zip')
+
+    def _available_pack_name(self, content, game_dir):
+        base = self._pack_base_name(content)
         identity, index = base, 2
         occupied = {item['version'].casefold() for item in self._tasks
                     if item['game_dir'] == game_dir and item['state'] in self.ACTIVE}
@@ -644,6 +754,8 @@ class TasksPage(QWidget):
         task = self._find_task(task_id)
         if not task:
             return
+        if 'url' in event:
+            event = dict(event, url=display_address(event['url']))
         files = task.setdefault('files', [])
         if task_id not in self._file_indexes:
             self._file_indexes[task_id] = {item.get('key', item['name']): item for item in files}
@@ -654,8 +766,16 @@ class TasksPage(QWidget):
             entry = dict(name=event['name'], done=0, total=0, state='pending')
             files.append(entry)
             index[key] = entry
+        previous_url = entry.get('url')
         entry.update(event)
-        task.update(speed=event.get('task_speed', 0), _speedAt=time.monotonic())
+        if event.get('url'):
+            entry['source'] = source_name(event['url'])
+        if event.get('state') == 'downloading' and entry.get('url'):
+            task['download_source'] = entry.get('source', '')
+            if entry['url'] != previous_url:
+                self._log(task, f"下载地址：{entry['name']} · {entry['url']}")
+        if 'task_speed' in event:
+            task.update(speed=event['task_speed'], _speedAt=time.monotonic())
         self._update_row(task)
         # Only the open detail view needs byte updates; avoid rebuilding every
         # task row for each chunk of thousands of assets.
@@ -664,6 +784,16 @@ class TasksPage(QWidget):
     @Slot(str, bool, str)
     def finish_task(self, task_id, succeeded, message):
         task = self._find_task(task_id)
+        worker = self._workers.get(task_id)
+        if task and worker and worker.restart_for_source and not succeeded and not self._closing:
+            self._workers.pop(task_id, None)
+            task.update(state='等待中', status='已切换下载源，正在复用已校验文件并续传…',
+                        error='', progress=0, maximum=0, speed=0)
+            task.pop('finished_at', None)
+            self._log(task, task['status'])
+            self._persist_and_refresh()
+            self._start_worker(task, worker.api_key)
+            return
         if task:
             cancelled = task["state"] == "正在取消"
             task["state"] = "已完成" if succeeded else ("已取消" if cancelled else "失败")
@@ -764,9 +894,15 @@ class TasksPage(QWidget):
         elif task.get('content'):
             self.start_install(task['version'], task['game_dir'], content=task['content'])
         else:
-            self.start_install(task["version"], task["game_dir"], task.get("loader") or None,
-                               task.get("base_version") or None,
-                               task.get("loader_version") or None, addons=task.get('addons') or [])
+            # A retry belongs to this task, so reuse its reserved instance name
+            # and checkpoints instead of passing through the new-install flow.
+            task.update(state='等待中', status='正在继续安装，复用已校验的文件…',
+                        error='', progress=0, maximum=0)
+            task.pop('finished_at', None)
+            self._log(task, task['status'])
+            self._persist_and_refresh()
+            self._start_worker(task)
+            self.parent.on_progress_clicked()
 
     def show_log(self, task_id):
         self.view_controller.showLog(task_id)
@@ -776,6 +912,9 @@ class TasksPage(QWidget):
         if self._closing:
             return not self._workers
         self._closing = True
+        if self._install_conflict_dialog is not None:
+            self._install_conflict_dialog.reject()
+        self._mod_prompts.close()
         for cancel in self._external_cancellations.values():
             cancel.set()
         for task_id in list(self._workers):

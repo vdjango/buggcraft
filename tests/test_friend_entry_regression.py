@@ -90,7 +90,7 @@ class FriendEntryRegressionTests(unittest.TestCase):
                 self.fail_refresh('A personal launcher credential is required')
         dialog.assert_called_once()
         self.assertTrue(self.backend.view['nodeCredentialRequired'])
-        self.assertIn('接入码', self.backend.view['socialError'])
+        self.assertIn('浏览器重新登录', self.backend.view['socialError'])
         self.assertEqual(self.backend.view['page'], 'nodes')
 
     def test_successful_sync_clears_credential_replacement_state(self):
@@ -108,11 +108,11 @@ class FriendEntryRegressionTests(unittest.TestCase):
         self.assertIsNotNone(dialog)
         self.assertTrue(dialog.isVisible())
         self.assertEqual(dialog.windowModality(), Qt.NonModal)
-        self.assertIn('重新领取', dialog.text())
-        next(button for button in dialog.buttons() if button.text() == '前往更换接入码').click()
+        self.assertIn('浏览器登录', dialog.text())
+        next(button for button in dialog.buttons() if button.text() == '前往重新登录').click()
         self.assertIsNone(self.backend.credential_prompt_dialog)
         self.assertEqual(self.backend.view['page'], 'nodes')
-        self.assertIn('网页登录账号', self.backend.view['notice'])
+        self.assertIn('浏览器重新登录', self.backend.view['notice'])
 
     def test_expired_profile_retains_visible_popup_after_identity_reload(self):
         save_json(self.path, profile_data(personal_profile(expiry=1)))

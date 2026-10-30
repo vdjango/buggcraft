@@ -165,22 +165,9 @@ def get_versions_directory(minecraft_directory):
     :param minecraft_directory: Minecraft 根目录路径
     :return: 版本目录路径
     """
-    # 不同平台的默认目录
-    default_dirs = {
-        "win32": os.path.join(os.getenv("APPDATA"), ".minecraft"),
-        "darwin": os.path.expanduser("~/Library/Application Support/minecraft"),
-        "linux": os.path.expanduser("~/.minecraft")
-    }
-    
-    # 如果未提供目录，使用平台默认目录
     if not minecraft_directory:
-        system = platform.system().lower()
-        if system == "windows":
-            minecraft_directory = default_dirs["win32"]
-        elif system == "darwin":
-            minecraft_directory = default_dirs["darwin"]
-        else:  # Linux 或其他 Unix 系统
-            minecraft_directory = default_dirs["linux"]
+        from utils.path_helper import get_default_minecraft_dir
+        minecraft_directory = get_default_minecraft_dir()
     
     return os.path.join(minecraft_directory, "versions")
 

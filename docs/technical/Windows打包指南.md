@@ -1,0 +1,30 @@
+# Windows 打包
+
+Windows x64 发布为完整单文件 `Buggcraft.exe`，包含 Python、Qt Quick/QML 和 C++ 联机库。首次运行将依赖解压到当前启动器缓存目录的 `runtime/Buggcraft/<内容哈希>`，默认位于 EXE 旁的 `.buggcraft/`。相同版本复用缓存，更新版本使用新目录，不覆盖仍在运行的文件。配置、下载缓存、Java、临时文件、QML 缓存和日志都位于这个缓存目录内，与 `.minecraft` 游戏目录独立，不依赖 `%APPDATA%`、`%LOCALAPPDATA%` 或用户临时目录。
+
+设置支持选择启动器旁的默认目录或空的自定义目录，重启时复制配置与缓存后生效，原目录保留。位置文件 `buggcraft-storage.txt` 保存在 EXE 旁；位于启动器文件夹内的路径保存为相对路径。单文件引导程序在 Python/Qt 启动之前读取该位置，也支持待迁移位置，因此运行库不会先落到系统用户目录。缓存目录不可写时不自动改用用户目录。
+
+制作便携包时打包整个启动器文件夹，包含 EXE、`.buggcraft/`（或内部自定义缓存目录）、位置文件及需要携带的 `.minecraft/`。搬迁后自动更新设置、Java、节点记录与下载历史中指向原启动器/缓存的路径。未随包携带的外部游戏目录或外部 Java 仍需用户重新选择。Windows 登录凭据保存在缓存内并通过 DPAPI 保护，换电脑或 Windows 账号后重新登录；分享前退出账号。
+
+主窗口出现后在后台清理已登记的旧解压缓存：保留当前版本、最近使用的上一版本、24 小时内使用过的版本和仍在运行的版本。运行状态使用操作系统文件锁判断，关闭或崩溃后自动释放。未登记的历史目录不自动删除；游戏、设置及下载缓存不在清理范围内。
+
+## 本地构建
+
+构建机需要 64 位 Windows、Python 3.11、Visual Studio C++ Build Tools 与 CMake。原生实现位于同级 `minecraft-tunnel-native`：
+
+```powershell
+python scripts/build_bridge.py --native-source ../minecraft-tunnel-native --output dist/native-runtime
+python build.py --onefile --native-bridge-dir dist/native-runtime --output dist/windows-onefile
+```
+
+产物 `dist/windows-onefile/Buggcraft.exe` 为单文件下载；同目录 `release.json` 是内部构建清单，不需要分发。构建使用 Nuitka 的 PySide6 插件和 Qt 官方 `qmlimportscanner` 识别实际 QML 依赖，Windows 再按 PE 导入裁剪未引用的 Qt DLL。原生运行库会完整放入单文件，包括桥接 DLL、子进程、依赖和许可证。
+
+Nuitka 的单文件压缩与缓存行为见[官方说明](https://nuitka.net/user-documentation/use-cases.html)。Windows GUI 以 `QT_QUICK_BACKEND=software` 绘制启动器二维界面，未打包仅供旧方案使用的软件 OpenGL DLL；此设置不影响 Minecraft 的渲染。
+
+## 发布验证
+
+CI 对打包后的可执行文件清除 Python/Qt 环境变量，再执行 `--package-check` 检查应用窗口、QML 页面、原生库和诊断导出。`scripts/stage_release.py` 校验单文件大小与 SHA-256，只将 EXE 和校验文件放进应用下载目录；编译日志、临时清单和个人测试记录不会随包分发。GitHub Actions 另在 Linux x86_64 构建单文件，在 macOS 分架构构建原生 `.app` ZIP。
+
+Windows 文件目前没有受信任的 Authenticode 签名。正式发布如配置证书，可以使用 `--sign-certificate` 或证书存储区指纹，并开启 `--require-signature`；证书密码通过环境变量 `BUGGCRAFT_SIGN_PASSWORD` 提供，不要保存在仓库或发布文件中。
+
+构建工具及依赖定义见 `requirements-build.txt`、`build.py` 和 `.github/workflows/package.yml`。macOS 的 `.app` 结构、签名和分发说明见 [macOS 打包](macOS打包指南.md)。

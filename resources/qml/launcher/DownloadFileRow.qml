@@ -11,14 +11,14 @@ Rectangle {
     property real done: file.done || (complete ? total : 0)
     property string statusText: ({pending:"等待下载", downloading:"下载中", verifying:"校验中",
         verified:"已完成", cached:"已复用", retrying:"正在重试", failed:"下载失败",
-        cancelled:"已取消", interrupted:"已中断"})[file.state] || "等待下载"
+        cancelled:"已取消", interrupted:"已中断", skipped:"已跳过"})[file.state] || "等待下载"
     function bytes(value) {
         if (value >= 1073741824) return (value / 1073741824).toFixed(2) + " GB"
         if (value >= 1048576) return (value / 1048576).toFixed(1) + " MB"
         if (value >= 1024) return (value / 1024).toFixed(1) + " KB"
         return value + " B"
     }
-    height: 88; radius: 5
+    height: file.source ? 112 : 88; radius: 5
     color: active ? "#30283f" : "#272332"
     border.color: active ? "#655288" : "#3d344d"
     ColumnLayout {
@@ -44,6 +44,11 @@ Rectangle {
                 font.pixelSize: 11; color: "#cfbff0"; horizontalAlignment: Text.AlignRight
                 Layout.preferredWidth: 38
             }
+        }
+        DownloadAddress {
+            objectName: "download-file-address"
+            Layout.fillWidth: true
+            address: root.file.source || ""
         }
         ProgressBar {
             id: progress; objectName: "download-file-progress"

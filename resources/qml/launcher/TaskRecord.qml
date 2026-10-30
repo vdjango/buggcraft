@@ -19,6 +19,8 @@ ListRow {
         ? ({mod:"模组 ", resourcepack:"资源包 ", shader:"光影包 ", modpack:"整合包 "})[modelData.content.kind] || "资源 " : "Minecraft ") + (modelData.version || "")
     description: modelData.kind === "room"
         ? "Minecraft " + (modelData.base_version || "") + "  ·  " + (modelData.loader || "") + " " + (modelData.loader_version || "") + "  ·  " + (modelData.game_dir || "")
+        : modelData.content && modelData.content.version && modelData.content.version.source
+        ? modelData.content.version.source + "  ·  " + (modelData.game_dir || "")
         : modelData.game_dir || ""
     icon: "../../images/user/offline_login.png"
     actions: Component {
@@ -41,15 +43,21 @@ ListRow {
             spacing: 5
             RowLayout {
                 Layout.fillWidth: true
-                Label { objectName: "task-status-" + root.modelData.id; Layout.fillWidth: true; text: root.modelData.error || root.modelData.status || ""; color: root.modelData.error ? "#ff9b91" : "#b3ffffff"; font.pixelSize: 11; elide: Text.ElideRight }
+                Label { objectName: "task-status-" + root.modelData.id; Layout.fillWidth: true; text: root.modelData.error || (root.active && root.modelData.modpack && root.modelData.status === "安装完成" ? "正在完成整合包安装…" : root.modelData.status || ""); color: root.modelData.error ? "#ff9b91" : "#b3ffffff"; font.pixelSize: 11; elide: Text.ElideRight }
                 Label { objectName: "task-speed-" + root.modelData.id; visible: root.active; text: (root.modelData.speed || 0) >= 1048576 ? (root.modelData.speed / 1048576).toFixed(2) + " MiB/s" : ((root.modelData.speed || 0) / 1024).toFixed(1) + " KiB/s"; color: "#b9d5c5"; font.pixelSize: 11 }
-                Label { objectName: "task-progress-" + root.modelData.id; text: root.active && root.modelData.maximum > 0 ? "阶段进度 " + Math.max(0, Math.min(100, Math.round((root.modelData.progress || 0) * 100 / root.modelData.maximum))) + "%" : (root.modelData.created_at || "").substring(0, 10); color: "#a99fb8"; font.pixelSize: 11 }
+                Label { objectName: "task-progress-" + root.modelData.id; text: root.active && root.modelData.maximum > 0 ? "阶段进度 " + Math.max(0, Math.min(99, Math.round((root.modelData.progress || 0) * 100 / root.modelData.maximum))) + "%" : (root.modelData.created_at || "").substring(0, 10); color: "#a99fb8"; font.pixelSize: 11 }
+            }
+            DownloadAddress {
+                objectName: "task-address-" + root.modelData.id
+                Layout.fillWidth: true
+                address: root.modelData.download_source || ""
             }
             ProgressBar {
                 id: progress
+                objectName: "task-bar-" + root.modelData.id
                 Layout.fillWidth: true; implicitHeight: 3
                 from: 0; to: Math.max(1, root.modelData.maximum || 0)
-                value: root.modelData.state === "已完成" ? to : Math.min(to, root.modelData.progress || 0)
+                value: root.modelData.state === "已完成" ? to : Math.min(root.active ? to * .99 : to, root.modelData.progress || 0)
                 indeterminate: root.active && !(root.modelData.maximum > 0)
                 background: Rectangle { implicitHeight: 3; color: "#4d000000" }
                 contentItem: Item {

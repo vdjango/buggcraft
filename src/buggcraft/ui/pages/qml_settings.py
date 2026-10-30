@@ -12,6 +12,7 @@ from config.downloads import download_concurrency, normalize_concurrency
 from config.settings_scope import GlobalSettingsScope
 from core.visibility import VisibilitySettings
 from core.game_languages import available_languages
+from core.content_mirrors import configured_source
 from ui.pages.qml_host import QmlPage
 
 
@@ -74,12 +75,18 @@ class SettingsController(QObject):
                              options=[dict(value='stable', title='稳定版', description=''),
                                       dict(value='development', title='开发版', description='')])
             elif key == 'cache':
-                cache = self.manager.get_setting('settings.general.download.cache', '.buggcraft/')
-                group.update(kind='radio', value=cache if cache in ('~/.buggcraft/', '.buggcraft/') else 'custom',
+                from utils.storage_paths import pending_storage
+                from utils.path_helper import get_launcher_directory
+                target = pending_storage()
+                cache = target or Path(self.manager.config_path)
+                group.update(kind='radio', value='.buggcraft/' if cache == get_launcher_directory() / '.buggcraft' else 'custom',
                              summary='当前配置与缓存：' + str(self.manager.config_path),
-                             options=[dict(value='~/.buggcraft/', title='默认', description='%APPDATA%/.buggcraft/ 或 ~/.buggcraft/'),
-                                      dict(value='.buggcraft/', title='当前路径', description='位于启动器路径下 (.buggcraft/)'),
-                                      dict(value='custom', title='自定义', description=str(self.manager.config_path))])
+                             options=[dict(value='.buggcraft/', title='启动器文件夹（推荐）', description='启动器旁的 .buggcraft，随整个文件夹搬迁'),
+                                      dict(value='custom', title='自定义文件夹…', description=str(cache))])
+                if target:
+                    group['description'] = '下次启动将迁移到：' + str(target) + '。本次继续使用当前目录，原文件保留。'
+                if getattr(self, '_storage_error', ''):
+                    group['description'] = self._storage_error
             elif key == 'game.language':
                 group.update(kind='choice', summary='', options=self._language_options)
             elif key == 'minecraft.isolation':
@@ -164,17 +171,18 @@ class SettingsController(QObject):
                             options=[35, 100], kind='opacity',
                             description='默认 85%，最低 35%，100% 为完全不透明。'),
                 self._field('cache', '文件缓存路径', str(self.manager.config_path),
-                            description='缓存目录迁移尚未接入，当前配置保持不变。', kind='text', enabled=False),
+                            description='保存启动器配置、下载缓存、Java、运行库与日志；与 .minecraft 游戏目录独立。更改后下次启动自动迁移。打包分享请包含此目录和启动器旁的位置文件，推荐放在启动器文件夹内；分享前退出账号，其他电脑重新登录。', kind='text'),
                 self._field('game.language', 'Minecraft 游戏语言', s.get_setting('game.language', 'zh_cn'),
                             [option['value'] for option in self._language_options], '按当前游戏资源提供可选语言，重启游戏后生效。'),
                 self._field('settings.general.mirrors', '游戏与加载器下载源',
-                            s.get_setting('settings.general.mirrors', '自动（镜像优先，失败切换官方）'),
-                            ['自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI',
+                            s.get_setting('settings.general.mirrors', 'BMCLAPI'),
+                            ['自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI', 'MCMirror',
                              '自动（官方优先，失败切换镜像）'],
-                            'Minecraft 本体、assets、libraries 和加载器默认优先国内镜像，失败时切换官方。不会更改下方模组与整合包的下载地址。'),
+                            'Minecraft 本体、资源库和加载器默认优先 BMCLAPI，也可选择 MCMirror（mirror.minguncle.cn）或官方。所选来源失败后自动尝试其余可用来源，已校验文件和断点保留。不会更改下方模组与整合包的下载地址。'),
                 self._field('settings.general.content_mirror', '模组与整合包下载源',
-                            s.get_setting('settings.general.content_mirror', '自动测速'), ['自动测速', 'MCIM', '官方'],
-                            '适用于 Modrinth / CurseForge 查询，以及模组、资源包、光影、整合包文件。自动测速比较 MCIM 与可信原站的短 Range 响应，每 10 分钟更新；MCIM 表示速度接近时优先镜像，官方表示只用原站。完整下载仍校验哈希并在失败时回退。'),
+                            configured_source(s),
+                            ['自动测速', 'CurseForge', 'Modrinth', 'MCIM'],
+                            '模组、资源包、光影和整合包可选择 CurseForge、Modrinth 或 MCIM。手动选择优先使用该来源；自动测速比较可用文件地址后选择更快的来源。跨平台查找会核对文件哈希和大小，找不到相同文件时使用可用来源。更改后新下载和任务重试会重新解析地址；保留 6 次自动重试和断点续传。'),
                 self._field('downloads.concurrency', '下载并发数', download_concurrency(self.manager),
                             sorted({1, 2, 4, 8, 16, 32, 64, download_concurrency(self.manager)}),
                             '每个任务同时下载的文件数量，默认 32。网络不稳定可调低，修改后对新任务生效。'),
@@ -248,6 +256,22 @@ class SettingsController(QObject):
         field = next((item for item in self._fields if item['key'] == key), None)
         if field is None or not field['enabled']:
             return
+        if key == 'cache':
+            from utils.storage_paths import request_storage
+            from utils.path_helper import get_launcher_directory
+            target = get_launcher_directory() / '.buggcraft'
+            if value == 'custom':
+                chosen = QFileDialog.getExistingDirectory(self.parent(), '选择空的启动器缓存文件夹', str(Path(self.manager.config_path).parent))
+                if not chosen:
+                    return
+                target = Path(chosen)
+            try:
+                request_storage(target)
+                self._storage_error = ''
+            except (OSError, ValueError) as exc:
+                self._storage_error = '缓存位置未更改：' + str(exc)
+            self.reload()
+            return
         if key == 'java.path':
             if value == '选择自定义 Java…':
                 self.chooseJava()
@@ -284,6 +308,10 @@ class SettingsController(QObject):
                 memory, _ = AdvancedMemoryRecommender(self.settings).calculate()
                 self.settings.set_version_setting('memory.allocation', memory)
         self.settings.save_settings()
+        if key in ('settings.general.mirrors', 'settings.general.content_mirror') and self.scope == 'general':
+            download = getattr(self.parent().window(), 'download_page', None)
+            if download is not None:
+                download.tasks_page.apply_download_sources()
         if key in ('memory.allocation', 'launcher.opacity'):
             # A slider already displays its new value. Replacing the groups
             # here destroys its delegate and keyboard focus after every move.

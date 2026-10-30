@@ -11,7 +11,7 @@ from aiohttp import ClientSession, ClientTimeout, TCPConnector, web
 
 
 API = 'https://api.curseforge.com/v1'
-ROUTE = re.compile(r'/mods(?:/search|/files|/[1-9][0-9]{0,9}(?:/description|/files(?:/[1-9][0-9]{0,9})?)?)?')
+ROUTE = re.compile(r'(?:/mods(?:/search|/files|/[1-9][0-9]{0,9}(?:/description|/files(?:/[1-9][0-9]{0,9})?)?)?|/fingerprints/432)')
 CLASSES = {6, 12, 6552, 4471}
 
 
@@ -29,14 +29,16 @@ def request_arguments(request, body):
     if not ROUTE.fullmatch(route):
         raise web.HTTPNotFound()
     if request.method == 'POST':
-        field = {'/mods': 'modIds', '/mods/files': 'fileIds'}.get(route)
+        field = {'/mods': 'modIds', '/mods/files': 'fileIds', '/fingerprints/432': 'fingerprints'}.get(route)
         if not field or request.query or not isinstance(body, dict) or set(body) != {field}:
             raise web.HTTPBadRequest()
         ids = body[field]
-        if not isinstance(ids, list) or not 1 <= len(ids) <= 50 or any(type(x) is not int or not 1 <= x <= 2**31-1 for x in ids):
+        fingerprint = field == 'fingerprints'
+        limit, low, high = (100, 0, 2**32-1) if fingerprint else (50, 1, 2**31-1)
+        if not isinstance(ids, list) or not 1 <= len(ids) <= limit or any(type(x) is not int or not low <= x <= high for x in ids):
             raise web.HTTPBadRequest()
         return route, {}, {field: list(dict.fromkeys(ids))}
-    if route in ('/mods', '/mods/files'):
+    if route in ('/mods', '/mods/files', '/fingerprints/432'):
         raise web.HTTPNotFound()
     params = dict(request.query)
     allowed = {'pageSize', 'index', 'gameVersion', 'modLoaderType'} if route.endswith('/files') else set()
@@ -145,6 +147,15 @@ class Gateway:
                         payload = await self.fetch(method, route, params, body)
                         data = payload.get('data') if isinstance(payload, dict) else None
                         records = data if isinstance(data, list) else [data]
+                        if route == '/fingerprints/432':
+                            if not isinstance(data, dict) or not isinstance(data.get('exactMatches'), list):
+                                raise web.HTTPNotFound()
+                            records = []
+                            for name in ('exactMatches', 'partialMatches'):
+                                rows = data.get(name, [])
+                                if not isinstance(rows, list):
+                                    raise web.HTTPNotFound()
+                                records.extend(row.get('file') if isinstance(row, dict) else None for row in rows)
                         if (description and not isinstance(data, str)) or (not description and
                                 (data is None or any(not isinstance(x, dict) or x.get('gameId') != 432 for x in records))):
                             raise web.HTTPNotFound()

@@ -50,7 +50,8 @@ class DownloadWorker(QThread):
                 if self.isInterruptionRequested():
                     raise RuntimeError('更新下载已取消')
                 self.progress.emit(done, total)
-            package = download_update(self.update, directory, report)
+            from utils.storage_paths import cache_directory
+            package = download_update(self.update, cache_directory('updates'), report)
             self.completed.emit(package, '')
         except Exception as exc:
             self.completed.emit(None, str(exc))

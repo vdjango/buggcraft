@@ -41,6 +41,8 @@ class LobbyBackend(QObject):
             'invitePrompt':False, 'roomQuery':'', 'roomNext':None, 'roomTotal':None, 'loadingMore':False,
             'transportPolicy':'auto',
             'nodeUpdatePrompt':False, 'nodeUpdateMessage':'',
+            'deviceOrigin':'https://node.bugg.icu', 'deviceLoginBusy':False,
+            'deviceLoginStage':'idle', 'deviceLoginMessage':'', 'deviceLoginUrl':'',
         }
         self.actions = []
 
@@ -58,8 +60,8 @@ class LobbyBackend(QObject):
         elif name == 'node':
             self._view = {**self._view, 'nodeIndex': values['index']}
             self.viewChanged.emit()
-        elif name == 'nodeDraft':
-            self._view = {**self._view, 'nodeDraft': values['text']}
+        elif name == 'deviceOrigin':
+            self._view = {**self._view, 'deviceOrigin': values['text']}
             self.viewChanged.emit()
         elif name == 'selectConnection':
             self._view = {**self._view, 'selected':values['id'], 'page':'connected'}
@@ -172,10 +174,9 @@ class LobbyLayoutTests(unittest.TestCase):
         self.open_nodes()
         self.assert_absent_or_hidden('navigation-tabs')
         self.assertTrue(find_item(self.window, 'back-hall').isVisible())
-        self.assertFalse(find_item(self.window, 'import-node').isVisible())
-        self.assertFalse(find_item(self.window, 'export-node').isVisible())
-        self.click('node-advanced')
-        for name in ('nodes-list', 'node-code', 'add-node-code', 'import-node', 'export-node', 'nodes-done'):
+        for name in ('node-advanced', 'node-code', 'add-node-code', 'import-node', 'export-node'):
+            self.assert_absent_or_hidden(name)
+        for name in ('nodes-list', 'node-web-address', 'remember-device-login', 'login-official-device', 'nodes-done'):
             item = find_item(self.window, name)
             self.assertTrue(item.isVisible(), name)
             pos = item.mapToScene(QPointF(0, 0))
@@ -209,18 +210,19 @@ class LobbyLayoutTests(unittest.TestCase):
         self.click('node-picker'); QTest.keyClick(self.window, Qt.Key_Escape); QTest.qWait(30)
         self.assertEqual(self.backend.view['page'], 'hall')
 
-    def test_empty_node_entry_and_draft_survive_secondary_page_navigation(self):
+    def test_empty_node_entry_and_address_survive_secondary_page_navigation(self):
         self.backend._view = {**self.backend._view, 'nodes':[], 'nodeIndex':-1, 'rooms':[]}
         self.backend.viewChanged.emit(); QTest.qWait(30)
         self.click('empty-add-node')
         self.assertEqual(self.backend.view['page'], 'nodes')
-        self.click('node-advanced')
-        self.click('node-code'); QApplication.clipboard().setText('buggnode1-example')
+        self.click('node-web-address')
+        QTest.keyClick(self.window, Qt.Key_A, Qt.ControlModifier)
+        QApplication.clipboard().setText('community.example:18443')
         QTest.keyClick(self.window, Qt.Key_V, Qt.ControlModifier); QTest.qWait(30)
-        self.assertEqual(self.backend.view['nodeDraft'], 'buggnode1-example')
-        self.assertTrue(find_item(self.window, 'add-node-code').isEnabled())
+        self.assertEqual(self.backend.view['deviceOrigin'], 'community.example:18443')
+        self.assertTrue(find_item(self.window, 'login-official-device').isEnabled())
         self.click('back-hall'); self.open_nodes()
-        self.assertEqual(find_item(self.window, 'node-code').property('text'), 'buggnode1-example')
+        self.assertEqual(find_item(self.window, 'node-web-address').property('text'), 'community.example:18443')
 
     def test_remove_node_requires_a_second_click(self):
         self.open_nodes(); self.click('remove-node')
@@ -230,21 +232,33 @@ class LobbyLayoutTests(unittest.TestCase):
 
     def test_node_management_keeps_actions_visible_with_busy_and_error_feedback(self):
         self.open_nodes()
-        self.backend._view = {**self.backend._view, 'busy':True, 'nodeDraft':'buggnode1-example',
-            'notice':'正在验证节点身份和连接…'}
+        self.backend._view = {**self.backend._view, 'busy':True,
+            'deviceLoginMessage':'正在连接节点并准备登录页面…'}
         self.backend.viewChanged.emit(); QTest.qWait(40)
-        self.assertFalse(find_item(self.window, 'add-node-code').isEnabled())
-        self.assertFalse(find_item(self.window, 'import-node').isEnabled())
+        self.assertFalse(find_item(self.window, 'login-official-device').isEnabled())
+        self.assertFalse(find_item(self.window, 'node-web-address').isEnabled())
         self.backend._view = {**self.backend._view, 'busy':False, 'notice':'',
-            'error':'添加失败：无法验证节点身份或连接，请检查添加码和网络。'}
+            'error':'无法发起网页登录：节点代理拒绝了启动器请求（HTTP 403）。'}
         self.backend.viewChanged.emit(); QTest.qWait(40)
-        self.assertTrue(find_item(self.window, 'add-node-code').isEnabled())
+        self.assertTrue(find_item(self.window, 'login-official-device').isEnabled())
+        self.assertEqual(find_item(self.window, 'node-login-status').property('text'), self.backend.view['error'])
         feedback = find_item(self.window, 'feedback')
-        self.assertTrue(feedback.isVisible())
-        for name in ('node-code', 'add-node-code', 'import-node', 'nodes-done'):
+        self.assertFalse(feedback.isVisible())
+        self.assertTrue(find_item(self.window, 'node-login-status').isVisible())
+        for name in ('node-web-address', 'login-official-device', 'nodes-done'):
             item = find_item(self.window, name)
             bottom = item.mapToScene(QPointF(0, item.height())).y()
             self.assertLessEqual(bottom, 491, name)
+
+    def test_remember_device_label_is_readable_and_checkbox_can_be_toggled(self):
+        self.open_nodes()
+        label = find_item(self.window, 'remember-device-label')
+        self.assertEqual(label.property('text'), '保持登录')
+        self.assertEqual(label.property('color').name(), '#f0e8ff')
+        self.assertGreaterEqual(label.property('font').pixelSize(), 13)
+        self.assertTrue(find_item(self.window, 'remember-device-login').property('checked'))
+        self.click('remember-device-login')
+        self.assertFalse(find_item(self.window, 'remember-device-login').property('checked'))
 
     def test_open_room_list_is_primary_and_create_join_actions_stay_compact(self):
         join = find_item(self.window, 'open-join')
@@ -907,6 +921,8 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertGreaterEqual(find_item(self.window, 'room-chat').height(), 145)
         self.assertIn('example.jar', find_item(self.window, 'room-download-file').property('text'))
         self.assertIn('1.0 MiB / 2.0 MiB', find_item(self.window, 'room-download-bytes').property('text'))
+        self.assertIn('正在同步房主', find_item(self.window, 'room-compatibility').property('text'))
+        self.assertNotIn('模组集合不一致', find_item(self.window, 'room-compatibility').property('text'))
         self.click('show-room-mods')
         self.assertEqual(self.backend.actions[-1], ('loadMods', {}))
         self.assertTrue(find_item(self.window, 'room-mods-body').isVisible())

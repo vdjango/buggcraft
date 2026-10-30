@@ -63,6 +63,14 @@ class MinecraftLauncher(QMainWindow):
         self._launch_error_dialog = None
         self._launch_error_reported = False
         self._java_install_dialog = None
+        self._game_file_dialog = None
+        self._game_file_active = False
+        self._game_file_hidden = False
+        self._game_file_status = '正在检查游戏文件…'
+        self._game_file_done = self._game_file_total = 0
+        self._game_file_show_timer = QTimer(self)
+        self._game_file_show_timer.setSingleShot(True)
+        self._game_file_show_timer.timeout.connect(self._show_game_file_progress)
         self.setWindowTitle('BUGG启动器')
         self.setWindowIcon(get_app_icon(self.resource_path))
 
@@ -260,6 +268,9 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.java_required.connect(self.minecraft_java_required)
         self.launcher.signals.java_install_progress.connect(self.minecraft_java_install_progress)
         self.launcher.signals.java_installed.connect(self.minecraft_java_installed)
+        self.launcher.signals.game_file_preparation_started.connect(self.minecraft_game_file_preparation_started)
+        self.launcher.signals.game_file_preparation_progress.connect(self.minecraft_game_file_preparation_progress)
+        self.launcher.signals.game_file_preparation_finished.connect(self._close_game_file_progress)
         self.launcher.signals.progress.connect(self.minecraft_handle_progress)
     
     def minecraft_not_java_runtime(self):
@@ -462,6 +473,7 @@ class MinecraftLauncher(QMainWindow):
         """游戏启动处理"""
         logger.info('minecraft_handle_started 游戏已启动')
         self._close_java_progress()
+        self._close_game_file_progress()
         if self.settings_manager.get_version_setting('launcher.debug', '否（推荐）') == '是':
             self._show_debug_output()
         # 应用可见性设置
@@ -472,6 +484,7 @@ class MinecraftLauncher(QMainWindow):
         logger.info(f"minecraft_handle_stopped 游戏已退出，代码: {exit_code}")
         self.minecraft_handle_output(f'[退出] Minecraft 已退出，退出代码：{exit_code}。')
         self._close_java_progress()
+        self._close_game_file_progress()
         if self._close_after_game:
             QTimer.singleShot(100, self.close)
         else:
@@ -552,11 +565,72 @@ class MinecraftLauncher(QMainWindow):
         register(self.settings_manager, entry)
         self.settings_page.java_page.refresh_list()
         self._close_java_progress()
+
+    def minecraft_game_file_preparation_started(self):
+        if self._closing:
+            return
+        self._game_file_active = True
+        self._game_file_hidden = False
+        self._game_file_status = '正在检查游戏文件…'
+        self._game_file_done = self._game_file_total = 0
+        # A healthy instance finishes quickly; avoid flashing a dialog on every launch.
+        self._game_file_show_timer.start(350)
+
+    def minecraft_game_file_preparation_progress(self, status, done, total):
+        if not self._game_file_active:
+            return
+        self._game_file_status = status
+        self._game_file_total = max(0, total)
+        self._game_file_done = min(max(0, done), self._game_file_total)
+        if self._game_file_dialog is not None and self._game_file_dialog.isVisible():
+            self._refresh_game_file_progress()
+
+    def _show_game_file_progress(self):
+        if not self._game_file_active or self._game_file_hidden or self._closing:
+            return
+        if self._game_file_dialog is None:
+            dialog = QmlDialog(self, width=620, height=350,
+                               title='正在准备游戏文件', actions=['后台继续'])
+            dialog.controller.actionRequested.connect(self._hide_game_file_progress)
+            dialog.rejected.connect(self._mark_game_file_progress_hidden)
+            self._game_file_dialog = dialog
+        self._refresh_game_file_progress()
+        self._game_file_dialog.open()
+        self._game_file_dialog.raise_()
+
+    def _refresh_game_file_progress(self):
+        controller = self._game_file_dialog.controller
+        controller.message = '正在检查并补全游戏文件，完成后会自动启动。'
+        controller.detail = self._game_file_status
+        if self._game_file_total:
+            percentage = self._game_file_done * 100 // self._game_file_total
+            controller.detail += (f'\n已处理 {self._game_file_done} / '
+                                  f'{self._game_file_total} 项 · {percentage}%')
+        controller.working = True
+        controller.progress = (self._game_file_done / self._game_file_total
+                               if self._game_file_total else -1.)
+        controller.changed.emit()
+
+    def _hide_game_file_progress(self, _action=None):
+        self._game_file_hidden = True
+        if self._game_file_dialog is not None:
+            self._game_file_dialog.accept()
+
+    def _mark_game_file_progress_hidden(self):
+        self._game_file_hidden = True
+
+    def _close_game_file_progress(self):
+        self._game_file_active = False
+        self._game_file_show_timer.stop()
+        if self._game_file_dialog is not None:
+            self._game_file_dialog.controller.working = False
+            self._game_file_dialog.close()
     
     def minecraft_handle_error(self, message):
         """错误处理"""
         logger.info(f'minecraft_handle_error {message}')
         self._close_java_progress()
+        self._close_game_file_progress()
         self.minecraft_handle_output(f'[错误] {message}')
         if self.settings_manager.get_version_setting('launcher.debug', '否（推荐）') == '是':
             self._show_debug_output()

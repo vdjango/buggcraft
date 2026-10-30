@@ -206,7 +206,7 @@ def onefile_cache_tag(native=None):
     """Keep cached payloads separate when application or native contents change."""
     digest = hashlib.sha256()
     paths = [ROOT / 'build.py', ROOT / 'requirements.txt', ROOT / 'requirements-build.txt',
-             ROOT / 'scripts/nuitka_launcher_plugin.py']
+             ROOT / 'scripts/nuitka_launcher_plugin.py', ROOT / 'packaging/windows/PortableStorage.h']
     for folder in (ROOT / 'src/buggcraft', ROOT / 'resources', native):
         if folder:
             paths.extend(path for path in Path(folder).rglob('*') if path.is_file()
@@ -271,7 +271,7 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
             command += [f'--user-plugin={root / "scripts/nuitka_launcher_plugin.py"}',
                         f'--launcher-native={Path(native).resolve()}',
                         '--onefile-cache-mode=cached', '--onefile-as-archive',
-                        '--onefile-tempdir-spec={CACHE_DIR}/Buggcraft/' + onefile_cache_tag(native)]
+                        '--onefile-tempdir-spec={PROGRAM_DIR}/.buggcraft/runtime/Buggcraft/' + onefile_cache_tag(native)]
     elif platform.system() == 'Darwin':
         if onefile:
             raise ValueError('macOS builds use a standalone .app bundle; omit --onefile')
@@ -288,7 +288,7 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
                         f'--launcher-native={Path(native).resolve()}']
     if platform.system() == 'Linux' and onefile:
         command += ['--onefile-cache-mode=cached',
-                    '--onefile-tempdir-spec={CACHE_DIR}/Buggcraft/' + onefile_cache_tag(native)]
+                    '--onefile-tempdir-spec={PROGRAM_DIR}/.buggcraft/runtime/Buggcraft/' + onefile_cache_tag(native)]
     exclusions, _ = qml_exclusions()
     command.extend(exclusions)
     command.append(str(root / 'src/buggcraft/main.py'))

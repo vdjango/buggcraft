@@ -51,6 +51,31 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status, 400)
         self.assertEqual(len(self.calls), 1)
 
+    async def test_fingerprint_lookup_is_limited_to_minecraft_and_unsigned_hashes(self):
+        async def fetch(method, route, params, body):
+            self.calls.append((method, route, params, body))
+            return {'data': {'exactMatches': [{'id': 10, 'file': {'gameId': 432, 'fileFingerprint': 0}}],
+                             'partialMatches': []}}
+        async with TestClient(TestServer(gateway.create_app('server-secret', fetch))) as client:
+            async with client.post('/v1/fingerprints/432', json={'fingerprints': [0, 2**32-1, 0]}) as response:
+                self.assertEqual(response.status, 200)
+                self.assertNotIn('server-secret', await response.text())
+            self.assertEqual(self.calls[-1][3], {'fingerprints': [0, 2**32-1]})
+            for values in ([], [True], [-1], [2**32], ['1'], list(range(101))):
+                async with client.post('/v1/fingerprints/432', json={'fingerprints': values}) as response:
+                    self.assertEqual(response.status, 400)
+            async with client.post('/v1/fingerprints/1', json={'fingerprints': [1]}) as response:
+                self.assertEqual(response.status, 404)
+            async with client.get('/v1/fingerprints/432') as response:
+                self.assertEqual(response.status, 404)
+
+    async def test_fingerprint_results_for_another_game_are_rejected(self):
+        async def fetch(*args):
+            return {'data': {'exactMatches': [{'file': {'gameId': 1}}]}}
+        async with TestClient(TestServer(gateway.create_app('server-secret', fetch))) as client:
+            async with client.post('/v1/fingerprints/432', json={'fingerprints': [1]}) as response:
+                self.assertEqual(response.status, 404)
+
     async def test_description_is_cached_only_after_validating_minecraft_parent(self):
         calls = []
         async def fetch(method, route, params, body):

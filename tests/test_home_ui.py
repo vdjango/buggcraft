@@ -278,7 +278,7 @@ class HomeChecklistUiTests(_HomeCase):
 
     def test_lobby_empty_add_node_switch_search_and_return(self):
         from dataclasses import replace
-        from hookup.nodes import encode_code, profile_data, save_json
+        from hookup.nodes import profile_data, save_json
         from test_friend_entry_regression import personal_profile
 
         home = self.window.started_page
@@ -292,16 +292,17 @@ class HomeChecklistUiTests(_HomeCase):
                    "a launcher without nodes offers the explicit add-node entry")
         self.screenshot_ui("home-lobby-without-node", dialog)
         self.click_ui(dialog, "empty-add-node")
-        self.click_ui(dialog, "node-advanced")
         profile = personal_profile()
-        self.text_ui(dialog, "node-code", encode_code(profile))
-        self.click_ui(dialog, "add-node-code")
-        self.check(backend.view["busy"], "adding a code waits for verified node identity")
-        # Only the network verification result is supplied by the fixture.
-        backend.finish("nodecode:" + backend.generation, profile, None)
+        self.text_ui(dialog, "node-web-address", 'community.example')
+        self.click_ui(dialog, "login-official-device")
+        self.check(backend.view["deviceLoginBusy"], "node login waits for browser authorization")
+        backend.act('cancelDeviceLogin', {})
+        # The device approval handshake has dedicated tests; supply its verified
+        # profile here to exercise persistence and the Home/lobby round trip.
+        backend.save_verified_node(profile)
         self.pause_ui()
         self.check(len(backend.view["nodes"]) == 1 and not backend.view["error"],
-                   "verified code is saved by the production node importer")
+                   "verified device profile is saved by the production node store")
         self.click_ui(dialog, "back-hall")
         second = self.directory / "second-home-node.json"
         save_json(second, profile_data(replace(profile, server_port=3334)))

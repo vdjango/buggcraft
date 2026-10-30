@@ -49,6 +49,9 @@ class NativeEndpoint:
         self._stopped = False
         self._routes = None
         self._transport = 'auto'
+        # The bridge accepts 16 transfers per guest; leave four slots for
+        # manifests and other operations. The host shares its upload budget.
+        self._mod_transfer_slots = asyncio.Semaphore(12)
 
     @property
     def transport_state(self):
@@ -236,10 +239,38 @@ class NativeEndpoint:
     async def mod_manifest(self, kind='mods'):
         if kind not in ('mods', 'resources'):
             raise ValueError('Invalid room content kind')
-        result = await self._routes.request('mods.manifest', {'session': self.session, 'kind': kind})
-        return await self._wait_transfer(result)
+        for attempt in range(2):
+            try:
+                result = await self._routes.request('mods.manifest', {'session': self.session, 'kind': kind})
+                return await self._wait_transfer(result)
+            except ConnectionError as error:
+                if 'Mod forwarding unavailable' not in str(error):
+                    raise
+                LOG.warning('room_mod_manifest_forward_unavailable session=%s kind=%s attempt=%s',
+                            self.session, kind, attempt + 1)
+                if attempt == 0:
+                    await asyncio.sleep(.4)
+        # The room summary contains a complete catalogue for small rooms.
+        # Trust it only when both the advertised count and digest match.
+        from .modpack import manifest_hash, validate_manifest
+        game = (self.room_info or {}).get('game') or {}
+        count_key, hash_key, list_key = (('mods_count', 'mods_hash', 'mods') if kind == 'mods' else
+                                         ('resources_count', 'resources_hash', 'resources'))
+        preview = game.get(list_key)
+        if isinstance(preview, list) and len(preview) == game.get(count_key) and game.get(hash_key):
+            try:
+                items = validate_manifest(preview, kind)
+                if manifest_hash(items) == game[hash_key]:
+                    return items
+            except (TypeError, ValueError, KeyError):
+                pass
+        raise ConnectionError('暂时无法读取房主的完整游戏文件清单。请房主重新创建房间后重试；仍失败请导出联机日志反馈。')
 
     async def download_mod(self, item, target, cancel, progress):
+        async with self._mod_transfer_slots:
+            return await self._download_mod_with_slot(item, target, cancel, progress)
+
+    async def _download_mod_with_slot(self, item, target, cancel, progress):
         if self.transport_state != 'p2p':
             raise ConnectionError('当前未建立 P2P 直连，禁止从房主传输文件。请优先使用下载源。')
         deadline = asyncio.get_running_loop().time() + 45
@@ -258,13 +289,16 @@ class NativeEndpoint:
                     'kind': 'resources' if item.get('path') else 'mods'})
                 return await self._wait_transfer(result, cancel, progress)
             except ConnectionError as error:
-                if 'P2P file channel is not connected' not in str(error):
+                waiting_for_channel = 'P2P file channel is not connected' in str(error)
+                transfer_busy = 'Mod transfer limit reached' in str(error)
+                if not waiting_for_channel and not transfer_busy:
                     raise
                 if cancel is not None and cancel.is_set():
                     raise InterruptedError('模组安装已取消')
                 if asyncio.get_running_loop().time() >= deadline:
-                    raise ConnectionError('P2P 文件通道暂时不可用') from error
-                await asyncio.sleep(.35)
+                    raise ConnectionError('房主的文件传输暂时繁忙，请稍后重试。' if transfer_busy else
+                                          '房主的文件传输尚未就绪，请稍后重试。') from error
+                await asyncio.sleep(.5 if transfer_busy else .35)
 
     async def _wait_transfer(self, result, cancel=None, progress=None):
         transfer = result.get('transfer')

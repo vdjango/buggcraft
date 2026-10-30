@@ -24,6 +24,7 @@ import requests
 from core.downloads import MinecraftDownloader, use_download_budget, verified_installation
 from utils.download_locks import download_lock
 from utils.http_identity import USER_AGENT
+from utils.path_helper import filesystem_path
 
 
 BMCLAPI = "https://bmclapi2.bangbang93.com"
@@ -98,12 +99,8 @@ def _source_mode(source):
 
 
 def _source_urls(source, official, mirror):
-    mode = _source_mode(source)
-    if mode == "official" or not mirror:
-        return [official]
-    if mode == "mirror":
-        return [mirror]
-    return [official, mirror] if mode == "official_first" else [mirror, official]
+    from core.game_sources import source_urls
+    return source_urls(source, official, mirror)
 
 
 def _response(url):
@@ -245,9 +242,15 @@ def _installed_forge_version(directory, minecraft_version, loader_version):
     return expected
 
 
-def _flatten_forge_version(directory, installed, minecraft_version, before_versions):
-    """Publish Forge as one standalone version and discard fresh intermediates."""
-    from core.launch_preparation import resolved_metadata, version_chain
+def loader_instance_id(loader, minecraft_version, loader_version):
+    from core.modpacks import instance_name
+    return instance_name(f'{minecraft_version}-{loader}-{loader_version}')
+
+
+def _flatten_forge_version(directory, installed, minecraft_version, before_versions, identity=None):
+    """Publish a loader as one standalone version and discard fresh intermediates."""
+    from core.launch_preparation import (exclude_version_jar_from_bootstrap_scan,
+                                         resolved_metadata, version_chain)
 
     root = Path(directory)
     versions = root / 'versions'
@@ -259,18 +262,22 @@ def _flatten_forge_version(directory, installed, minecraft_version, before_versi
         raise FileNotFoundError(str(core_jar))
     resolved.pop('inheritsFrom', None)
     resolved.pop('jar', None)
-    resolved['id'] = installed
+    identity = identity or installed
+    resolved['id'] = identity
     resolved['clientVersion'] = minecraft_version
-    target = versions / installed
-    shutil.copyfile(core_jar, target / (installed + '.jar'))
+    exclude_version_jar_from_bootstrap_scan(resolved, identity)
+    target = versions / identity
+    target.mkdir(parents=True, exist_ok=True)
+    if core_jar.resolve() != (target / (identity + '.jar')).resolve():
+        shutil.copyfile(core_jar, target / (identity + '.jar'))
     for name, _ in reversed(chain):
         natives = versions / name / 'natives'
         if natives.is_dir() and natives.resolve() != (target / 'natives').resolve():
             shutil.copytree(natives, target / 'natives', dirs_exist_ok=True)
-    (target / (installed + '.json')).write_text(
+    (target / (identity + '.json')).write_text(
         json.dumps(resolved, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    created = {name for name, _ in chain} - set(before_versions) - {installed}
+    created = {name for name, _ in chain} - set(before_versions) - {identity}
     referenced = set()
     for metadata_path in versions.glob('*/*.json'):
         if metadata_path.parent.name in created:
@@ -291,6 +298,14 @@ def _flatten_forge_version(directory, installed, minecraft_version, before_versi
         path = versions / name
         if path.parent.resolve() == versions.resolve() and not path.is_symlink():
             shutil.rmtree(path, ignore_errors=True)
+    # Case-only loader names share a folder on Windows. Remove the old named
+    # profile only when it is a distinct file on this filesystem.
+    if installed != identity and (versions / installed).resolve() == target.resolve():
+        for suffix in ('.json', '.jar'):
+            old, current = target / (installed + suffix), target / (identity + suffix)
+            if old.exists() and old.resolve() != current.resolve():
+                old.unlink()
+    return identity
 
 
 def available_versions(loader, minecraft_version, source="自动（镜像优先，失败切换官方）"):
@@ -301,7 +316,7 @@ def available_versions(loader, minecraft_version, source="自动（镜像优先�
         mirror = BMCLAPI + "/forge/minecraft/" + minecraft_version
         candidates = []
         for url in _source_urls(source, official, mirror):
-            candidates.append((url, _maven_versions if url == official else _json_versions))
+            candidates.append((url, _maven_versions if urlsplit(url).path.endswith('.xml') else _json_versions))
         result = _load_records("Forge", candidates,
                                lambda records: _forge_versions(records, minecraft_version), minecraft_version)
     elif loader in ("Fabric", "Quilt"):
@@ -319,7 +334,7 @@ def available_versions(loader, minecraft_version, source="自动（镜像优先�
             raise ValueError("NeoForge 官方安装器从 Minecraft 1.20.2 起提供")
         official = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
         mirror = BMCLAPI + "/neoforge/list/" + minecraft_version
-        candidates = [(url, _maven_versions if url == official else _json_versions)
+        candidates = [(url, _maven_versions if urlsplit(url).path.endswith('.xml') else _json_versions)
                       for url in _source_urls(source, official, mirror)]
         result = _load_records("NeoForge", candidates,
                                lambda records: _neoforge_versions(records, minecraft_version), minecraft_version)
@@ -348,28 +363,8 @@ def _maven_mirror_url(url):
 
 
 def _download_urls(url, source):
-    parsed = urlsplit(url)
-    replacements = {
-        "launchermeta.mojang.com": "",
-        "piston-meta.mojang.com": "",
-        "launcher.mojang.com": "",
-        "piston-data.mojang.com": "",
-        "resources.download.minecraft.net": "/assets",
-        "libraries.minecraft.net": "/maven",
-    }
-    # Assets are not Maven artifacts, although both use minecraft.net hosts.
-    # Match the specific game endpoints before the generic Maven router.
-    if parsed.hostname in replacements:
-        mirror = BMCLAPI + replacements[parsed.hostname] + parsed.path
-        if parsed.query:
-            mirror += "?" + parsed.query
-    else:
-        mirror = _maven_mirror_url(url)
-    if _source_mode(source) == "official" or not mirror:
-        return [url]
-    if _source_mode(source) == "mirror":
-        return [mirror]
-    return [url, mirror] if _source_mode(source) == "official_first" else [mirror, url]
+    from core.game_sources import source_urls
+    return source_urls(source, url)
 
 
 class _LoaderSession:
@@ -385,7 +380,7 @@ class _LoaderSession:
         return self.session.get(url, **kwargs)
 
 
-def _routed_downloader(download_file, source, cancel=None, file_event=None):
+def _routed_downloader(download_file, source, cancel=None, file_event=None, retries=2):
     def download(url, path, callback=None, sha1=None, lzma_compressed=False, session=None,
                  minecraft_directory=None, overwrite=False):
         with download_lock(path, cancel):
@@ -407,7 +402,7 @@ def _routed_downloader(download_file, source, cancel=None, file_event=None):
         if report_file and not lzma_compressed:
             root = Path(minecraft_directory).resolve() if minecraft_directory else Path(path).resolve().parent
             downloader = MinecraftDownloader(root, source=source, cancel=cancel,
-                status=(callback or {}).get('setStatus'), file_event=report_file)
+                status=(callback or {}).get('setStatus'), file_event=report_file, retries=retries)
             downloader.urls = lambda address: _download_urls(address, source)
             target = Path(path).resolve().relative_to(root)
             try:
@@ -468,7 +463,8 @@ def _profile_loader(loader, minecraft_version, loader_version, directory, callba
     if metadata.get('id') != identity or metadata.get('inheritsFrom') != minecraft_version:
         raise ValueError('加载器安装信息与所选版本不一致')
     downloader = MinecraftDownloader(root, source=source, cancel=cancel, status=callback['setStatus'],
-                                     file_event=callback.get('fileEvent'))
+                                     file_event=callback.get('fileEvent'),
+                                     retries=callback.get('downloadRetries', 2))
     downloader.urls = lambda address: _download_urls(address, source)
     jobs = []
     for index, item in enumerate(metadata.get('libraries', [])):
@@ -502,7 +498,7 @@ def _publish_profile(root, identity, metadata):
 
 
 @contextmanager
-def _use_download_source(source, cancel=None, file_event=None):
+def _use_download_source(source, cancel=None, file_event=None, retries=2):
     """Route minecraft-launcher-lib downloads through the source selected in settings."""
     modules = [minecraft_launcher_lib._helper, minecraft_launcher_lib.install,
                minecraft_launcher_lib.forge, minecraft_launcher_lib.fabric,
@@ -519,7 +515,7 @@ def _use_download_source(source, cancel=None, file_event=None):
                 original = getattr(module, "download_file", None)
                 if original:
                     originals.append((module, original))
-                    module.download_file = _routed_downloader(original, source, cancel, file_event)
+                    module.download_file = _routed_downloader(original, source, cancel, file_event, retries)
             yield
         finally:
             for module, original in process_modules:
@@ -540,7 +536,8 @@ def _prefetch_neoforge_libraries(installer, root, callback, cancel, source):
 
     downloader = MinecraftDownloader(root, source=source, cancel=cancel,
                                      status=callback['setStatus'],
-                                     file_event=callback.get('fileEvent'))
+                                     file_event=callback.get('fileEvent'),
+                                     retries=callback.get('downloadRetries', 2))
     downloader.urls = lambda url: _download_urls(url, source)
     callback['setMax'](len(libraries))
     jobs = []
@@ -573,55 +570,19 @@ def _prefetch_neoforge_libraries(installer, root, callback, cancel, source):
 
 def _neo_forge(version, directory, java, callback, cancel, source):
     root = Path(directory).resolve()
-    budget = MinecraftDownloader(root, source=source, cancel=cancel).budget
     official = f"https://maven.neoforged.net/releases/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar"
-    mirror = f"{_MAVEN_MIRROR}/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar"
     root.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="buggcraft-neoforge-") as folder:
-        installer = Path(folder) / "neoforge-installer.jar"
-        errors = []
-        file_event = callback.get('fileEvent')
-        def report_file(state, **values):
-            if file_event:
-                file_event(dict(key=str(installer), name=installer.name, path=installer.name,
-                                state=state, **values))
-        for installer_url in _source_urls(source, official, mirror):
-            callback["setStatus"]("正在下载 NeoForge 安装器…")
-            try:
-                with budget.reserve(cancel) if budget else nullcontext():
-                    response = requests.get(installer_url, stream=True, timeout=(8, 30),
-                                            headers={"User-Agent": USER_AGENT})
-                    response.raise_for_status()
-                    total = int(response.headers.get("Content-Length", "0") or 0)
-                    callback["setMax"](total)
-                    current = 0
-                    report_file('downloading', done=0, total=total)
-                    last_report = 0
-                    with response, installer.open("wb") as output:
-                        for block in response.iter_content(128 * 1024):
-                            if cancel.is_set():
-                                raise InterruptedError("安装已取消")
-                            if block:
-                                output.write(block)
-                                current += len(block)
-                                callback["setProgress"](current)
-                                if current - last_report >= 256 * 1024:
-                                    report_file('downloading', done=current, total=total)
-                                    last_report = current
-                if total and current != total:
-                    raise ValueError('NeoForge 安装器下载不完整')
-                report_file('verified', done=current, total=current)
-                break
-            except InterruptedError:
-                report_file('cancelled')
-                raise
-            except Exception as exc:
-                report_file('retrying', error=str(exc))
-                installer.unlink(missing_ok=True)
-                errors.append(f"{installer_url}: {exc}")
-        else:
-            report_file('failed', error=errors[-1] if errors else '安装器下载失败')
-            raise RuntimeError("NeoForge 安装器下载失败：" + "；".join(errors))
+    from utils.storage_paths import temporary_directory
+    with tempfile.TemporaryDirectory(prefix="neoforge-", dir=temporary_directory()) as folder:
+        downloader = MinecraftDownloader(root, source=source, cancel=cancel,
+            status=callback['setStatus'], file_event=callback.get('fileEvent'),
+            retries=callback.get('downloadRetries', 6))
+        def progress(current, total):
+            callback['setMax'](total)
+            callback['setProgress'](current)
+        callback['setStatus']('正在下载 NeoForge 安装器…')
+        installer = downloader.fetch(official,
+            f'.buggcraft-downloads/neoforge-{version}-installer.jar', file_progress=progress)
         if cancel.is_set():
             raise InterruptedError("安装已取消")
         # The third-party installer uses hard-coded Maven URLs and ignores
@@ -661,7 +622,8 @@ def _neo_forge(version, directory, java, callback, cancel, source):
                     process.wait(timeout=5)
             if process.stdout:
                 process.stdout.close()
-        installer_log = root / '.buggcraft-downloads' / ('neoforge-' + version + '-installer.log')
+        from utils.storage_paths import game_cache
+        installer_log = game_cache(root) / ('neoforge-' + version + '-installer.log')
         installer_log.parent.mkdir(parents=True, exist_ok=True)
         installer_log.write_text(output, encoding='utf-8')
         callback["setStatus"]('NeoForge 安装器日志：' + str(installer_log))
@@ -681,16 +643,61 @@ def _neo_forge(version, directory, java, callback, cancel, source):
 
 
 def install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel,
-                   source="自动（官方优先，失败切换镜像）"):
+                   source="自动（官方优先，失败切换镜像）", *, target_identity=None, before_versions=None):
     # Installers also write shared profiles and extract native files, outside
     # fetch(). Serialize this mutation phase per game root; resource downloads
     # and modpack file batches remain parallel.
     with use_download_budget():
         with download_lock(Path(directory) / '.buggcraft-loader-install', cancel):
-            return _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source)
+            return _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel,
+                                   source, target_identity=target_identity, before_versions=before_versions)
 
 
-def _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source):
+def _install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel, source,
+                    *, target_identity=None, before_versions=None):
+    identity = target_identity or loader_instance_id(loader, minecraft_version, loader_version)
+    from core.modpacks import instance_name
+    instance_name(identity)
+    versions = Path(directory) / 'versions'
+    snapshot = {folder.name for folder in versions.iterdir() if folder.is_dir()} if versions.is_dir() else set()
+    before = set(snapshot if before_versions is None else before_versions)
+    from utils.storage_paths import game_cache
+    cache = game_cache(directory)
+    cache.mkdir(parents=True, exist_ok=True)
+    receipt = cache / ('loader-intermediates-' + hashlib.sha256(identity.encode()).hexdigest() + '.json')
+    from core.modpacks import ModpackImporter
+    stamp = ModpackImporter._intermediate_stamp
+    try:
+        previous = json.loads(receipt.read_text(encoding='utf-8'))
+        for name, value in previous.items():
+            if (isinstance(name, str) and name in before and value is not None
+                    and stamp(versions / name) == value):
+                before.discard(name)
+    except (OSError, ValueError, AttributeError):
+        pass
+    completed = False
+    try:
+        result = _run_loader_install(loader, minecraft_version, loader_version, directory, java, callback,
+                                    cancel, source, identity, before)
+        completed = True
+        return result
+    finally:
+        # Remember only untouched intermediates owned by this attempt. A retry
+        # may remove these; preexisting instances and edited folders stay intact.
+        created = {folder.name: stamp(folder) for folder in versions.iterdir()
+                   if folder.is_dir() and folder.name not in before} if versions.is_dir() else {}
+        if created and not completed:
+            receipt.write_text(json.dumps(created), encoding='utf-8')
+        else:
+            receipt.unlink(missing_ok=True)
+
+
+def _run_loader_install(loader, minecraft_version, loader_version, directory, java, callback, cancel,
+                        source, identity, before_versions, *, _workspace=False):
+    if loader in ('Forge', 'NeoForge', 'Fabric', 'Quilt') and not _workspace:
+        return _install_native_loader_isolated(loader, minecraft_version, loader_version, directory,
+            java, callback, cancel, source, identity)
+    target_identity = identity
     def report(name):
         def checked(value):
             if cancel.is_set():
@@ -702,12 +709,12 @@ def _install_loader(loader, minecraft_version, loader_version, directory, java, 
                  "setMax": report("setMax")}
     if callback.get('fileEvent'):
         monitored['fileEvent'] = callback['fileEvent']
-    versions_root = Path(directory) / 'versions'
-    before_versions = {folder.name for folder in versions_root.iterdir() if folder.is_dir()} if versions_root.is_dir() else set()
+    monitored['downloadRetries'] = callback.get('downloadRetries', 6)
     downloader = MinecraftDownloader(
         directory, source=source, cancel=cancel,
         status=monitored["setStatus"],
         file_event=monitored.get('fileEvent'),
+        retries=monitored['downloadRetries'],
         progress=lambda current, maximum: (monitored["setMax"](maximum),
                                             monitored["setProgress"](current)),
     )
@@ -738,25 +745,110 @@ def _install_loader(loader, minecraft_version, loader_version, directory, java, 
                 ensure_vanilla()
                 if cancel.is_set():
                     raise InterruptedError("安装已取消")
-                identity, metadata = future.result()
+                _upstream_identity, metadata = future.result()
             except BaseException:
                 cancel.set()
                 if errors:
                     raise errors[0]
                 raise
-        return _publish_profile(Path(directory).resolve(), identity, metadata)
+        metadata = dict(metadata, id=target_identity)
+        installed = _publish_profile(Path(directory).resolve(), target_identity, metadata)
+        return _flatten_forge_version(directory, installed, minecraft_version, before_versions)
     ensure_vanilla()
     if cancel.is_set():
         raise InterruptedError("安装已取消")
     if loader == "NeoForge":
-        return _neo_forge(loader_version, directory, java, callback, cancel, source)
-    with _use_download_source(source, cancel, callback.get('fileEvent')):
+        installed = _neo_forge(loader_version, directory, java, callback, cancel, source)
+        return _flatten_forge_version(directory, installed, minecraft_version, before_versions, identity)
+    with _use_download_source(source, cancel, callback.get('fileEvent'),
+                              callback.get('downloadRetries', 6)):
         if loader == "Forge":
             forge_version = f"{minecraft_version}-{loader_version}"
             callback["setStatus"](f"安装 Forge {forge_version}")
             minecraft_launcher_lib.forge.install_forge_version(forge_version, directory,
                                                                 callback=monitored, java=java)
             installed = _installed_forge_version(directory, minecraft_version, loader_version)
-            _flatten_forge_version(directory, installed, minecraft_version, before_versions)
-            return installed
+            return _flatten_forge_version(directory, installed, minecraft_version, before_versions, identity)
     raise ValueError(f"不支持的加载器：{loader}")
+
+
+def _link_install_cache(source, destination, cancel, *, replace=False):
+    """Reuse immutable cached files without giving installers a user's versions."""
+    source, destination = filesystem_path(source), filesystem_path(destination)
+    if not source.is_dir():
+        return
+    for path in source.rglob('*'):
+        if cancel.is_set():
+            raise InterruptedError('安装已取消')
+        if not path.is_file() or path.is_symlink() or '.buggcraft-part' in path.name:
+            continue
+        target = destination / path.relative_to(source)
+        if target.exists():
+            if not replace or os.path.samefile(path, target) or _file_sha1(path) == _file_sha1(target):
+                continue
+            # A repaired file in the workspace must replace the broken shared
+            # cache too; publish atomically without truncating another reader.
+            with download_lock(target, cancel):
+                temporary = target.with_name(target.name + '.buggcraft-cache-part')
+                temporary.unlink(missing_ok=True)
+                try:
+                    try:
+                        os.link(path, temporary)
+                    except OSError:
+                        shutil.copy2(path, temporary)
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(path, target)
+        except FileExistsError:
+            pass
+        except OSError:
+            if not target.exists():
+                shutil.copy2(path, target)
+
+
+def _install_native_loader_isolated(loader, minecraft_version, loader_version, directory, java,
+                                    callback, cancel, source, identity):
+    root = Path(directory)
+    from utils.storage_paths import game_cache
+    work = game_cache(root) / ('loader-' + hashlib.sha256(identity.encode()).hexdigest()[:16])
+    work.mkdir(parents=True, exist_ok=True)
+    for name in ('libraries', 'assets'):
+        _link_install_cache(root / name, work / name, cancel)
+    base = root / 'versions' / minecraft_version
+    if verified_installation(root, minecraft_version):
+        staged_base = work / 'versions' / minecraft_version
+        staged_base.mkdir(parents=True, exist_ok=True)
+        # Profiles are writable installer inputs. Copy them, and never traverse
+        # the user's mods/saves/config or let a hard link mutate their profile.
+        for filename in (minecraft_version + '.json', minecraft_version + '.jar', '.buggcraft-complete.json'):
+            source_file = base / filename
+            if source_file.is_file():
+                destination = staged_base / filename
+                destination.unlink(missing_ok=True)
+                shutil.copy2(source_file, destination)
+        if (base / 'natives').is_dir():
+            shutil.copytree(base / 'natives', staged_base / 'natives', dirs_exist_ok=True)
+    completed = False
+    try:
+        installed = _run_loader_install(loader, minecraft_version, loader_version, str(work), java,
+            callback, cancel, source, identity, set(), _workspace=True)
+        target = root / 'versions' / identity
+        if target.exists():
+            raise FileExistsError('实例名称已被占用，请选择新名称：' + identity)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        from utils.storage_paths import publish_directory
+        publish_directory(work / 'versions' / installed, target)
+        completed = True
+        return identity
+    finally:
+        # A cancelled installation still contributes its completed cache files.
+        # The private versions remain available to its next retry.
+        cache_cancel = threading.Event()
+        for name in ('libraries', 'assets'):
+            _link_install_cache(work / name, root / name, cache_cancel, replace=True)
+        if completed:
+            shutil.rmtree(work, ignore_errors=True)

@@ -9,6 +9,7 @@ import re
 import threading
 import time
 import uuid
+import webbrowser
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, QStandardPaths, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
@@ -23,6 +24,7 @@ from hookup.friend_codes import friend_code
 from hookup.storage import LobbyStore
 from hookup.nodes import probe, save_json, profile_data, remember, node_identity
 from hookup.social import check_expiry, credential_expiry, ExpiredNodeCredential, EXPIRED_CODE_MESSAGE
+from core.content_mirrors import configured_source
 from utils.instances import installed_instance_ids, running_games, lan_world_token
 from utils.clipboard import cancel_copy, copy_text
 from ui.room_preparation import RoomPreparation
@@ -31,6 +33,7 @@ from ui.room_preparation import RoomPreparation
 class MultiplayerController(RoomPreparation, QObject):
     changed = Signal()
     completed = Signal(str, object, object)
+    network_type_detected = Signal(str, str)
     status = Signal(str, str, str)
     chat_event = Signal(str, object)
     chat_sent = Signal(str, object)
@@ -50,6 +53,8 @@ class MultiplayerController(RoomPreparation, QObject):
         self.launcher_page = getattr(window, "launcher_page", None) or window.parent()
         self.service = TunnelService()
         self.jobs = set()
+        self.feedback_dialog = None
+        self.feedback_draft = ''
         self.game = {}
         self.pending = None
         self.creation = None
@@ -77,7 +82,7 @@ class MultiplayerController(RoomPreparation, QObject):
         self.device_refresh_attempts = {}
         self.device_refresh_denied = set()
         self.device_login_timer = QTimer(self)
-        self.device_login_timer.setInterval(3000)
+        self.device_login_timer.setInterval(1000)
         self.device_login_timer.timeout.connect(self.poll_device_login)
         self.device_refresh_timer = QTimer(self)
         self.device_refresh_timer.setInterval(60000)
@@ -112,14 +117,15 @@ class MultiplayerController(RoomPreparation, QObject):
         self.init_preparation()
         self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
                            rooms=[], contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False, socialState='offline', socialError='',
-                           playerNetworkProfile=dict(type='unknown', direct_successes=0, relay_successes=0), playerNetworkProfileReady=False,
+                           playerNetworkProfile=dict(type='unknown', direct_successes=0, relay_successes=0), playerNetworkTypeReady=False, playerNetworkProfileReady=False,
                            connections=[], worlds=[], worldScanning=False, selected='', busy=False, friendBusy=False, socialLoading=False, loading=False,
                            openWorldPrompt=False, openWorldPort=0, openWorldMode='create',
                            pendingFriendInvite='', outgoingInvitations={}, friendInviteAccount='', joiningFriendAccount='',
                            joinRequests=[], socialCapabilities={}, requestedJoinAccount='',
                            nodeAccessExpired=False, nodeCredentialRequired=False, nodeAccessMessage='',
-                           error='', notice='', nodeDraft='', roomError='', needsVersion=False,
+                           error='', notice='', roomError='', needsVersion=False,
                            deviceLoginBusy=False, deviceOrigin='https://node.bugg.icu', deviceManaged=False,
+                           deviceLoginUrl='', deviceLoginStage='idle', deviceLoginMessage='',
                            joinRoomId='', joinRoomTitle='', invitePrompt=False,
                            transportPolicy='auto',
                            nodeUpdatePrompt=False, nodeUpdateMessage='',
@@ -131,13 +137,15 @@ class MultiplayerController(RoomPreparation, QObject):
         start_page = self.launcher_page
         main_window = getattr(start_page, 'parent', None)
         cache = getattr(main_window, 'cache_path', None)
-        root = Path(cache or QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)) / 'multiplayer'
+        from utils.storage_paths import cache_directory
+        root = Path(cache) / 'multiplayer' if cache else cache_directory('multiplayer')
         try:
             self.store = LobbyStore(storage_path or root / 'lobby.json')
         except (OSError, ValueError) as exc:
             self.store = None
             self._state['notice'] = '本地配置未能读取，原文件已保留：' + str(exc)
         self.completed.connect(self.finish)
+        self.network_type_detected.connect(self.update_network_type)
         self.status.connect(self.update_status)
         self.chat_event.connect(self.update_chat)
         self.chat_sent.connect(self.finish_chat)
@@ -200,8 +208,7 @@ class MultiplayerController(RoomPreparation, QObject):
         device_managed = bool(self.node_path and Path(self.node_path + '.device.json').is_file())
         self.patch(socialLoading=False, socialState='stale', contacts=contacts,
                    nodeCredentialRequired=credential_required or self._state['nodeCredentialRequired'],
-                   socialError=(('节点账号登录已失效，请在浏览器重新登录并授权此设备。' if device_managed else
-                                 '个人启动器接入码需要更新。请从节点账号网页重新领取接入码。')
+                   socialError=('节点账号登录已失效，请在浏览器重新登录并授权此设备。'
                                 if credential_required else '好友节点同步失败：' + str(error)))
         if credential_required:
             self.prompt_node_credential_update()
@@ -210,7 +217,7 @@ class MultiplayerController(RoomPreparation, QObject):
     def operation_error(error):
         text = str(error or '')
         if 'room directory unavailable' in text.lower():
-            return '暂时无法连接房间目录。请刷新或切换在线节点后重试；若同时提示接入码失效，请先更换个人接入码。'
+            return '暂时无法连接房间目录。请刷新或切换在线节点后重试；若同时提示登录失效，请在浏览器重新登录。'
         return text
 
     def prompt_node_credential_update(self):
@@ -223,18 +230,11 @@ class MultiplayerController(RoomPreparation, QObject):
             self.credential_prompt_dialog.close()
         self.credential_prompted_node = self.node_path
         path = self.node_path
-        if device_managed:
-            title = '节点账号需要重新登录'
-            message = ('此设备的节点账号登录已失效或无法通过验证。\n\n'
-                       '请到“联机节点”页，使用原节点的 HTTPS 地址重新通过浏览器登录并授权此设备。'
-                       '原节点配置不会删除。')
-            action = '前往重新登录'
-        else:
-            title = '好友接入码需要更新'
-            message = ('个人启动器接入码缺失、已过期或无法通过验证。\n\n'
-                       '请在该节点网站登录账号，重新领取个人启动器接入码；然后回到启动器的“联机节点”页粘贴并确认更新。'
-                       '更新不会删除原节点配置。')
-            action = '前往更换接入码'
+        title = '节点账号需要重新登录'
+        message = ('此设备的节点账号登录已失效或无法通过验证。\n\n'
+                   '请到“联机节点”页，使用原节点的 HTTPS 地址重新通过浏览器登录并授权此设备。'
+                   '原节点配置不会删除。')
+        action = '前往重新登录'
         box = QMessageBox(QMessageBox.Warning, title, message, QMessageBox.NoButton, self.window)
         replace = box.addButton(action, QMessageBox.AcceptRole)
         box.addButton('稍后', QMessageBox.RejectRole)
@@ -244,7 +244,7 @@ class MultiplayerController(RoomPreparation, QObject):
             if self.credential_prompt_dialog is box:
                 self.credential_prompt_dialog = None
             if box.clickedButton() is replace and self.node_path == path:
-                self.act('replaceNodeCode', {})
+                self.act('reloginNode', {})
             box.deleteLater()
         box.finished.connect(finish)
         box.show()
@@ -417,7 +417,7 @@ class MultiplayerController(RoomPreparation, QObject):
             if self._state['nodeAccessExpired']:
                 self.mark_node_expired()
         elif new_path and profile is None:
-            self.social_failure('configuration', '节点配置读取失败，请检查文件权限或重新导入接入码。')
+            self.social_failure('configuration', '节点配置读取失败，请检查文件权限或使用节点地址重新登录。')
 
     def job(self, key, coroutine):
         if self.closed or key in self.jobs:
@@ -474,25 +474,7 @@ class MultiplayerController(RoomPreparation, QObject):
                     return
                 if not self.node_path or not self._state['socialReady']:
                     raise ValueError('请先选择节点并使用个人账号登录')
-                title, accepted = QInputDialog.getText(self.window, '提交联机诊断', '问题标题（最多 120 字）：')
-                if not accepted:
-                    return
-                description, accepted = QInputDialog.getMultiLineText(
-                    self.window, '提交联机诊断', '问题描述（最多 4000 字）：')
-                if not accepted:
-                    return
-                answer = QMessageBox.question(self.window, '确认上传诊断日志',
-                    '将采集网络地址、节点和 ICE 连接记录、启动器及游戏日志，并提交到当前节点反馈系统。\n'
-                    '附件供节点反馈管理员排查；节点联邦同步可能复制给其他受信任节点管理员。\n'
-                    '日志不包含存档，仍可能包含本机路径、聊天内容和网络地址。是否现在上传？',
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-                if answer != QMessageBox.Yes:
-                    return
-                profile = self.profile()
-                from utils.feedback_upload import submit_diagnostics
-                self.patch(notice='正在采集并上传诊断日志…', error='')
-                self.job('feedback-upload', submit_diagnostics(
-                    profile, title, description, consent=True))
+                self.show_feedback()
             elif action == 'clearError':
                 record = self.records.get(self._state['selected'])
                 if record:
@@ -500,7 +482,7 @@ class MultiplayerController(RoomPreparation, QObject):
                 self.patch(error='', chatError='')
             elif action == 'openFriends':
                 if not self.friend_entry_available():
-                    raise ValueError('当前为匿名或未验证状态，请先添加个人接入码。')
+                    raise ValueError('当前为匿名或未验证状态，请先在浏览器登录节点账号。')
                 self.window.show_friends()
             elif action == 'navigate':
                 self.navigate(data['page'])
@@ -782,30 +764,13 @@ class MultiplayerController(RoomPreparation, QObject):
                                       request['account'], ref=request['id'], room=request['room'])
             elif action == 'refreshFriends':
                 self.refresh_friends()
-            elif action == 'replaceNodeCode':
+            elif action in ('reloginNode', 'replaceNodeCode'):
                 self.navigate('nodes')
-                if self._state['deviceManaged']:
-                    self.patch(notice='使用上方原节点 HTTPS 地址，在浏览器重新登录并授权此设备。')
-                else:
-                    self.patch(nodeDraft='', notice='旧版接入码：在原节点网页登录账号，领取新的个人启动器接入码后粘贴。确认更新即可保留原节点。')
+                self.patch(notice='使用原节点的 HTTPS 地址，在浏览器重新登录并授权此设备。')
             elif action == 'editFriend':
                 index = int(data['index'])
                 contact = self.store.data['contacts'][index]
                 self.patch(page='friendForm', error='', editIndex=index, friendName=contact['name'], friendAccount=contact.get('account', ''))
-            elif action == 'importNode':
-                path, _ = QFileDialog.getOpenFileName(self.window, '导入可信节点配置', '', 'JSON (*.json)')
-                if path:
-                    self.import_node(path)
-            elif action == 'nodeDraft':
-                self.patch(nodeDraft=str(data.get('text', ''))[:4096])
-            elif action == 'addNodeCode':
-                if self._state['busy']:
-                    return
-                if not self.store:
-                    raise ValueError('请先修复本地配置。')
-                from hookup.nodes import import_code
-                self.patch(busy=True, error='', notice='正在验证节点身份和连接…')
-                self.job('nodecode:' + self.generation, import_code(self._state['nodeDraft']))
             elif action == 'loginOfficialDevice':
                 self.login_official_device(bool(data.get('remember', True)), str(data.get('origin', 'https://node.bugg.icu')))
             elif action == 'deviceOrigin':
@@ -813,7 +778,16 @@ class MultiplayerController(RoomPreparation, QObject):
             elif action == 'cancelDeviceLogin':
                 self.device_login = None
                 self.device_login_timer.stop()
-                self.patch(deviceLoginBusy=False, busy=False, notice='已取消本次登录。')
+                self.device_login_generation = uuid.uuid4().hex
+                self.patch(deviceLoginBusy=False, deviceLoginUrl='', deviceLoginStage='idle',
+                           deviceLoginMessage='已取消本次登录。', busy=False, notice='已取消本次登录。')
+            elif action == 'openDeviceBrowser':
+                self.open_device_browser()
+            elif action == 'copyDeviceLoginUrl':
+                if self.device_login and self._state['deviceLoginUrl']:
+                    copy_text(self, self._state['deviceLoginUrl'],
+                              lambda: self.patch(deviceLoginMessage='登录链接已复制，请在浏览器打开并授权。'),
+                              self.copy_failed)
             elif action == 'confirmNodeUpdate':
                 pending = self.pending_node_update
                 if pending:
@@ -822,13 +796,7 @@ class MultiplayerController(RoomPreparation, QObject):
                     self.save_verified_node(pending)
             elif action == 'cancelNodeUpdate':
                 self.pending_node_update = None
-                self.patch(nodeUpdatePrompt=False, busy=False, notice='已取消更新，原接入码继续保留。')
-            elif action == 'exportNode':
-                self.profile()
-                path, _ = QFileDialog.getSaveFileName(self.window, '导出节点配置', 'relay-profile.json', 'JSON (*.json)')
-                if path:
-                    Path(path).write_bytes(Path(self.node_path).read_bytes())
-                    self.patch(notice='节点配置已导出，请只分享给可信的朋友。')
+                self.patch(nodeUpdatePrompt=False, busy=False, notice='已取消更新，原节点配置继续保留。')
             elif action == 'removeNode':
                 if self._state['connections']:
                     raise ValueError('请先退出所有房间再移除节点。')
@@ -874,7 +842,7 @@ class MultiplayerController(RoomPreparation, QObject):
             return
         if (page == 'friends' and not self.friend_entry_available() or
                 page == 'friendForm' and not self._state['socialReady']):
-            raise ValueError('匿名接入没有好友功能，请先领取个人接入码。')
+            raise ValueError('匿名接入没有好友功能，请先在浏览器登录节点账号。')
         if page in ('create', 'join'):
             self.require_available_node()
         if page == 'connected' and self._state['selected'] not in self.records:
@@ -967,7 +935,7 @@ class MultiplayerController(RoomPreparation, QObject):
                 raise ValueError('同一地址的节点公钥发生变化，请先核实节点身份；原配置未覆盖。')
         return matches
 
-    def save_verified_node(self, profile):
+    def save_verified_node(self, profile, *, reload=True):
         if not self.store:
             raise ValueError('请先修复本地配置。')
         matches = self.matching_nodes(profile)
@@ -985,18 +953,22 @@ class MultiplayerController(RoomPreparation, QObject):
                 self.store.data['node_names'].pop(previous, None)
         self.store.data['node_names'][chosen] = getattr(profile, '_name', '社区节点')
         self.store.save()
-        self.reload_store(self.node_path if self._state['connections'] else chosen, refresh_identity=True)
-        notice = ('个人接入码已更新，正在重新加载好友；现有房间保持连接，新身份用于后续联机。'
+        if reload:
+            self.reload_store(self.node_path if self._state['connections'] else chosen, refresh_identity=True)
+        notice = ('节点账号已更新，正在重新加载好友；现有房间保持连接，新身份用于后续联机。'
                   if profile.token.startswith('acct1.') else '匿名节点已保存；匿名接入不提供好友功能。')
         if self.node_path != chosen:
             notice = '节点已保存；当前房间结束后，切换到该节点即可使用新的接入身份。'
-        self.patch(nodeDraft='', busy=False, error='', notice=notice)
+        self.patch(busy=False, error='', notice=notice)
 
     @Slot()
     def login_official_device(self, remember=True, origin='https://node.bugg.icu'):
         if self._state['deviceLoginBusy'] or self._state['busy']:
             return
-        self.patch(deviceLoginBusy=True, error='', notice='正在准备浏览器登录…')
+        from hookup.device_login import validate_origin
+        origin = validate_origin(origin)
+        self.patch(deviceLoginBusy=True, deviceOrigin=origin, deviceLoginUrl='', deviceLoginStage='preparing',
+                   deviceLoginMessage='正在连接节点并准备登录页面…', error='', notice='')
         async def begin():
             from hookup.device_login import begin
             import platform
@@ -1004,6 +976,22 @@ class MultiplayerController(RoomPreparation, QObject):
             return await begin(name, remember, origin)
         self.device_login_generation = uuid.uuid4().hex
         self.job('device-login-start:' + self.device_login_generation, begin())
+
+    def open_device_browser(self):
+        if not self.device_login or not self._state['deviceLoginUrl']:
+            return
+        url = self._state['deviceLoginUrl']
+        try:
+            opened = webbrowser.open(url)
+        except Exception:
+            opened = False
+        if not opened:
+            try:
+                opened = QDesktopServices.openUrl(QUrl(url))
+            except Exception:
+                opened = False
+        self.patch(deviceLoginMessage=('已打开默认浏览器，请登录节点账号并授权；完成后会自动连接。' if opened else
+                   '无法自动打开浏览器，请复制登录链接，在浏览器打开并授权。'))
 
     @Slot()
     def poll_device_login(self):
@@ -1634,7 +1622,7 @@ class MultiplayerController(RoomPreparation, QObject):
         self.job('prepare:' + name, prepare_configuration(endpoint, directory, java, source, cancel, report,
                  event=lambda event: self.preparation_event.emit(name, dict(event, task=preparation_task)),
                  existing_instance=existing_instance,
-                 content_source=settings.get_setting('settings.general.content_mirror', '自动测速')))
+                 content_source=configured_source(settings)))
 
     def preparation_history(self):
         parent = getattr(self.launcher_page, 'parent', None)
@@ -1753,8 +1741,18 @@ class MultiplayerController(RoomPreparation, QObject):
         self.player_network_profile_task = True
         async def collect():
             from utils.network_profile import collect_network_profile
-            return await collect_network_profile()
+            return await collect_network_profile(
+                on_type=lambda network_type: self.network_type_detected.emit(self.generation, network_type))
         self.job('network-profile:' + self.generation, collect())
+
+    @Slot(str, str)
+    def update_network_type(self, generation, network_type):
+        if self.closed or generation != self.generation or not self.player_network_profile_task:
+            return
+        if network_type not in ('direct_easier', 'relay_likely', 'unknown'):
+            network_type = 'unknown'
+        self.player_network_profile['type'] = network_type
+        self.patch(playerNetworkProfile=dict(self.player_network_profile), playerNetworkTypeReady=True)
 
     def social_operation(self, operation, account, **fields):
         if not self._state['socialReady']:
@@ -1891,7 +1889,7 @@ class MultiplayerController(RoomPreparation, QObject):
 
     def lookup_friend(self, data):
         if not self._state['socialReady']:
-            raise ValueError('匿名接入没有好友功能，请在节点网页登录并领取个人接入码。')
+            raise ValueError('匿名接入没有好友功能，请先在浏览器登录节点账号。')
         identifier = str(data.get('identifier', '')).strip()
         if not re.fullmatch(r'(?:[A-Za-z0-9_-]{3,32}|[0-9a-f]{32}\.[0-9a-f]{32})', identifier):
             raise ValueError('请输入好友码、用户名或完整账号 ID。')
@@ -1930,12 +1928,12 @@ class MultiplayerController(RoomPreparation, QObject):
                         self._validate_network_profile(value)
                         self.player_network_profile = dict(value)
                     self.player_network_profile_at = time.monotonic()
-                    self.patch(playerNetworkProfile=self.player_network_profile, playerNetworkProfileReady=True)
+                    self.patch(playerNetworkProfile=self.player_network_profile, playerNetworkTypeReady=True, playerNetworkProfileReady=True)
                 except ValueError:
                     logging.getLogger('hookup.network_diagnostics').warning('network_profile_invalid')
                     self.player_network_profile = {'type': 'unknown', 'direct_successes': 0, 'relay_successes': 0}
                     self.player_network_profile_at = time.monotonic()
-                    self.patch(playerNetworkProfile=self.player_network_profile, playerNetworkProfileReady=True)
+                    self.patch(playerNetworkProfile=self.player_network_profile, playerNetworkTypeReady=True, playerNetworkProfileReady=True)
             return
         if key.startswith('device-refresh:'):
             path = key[len('device-refresh:'):]
@@ -1969,18 +1967,15 @@ class MultiplayerController(RoomPreparation, QObject):
             if self.closed or key != 'device-login-start:' + getattr(self, 'device_login_generation', '') or not self._state['deviceLoginBusy']:
                 return
             if error:
-                self.patch(deviceLoginBusy=False, error='无法发起网页登录：' + error)
+                self.patch(deviceLoginBusy=False, deviceLoginStage='error',
+                           deviceLoginMessage='无法发起网页登录：' + error, error='无法发起网页登录：' + error)
                 return
             result, private_key = value
             self.device_login = (result, private_key, self.device_login_generation)
-            from hookup.device_login import public_jwk, canonical
-            fingerprint = hashlib.sha256(canonical(public_jwk(private_key))).hexdigest()[:16]
-            if not QDesktopServices.openUrl(QUrl(result['verification_uri'])):
-                self.device_login = None
-                self.patch(deviceLoginBusy=False, error='无法打开浏览器，请检查系统默认浏览器后重试。')
-                return
-            self.patch(notice='请在浏览器确认登录，设备指纹：' + fingerprint + '。完成后会自动连接。')
+            self.patch(deviceLoginUrl=result['verification_uri'], deviceLoginStage='waiting', notice='')
+            self.open_device_browser()
             self.device_login_timer.start()
+            self.poll_device_login()
             return
         if key.startswith('device-login-poll:'):
             if self.closed or not self.device_login or key != 'device-login-poll:' + self.device_login[2]:
@@ -1988,16 +1983,18 @@ class MultiplayerController(RoomPreparation, QObject):
             if error:
                 self.device_login = None
                 self.device_login_timer.stop()
-                self.patch(deviceLoginBusy=False, error='网页登录未完成：' + error)
+                self.patch(deviceLoginBusy=False, deviceLoginUrl='', deviceLoginStage='error',
+                           deviceLoginMessage='网页登录未完成：' + error, error='网页登录未完成：' + error)
                 return
             if value is None:
                 return
             self.device_login_timer.stop()
+            self.patch(deviceLoginStage='verifying', deviceLoginMessage='浏览器已授权，正在验证节点连接…')
             result, private_key, generation = self.device_login
             from hookup.device_login import approved_profile
             async def verify_approved():
                 profile = approved_profile(value, private_key)
-                await probe(profile)
+                await probe(profile, topology=False)
                 return profile, result, private_key
             self.job('device-login-verified:' + generation, verify_approved())
             return
@@ -2005,9 +2002,10 @@ class MultiplayerController(RoomPreparation, QObject):
             if self.closed or not self.device_login or key != 'device-login-verified:' + self.device_login[2]:
                 return
             self.device_login = None
-            self.patch(deviceLoginBusy=False)
+            self.patch(deviceLoginBusy=False, deviceLoginUrl='')
             if error:
-                self.patch(error='登录已授权，但连接验证未完成：' + error)
+                self.patch(deviceLoginStage='error', deviceLoginMessage='登录已授权，但连接验证未完成：' + error,
+                           error='登录已授权，但连接验证未完成：' + error)
                 return
             try:
                 from hookup.device_login import save_private_key, claims
@@ -2016,7 +2014,7 @@ class MultiplayerController(RoomPreparation, QObject):
                 if grant['r'] != result['id'] or grant['o'] != result['origin']:
                     raise ValueError('授权与本次登录请求不匹配。')
                 save_private_key(result['id'], private_key)
-                self.save_verified_node(profile)
+                self.save_verified_node(profile, reload=False)
                 matches = self.matching_nodes(profile)
                 if not matches:
                     raise ValueError('节点配置保存失败。')
@@ -2027,10 +2025,12 @@ class MultiplayerController(RoomPreparation, QObject):
                                                    'name': self.node_display_names[path],
                                                    'region': self.node_display_regions[path]})
                 self.device_refresh_denied.discard(path)
-                self.reload_store()
-                self.patch(notice='已登录，后续会自动保持登录，无需重复输入接入码。')
+                self.reload_store(self.node_path if self._state['connections'] else path, refresh_identity=True)
+                self.patch(page='hall', deviceLoginStage='complete', deviceLoginMessage='节点已连接，授权已保存。',
+                           notice='已登录并连接节点，后续会自动保持登录。')
             except Exception as exc:
-                self.patch(error='保存登录失败：' + str(exc))
+                self.patch(deviceLoginStage='error', deviceLoginMessage='保存登录失败：' + str(exc),
+                           error='保存登录失败：' + str(exc))
             return
         if self.finish_room_action(key, value, error):
             return
@@ -2038,6 +2038,7 @@ class MultiplayerController(RoomPreparation, QObject):
             if error:
                 self.patch(error=error, notice='上传未完成，请先在节点反馈页检查已有反馈；也可使用“导出日志”保存到本机。')
             else:
+                self.feedback_draft = ''
                 self.patch(error='', notice='反馈已提交，编号：' + str((value or {}).get('issue', '未知')))
             return
         if key == 'diagnostics':
@@ -2321,8 +2322,8 @@ class MultiplayerController(RoomPreparation, QObject):
                 if matches:
                     self.pending_node_update = profile
                     personal = profile.token.startswith('acct1.')
-                    message = ('此节点已添加。是否用新的个人接入码更新？更新后立即重新验证账号并加载好友。'
-                               if personal else '此节点已添加。是否更新为匿名接入码？更新后此节点将无法使用账号好友功能。')
+                    message = ('此节点已添加。是否更新账号授权？更新后立即重新验证账号并加载好友。'
+                               if personal else '此节点已添加。是否改用匿名接入？更新后此节点将无法使用账号好友功能。')
                     self.patch(busy=False, nodeUpdatePrompt=True, nodeUpdateMessage=message, notice='')
                 else:
                     self.save_verified_node(profile)
@@ -2421,11 +2422,43 @@ class MultiplayerController(RoomPreparation, QObject):
             except Exception as exc:
                 self.patch(error=str(exc))
 
+    def show_feedback(self):
+        if self.feedback_dialog is not None:
+            self.feedback_dialog.show()
+            self.feedback_dialog.raise_()
+            self.feedback_dialog.activateWindow()
+            return
+        from ui.dialog.feedback import FeedbackDialog
+        node = next((item.get('title', '当前节点') for item in self._state['nodes']
+                     if item.get('path') == self.node_path), '当前节点')
+        profile = self.profile()
+        dialog = FeedbackDialog(self.window, content=self.feedback_draft, node=node)
+        self.feedback_dialog = dialog
+        # Bind this report to the selected account/node before opening the form.
+
+        def submit(title, description):
+            from utils.feedback_upload import submit_diagnostics
+            self.feedback_draft = description
+            self.patch(notice='正在提交问题并收集排查信息…', error='')
+            self.job('feedback-upload', submit_diagnostics(profile, title, description, consent=True))
+
+        def finished(_result):
+            self.feedback_draft = dialog.controller.data.get('content', '')
+            self.feedback_dialog = None
+            dialog.shutdown()
+            QTimer.singleShot(0, dialog, dialog.deleteLater)
+
+        dialog.submitted.connect(submit)
+        dialog.finished.connect(finished)
+        dialog.show()
+
     @Slot()
     def close(self):
         cancel_copy(self)
         if not self.closed:
             self.closed = True
+            if self.feedback_dialog is not None:
+                self.feedback_dialog.reject()
             if self.credential_prompt_dialog is not None:
                 self.credential_prompt_dialog.close()
             self.room_report_timer.stop()

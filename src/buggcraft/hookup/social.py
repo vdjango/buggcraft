@@ -8,7 +8,7 @@ import time
 
 LOG = logging.getLogger(__name__)
 
-EXPIRED_CODE_MESSAGE = '个人接入码已过期。请在原节点网页登录账号，重新领取个人启动器接入码，再在这里更换；无需删除节点。'
+EXPIRED_CODE_MESSAGE = '节点账号登录已过期。请使用原节点地址，在浏览器重新登录并授权此设备；无需删除节点。'
 
 
 class ExpiredNodeCredential(ValueError):
@@ -55,7 +55,7 @@ def credential(profile):
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         LOG.warning('social_credential_invalid node_host=%s node_port=%s error=%s',
                     profile.server_host, profile.server_port, type(exc).__name__)
-        raise ValueError('请在节点网页重新登录，领取支持好友的个人启动器接入码。') from exc
+        raise ValueError('请使用原节点地址，在浏览器重新登录并授权此设备，以恢复好友功能。') from exc
 
 
 async def operate(profile, operation, target=None, **fields):

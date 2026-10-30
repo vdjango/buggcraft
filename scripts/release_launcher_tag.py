@@ -18,7 +18,7 @@ def main():
     version = os.environ.get('RELEASE_VERSION', '')
     if not VERSION.fullmatch(version):
         raise SystemExit('Enter an explicit semantic version such as 1.0.1-alpha.1')
-    if not os.path.isfile(f'docs/releases/{version}.md'):
+    if not os.path.isfile(f'docs/releases/版本说明-{version}.md'):
         raise SystemExit('Release notes are missing for the requested version')
 
     repository = os.environ['GITHUB_REPOSITORY']

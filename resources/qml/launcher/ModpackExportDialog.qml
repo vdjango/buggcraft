@@ -47,21 +47,42 @@ Rectangle {
                 Layout.fillWidth: true; height: 116; radius: 10; color: "#272239"; border.color: "#514774"
                 ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 7
                     Label { text: "精简"; color: "#e9e3ff"; font.pixelSize: 15; font.bold: true }
-                    Label { text: "体积更小，方便分享"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Label { objectName: "compact-export-description"; text: "查询 Modrinth、CurseForge 并比对哈希，可下载的模组仅存链接，其余随包保留"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
             }
             Rectangle {
                 Layout.fillWidth: true; height: 116; radius: 10; color: "#242131"; border.color: "#423a59"
                 ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 7
                     Label { text: "常规"; color: "#e9e3ff"; font.pixelSize: 15; font.bold: true }
-                    Label { text: "包含完整内容，适合分享"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Label { text: "所有本地模组和资源文件都随包打包，导入时无需从资源站补齐"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
             }
         }
+        Label {
+            objectName: "export-source-links"
+            Layout.fillWidth: true; visible: root.state.data.phase === "choose"
+            text: "支持网站：<a href='https://modrinth.com'>modrinth.com</a> · <a href='https://www.curseforge.com/minecraft'>curseforge.com</a>"
+            textFormat: Text.RichText; linkColor: "#b7a8ff"; color: "#aaa2c8"; font.pixelSize: 12
+            onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+        }
         Rectangle {
+            id: exportTrack
+            objectName: "export-progress-bar"
             Layout.fillWidth: true; height: 8; radius: 4; color: "#2a253c"
             visible: root.state.working || root.state.data.phase === "complete"
-            Rectangle { width: parent.width * Math.max(0, root.state.progress); height: parent.height; radius: 4; color: "#8b78e6" }
+            clip: true
+            Rectangle {
+                id: exportFill
+                objectName: "export-progress-fill"
+                width: root.state.progress < 0 ? parent.width * .24 : parent.width * Math.max(0, root.state.progress)
+                height: parent.height; radius: 4; color: "#8b78e6"
+                SequentialAnimation on x {
+                    running: root.state.working && root.state.progress < 0
+                    loops: Animation.Infinite
+                    NumberAnimation { from: -exportFill.width; to: exportTrack.width; duration: 1100 }
+                }
+                onWidthChanged: if (root.state.progress >= 0) x = 0
+            }
         }
         Label {
             objectName: "export-progress-text"; Layout.fillWidth: true

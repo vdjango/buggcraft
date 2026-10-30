@@ -11,7 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 def configured_source(settings):
-    return settings.get_setting('settings.general.content_mirror', '自动测速')
+    source = settings.get_setting('settings.general.content_mirror', 'Modrinth')
+    # Restore automatic routing for older publisher-first preferences.
+    return source if source in ('自动测速', 'CurseForge', 'Modrinth', 'MCIM', '官方') else '自动测速'
+
+
+def display_source(source, provider=None):
+    """Name the actual publisher when the official route is selected."""
+    return provider if source == '官方' and provider in ('Modrinth', 'CurseForge') else source
 
 
 def cached_dates(payload):
@@ -34,9 +41,12 @@ def cached_dates(payload):
 
 
 def get_modrinth(path, params, cancel, source):
-    endpoints = ([CONTENT_MIRROR + '/modrinth/v2'] if source != '官方' else []) + ['https://api.modrinth.com/v2']
+    official = 'https://api.modrinth.com/v2'
+    mirror_endpoint = CONTENT_MIRROR + '/modrinth/v2'
+    endpoints = [official] if source in ('官方', 'CurseForge', 'Modrinth') else [mirror_endpoint, official]
     cached = None
-    for endpoint in endpoints:
+    last_error = None
+    for index, endpoint in enumerate(endpoints):
         if cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
         mirror = endpoint.startswith(CONTENT_MIRROR)
@@ -61,13 +71,21 @@ def get_modrinth(path, params, cancel, source):
             if cancel.is_set():
                 raise DownloadCancelled('内容查询已取消')
             return data
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, ValueError) as exc:
+            last_error = exc
             if cancel.is_set():
                 raise DownloadCancelled('内容查询已取消') from None
             if not mirror:
                 if cached is not None:
                     logger.warning('Modrinth upstream unavailable; using cached MCIM metadata')
                     return cached
+                if index + 1 < len(endpoints):
+                    logger.warning('Modrinth upstream unavailable; trying MCIM metadata')
+                    continue
                 raise
             logger.warning('MCIM metadata unavailable; falling back to Modrinth', exc_info=True)
-    return cached
+    if cached is not None:
+        return cached
+    if last_error is not None:
+        raise last_error
+    raise ValueError('Modrinth 下载信息暂不可用')

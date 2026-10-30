@@ -13,7 +13,7 @@ from core.modpacks import export_pack
 from core.downloads import DownloadCancelled
 from ui.dialog.qml_dialog import QmlDialog
 from ui.pages.qml_host import QmlPage
-from utils.instances import installed_instance_ids
+from utils.instances import installed_instance_ids, REMOVED_MARKER
 from utils.path_helper import filesystem_path
 
 
@@ -62,9 +62,13 @@ class _DeleteWorker(QRunnable):
         directory = self.pending['directory']
         try:
             if self.pending['action'] == 'deleteDirectory':
-                deleted = delete_minecraft_directory(identity, raise_errors=True)
+                deleted = self.pending.get('keepDirectory', False) or delete_minecraft_directory(identity, raise_errors=True)
+            elif self.pending.get('keepDirectory', False):
+                marker = filesystem_path(Path(directory) / 'versions' / identity / REMOVED_MARKER)
+                marker.write_text('Removed from Buggcraft; local game files are preserved.\n', encoding='utf-8')
+                deleted = True
             else:
-                for version in installed_instance_ids(directory):
+                for version in installed_instance_ids(directory, include_removed=True):
                     metadata = json.loads(filesystem_path(Path(directory) / 'versions' / version / (version + '.json')).read_text(encoding='utf-8'))
                     if not isinstance(metadata, dict):
                         raise ValueError(f'{version} 的版本信息格式无效，无法安全检查依赖。')
@@ -90,6 +94,7 @@ class InstancesController(QObject):
         self.settings = get_settings_manager()
         self._directories = []
         self._versions = []
+        self._removed_count = 0
         self._status = ''
         self._pending = {}
         self._delete_dialog = None
@@ -100,6 +105,7 @@ class InstancesController(QObject):
     @Property('QVariantMap', notify=changed)
     def view(self):
         return dict(directories=self._directories, versions=self._versions,
+                    removedCount=self._removed_count,
                     directory=self.settings.get_setting('minecraft.directory.enable') or '',
                     selected=self.settings.get_setting('minecraft.version.enable') or '',
                     status=self._status, confirmation=self._pending)
@@ -112,6 +118,7 @@ class InstancesController(QObject):
             directories = [directory] + directories
         self._directories = [dict(path=item, title=Path(item).name or item) for item in directories]
         identities = installed_instance_ids(directory)
+        self._removed_count = len(installed_instance_ids(directory, include_removed=True)) - len(identities)
         selected = self.settings.get_setting('minecraft.version.enable')
         if selected not in identities:
             selected = identities[0] if identities else None
@@ -160,6 +167,18 @@ class InstancesController(QObject):
         self.page.signals.versions.emit(version)
         self.changed.emit()
 
+    @Slot()
+    def restoreRemoved(self):
+        directory = self.settings.get_setting('minecraft.directory.enable') or ''
+        try:
+            for identity in installed_instance_ids(directory, include_removed=True):
+                filesystem_path(Path(directory) / 'versions' / identity / REMOVED_MARKER).unlink(missing_ok=True)
+        except OSError as exc:
+            self._status = '恢复实例失败：' + str(exc)
+        else:
+            self._status = '已恢复显示保留在本地的实例。'
+        self.reload()
+
     @Slot(str, str)
     def action(self, identity, action):
         if action == 'settings':
@@ -182,7 +201,7 @@ class InstancesController(QObject):
                 return
             dialog = QmlDialog(
                 self.page, title='导出整合包', message='选择导出方式',
-                detail=identity, actions=['精简导出', '常规导出', '取消'], width=620, height=420,
+                detail=identity, actions=['精简导出', '常规导出', '取消'], width=620, height=480,
                 primary_action='精简导出', source='ModpackExportDialog.qml',
                 data=dict(phase='choose', instance=identity))
             self._export_dialog = dialog
@@ -206,14 +225,18 @@ class InstancesController(QObject):
             is_directory = action == 'deleteDirectory'
             self._pending = dict(identity=identity, action=action,
                                  directory=self.settings.get_setting('minecraft.directory.enable') or '',
-                                 title='删除整个游戏目录？' if action == 'deleteDirectory' else '删除游戏实例？',
+                                 title='移除游戏目录？' if is_directory else '删除游戏实例？',
                                  message=identity + '\n' + ('此操作会永久删除该游戏目录中的所有实例与文件，无法撤销。'
                                                            if is_directory else '此操作会永久删除该实例目录中的存档、模组与资源，无法撤销。'))
             self.changed.emit()
             dialog = QmlDialog(self.page, title=self._pending['title'],
-                               message=identity, detail=self._pending['message'].split('\n', 1)[1],
-                               actions=['取消', '删除'], width=510, height=205,
-                               primary_action='删除')
+                               message=str(Path(identity) if is_directory else Path(self._pending['directory']) / 'versions' / identity),
+                               detail=self._pending['message'].split('\n', 1)[1],
+                               actions=['取消', '移除' if is_directory else '删除'],
+                               width=550, height=350,
+                               primary_action='移除' if is_directory else '删除',
+                               data=dict(showKeepDirectory=True, isDirectory=is_directory,
+                                         keepDirectory='true' if is_directory else 'false'))
             self._delete_dialog = dialog
             dialog.controller.actionRequested.connect(self._delete_action)
             dialog.finished.connect(self._finish_delete_dialog, Qt.QueuedConnection)
@@ -292,7 +315,7 @@ class InstancesController(QObject):
         if self._export_dialog is None or self._export_worker is None:
             return
         model = self._export_dialog.controller
-        model.progress = min(1., done / total) if total else -1.
+        model.progress = min(.99, max(0., done / total)) if total else -1.
         model.detail = text
         model.changed.emit()
 
@@ -321,7 +344,7 @@ class InstancesController(QObject):
     def _delete_action(self, label):
         if self._delete_worker is not None:
             return
-        if label in ('删除', '重试删除'):
+        if label in ('删除', '移除', '重试删除', '永久删除', '仅移除'):
             self.confirmDelete(True)
         elif self._delete_dialog:
             self._delete_dialog.reject()
@@ -337,6 +360,8 @@ class InstancesController(QObject):
         if self._delete_worker is not None:
             return
         identity, action = pending['identity'], pending['action']
+        if self._delete_dialog:
+            pending['keepDirectory'] = self._delete_dialog.controller.data.get('keepDirectory') != 'false'
         directory = self.settings.get_setting('minecraft.directory.enable') or ''
         try:
             if directory != pending['directory']:
@@ -359,7 +384,8 @@ class InstancesController(QObject):
         if self._delete_dialog:
             model = self._delete_dialog.controller
             model.title = '正在删除…'
-            model.detail = '正在检查依赖并删除文件，请稍候。'
+            model.detail = ('正在从启动器移除，保留本地文件。' if pending.get('keepDirectory')
+                            else '正在检查依赖并删除文件，请稍候。')
             model.working, model.progress = True, -1.
             model.dismissible = model.actions_enabled = False
             model.actions = ['删除中…']

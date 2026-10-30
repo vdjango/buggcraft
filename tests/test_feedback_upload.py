@@ -108,40 +108,45 @@ class FeedbackUploadTests(unittest.IsolatedAsyncioTestCase):
 class FeedbackConsentUiTests(unittest.TestCase):
     def setUp(self):
         from types import SimpleNamespace
-        from PySide6.QtWidgets import QMessageBox
-        self.messages = QMessageBox
         self.controller = SimpleNamespace(jobs=set(), node_path='node', _state={'socialReady': True},
-            window=None, profile=Mock(return_value=object()), patch=Mock(), job=Mock())
+            show_feedback=Mock(), patch=Mock(), job=Mock())
 
     def act(self):
         from ui.multiplayer_controller import MultiplayerController
         MultiplayerController.act(self.controller, 'submitDiagnostics', {})
 
-    def test_declined_consent_never_collects_or_starts_upload(self):
-        with patch('ui.multiplayer_controller.QInputDialog.getText', return_value=('P2P', True)), \
-                patch('ui.multiplayer_controller.QInputDialog.getMultiLineText', return_value=('Failed', True)), \
-                patch('ui.multiplayer_controller.QMessageBox.question', return_value=self.messages.No) as question, \
-                patch('utils.feedback_upload.submit_diagnostics') as submit:
+    def test_opening_form_does_not_collect_or_upload(self):
+        with patch('utils.feedback_upload.submit_diagnostics') as submit:
             self.act()
-        self.assertEqual(question.call_args.args[-1], self.messages.No)
+        self.controller.show_feedback.assert_called_once()
         submit.assert_not_called()
         self.controller.job.assert_not_called()
-        self.controller.profile.assert_not_called()
 
-    def test_confirmed_consent_starts_one_explicit_upload(self):
-        with patch('ui.multiplayer_controller.QInputDialog.getText', return_value=('P2P', True)), \
-                patch('ui.multiplayer_controller.QInputDialog.getMultiLineText', return_value=('Failed', True)), \
-                patch('ui.multiplayer_controller.QMessageBox.question', return_value=self.messages.Yes), \
-                patch('utils.feedback_upload.submit_diagnostics', new=Mock(return_value=object())) as submit:
-            self.act()
-        self.assertIs(submit.call_args.kwargs['consent'], True)
-        self.controller.job.assert_called_once_with('feedback-upload', submit.return_value)
+    def test_pending_upload_ignores_duplicate_click(self):
+        self.controller.jobs.add('feedback-upload')
+        self.act()
+        self.controller.show_feedback.assert_not_called()
 
-    def test_cancelled_title_and_anonymous_identity_cannot_upload(self):
-        with patch('ui.multiplayer_controller.QInputDialog.getText', return_value=('', False)), \
-                patch('ui.multiplayer_controller.QMessageBox.question') as question:
-            self.act()
-            self.controller._state['socialReady'] = False
-            self.act()
-        question.assert_not_called()
+    def test_anonymous_identity_or_missing_node_cannot_open_form(self):
+        self.controller._state['socialReady'] = False
+        self.act()
+        self.controller._state['socialReady'] = True
+        self.controller.node_path = ''
+        self.act()
+        self.controller.show_feedback.assert_not_called()
         self.controller.job.assert_not_called()
+
+
+class FeedbackFormMetadataTests(unittest.TestCase):
+    def test_one_report_generates_node_title_without_losing_description(self):
+        from ui.dialog.feedback import feedback_metadata
+        content = '  ' + 'T' * 180 + '\nSteps and symptoms 🧪  '
+        title, description = feedback_metadata(content)
+        self.assertEqual(title, 'T' * 120)
+        self.assertEqual(description, content.strip())
+
+    def test_empty_oversized_and_utf8_limits_are_rejected(self):
+        from ui.dialog.feedback import feedback_metadata
+        for content in (' \t\n ', 'D' * 4001, '卡' * 3000):
+            with self.subTest(length=len(content)), self.assertRaises(ValueError):
+                feedback_metadata(content)

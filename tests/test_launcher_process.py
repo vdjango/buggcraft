@@ -140,6 +140,68 @@ class LauncherProcessTests(unittest.TestCase):
         self.assertNotIn('fixture-token', '\n'.join(output))
         self.assertIn('final child output', output)
 
+    def test_final_spawn_command_deduplicates_library_paths(self):
+        first = str(self.work / 'libraries' / 'gson.jar')
+        second = str(self.work / 'libraries' / 'other.jar')
+        repeated = os.pathsep.join((first, second, first))
+        original_command = self._command
+
+        def command_with_duplicate_libraries(version, directory, options):
+            return original_command(version, directory, options) + [
+                '-cp', repeated, '-p', repeated, '-DlegacyClassPath=' + repeated]
+
+        with patch.object(self, '_command', new=command_with_duplicate_libraries):
+            self._start()
+        arguments = json.loads(self.record.read_text(encoding='utf-8'))['args']
+        unique = os.pathsep.join((first, second))
+        self.assertEqual(arguments[arguments.index('-cp') + 1], unique)
+        self.assertEqual(arguments[arguments.index('-p') + 1], unique)
+        self.assertIn('-DlegacyClassPath=' + unique, arguments)
+
+    def test_imported_pack_repair_reports_download_progress_and_completion(self):
+        metadata = self.root / 'versions/fixture/fixture.json'
+        metadata.write_text(json.dumps({'id': 'fixture', 'javaVersion': {'majorVersion': 21},
+                                        'buggcraftModpack': {'name': 'fixture'}}), encoding='utf-8')
+        started, progress, finished = [], [], []
+        self.launcher.signals.game_file_preparation_started.connect(lambda: started.append(True))
+        self.launcher.signals.game_file_preparation_progress.connect(
+            lambda status, done, total: progress.append((status, done, total)))
+        self.launcher.signals.game_file_preparation_finished.connect(lambda: finished.append(True))
+
+        def repair(_directory, _version, callback, _source):
+            callback['setStatus']('Download Libraries')
+            callback['setMax'](3)
+            callback['setProgress'](1)
+            callback['fileEvent']({'name': 'gson.jar', 'state': 'downloading',
+                                   'done': 1048576, 'total': 2097152})
+            callback['setProgress'](3)
+
+        with patch('core.launch_preparation.prepare_standalone', side_effect=repair):
+            self._start()
+        self.assertEqual(started, [True])
+        self.assertIn(('正在检查并下载依赖库…', 1, 3), progress)
+        self.assertIn(('正在下载 gson.jar · 1.0 / 2.0 MiB', 1, 3), progress)
+        self.assertEqual(progress[-1], ('正在检查并下载依赖库…', 3, 3))
+        self.assertEqual(finished, [True])
+
+        with patch('core.launch_preparation.prepare_standalone', side_effect=RuntimeError('repair failed')):
+            with self.assertRaisesRegex(RuntimeError, 'repair failed'):
+                self._start()
+        self.assertEqual(started, [True, True])
+        self.assertEqual(finished, [True, True])
+
+    def test_standalone_loader_and_room_use_local_metadata_for_repair(self):
+        metadata = self.root / 'versions/fixture/fixture.json'
+        for extra in ({'clientVersion': '1.21.1'},
+                      {'buggcraftRoom': {'version': '1.21.1'}}):
+            with self.subTest(extra=extra):
+                metadata.write_text(json.dumps({'id': 'fixture',
+                    'javaVersion': {'majorVersion': 21}, **extra}), encoding='utf-8')
+                with patch('core.launch_preparation.prepare_standalone') as repair:
+                    self._start()
+                repair.assert_called_once()
+                self.assertEqual(repair.call_args.args[:2], (str(self.root), 'fixture'))
+
     def test_offline_launch_always_supplies_uuid_and_token_without_changing_online_identity(self):
         from core.launch_options import offline_uuid
         self.launcher.set_options(username='Fixture', uuid=None, token=None)

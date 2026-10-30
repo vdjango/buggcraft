@@ -17,11 +17,11 @@ if platform.system().lower() == "linux":
 
 IS_PACKAGED = getattr(sys, 'frozen', False) or '__compiled__' in globals()
 from utils.path_helper import get_launcher_directory
+from utils.storage_paths import initialize_storage
 APP_DIR = Path(__file__).resolve().parent if IS_PACKAGED else Path(sys.executable).resolve().parent
 BASE_DIR = get_launcher_directory() if IS_PACKAGED else Path.cwd()
-_default_log_dir = (Path.home() / 'Library/Logs/Buggcraft'
-                    if IS_PACKAGED and platform.system() == 'Darwin'
-                    else BASE_DIR)
+_storage_root = initialize_storage()
+_default_log_dir = _storage_root / 'logs'
 LOG_DIR = Path(os.environ.get('BUGGCRAFT_LOG_DIR') or _default_log_dir).resolve()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / 'buggcraft.log'
@@ -77,7 +77,7 @@ if IS_PACKAGED:
 
 if __name__ == '__main__' and '--package-check' in sys.argv:
     from qt_runtime import setup_qt_environment as configure_qt
-    if not configure_qt(APP_DIR, APP_DIR / '.buggcraft/dependencies', packaged=IS_PACKAGED):
+    if not configure_qt(APP_DIR, _storage_root / 'dependencies', packaged=IS_PACKAGED):
         raise SystemExit(1)
     from runtime_check import main as check_package
     raise SystemExit(check_package(sys.argv[sys.argv.index('--package-check') + 1]))
@@ -222,6 +222,10 @@ def initialize_application():
                       'resource_directory': str(RESOURCE_DIR),
                       'game_directory': str(launcher.launcher.minecraft_directory),
                       'launcher_directory': str(BASE_DIR),
+                      'storage_directory': str(_storage_root),
+                      'cache_directory': str(CACHE_DIR),
+                      'config_directory': str(CONFIG_DIR),
+                      'runtime_directory': str(APP_DIR),
                       'rendered': not snapshot.isNull(),
                       'imports_seconds': imports_seconds,
                       'window_seconds': window_seconds,

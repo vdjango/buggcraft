@@ -53,17 +53,17 @@ Rectangle {
         Surface {
             objectName: "node-code-expired-banner"
             Layout.fillWidth: true; Layout.preferredHeight: renewalRow.implicitHeight + 20
-            visible: !!vm.nodeAccessExpired
+            visible: !!vm.nodeAccessExpired && root.page !== "nodes"
             color: "#352736"; border.color: "#b38a71"
             RowLayout {
                 id: renewalRow
                 anchors.fill: parent; anchors.margins: 10; spacing: 10
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 3
-                    CopyText { text: vm.deviceManaged ? "节点账号需要重新登录" : "个人接入码已过期"; color: "#ffdcc0"; font.bold: true; font.pixelSize: 13 }
-                    CopyText { Layout.fillWidth: true; text: vm.deviceManaged ? "使用原节点地址，在浏览器重新登录并授权此设备即可恢复。" : "在原节点网页登录并领取新码，替换后即可恢复好友和房间功能。"; font.pixelSize: 11; color: "#e4cad8" }
+                    CopyText { text: "节点账号需要重新登录"; color: "#ffdcc0"; font.bold: true; font.pixelSize: 13 }
+                    CopyText { Layout.fillWidth: true; text: "使用原节点地址，在浏览器重新登录并授权此设备即可恢复。"; font.pixelSize: 11; color: "#e4cad8" }
                 }
-                ActionButton { objectName: "replace-expired-node-code"; text: vm.deviceManaged ? "重新登录" : "更换接入码"; primary: true; implicitHeight: 30; onClicked: lobby.act("replaceNodeCode", {}) }
+                ActionButton { objectName: "replace-expired-node-code"; text: "重新登录"; primary: true; implicitHeight: 30; onClicked: lobby.act("reloginNode", {}) }
             }
         }
         Loader {
@@ -81,7 +81,7 @@ Rectangle {
         width: Math.min(root.width - 48, 540); height: Math.max(38, statusText.implicitHeight + 16)
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.height - height - 18
-        visible: !vm.invitePrompt && (vm.error.length > 0 || vm.notice.length > 0)
+        visible: root.page !== "nodes" && !vm.invitePrompt && (vm.error.length > 0 || vm.notice.length > 0)
         color: vm.error.length > 0 ? "#452830" : "#342943"
         border.color: vm.error.length > 0 ? "#925766" : "#625482"
         RowLayout {

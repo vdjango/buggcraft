@@ -115,7 +115,7 @@ class MoveCheck {
     def test_installs_real_files_from_sidecar_and_works_offline_from_verified_cache(self):
         self.compile()
         installed = self.run_installer()
-        log = (self.root / 'Buggcraft-install.log').read_text(encoding='utf-8')
+        log = (self.root / '.buggcraft/logs/Buggcraft-install.log').read_text(encoding='utf-8')
         self.assertIn('OS_64bit=', log)
         self.assertIn('CPU_count=', log)
         self.assertIn('installer started', log)
@@ -144,7 +144,7 @@ class MoveCheck {
         run = self.launch_installer([str(self.root / 'Buggcraft-Setup.exe'), '--headless', '--no-launch',
                               '--report', str(report)], cwd=working, timeout=20, capture_output=True)
         self.assertEqual(run.returncode, 0, report.read_text('utf-8-sig'))
-        installed = self.root / 'Buggcraft-runtime' / self.manifest['version']
+        installed = self.root / '.buggcraft/runtime' / self.manifest['version']
         self.assertEqual((installed / 'Buggcraft.exe').read_bytes(),
                          (self.runtime / 'Buggcraft.exe').read_bytes())
         self.assertFalse((working / 'Buggcraft-runtime').exists())
@@ -289,14 +289,15 @@ class Child { static int Main() {
             cwd=unrelated, timeout=20, capture_output=True)
         self.assertEqual(run.returncode, 1, report.read_text('utf-8-sig'))
         self.assertIn('failed:', report.read_text('utf-8-sig'))
+        logs = self.root / '.buggcraft/logs'
         self.assertIn('exit_code=37 (0x00000025)',
-            (self.root / 'Buggcraft-install.log').read_text(encoding='utf-8'))
+            (logs / 'Buggcraft-install.log').read_text(encoding='utf-8'))
         self.assertIn('simulated native initialization failure',
-            (self.root / 'buggcraft-native.log').read_text(encoding='utf-8'))
-        self.assertEqual((self.root / 'buggcraft-child-test.log').read_text(), 'child diagnostic preserved')
-        self.assertEqual(Path((self.root / 'game-directory-test.txt').read_text(encoding='utf-8-sig')).resolve(), self.root.resolve())
+            (logs / 'buggcraft-native.log').read_text(encoding='utf-8'))
+        self.assertEqual((logs / 'buggcraft-child-test.log').read_text(), 'child diagnostic preserved')
+        self.assertEqual(Path((logs / 'game-directory-test.txt').read_text(encoding='utf-8-sig')).resolve(), self.root.resolve())
         self.assertFalse((unrelated / 'Buggcraft-install.log').exists())
-        archived = self.root / 'error/37'
+        archived = logs / 'error/37'
         self.assertIn('exit_code=37 (0x00000025)',
                       (archived / 'Buggcraft-install.log').read_text(encoding='utf-8'))
         self.assertIn('simulated native initialization failure',
@@ -316,7 +317,9 @@ class Child { static int Main() {
             target = self.runtime / sidecar.relative_to(child.parent)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(sidecar, target)
-        (self.root / 'buggcraft.log').write_text('retained application diagnostic', encoding='utf-8')
+        logs = self.root / '.buggcraft/logs'
+        logs.mkdir(parents=True)
+        (logs / 'buggcraft.log').write_text('retained application diagnostic', encoding='utf-8')
         self.manifest, self.manifest_path = build.package_runtime(self.runtime, self.root, [])
         self.manifest['entrypoint'] = 'where.exe'
         self.manifest_path.write_text(json.dumps(self.manifest), encoding='utf-8')
@@ -326,7 +329,7 @@ class Child { static int Main() {
                               '--runtime-root', str(self.cache), '--report', str(report)],
                              cwd=self.root, timeout=20, capture_output=True)
         self.assertEqual(run.returncode, 1, report.read_text('utf-8-sig'))
-        archived = self.root / 'error/2'
+        archived = logs / 'error/2'
         self.assertIn('exit_code=2 (0x00000002)',
                       (archived / 'Buggcraft-install.log').read_text(encoding='utf-8'))
         output = (archived / 'buggcraft-native.log').read_text(encoding='utf-8')

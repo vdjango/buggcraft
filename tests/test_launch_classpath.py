@@ -58,6 +58,20 @@ class LaunchClasspathTests(unittest.TestCase):
         self.assertEqual(deduplicate_classpath(command),
                          ['java', None, '--class-path=first.jar', 'Main'])
 
+    def test_final_command_deduplicates_module_path_and_legacy_classpath(self):
+        first = str(Path('game') / 'libraries' / 'gson.jar')
+        alternate = str(Path('game') / 'libraries' / 'other.jar')
+        repeated = os.pathsep.join((first, alternate, first))
+        command = ['java', '-cp', repeated, '-p', repeated,
+                   '--module-path=' + repeated, '-DlegacyClassPath=' + repeated, 'Main']
+        fixed = deduplicate_classpath(command)
+        unique = os.pathsep.join((first, alternate))
+        self.assertEqual(fixed[fixed.index('-cp') + 1], unique)
+        self.assertEqual(fixed[fixed.index('-p') + 1], unique)
+        self.assertIn('--module-path=' + unique, fixed)
+        self.assertIn('-DlegacyClassPath=' + unique, fixed)
+        self.assertEqual(command[2], repeated)
+
 
 if __name__ == '__main__':
     unittest.main()

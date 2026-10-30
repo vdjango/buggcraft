@@ -90,6 +90,53 @@ class NativeEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await endpoint.mod_manifest(), [{'name': 'a.jar'}, {'name': 'b.jar'}])
         self.assertEqual(endpoint._routes.request.await_args.args[0], 'mods.cancel')
 
+    async def test_manifest_forward_failure_uses_only_a_complete_verified_room_preview(self):
+        from hookup.modpack import manifest_hash
+        item = {'name': 'example.jar', 'size': 3, 'sha256': 'a' * 64}
+        endpoint = TunnelClient(self.profile(), RoomInvite.create())
+        endpoint.session = 'session'
+        endpoint._routes = SimpleNamespace(request=AsyncMock(side_effect=ConnectionError('Mod forwarding unavailable')))
+        endpoint.room_info = {'game': {'mods_count': 1, 'mods_hash': manifest_hash([item]), 'mods': [item]}}
+        with patch('hookup.native_transport.asyncio.sleep', new=AsyncMock()):
+            self.assertEqual(await endpoint.mod_manifest(), [item])
+        self.assertEqual(endpoint._routes.request.await_count, 2)
+        endpoint.room_info['game']['mods_count'] = 2
+        with patch('hookup.native_transport.asyncio.sleep', new=AsyncMock()):
+            with self.assertRaisesRegex(ConnectionError, '请房主重新创建房间') as error:
+                await endpoint.mod_manifest()
+        self.assertNotIn('Mod forwarding unavailable', str(error.exception))
+
+    async def test_mod_downloads_respect_native_transfer_limit_and_retry_busy_host(self):
+        endpoint = TunnelClient(self.profile(), RoomInvite.create())
+        endpoint.session = 'session'
+        endpoint._transport = 'p2p'
+        active = peak = 0
+        serial = 0
+        async def request(method, _params):
+            nonlocal active, peak, serial
+            if method == 'mods.fetch':
+                serial += 1
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(.01)
+                return {'transfer': str(serial), 'state': 'complete'}
+            self.assertEqual(method, 'mods.cancel')
+            await asyncio.sleep(.01)
+            active -= 1
+            return {'cancelled': True}
+        endpoint._routes = SimpleNamespace(request=AsyncMock(side_effect=request))
+        await asyncio.gather(*(endpoint.download_mod({'name': str(i) + '.jar'}, str(i), None,
+                                                     lambda *_: None) for i in range(36)))
+        self.assertEqual(active, 0)
+        self.assertEqual(peak, 12)
+
+        endpoint._routes.request = AsyncMock(side_effect=[
+            ConnectionError('Mod transfer limit reached'),
+            {'transfer': 'done', 'state': 'complete'}, {'cancelled': True}])
+        with patch('hookup.native_transport.asyncio.sleep', new=AsyncMock()):
+            await endpoint.download_mod({'name': 'later.jar'}, 'later.jar', None, lambda *_: None)
+        self.assertEqual(endpoint._routes.request.await_count, 3)
+
     async def test_process_loss_is_reported_and_does_not_fake_a_reconnect(self):
         routes = SimpleNamespace(handle=AsyncMock(return_value='node'), request=AsyncMock(side_effect=[
             {'session': 'native-session', 'address': '127.0.0.1:12345'}, ConnectionError('gone')]))

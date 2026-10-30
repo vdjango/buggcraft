@@ -26,7 +26,7 @@ Surface {
                 Shared.AttentionFrame { objectName: "room-public-guide-glow"; active: header.roomView.showPublicGuide }
             }
             ActionButton {
-                objectName: "room-submit-diagnostics"; text: "提交诊断"; quiet: true; implicitHeight: 28
+            objectName: "room-submit-diagnostics"; text: "反馈问题"; quiet: true; implicitHeight: 28
                 enabled: !!lobby.view.socialReady && !lobby.view.busy
                 Accessible.name: "提交当前房间的联机诊断"
                 onClicked: lobby.act("submitDiagnostics", {})

@@ -107,6 +107,8 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
 
         self._patch(patch.object(downloads.MinecraftDownloader, 'urls', REAL_DOWNLOAD_URLS))
         self._patch(patch.object(downloads._DownloadSession, 'get', get))
+        self._patch(patch('core.content_routes.resolve_download_urls',
+                          side_effect=lambda addresses, *args, **kwargs: addresses))
         # Deterministic probe results exercise the real ranking policy. They
         # make no claim about current public MCIM/CDN throughput.
         downloads._CONTENT_ROUTE_CACHE.clear()
@@ -238,7 +240,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
         self._patch(patch('core.content.ContentCatalogue.project',
                           lambda _client, *args, **kwargs: catalogue.project(*args, **kwargs)))
         folders = dict(mod='mods', resourcepack='resourcepacks', shader='shaderpacks')
-        for index, source in enumerate(('自动测速', 'MCIM', '官方')):
+        for index, source in enumerate(('自动测速', 'CurseForge', 'Modrinth', 'MCIM')):
             for kind in self.KINDS[1:]:
                 with self.subTest(source=source, kind=kind):
                     general = self.settings_tab(0)
@@ -265,6 +267,9 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                     task = self.finished_task()
                     self.check(task['content_source'] == source,
                                'content download worker receives selected transport policy')
+                    if source in ('CurseForge', 'Modrinth'):
+                        self.check(any('模组与整合包=' + source in row for row in task['logs']),
+                                   'publisher downloads use the English publisher name')
                     if kind in folders:
                         self.check(destination.read_bytes() == self.fixtures.payloads[filename],
                                    'download verifies and publishes the selected content file')
@@ -279,9 +284,11 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                                'source selection is followed by actual HTTP content transfer')
                     content_hosts = [row['host'] for row in requests if row['file'] == filename]
                     self.check(bool(content_hosts), 'the selected archive is downloaded through the production router')
-                    self.check(content_hosts[0] == (urlsplit(downloads.CONTENT_MIRROR).hostname
-                               if source == 'MCIM' else 'cdn.modrinth.com'),
-                               'actual content HTTP host follows the source and measured ranking: ' + repr(content_hosts))
+                    self.check(content_hosts[0] in ('cdn.modrinth.com', 'mod.mcimirror.top'),
+                               'automatic content uses a trusted route: ' + repr(content_hosts))
+                    if source in ('CurseForge', 'Modrinth'):
+                        self.check(content_hosts[0] == 'cdn.modrinth.com',
+                                   'publisher preference uses a matching publisher or available original: ' + repr(content_hosts))
         self.screenshot_ui('settings-content-source-downloads')
         self.assert_no_qml_errors()
         self.finish_test()
@@ -313,25 +320,45 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
         self.assert_no_qml_errors()
         self.finish_test()
 
-    def test_cache_path_disabled_and_language_cancel_and_save(self):
+    def test_portable_cache_path_and_language_cancel_and_save(self):
         general = self.settings_tab(0)
         group = self.scroll_control(general, 'setting-group-cache')
         self.check(str(self.manager.config_path) in group.property('summary'), 'actual cache path is displayed')
-        self.check('尚未接入' in self.item(general, 'setting-description-cache').property('text'),
-                   'cache migration explains its unavailable implementation')
+        self.check('下次启动' in self.item(general, 'setting-description-cache').property('text'),
+                   'cache migration explains when it takes effect')
         before = self.manager.get_setting('settings.general.download.cache')
-        for index in range(3):
+        for index in range(2):
             item = self.scroll_control(general, 'setting-option-cache-' + str(index))
-            self.check(not item.isEnabled(), 'cache choice is disabled: ' + str(index))
-            self.click_ui(general, 'setting-option-cache-' + str(index))
+            self.check(item.isEnabled(), 'portable cache choice is available: ' + str(index))
+        with patch('ui.pages.qml_settings.QFileDialog.getExistingDirectory', return_value=''):
+            self.click_ui(general, 'setting-option-cache-1')
         self.check(self.manager.get_setting('settings.general.download.cache') == before,
-                   'disabled cache controls cannot change the saved path')
+                   'cancelling the directory picker leaves storage unchanged')
         original = self.manager.get_setting('game.language')
         self.choose_box(general, 'setting-select-game-language', 3, commit=False)
         self.check(self.manager.get_setting('game.language') == original, 'Escape does not commit language')
         self.choose_box(general, 'setting-select-game-language', 3)
         self.check(self.persisted().get_setting('game.language') == 'en_us', 'language commits to disk')
         self.screenshot_ui('settings-cache-and-language')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_cache_picker_schedules_migration_and_keeps_live_game_and_settings_paths(self):
+        from utils import storage_paths
+        general = self.settings_tab(0)
+        target = self.directory / 'portable-data'
+        game = self.manager.get_setting('minecraft.directory.enable')
+        with patch.object(storage_paths, 'get_launcher_directory', return_value=self.directory), \
+                patch('utils.path_helper.get_launcher_directory', return_value=self.directory):
+            (self.directory / storage_paths.LOCATION).write_text('config\n', encoding='utf-8')
+            with patch('ui.pages.qml_settings.QFileDialog.getExistingDirectory', return_value=str(target)):
+                self.setting_click(general, 'setting-option-cache-1')
+            self.check(storage_paths.pending_storage() == target, 'visible cache choice creates a portable migration request')
+            self.check(Path(self.manager.config_path) == self.directory / 'config', 'live configuration stays in its original directory')
+            self.check(self.manager.get_setting('minecraft.directory.enable') == game, 'launcher cache choice does not change Minecraft directory')
+            self.check('下次启动将迁移到' in self.item(general, 'setting-description-cache').property('text'),
+                       'settings explain pending migration and its activation time')
+            self.screenshot_ui('settings-cache-migration-pending')
         self.assert_no_qml_errors()
         self.finish_test()
 

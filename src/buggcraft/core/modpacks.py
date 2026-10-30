@@ -60,7 +60,7 @@ def suggested_name(archive):
 _EXPORT_IGNORED_DIRECTORIES = {
     '.buggcraft-downloads', 'logs', 'crash-reports', 'screenshots', 'natives',
 }
-_BUGGCRAFT_RESOURCE_DIRECTORIES = {'mods', 'resourcepacks', 'shaderpacks'}
+_BUGGCRAFT_EXTERNAL_DIRECTORIES = {'mods', 'resourcepacks', 'shaderpacks'}
 _BUGGCRAFT_DOWNLOAD_HOSTS = {
     'cdn.modrinth.com', 'github.com', 'raw.githubusercontent.com', 'gitlab.com',
     'edge.forgecdn.net', 'mediafilez.forgecdn.net',
@@ -88,8 +88,11 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
     """Export an installed instance as the launcher's portable ``.buggpack``.
 
     Store a versioned manifest and portable files under ``files/``. Compact
-    packages reference known, unchanged downloadable content; standard packages
-    embed all portable content. Minecraft and its loader are installed on import.
+    packages reference mods found by exact file hash on Modrinth or CurseForge
+    only when their public CDN URL is currently reachable. Unavailable mods
+    stay embedded. Other recorded resources can remain external. Standard
+    packages embed all portable content. Minecraft and its loader are installed
+    on import.
     """
     def check():
         if cancel is not None and cancel.is_set():
@@ -213,7 +216,10 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                     continue
                 safe_path(relative.as_posix())
                 portable.append((source, relative, source.stat().st_size))
-            total = sum(size * 2 for _, _, size in portable)
+            mod_hash_work = sum(size for _, relative, size in portable
+                                if mode == 'compact' and relative.parts[0].casefold() == 'mods')
+            query_work = max(1, mod_hash_work // 2) if mod_hash_work else 0
+            total = sum(size * 2 for _, _, size in portable) + mod_hash_work + query_work
             done, last_report = 0, 0.
 
             def report(label, amount=0, force=False):
@@ -223,6 +229,31 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                 if progress and (force or now - last_report >= .08):
                     progress(label, done, total)
                     last_report = now
+
+            mod_downloads = {}
+            if mode == 'compact':
+                mods = []
+                for source, relative, size in portable:
+                    if relative.parts[0].casefold() != 'mods':
+                        continue
+                    report('正在计算模组哈希 ' + relative.name, force=True)
+                    digest = hashlib.sha1()
+                    with source.open('rb') as input_stream:
+                        for chunk in iter(lambda: input_stream.read(1024 * 1024), b''):
+                            check()
+                            digest.update(chunk)
+                            report('正在计算模组哈希 ' + relative.name, len(chunk))
+                    mods.append({'source': source, 'path': relative.as_posix(),
+                                 'sha1': digest.hexdigest(), 'size': size})
+                if mods:
+                    report('正在查询 Modrinth 和 CurseForge 模组来源…', force=True)
+                    from core.modpack_sources import find_public_mod_downloads
+                    lookup_start = done
+                    def lookup_progress(label, completed, count):
+                        target = lookup_start + query_work * completed // max(count, 1)
+                        report(label, max(0, target - done), force=True)
+                    mod_downloads = find_public_mod_downloads(mods, cancel, progress=lookup_progress)
+                    report('模组来源检查完成', max(0, lookup_start + query_work - done), force=True)
 
             for source, relative, size in portable:
                 check()
@@ -238,13 +269,19 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                 relative_name = relative.as_posix()
                 size = source.stat().st_size
                 record = resource_records.get(relative_name.casefold())
-                downloads = _valid_download_urls(record.get('downloads')) if isinstance(record, dict) else []
-                external = (mode == 'compact'
-                            and relative.parts[0].casefold() in _BUGGCRAFT_RESOURCE_DIRECTORIES
-                            and downloads and isinstance(record, dict) and record.get('size') == size
-                            and (record.get('sha1') or record.get('sha256'))
-                            and (not record.get('sha1') or str(record.get('sha1')).lower() == sha1.hexdigest())
-                            and (not record.get('sha256') or str(record.get('sha256')).lower() == digest.hexdigest()))
+                if relative.parts[0].casefold() == 'mods':
+                    public = mod_downloads.get(relative_name)
+                    downloads = public['downloads'] if (public and public['size'] == size
+                                and public['sha1'] == sha1.hexdigest()) else []
+                    external = mode == 'compact' and bool(downloads)
+                else:
+                    downloads = _valid_download_urls(record.get('downloads')) if isinstance(record, dict) else []
+                    external = (mode == 'compact'
+                                and relative.parts[0].casefold() in _BUGGCRAFT_EXTERNAL_DIRECTORIES
+                                and downloads and isinstance(record, dict) and record.get('size') == size
+                                and (record.get('sha1') or record.get('sha256'))
+                                and (not record.get('sha1') or str(record.get('sha1')).lower() == sha1.hexdigest())
+                                and (not record.get('sha256') or str(record.get('sha256')).lower() == digest.hexdigest()))
                 entry = {'path': relative_name, 'size': size, 'sha256': digest.hexdigest(),
                          'sha1': sha1.hexdigest(), 'embedded': not external}
                 if external:
@@ -491,7 +528,7 @@ def inspect_pack(path):
 
 
 class CurseForgeClient(CurseForgeAPI):
-    def resolve(self, refs):
+    def resolve(self, refs, *, unavailable=None):
         self.fallback_urls = {}
         projects, files = {}, {}
         project_ids = list(dict.fromkeys(project for project, file in refs))
@@ -509,6 +546,11 @@ class CurseForgeClient(CurseForgeAPI):
         for project_id, file_id in refs:
             project, item = projects.get(project_id, {}), files.get(file_id, {})
             link = f'https://www.curseforge.com/minecraft/mc-mods/{project_id}/files/{file_id}'
+            if not item and project.get('classId') == 6 and unavailable is not None:
+                unavailable.append(dict(name=project.get('name') or f'CurseForge 模组 {project_id}',
+                    projectId=project_id, fileId=file_id,
+                    reason='模组未发布或已下架，未找到整合包指定的版本。'))
+                continue
             if item.get('modId') != project_id:
                 raise ValueError(f'CurseForge 文件缺失或项目不匹配（项目 {project_id}，文件 {file_id}）：{link}')
             folder = {6: 'mods', 12: 'resourcepacks', 6552: 'shaderpacks'}.get(project.get('classId'))
@@ -521,6 +563,10 @@ class CurseForgeClient(CurseForgeAPI):
             if relative.casefold() in names:
                 raise ValueError(f'整合包包含重名下载文件：{name}')
             names.add(relative.casefold())
+            if folder == 'mods' and item.get('isEarlyAccessContent') and unavailable is not None:
+                unavailable.append(dict(path=relative, name=name, projectId=project_id, fileId=file_id,
+                    reason='这个模组版本尚未公开发布，暂时无法下载。'))
+                continue
             url = download_url(item)
             sha1 = next((entry.get('value') for entry in item.get('hashes', []) if entry.get('algo') == 1), '')
             if not re.fullmatch('[0-9a-fA-F]{40}', sha1) or type(item.get('fileLength')) is not int or item['fileLength'] <= 0:
@@ -535,15 +581,19 @@ class CurseForgeClient(CurseForgeAPI):
 
 class ModpackImporter:
     def __init__(self, directory, source='自动', java=None, cancel=None, status=None, progress=None, api_key=None,
-                 content_source=None, file_event=None):
+                 content_source=None, file_event=None, unavailable_mods=None):
         self.root = Path(directory).resolve()
         self.source, self.java = source, java
-        self.content_source = content_source
+        self.content_source = content_source or '自动测速'
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda value: None)
         self.progress = progress or (lambda done, total: None)
         self.file_event = file_event
-        self.client = CurseForgeClient(api_key, self.cancel, mirror=content_source or '官方')
+        self.unavailable_mods = unavailable_mods
+        self.skipped_mods = []
+        self._skipped_paths = set()
+        self._metadata_missing_mods = []
+        self.client = CurseForgeClient(api_key, self.cancel, mirror=self.content_source)
 
     def check(self):
         if self.cancel.is_set():
@@ -555,6 +605,9 @@ class ModpackImporter:
                                  archive_identified=archive_identified)
 
     def _install(self, archive_path, identity, *, expected_archive_sha256=None, archive_identified=None):
+        self.skipped_mods = []
+        self._skipped_paths = set()
+        self._metadata_missing_mods = []
         instance_name(identity)
         info = inspect_pack(archive_path)
         target = disk_path(self.root / 'versions' / identity)
@@ -585,9 +638,13 @@ class ModpackImporter:
             jobs = [(item['downloads'][0], item['path'], item['hashes']['sha1'], item['fileSize'])
                     for item in info.files if not item.get('embedded', True)]
         else:
-            jobs = self.client.resolve(info.files) if info.files else []
+            if info.files and self.unavailable_mods is not None:
+                jobs = self.client.resolve(info.files, unavailable=self._metadata_missing_mods)
+            else:
+                jobs = self.client.resolve(info.files) if info.files else []
         self.check()
-        cache = self.root / '.buggcraft-downloads' / 'modpacks' / archive_hash
+        from utils.storage_paths import game_cache
+        cache = disk_path(game_cache(self.root) / 'modpacks' / archive_hash)
         cache.mkdir(parents=True, exist_ok=True)
         downloading = threading.Event()
         downloading.set()
@@ -600,9 +657,12 @@ class ModpackImporter:
                 if not downloading.is_set():
                     self.progress(done, total)
 
-        downloader = MinecraftDownloader(cache / 'files', source=self.source, cancel=self.cancel,
-                                         status=self.status, progress=report_download, file_event=self.file_event)
+        from core.modpack_missing import PackResourceDownloader
+        downloader = PackResourceDownloader(cache / 'files', source=self.source, cancel=self.cancel,
+                                         status=self.status, progress=report_download, file_event=self.file_event,
+                                         retries=6, allow_missing_mods=self.unavailable_mods is not None)
         downloader.content_source = self.content_source
+        downloader.resolve_content_sources = True
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         if info.source in ('Modrinth', 'Buggcraft'):
@@ -623,9 +683,30 @@ class ModpackImporter:
                 self.cancel.set()
                 raise
 
+    def _approve_missing_mods(self, downloader):
+        missing = self._metadata_missing_mods + downloader.missing_mods
+        if not missing or self.skipped_mods:
+            return
+        self.check()
+        if self.unavailable_mods is None or self.unavailable_mods([dict(item) for item in missing]) is not True:
+            self.cancel.set()
+            raise DownloadCancelled('已停止整合包导入，已下载文件会在重试时复用。')
+        self.check()
+        self.skipped_mods = [dict(item) for item in missing]
+        self._skipped_paths = {item['path'] for item in missing if item.get('path')}
+        for item in self.skipped_mods:
+            if item.get('path'):
+                downloader._file_event(item['path'], 'skipped', error='已确认跳过；联机前请按房主实际使用情况补齐。')
+            self.status('已跳过模组：' + item['name'])
+
+    def _is_skipped(self, path):
+        return path in self._skipped_paths
+
     def _verify_external_files(self, info, downloader):
         if info.source in ('Modrinth', 'Buggcraft'):
             for item in info.files:
+                if self._is_skipped(item['path']):
+                    continue
                 if info.source == 'Buggcraft' and item.get('embedded', True):
                     continue
                 self.check()
@@ -644,7 +725,7 @@ class ModpackImporter:
     def _install_vanilla(self, version):
         MinecraftDownloader(self.root, source=self.source, cancel=self.cancel,
                             status=self.status, progress=self.progress,
-                            file_event=self.file_event).install(version)
+                            file_event=self.file_event, retries=6).install(version)
 
     def _resource_records(self, info, jobs, downloader):
         """Persist verified download metadata for a later compact export."""
@@ -714,8 +795,15 @@ class ModpackImporter:
         if info.source in ('Modrinth', 'Buggcraft'):
             with ThreadPoolExecutor(max_workers=1, thread_name_prefix='pack-vanilla') as pool:
                 vanilla = pool.submit(copy_context().run, self._install_vanilla, info.minecraft)
+                def show_pending_resources(completed):
+                    if completed.exception() is None and not future.done() and not self.cancel.is_set():
+                        downloading.clear()
+                        self.status('[3/5] 正在等待整合包模组和资源下载完成…')
+                        self.progress(*download_progress)
+                vanilla.add_done_callback(show_pending_resources)
                 try:
                     future.result()
+                    self._approve_missing_mods(downloader)
                     self._verify_external_files(info, downloader)
                     self.check()
                     vanilla.result()
@@ -723,11 +811,18 @@ class ModpackImporter:
                     self.cancel.set()
                     raise
         if info.loader:
+            from core.loaders import loader_instance_id
+            # Keep the pack's final directory separate from installer output,
+            # even when an existing instance already uses the standard name.
+            loader_identity = loader_instance_id(info.loader, info.minecraft, info.loader_version)
+            if (self.root / 'versions' / loader_identity).exists() or loader_identity.casefold() == identity.casefold():
+                loader_identity = loader_identity[:75] + '-pack-' + hashlib.sha256(identity.encode()).hexdigest()[:12]
             installed = install_loader(info.loader, info.minecraft, info.loader_version, str(self.root), self.java,
                 {'setStatus': lambda value: self.status('[3/5] ' + str(value)),
                  'setProgress': lambda done: self.progress(done, -1),
                  'setMax': lambda total: self.progress(-1, total),
-                 'fileEvent': self.file_event}, self.cancel, source=self.source)
+                 'fileEvent': self.file_event, 'downloadRetries': 6}, self.cancel, source=self.source,
+                 target_identity=loader_identity, before_versions=before_versions)
         else:
             if info.source not in ('Modrinth', 'Buggcraft'):
                 self._install_vanilla(info.minecraft)
@@ -740,12 +835,15 @@ class ModpackImporter:
             self.status('[3/5] 正在等待整合包模组和资源下载完成…')
             self.progress(*download_progress)
         future.result()
+        self._approve_missing_mods(downloader)
         if info.source not in ('Modrinth', 'Buggcraft'):
             self._verify_external_files(info, downloader)
         self.check()
         stage = disk_path(tempfile.mkdtemp(prefix='instance-', dir=cache))
         try:
             for url, relative, sha1, size in jobs:
+                if self._is_skipped(relative):
+                    continue
                 self.check()
                 destination = stage / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -823,7 +921,10 @@ class ModpackImporter:
             metadata['buggcraftModpack'] = {'name': info.name, 'version': info.version, 'minecraft': info.minecraft,
                                             'loader': info.loader, 'loaderVersion': info.loader_version,
                                             'archiveSha256': archive_hash, 'recommendedRam': info.recommended_ram,
-                                            'source': info.source, 'resources': resources}
+                                            'source': info.source,
+                                            'resources': [item for item in resources if not self._is_skipped(item['path'])]}
+            if self.skipped_mods:
+                metadata['buggcraftModpack']['skippedMods'] = self.skipped_mods
             # Display metadata is optional for aliases. Include it when available
             # for compatibility with other launchers, without inventing dates.
             for key in ('type', 'time', 'releaseTime'):
@@ -845,7 +946,8 @@ class ModpackImporter:
                 if target.exists():
                     raise ValueError('实例名称已被占用，请换名重试')
                 try:
-                    stage.rename(target)
+                    from utils.storage_paths import publish_directory
+                    publish_directory(stage, target)
                     break
                 except PermissionError:
                     if attempt == 30:
@@ -857,8 +959,11 @@ class ModpackImporter:
             # The loader installation may have created one vanilla and one
             # loader directory. Remove only those created by this transaction,
             # and retain any that another installed version still inherits.
-            self._remove_unused_intermediates(target, before_versions, chain)
-            self.status('整合包导入完成')
+            cleanup_chain = list(chain)
+            if info.minecraft not in {name for name, _ in cleanup_chain}:
+                cleanup_chain.append((info.minecraft, {}))
+            self._remove_unused_intermediates(target, before_versions, cleanup_chain)
+            self.status('整合包导入完成' + (f'，已跳过 {len(self.skipped_mods)} 个模组' if self.skipped_mods else ''))
             return identity
         finally:
             if stage.exists():

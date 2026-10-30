@@ -117,4 +117,4 @@ class LoaderCatalogueRegressionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '重新加载') as raised:
                 loaders.available_versions('NeoForge', '1.21.8', '官方')
         self.assertNotIn('<html>', str(raised.exception))
-        response.close.assert_called_once()
+        self.assertEqual(response.close.call_count, 3)

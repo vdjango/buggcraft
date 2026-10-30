@@ -56,6 +56,50 @@ class FriendEntryUiTests(LauncherQmlCase):
             view.close()
             view.deleteLater()
 
+    def test_login_start_opens_browser_then_waits_for_authorization(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        self.backend.act('loginOfficialDevice', {'origin': 'community.example', 'remember': True})
+        self.assertEqual(self.backend.view['deviceLoginStage'], 'preparing')
+        self.assertTrue(self.backend.view['deviceLoginBusy'])
+        generation = self.backend.device_login_generation
+        result = {'verification_uri': 'https://community.example/account/access?launcher=device-id'}
+        with patch('ui.multiplayer_controller.webbrowser.open', return_value=True) as opened:
+            self.backend.finish('device-login-start:' + generation,
+                                (result, ec.generate_private_key(ec.SECP256R1())), None)
+        opened.assert_called_once_with(result['verification_uri'])
+        self.assertEqual(self.backend.view['deviceLoginStage'], 'waiting')
+        self.assertTrue(self.backend.device_login_timer.isActive())
+        self.assertIn('已打开默认浏览器', self.backend.view['deviceLoginMessage'])
+        self.backend.act('cancelDeviceLogin', {})
+        self.assertFalse(self.backend.device_login_timer.isActive())
+        self.assertFalse(self.backend.view['deviceLoginBusy'])
+
+    def test_login_browser_failure_keeps_copy_link_available(self):
+        self.backend.device_login = ({}, None, 'generation')
+        self.backend.patch(deviceLoginBusy=True, deviceLoginStage='waiting',
+                           deviceLoginUrl='https://community.example/account/access?launcher=device-id')
+        with patch('ui.multiplayer_controller.webbrowser.open', side_effect=OSError), \
+             patch('ui.multiplayer_controller.QDesktopServices.openUrl', side_effect=RuntimeError):
+            self.backend.open_device_browser()
+        self.assertIn('复制登录链接', self.backend.view['deviceLoginMessage'])
+        self.assertTrue(self.backend.view['deviceLoginUrl'])
+        self.backend.act('cancelDeviceLogin', {})
+
+    def test_failed_or_canceled_login_start_never_opens_browser(self):
+        self.backend.act('loginOfficialDevice', {'origin': 'node.example'})
+        key = 'device-login-start:' + self.backend.device_login_generation
+        with patch('ui.multiplayer_controller.webbrowser.open') as opened:
+            self.backend.finish(key, None, '节点代理拒绝了启动器请求（HTTP 403）')
+            self.assertFalse(self.backend.view['deviceLoginBusy'])
+            self.assertIn('HTTP 403', self.backend.view['deviceLoginMessage'])
+            self.backend.act('loginOfficialDevice', {'origin': 'node.example'})
+            key = 'device-login-start:' + self.backend.device_login_generation
+            self.backend.act('cancelDeviceLogin', {})
+            self.backend.finish(key, ({'verification_uri': 'https://node.example'}, None), None)
+            opened.assert_not_called()
+        self.assertEqual(self.backend.view['deviceLoginStage'], 'idle')
+
     def fail_refresh(self):
         key = 'socialstatus:' + self.backend.social_generation + ':' + self.backend.node_path
         self.backend.finish(key, None, 'SSH authentication rejected / timeout fixture')
@@ -121,7 +165,7 @@ class FriendEntryUiTests(LauncherQmlCase):
         state['networkProfile'] = network
         state['friends'][0]['network_profile'] = network
         self.backend.apply_social_state(state)
-        self.backend.patch(playerNetworkProfile=network, playerNetworkProfileReady=True)
+        self.backend.patch(playerNetworkProfile=network, playerNetworkTypeReady=True, playerNetworkProfileReady=True)
         self.pump()
         friends = self.open_friends()
         self.assertIn('你的网络类型：较容易直连', self.item(friends, 'my-network-type').property('text'))
@@ -138,6 +182,26 @@ class FriendEntryUiTests(LauncherQmlCase):
             self.assertNotRegex(text, r'实测|IPv[46]|UDP')
         self.assert_no_qml_errors()
 
+    def test_network_type_appears_before_history_scan_finishes(self):
+        self.backend.patch(page='hall')
+        self.backend.player_network_profile_task = True
+        self.backend.update_network_type(self.backend.generation, 'direct_easier')
+        self.pump()
+        label = self.item(self.dialog, 'hall-network-type')
+        self.assertIn('较容易直连', label.property('text'))
+        self.assertNotIn('正在判断', label.property('text'))
+        self.assertIn('正在读取近7天联机记录', label.property('text'))
+        self.assertFalse(self.backend.view['playerNetworkProfileReady'])
+        self.assertTrue(self.backend.player_network_profile_task)
+
+        profile = dict(type='direct_easier', direct_successes=2, relay_successes=0)
+        self.backend.finish('network-profile:' + self.backend.generation, profile, None)
+        self.pump()
+        self.assertFalse(self.backend.player_network_profile_task)
+        self.assertIn('较容易直连', label.property('text'))
+        self.assertIn('直连成功 2 次', label.property('text'))
+        self.assert_no_qml_errors()
+
     def test_expired_personal_account_entry_opens_code_recovery(self):
         save_json(self.path, profile_data(personal_profile(expiry=1)))
         with patch.object(self.backend, 'prompt_node_credential_update',
@@ -145,7 +209,7 @@ class FriendEntryUiTests(LauncherQmlCase):
             self.backend.reload_store()
         self.pump()
         friends = self.open_friends()
-        self.assertEqual(self.item(friends, 'friend-access-mode').property('text'), '接入码已过期')
+        self.assertEqual(self.item(friends, 'friend-access-mode').property('text'), '登录已失效')
         self.click(friends, 'friends-replace-node-code')
         self.assertEqual(self.backend.view['page'], 'nodes')
         self.assertTrue(self.dialog.isVisible())
@@ -156,7 +220,7 @@ class FriendEntryUiTests(LauncherQmlCase):
                            socialLoading=False, socialError='个人启动器接入码需要更新。')
         friends = self.open_friends()
         action = self.item(friends, 'friends-replace-node-code')
-        self.assertEqual(action.property('text'), '更换接入码')
+        self.assertEqual(action.property('text'), '重新登录')
         self.click(friends, 'friends-replace-node-code')
         self.assertEqual(self.backend.view['page'], 'nodes')
 
@@ -219,7 +283,7 @@ class FriendEntryUiTests(LauncherQmlCase):
         friends = self.open_friends()
         action = self.item(friends, 'friends-stale-recovery')
         self.assertTrue(action.isVisible())
-        self.assertEqual(action.property('text'), '更换接入码')
+        self.assertEqual(action.property('text'), '重新登录')
         self.click(friends, 'friends-stale-recovery')
         self.assertEqual(self.backend.view['page'], 'nodes')
         self.assert_no_qml_errors()

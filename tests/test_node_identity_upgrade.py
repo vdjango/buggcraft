@@ -1,5 +1,9 @@
 """Replacing an anonymous node credential refreshes identity without dropping rooms."""
 import os
+import base64
+import json
+import time
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 import tempfile
@@ -29,7 +33,8 @@ class NodeIdentityUpgradeTests(unittest.TestCase):
         self.window = QDialog()
         self.addCleanup(self.window.close)
         self.service = Mock(endpoints={})
-        with patch('ui.multiplayer_controller.TunnelService', return_value=self.service):
+        with patch('ui.multiplayer_controller.TunnelService', return_value=self.service), \
+                patch.object(MultiplayerController, 'refresh_network_profile'):
             self.controller = MultiplayerController(self.window, self.root / 'lobby.json')
         self.addCleanup(self.controller.close)
         self.controller.friend_timer.stop()
@@ -120,10 +125,52 @@ class NodeIdentityUpgradeTests(unittest.TestCase):
         self.assertEqual(self.controller.view['socialName'], 'new-player')
         self.assertNotIn('old credential', self.controller.view['socialError'])
 
+    def test_browser_login_and_account_switch_save_before_refresh_and_return_to_hall(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from hookup import device_login
+
+        c = self.controller
+        values = {}
+        vault = SimpleNamespace(
+            set_password=lambda service, name, value: values.__setitem__((service, name), value),
+            get_password=lambda service, name: values.get((service, name)),
+        )
+        original_reload = c.reload_store
+        def reload_saved(path, **kwargs):
+            metadata = json.loads(Path(path + '.device.json').read_text(encoding='utf-8'))
+            self.assertEqual(metadata['id'], current_id)
+            original_reload(path, **kwargs)
+
+        with patch.object(device_login, '_keyring', return_value=vault), \
+                patch.object(c, 'reload_store', side_effect=reload_saved) as reloaded:
+            for current_id in ('first-device', 'second-device'):
+                old_social_generation = c.social_generation
+                private = ec.generate_private_key(ec.SECP256R1())
+                grant = {'p': 'buggcraft-launcher-device-v1', 'i': 'issuer', 'r': current_id,
+                         'o': 'https://node.example', 'd': device_login.public_jwk(private)}
+                claims = {'g': grant, 'e': int(time.time()) + 3600, 'a': current_id}
+                encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+                public = self.profile(token='acct1.' + encoded + '.signature~' + device_login._private_scalar(private))
+                object.__setattr__(public, '_name', 'Test node')
+                object.__setattr__(public, '_region', 'Test region')
+                result = {'id': current_id, 'origin': 'https://node.example'}
+                c.device_login = (result, private, current_id)
+                c.patch(page='nodes', deviceLoginBusy=True)
+                c.finish('device-login-verified:' + current_id, (public, result, private), None)
+                self.assertEqual(c.view['page'], 'hall')
+                self.assertEqual(c.view['deviceLoginStage'], 'complete')
+                self.assertTrue(c.view['deviceManaged'])
+                self.assertEqual(c.view['socialError'], '')
+                self.assertNotEqual(c.social_generation, old_social_generation)
+                self.assertEqual(RelayProfile.load(c.node_path).token, public.token)
+                c.finish('socialstatus:' + old_social_generation + ':' + c.node_path, None, 'stale login')
+                self.assertEqual(c.view['socialError'], '')
+            self.assertEqual(reloaded.call_count, 2)
+
     def test_personal_credential_validation_error_is_visible(self):
         self.confirm(self.personal)
         self.assertFalse(self.controller.view['socialReady'])
-        self.assertRegex(self.controller.view['socialError'], r'个人(?:启动器)?接入码')
+        self.assertIn('浏览器重新登录', self.controller.view['socialError'])
 
     def test_credential_update_preserves_active_room_endpoint(self):
         endpoint = object()

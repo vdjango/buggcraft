@@ -19,7 +19,8 @@ async def submit_diagnostics(profile, title, description, *, consent):
     from hookup.native_routes import NativeRoutes
     import platform
 
-    with tempfile.TemporaryDirectory(prefix='buggcraft-feedback-') as temporary:
+    from utils.storage_paths import temporary_directory
+    with tempfile.TemporaryDirectory(prefix='feedback-', dir=temporary_directory()) as temporary:
         archive = Path(temporary) / 'diagnostics.zip'
         await export_connection_diagnostics(archive)
         size = archive.stat().st_size

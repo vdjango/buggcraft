@@ -10,7 +10,7 @@ from core.downloads import MinecraftDownloader, verified_installation
 
 
 def deduplicate_classpath(command):
-    """Keep the first occurrence of each JAR in JVM classpath arguments.
+    """Keep the first occurrence of each JAR in JVM class and module paths.
 
     BootstrapLauncher scans every classpath entry as a module. A repeated JAR
     can therefore abort NeoForge before Minecraft starts, even when both
@@ -20,9 +20,9 @@ def deduplicate_classpath(command):
     for index, argument in enumerate(result):
         if not isinstance(argument, str):
             continue
-        if index and result[index - 1] in ('-cp', '-classpath', '--class-path'):
+        if index and result[index - 1] in ('-cp', '-classpath', '--class-path', '-p', '--module-path'):
             classpath, prefix = argument, ''
-        elif argument.startswith(('--class-path=', '-DlegacyClassPath=')):
+        elif argument.startswith(('--class-path=', '--module-path=', '-DlegacyClassPath=')):
             prefix, classpath = argument.split('=', 1)
             prefix += '='
         else:
@@ -67,6 +67,7 @@ def prepare_inherited(directory, version, callback, source='自动'):
     base = chain[-1][0]
     if not verified_installation(directory, base):
         MinecraftDownloader(directory, source=source, status=callback.get('setStatus'),
+                            file_event=callback.get('fileEvent'),
                             progress=lambda current, maximum: (
                                 callback.get('setMax', lambda _: None)(maximum),
                                 callback.get('setProgress', lambda _: None)(current))).install(base)
@@ -98,9 +99,11 @@ def prepare_standalone(directory, version, callback, source='自动'):
             version, metadata.get('libraries', []), str(directory), callback)
     if not verified_installation(directory, version):
         MinecraftDownloader(directory, source=source, status=callback.get('setStatus'),
+                            file_event=callback.get('fileEvent'),
                             progress=lambda current, maximum: (
                                 callback.get('setMax', lambda _: None)(maximum),
-                                callback.get('setProgress', lambda _: None)(current))).install_metadata(version, metadata)
+                                callback.get('setProgress', lambda _: None)(current))).install_metadata(
+                                    version, metadata, preserve_client=True)
 
 
 def resolved_metadata(chain):
@@ -128,6 +131,22 @@ def resolved_metadata(chain):
     for name, metadata in reversed(chain):
         result = merge(result, metadata)
     return result
+
+
+def exclude_version_jar_from_bootstrap_scan(metadata, version):
+    """Keep Forge's ignoreList aligned with a standalone version JAR name."""
+    arguments = metadata.get('arguments')
+    if not isinstance(arguments, dict) or not isinstance(arguments.get('jvm'), list):
+        return
+    jar_name = version + '.jar'
+    jvm = []
+    for argument in arguments['jvm']:
+        if isinstance(argument, str) and argument.startswith('-DignoreList='):
+            key, names = argument.split('=', 1)
+            if jar_name not in names.split(','):
+                argument = key + '=' + names + ',' + jar_name
+        jvm.append(argument)
+    metadata['arguments'] = dict(arguments, jvm=jvm)
 
 
 def inherited_command(directory, version, options, jar_owner):

@@ -51,7 +51,7 @@ class LoaderSourceUiTests(_UiCase):
             is_library = parsed.path.endswith('/source-fixture-1.jar')
             name = ('loader-profile.json' if is_profile else
                     'source-fixture-1.jar' if is_library else Path(parsed.path).name)
-            if name == 'version_manifest_v2.json':
+            if name in ('version_manifest_v2.json', 'version_manifest.json'):
                 name = 'manifest.json'
             failed = parsed.hostname in self.unavailable and (is_profile or is_library)
             self.routes.append(dict(url=url, host=parsed.hostname, file=name, failed=failed))
@@ -64,9 +64,9 @@ class LoaderSourceUiTests(_UiCase):
                                 lambda _session, url, **kw: transport(url, **kw)))
         self.fixtures.payloads['source-fixture-1.jar'] = b'loader-specific transport evidence'
         digest = hashlib.sha1(self.fixtures.payloads['source-fixture-1.jar']).hexdigest()
-        policies = ('自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI')
+        policies = ('自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI', 'MCMirror')
         for loader, host in (('Fabric', 'meta.fabricmc.net'), ('Quilt', 'meta.quiltmc.org')):
-            for index, fail in ((0, False), (1, False), (2, False), (0, True), (1, True)):
+            for index, fail in ((0, False), (1, False), (2, False), (3, False), (0, True), (1, True)):
                 general = self.settings_tab(0)
                 self.select_choice(general, 'settings.general.mirrors', index)
                 number = str(len(self.routes) + 1)
@@ -82,7 +82,7 @@ class LoaderSourceUiTests(_UiCase):
                 self.fixtures.payloads['loader-profile.json'] = json.dumps(profile).encode()
                 library = self.game_dir / 'libraries/test/acceptance/source-fixture/1/source-fixture-1.jar'
                 library.unlink(missing_ok=True)
-                self.unavailable = ({mirror} if index == 0 else {host, lib_host}) if fail else set()
+                self.unavailable = ({mirror, 'mirror.minguncle.cn'} if index == 0 else {host, lib_host}) if fail else set()
                 before = len(self.routes)
                 page = self.seed_games()
                 self.click_ui(page, 'install-1.21.8')
@@ -92,28 +92,36 @@ class LoaderSourceUiTests(_UiCase):
                     self.wait_for(lambda: not page.controller.loader_busy, 'loader catalogue selection arrives')
                     self.click_ui(page, 'component-version-0')
                 self.click_ui(page, 'install-selected-game')
-                rejected = index == 1 and fail
-                task = self.finished_task(state='失败' if rejected else '已完成')
+                task = self.finished_task(state='已完成')
                 self.check(task['source'] == policies[index], 'selected policy reaches actual loader worker')
                 calls = self.routes[before:]
                 profiles = [row['host'] for row in calls if row['file'] == 'loader-profile.json']
-                self.check(profiles and profiles[0] == (mirror if index in (0, 2) else host),
+                first_profile = (mirror if index in (0, 2) or (index == 3 and loader == 'Quilt') else
+                                 'mirror.minguncle.cn' if index == 3 else host)
+                self.check(profiles and profiles[0] == first_profile,
                            'loader profile first host follows settings: ' + repr(profiles))
+                identity = '1.21.8-' + loader + '-' + version
                 metadata = self.game_dir / 'versions' / identity / (identity + '.json')
-                if rejected:
-                    self.check(set(profiles) == {host} and not metadata.exists() and not library.exists(),
-                               'official-only failure cannot fall back or publish a successful instance')
-                    continue
                 if fail:
-                    self.check(host in profiles, 'automatic policy falls back to the publisher after mirror failure')
+                    self.check((host if index == 0 else mirror) in profiles,
+                               'failed preferred source falls back to another available source')
                 libraries = [row['host'] for row in calls if row['file'] == 'source-fixture-1.jar']
-                self.check(libraries and libraries[0] == (mirror if index in (0, 2) else lib_host),
+                first_library = (mirror if index in (0, 2) or (index == 3 and loader == 'Quilt') else
+                                 'mirror.minguncle.cn' if index == 3 else lib_host)
+                self.check(libraries and libraries[0] == first_library,
                            'loader dependency first host follows settings: ' + repr(libraries))
                 if fail:
-                    self.check(lib_host in libraries, 'automatic dependency download also falls back to publisher')
+                    self.check((lib_host if index == 0 else mirror) in libraries,
+                               'dependency download also follows the fallback policy')
+                installed = json.loads(metadata.read_text(encoding='utf-8'))
                 self.check(library.read_bytes() == self.fixtures.payloads['source-fixture-1.jar']
-                           and json.loads(metadata.read_text(encoding='utf-8')) == profile,
-                           'successful task publishes verified loader-specific bytes and exact profile')
+                           and installed['id'] == identity and installed['mainClass'] == profile['mainClass']
+                           and all(item in installed['libraries'] for item in profile['libraries'])
+                           and 'inheritsFrom' not in installed and 'jar' not in installed
+                           and (metadata.parent / (identity + '.jar')).read_bytes() == self.fixtures.payloads['client.jar'],
+                           'successful task publishes verified dependencies and a standalone loader instance')
+                self.check(not page.controller.game and page.controller.install_view == 'catalogue',
+                           'queued game selection resets before returning to downloads')
         self.screenshot_ui('loader-source-policy-results')
         self.assert_no_qml_errors()
         self.finish_test()

@@ -128,8 +128,12 @@ ColumnLayout {
             }
             CopyText {
                 objectName: "room-compatibility"; Layout.fillWidth: true
-                visible: !connected.host && !!connected.record.compatibility
-                text: connected.record.compatibility
+                visible: !connected.host && (!!connected.record.compatibility || connected.preparing || !!connected.record.prepareFailed)
+                text: connected.preparing ? "正在同步房主的游戏文件，请稍候…" :
+                    connected.record.prepareFailed ? "游戏文件尚未同步完成，请按“重试下载”。" :
+                    (connected.record.compatibility || "").indexOf("模组集合不一致") >= 0 ?
+                        "当前游戏文件与房主不同，点击“同步安装”即可自动准备。" :
+                        (connected.record.compatibility || "")
                 color: "#dfbd92"; font.pixelSize: 11
             }
             CopyText {
@@ -178,9 +182,9 @@ ColumnLayout {
             InstancePicker { Layout.fillWidth: true }
             CopyText {
                 Layout.fillWidth: true
-                text: (connected.record.compatibility.indexOf("模组集合不一致") >= 0 ?
-                    "房主使用 " + (connected.game.mods_count || 0) + " 个模组，你当前实例有 " + (vm.localModsCount || 0) + " 个，模组文件不完全一致。\n" : "当前游戏配置与房主要求不一致。\n") +
-                    "可以全新安装匹配配置，或按文件校验补齐已有配置。启动器只会把缺少或不同的房主模组放入新的房间配置，原配置和存档会保留。"
+                text: ((connected.record.compatibility || "").indexOf("模组集合不一致") >= 0 ?
+                    "房主的游戏内容与你当前选择的不同（房主有 " + (connected.game.mods_count || 0) + " 项，你这里有 " + (vm.localModsCount || 0) + " 项）。\n" : "当前游戏配置与房主不同。\n") +
+                    "选择“全新安装”会自动下载所需文件，并创建独立的房间游戏；原有游戏和存档不会被修改。"
             }
             CopyText { Layout.fillWidth: true; text: "模组来自房主，请仅在信任房主时安装。"; color: "#dfbd92"; font.pixelSize: 11 }
             RowLayout {

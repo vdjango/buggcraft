@@ -79,6 +79,14 @@ def main(report):
     logging.basicConfig(filename=str(Path(report).with_suffix('.log')), encoding='utf-8',
                         level=logging.DEBUG, force=True)
     try:
+        from utils.storage_paths import storage_root
+        from utils.path_helper import get_launcher_directory
+        storage = storage_root().resolve()
+        result.update(storage_directory=str(storage), launcher_directory=str(get_launcher_directory()),
+                      runtime_directory=str(Path(__file__).resolve().parent), temporary_directory=tempfile.gettempdir())
+        if not Path(tempfile.gettempdir()).resolve().is_relative_to(storage):
+            raise RuntimeError('Launcher temporary files escaped the configured portable storage')
+        result['checks'].append('portable-storage-and-temp')
         check_python_runtime()
         result['checks'].extend(['python-stdlib-extensions', 'zip-bzip2-lzma',
                                  'java-tar-gz-bz2-xz', 'xml-decimal-uuid',
@@ -196,6 +204,24 @@ def main(report):
                             found = find_item(child, name)
                             if found is not None:
                                 return found
+                    from ui.dialog.feedback import FeedbackDialog
+                    feedback = FeedbackDialog(lobby, content='Packaged feedback form check', node='Package check')
+                    feedback.setAttribute(Qt.WA_ShowWithoutActivating)
+                    feedback.move(-20000, -20000)
+                    feedback.show()
+                    app.processEvents()
+                    for name in ('feedback-content', 'feedback-collection-info', 'feedback-recipient', 'feedback-submit'):
+                        if find_item(feedback.quick.rootObject(), name) is None:
+                            raise RuntimeError('Missing packaged feedback control: ' + name)
+                    cancel = find_item(feedback.quick.rootObject(), 'feedback-cancel')
+                    if cancel is None or not QMetaObject.invokeMethod(cancel, 'clicked', Qt.DirectConnection):
+                        raise RuntimeError('Cannot dismiss packaged feedback form')
+                    feedback.shutdown()
+                    feedback.deleteLater()
+                    app.processEvents()
+                    if not lobby.isVisible():
+                        raise RuntimeError('Feedback cancellation closed lobby')
+                    result['checks'].append('qml-feedback-form')
                     for index in (0, 0, 1):
                         instances.action(identity, 'deleteVersion')
                         dialog = instances._delete_dialog

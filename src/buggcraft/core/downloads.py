@@ -7,12 +7,14 @@ import logging
 import os
 import platform
 import re
+import select
 import shutil
+import socket
 import threading
 import time
 import zipfile
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -149,9 +151,101 @@ class DownloadCancelled(Exception):
     pass
 
 
+class DownloadCancellation(threading.Event):
+    """Wake blocked response reads when a task is canceled or changes source."""
+    def __init__(self):
+        super().__init__()
+        self._responses = set()
+        self._response_lock = threading.Lock()
+
+    @staticmethod
+    def _interrupt(response):
+        raw = response.raw
+        try:
+            # A Connection: close response may have no pool connection, while
+            # its body still owns a live socket. urllib3 keeps that socket's
+            # shutdown callback specifically for interrupting streaming reads.
+            shutdown = getattr(raw, '_sock_shutdown', None)
+            if callable(shutdown) and not raw.closed:
+                shutdown(socket.SHUT_RDWR)
+                connection = getattr(raw, '_connection', None)
+                if connection is not None:
+                    connection.close()
+            else:
+                raw.shutdown()
+        except (AttributeError, OSError, RuntimeError, ValueError):
+            pass
+
+    def set(self):
+        super().set()
+        with self._response_lock:
+            responses = tuple(self._responses)
+        for response in responses:
+            self._interrupt(response)
+
+    @contextmanager
+    def response(self, response):
+        # Windows does not reliably wake a timed socket's select() when another
+        # thread shuts it down. Wait for readability in short intervals before
+        # entering SocketIO, preserving its existing buffered and TLS handling.
+        body = getattr(getattr(getattr(response.raw, '_fp', None), 'fp', None), 'raw', None)
+        body_socket = getattr(body, '_sock', None)
+        original_readinto = getattr(body, 'readinto', None)
+        if isinstance(body_socket, socket.socket) and callable(original_readinto):
+            def readinto(buffer):
+                timeout = body_socket.gettimeout()
+                deadline = time.monotonic() + timeout if timeout else None
+                while True:
+                    if self.is_set():
+                        raise DownloadCancelled('下载已取消，已下载进度会保留。')
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise socket.timeout('下载响应读取超时')
+                    if (getattr(body_socket, 'pending', lambda: 0)()
+                            or select.select([body_socket], [], [], 0.2)[0]):
+                        return original_readinto(buffer)
+            body.readinto = readinto
+        with self._response_lock:
+            self._responses.add(response)
+        if self.is_set():
+            self._interrupt(response)
+        try:
+            yield response
+        finally:
+            if isinstance(body_socket, socket.socket) and callable(original_readinto):
+                body.readinto = original_readinto
+            with self._response_lock:
+                self._responses.discard(response)
+
+
+class DownloadSourcesExhausted(RuntimeError):
+    """A concise per-source failure summary safe to show outside the logs."""
+
+
+def _source_failure_reason(error):
+    if isinstance(error, requests.HTTPError) and error.response is not None:
+        code = error.response.status_code
+        return {403: '拒绝访问（403）', 404: '文件不存在（404）', 410: '文件已移除（410）',
+                429: '请求过多（429）'}.get(code, f'服务器错误（HTTP {code}）')
+    if isinstance(error, requests.Timeout):
+        return '连接或读取超时'
+    if isinstance(error, requests.exceptions.SSLError):
+        return 'TLS 证书或连接失败'
+    if isinstance(error, (requests.ConnectionError, requests.exceptions.ChunkedEncodingError)):
+        return '连接中断或网络不可达'
+    if isinstance(error, PermissionError):
+        return '文件夹没有写入权限'
+    if isinstance(error, ValueError):
+        return str(error)[:140]
+    return '写入文件或网络读取失败'
+
+
 def download_error_message(error):
     """Project transport/parser failures into UI text; retain details in logs."""
     message = str(error or '').strip()
+    if isinstance(error, OSError) and error.errno == 28:
+        return '磁盘空间不足，请清理空间或更换安装目录后重试。已下载进度会保留。'
+    if isinstance(error, DownloadSourcesExhausted) or '全部可用下载源均失败' in message:
+        return message
     if isinstance(error, PermissionError) or re.search(r'\bPermissionError\b|Access is denied|access denied',
                                                        message, re.IGNORECASE):
         return '目标文件夹没有写入权限，请选择其他文件夹后重试。'
@@ -278,16 +372,19 @@ def _temporary_jna_native(relative, version):
 
 
 class MinecraftDownloader:
-    def __init__(self, directory, source="自动", cancel=None, status=None, progress=None, file_event=None, workers=None):
+    def __init__(self, directory, source="自动", cancel=None, status=None, progress=None, file_event=None, workers=None,
+                 retries=2):
         self.root = _resolved(directory)
         self.source = source
         self.content_source = None
+        self.resolve_content_sources = False
         self.budget = _CURRENT_DOWNLOAD_BUDGET.get()
         self.workers = (self.budget.workers if self.budget is not None else download_concurrency()) if workers is None else normalize_concurrency(workers)
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda message: None)
         self.progress = progress or (lambda current, maximum: None)
         self.file_event = file_event
+        self.retries = max(0, min(int(retries), 6))
         self.file_names = {}
         self._sessions = threading.local()
         self._verified = {}
@@ -306,6 +403,10 @@ class MinecraftDownloader:
         # Both settings share this router, including every URL in an MRPACK.
         trusted = (parsed.scheme == 'https' and parsed.port in (None, 443)
                    and not parsed.username and not parsed.password)
+        # MCIM explicitly excludes this CDN. Keep its URL exactly as published;
+        # independently published edge/Modrinth links can still be candidates.
+        if trusted and parsed.hostname == 'mediafilez.forgecdn.net':
+            return [original]
         # Some cached manifests already contain mirror URLs. Recover the
         # publisher route too, otherwise fallback silently has no alternative.
         if trusted and parsed.hostname == urlsplit(CONTENT_MIRROR).hostname:
@@ -313,7 +414,7 @@ class MinecraftDownloader:
                         'edge.forgecdn.net' if parsed.path.startswith('/files/') else None)
             if upstream:
                 return self.urls(parsed._replace(netloc=upstream).geturl())
-        if trusted and parsed.hostname in ('cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'):
+        if trusted and parsed.hostname in ('cdn.modrinth.com', 'edge.forgecdn.net'):
             originals = [original]
             if parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net'):
                 alternate = 'mediafilez.forgecdn.net' if parsed.hostname == 'edge.forgecdn.net' else 'edge.forgecdn.net'
@@ -321,26 +422,22 @@ class MinecraftDownloader:
             content_source = self.content_source or self.source
             if content_source == '官方':
                 return originals
-            # The MCIM guide explicitly excludes mediafilez from rewriting.
-            if parsed.hostname == 'mediafilez.forgecdn.net':
-                return originals
-            return [parsed._replace(netloc=urlsplit(CONTENT_MIRROR).netloc).geturl(), *originals]
-        replacements = {
-            "launchermeta.mojang.com": "",
-            "piston-meta.mojang.com": "",
-            "launcher.mojang.com": "",
-            "piston-data.mojang.com": "",
-            "resources.download.minecraft.net": "/assets",
-            "libraries.minecraft.net": "/maven",
-        }
-        if parsed.hostname not in replacements or self.source == "官方":
-            return [original]
-        mirror = MIRROR + replacements[parsed.hostname] + parsed.path
-        if parsed.query:
-            mirror += "?" + parsed.query
-        return [original, mirror] if self.source == "自动（官方优先，失败切换镜像）" else [mirror, original]
+            mirror = parsed._replace(netloc=urlsplit(CONTENT_MIRROR).netloc).geturl()
+            if content_source in ('CurseForge', 'Modrinth'):
+                return [*originals, mirror]
+            return [mirror, *originals]
+        from core.game_sources import source_urls
+        return source_urls(self.source, original)
 
     def inside(self, relative):
+        parts = Path(relative).parts
+        if parts and parts[0] == '.buggcraft-downloads':
+            from utils.storage_paths import game_cache
+            root = _resolved(game_cache(self.root))
+            target = _resolved(root.joinpath(*parts[1:]))
+            if target == root or not target.is_relative_to(root):
+                raise ValueError('下载缓存路径无效：' + str(relative))
+            return target
         target = _resolved(self.root / relative)
         if target == self.root or not target.is_relative_to(self.root):
             raise ValueError(f"下载路径超出游戏目录：{relative} ({target!s}; root={self.root!s})")
@@ -363,6 +460,9 @@ class MinecraftDownloader:
 
     def _file_event(self, relative, state, **values):
         if self.file_event:
+            if 'url' in values:
+                from utils.download_address import display_address
+                values['url'] = display_address(values['url'])
             path = Path(relative).as_posix()
             self.file_event(dict(key=str(self.root / relative), path=path,
                                  name=self.file_names.get(path, Path(relative).name), state=state, **values))
@@ -387,7 +487,8 @@ class MinecraftDownloader:
             request_headers = dict(headers, Range=f'bytes={start}-{end}')
             with _DownloadSession(getattr(self, 'curseforge_key', ''),
                                   getattr(self, 'curseforge_fallbacks', None)) as session:
-                with session.get(url, stream=True, timeout=timeout, headers=request_headers) as response:
+                with session.get(url, stream=True, timeout=timeout, headers=request_headers) as response, \
+                        self.cancel.response(response) if isinstance(self.cancel, DownloadCancellation) else nullcontext():
                     response.raise_for_status()
                     if (response.status_code != 206 or
                             response.headers.get('Content-Range') != f'bytes {start}-{end}/{size}' or
@@ -457,7 +558,11 @@ class MinecraftDownloader:
 
     def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None, _validate=None):
         """Download into a temporary file; never publish truncated files."""
-        target = self.inside(relative)
+        from utils.path_helper import filesystem_path
+        destination = self.inside(relative)
+        # Cache roots can be deep, especially inside loader workspaces. Use
+        # extended paths for both the artifact and its longer checkpoint names.
+        target = filesystem_path(destination)
         self.check_cancelled()
         def verified(path, *, structure=False):
             if size is not None and path.stat().st_size != size:
@@ -479,13 +584,14 @@ class MinecraftDownloader:
 
         if target.is_file() and (sha1 or sha512) and verified(target, structure=True):
             with self._verified_lock:
-                self._verified[str(target.relative_to(self.root))] = sha1
+                self._verified[str(relative)] = sha1
             length = target.stat().st_size
             self._file_event(relative, 'cached', done=length, total=length, error='')
             if file_progress:
                 file_progress(length, length)
-            return target
+            return destination
         errors = []
+        failures = {}
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".buggcraft-part")
         checkpoint = temporary.with_name(temporary.name + '.json')
@@ -523,32 +629,67 @@ class MinecraftDownloader:
                 if file_progress:
                     file_progress(size, size)
                 with self._verified_lock:
-                    self._verified[str(target.relative_to(self.root))] = sha1
-                return target
+                    self._verified[str(relative)] = sha1
+                return destination
             discard_partial()
-        candidates = list(dict.fromkeys(candidate for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
-                                        for candidate in self.urls(address)))
         content_source = self.content_source or self.source
-        if content_source != '官方' and any(urlsplit(candidate).hostname == urlsplit(CONTENT_MIRROR).hostname
-                                           for candidate in candidates):
+        addresses = [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
+        if self.resolve_content_sources:
+            from core.content_routes import resolve_download_urls
+            self.check_cancelled()
+            self.status(f'正在解析下载源 · {target.name}')
+            addresses = resolve_download_urls(addresses, sha1, size, sha512=sha512,
+                                               preference=content_source, cancel=self.cancel)
+        candidates = list(dict.fromkeys(candidate for address in addresses
+                                        for candidate in self.urls(address)))
+        if content_source in ('CurseForge', 'Modrinth', 'MCIM'):
+            from core.content_routes import provider
+            candidates.sort(key=lambda candidate: provider(candidate) != content_source)
+            if candidates and provider(candidates[0]) != content_source:
+                self.status(f'{content_source} 未找到相同文件，使用可用来源 · {target.name}')
+                logger.info('content_source_unavailable file=%s preference=%s', relative, content_source)
+        elif content_source != '官方' and any(
+                urlsplit(candidate).hostname in ('mod.mcimirror.top', 'cdn.modrinth.com',
+                                                 'edge.forgecdn.net', 'mediafilez.forgecdn.net')
+                for candidate in candidates):
             candidates = _rank_content_candidates(candidates, content_source)
-        for candidate in candidates:
+        attempt_number = 0
+        max_attempts = self.retries + 1
+
+        def available(candidate):
+            host = urlsplit(candidate).hostname
+            if host == urlsplit(CONTENT_MIRROR).hostname and _CONTENT_HEALTH.blocked():
+                return False
+            with self._blocked_hosts_lock:
+                return self._blocked_hosts.get(host, 0) <= time.monotonic()
+
+        for source_index, candidate in enumerate(candidates):
             host = urlsplit(candidate).hostname
             content_mirror = host == urlsplit(CONTENT_MIRROR).hostname
+            if attempt_number >= max_attempts:
+                continue
             if content_mirror and _CONTENT_HEALTH.blocked():
+                from utils.download_address import source_name
+                failures[source_name(candidate) or host] = '暂时不可用（此前请求失败）'
                 continue
             with self._blocked_hosts_lock:
                 if self._blocked_hosts.get(host, 0) > time.monotonic():
+                    from utils.download_address import source_name
+                    failures[source_name(candidate) or host] = '暂时不可用（此前请求失败）'
                     continue
-            attempts = 1 if content_mirror else 3
+            # Switch between configured sources without spending the retry
+            # budget on a broken mirror; retry the last viable source.
+            alternatives = candidates[source_index + 1:]
+            attempts = 1 if any(available(item) for item in alternatives) else max_attempts - attempt_number
             for attempt in range(attempts):
                 self.check_cancelled()
+                attempt_number += 1
                 try:
                     offset = temporary.stat().st_size if temporary.exists() and (sha1 or sha512) and size else 0
                     self._file_event(relative, 'downloading', done=offset, total=size or 0,
-                                     host=host or '', attempt=attempt + 1, error='')
-                    self.status(f'正在下载 {target.name} · {urlsplit(candidate).hostname} · 第 {attempt + 1} 次')
-                    logger.info('download_start file=%s host=%s attempt=%s', relative, urlsplit(candidate).hostname, attempt + 1)
+                                     host=host or '', url=candidate, attempt=attempt_number, error='')
+                    self.status(f'正在下载 {target.name} · {urlsplit(candidate).hostname} · 第 {attempt_number} 次')
+                    logger.info('download_start file=%s host=%s attempt=%s', relative, urlsplit(candidate).hostname, attempt_number)
                     session = getattr(self._sessions, 'session', None)
                     if session is None:
                         session = _DownloadSession(getattr(self, 'curseforge_key', ''),
@@ -561,9 +702,15 @@ class MinecraftDownloader:
                     # A mirror is an accelerator, so it gets a short first-byte
                     # budget and one attempt before trying the publisher.
                     timeout = (3, 4) if content_mirror else (8, 30)
-                    with session.get(candidate, stream=True, timeout=timeout, headers=headers) as response:
+                    with session.get(candidate, stream=True, timeout=timeout, headers=headers) as response, \
+                            self.cancel.response(response) if isinstance(self.cancel, DownloadCancellation) else nullcontext():
                         response.raise_for_status()
                         final_host = urlsplit(response.url).hostname if isinstance(response.url, str) else host
+                        if isinstance(response.url, str) and response.url != candidate:
+                            logger.info('download_redirect file=%s from=%s to=%s', relative, host, final_host)
+                            self._file_event(relative, 'downloading', done=offset, total=size or 0,
+                                             host=final_host or host or '', url=response.url,
+                                             attempt=attempt_number, error='')
                         if content_mirror and str(response.headers.get('Content-Type', '')).split(';')[0].lower() in ('text/html', 'application/xhtml+xml'):
                             _CONTENT_HEALTH.pause()
                             raise ValueError('MCIM 暂时返回了网页，正在切换备用下载源')
@@ -617,9 +764,10 @@ class MinecraftDownloader:
                                         self._file_event(relative, 'downloading', done=downloaded, total=transfer_total)
                                         last_progress = now
                                     elapsed = now - transfer_started
-                                    if content_mirror and elapsed >= 4 and downloaded != size:
+                                    if (content_mirror and elapsed >= 4 and downloaded != size
+                                            and any(available(item) for item in alternatives)):
                                         if (downloaded - window_bytes) / elapsed < 64 * 1024:
-                                            raise _SlowMirror('镜像持续低速，切换原站并继续下载')
+                                            raise _SlowMirror('镜像传输速度过低')
                                         transfer_started, window_bytes = now, downloaded
                         expected = size if size is not None else response.headers.get("Content-Length")
                         if expected is not None and downloaded != int(expected):
@@ -638,17 +786,27 @@ class MinecraftDownloader:
                     if file_progress:
                         self.status(f'已下载并校验 {target.name} · {final_host or host} · {downloaded} 字节')
                     with self._verified_lock:
-                        self._verified[str(target.relative_to(self.root))] = sha1
-                    return target
+                        self._verified[str(relative)] = sha1
+                    return destination
                 except DownloadCancelled:
                     if not (sha1 or sha512) or not size:
                         discard_partial()
                     raise
                 except (requests.RequestException, OSError, ValueError) as exc:
-                    self._file_event(relative, 'retrying', error=str(exc))
+                    retryable = isinstance(exc, (requests.ConnectionError, requests.Timeout,
+                                                  requests.exceptions.ChunkedEncodingError)) or (
+                        isinstance(exc, requests.HTTPError) and exc.response is not None
+                        and exc.response.status_code in (408, 429, 500, 502, 503, 504))
+                    # A source or a later attempt may still succeed; only the
+                    # terminal failed event should surface an error in the UI.
+                    self._file_event(relative, 'retrying', error='')
+                    if isinstance(exc, OSError) and not isinstance(exc, requests.RequestException):
+                        raise
                     errors.append(str(exc))
+                    from utils.download_address import source_name
+                    failures[source_name(candidate) or host or '下载源'] = _source_failure_reason(exc)
                     logger.warning('download_retry file=%s host=%s attempt=%s error=%s', relative,
-                                   urlsplit(candidate).hostname, attempt + 1, exc)
+                                   urlsplit(candidate).hostname, attempt_number, exc)
                     # A rejected source cannot invalidate bytes bound to the
                     # expected hash. Bad ranges, hashes and disk errors do.
                     transient = isinstance(exc, (requests.ConnectionError, requests.Timeout,
@@ -662,16 +820,21 @@ class MinecraftDownloader:
                         # stalling the other files in this download task.
                         missing = (isinstance(exc, requests.HTTPError) and exc.response is not None
                                    and exc.response.status_code in (404, 410))
-                        if not missing:
+                        switch = any(available(item) for item in alternatives)
+                        if not missing and (switch or not retryable or attempt == attempts - 1):
                             with self._blocked_hosts_lock:
                                 self._blocked_hosts[host] = time.monotonic() + 60
                             if isinstance(exc, (requests.ConnectionError, requests.Timeout)) or (
                                     isinstance(exc, requests.HTTPError) and exc.response is not None
                                     and exc.response.status_code in (403, 429, 500, 502, 503, 504, 567)):
                                 _CONTENT_HEALTH.pause()
-                        self.status(f'镜像 {host} 暂不可用或速度过低，正在切换原站继续下载 {target.name}')
-                        logger.info('download_source_switch file=%s from=%s reason=%s', relative, host, exc)
-                        break
+                        if switch:
+                            self.status(f'镜像 {host} 暂不可用或速度过低，正在切换原站继续下载 {target.name}')
+                        elif not retryable or attempt == attempts - 1:
+                            self.status(f'镜像 {host} 也暂不可用：{target.name}')
+                        if switch or not retryable:
+                            logger.info('download_source_switch file=%s from=%s reason=%s', relative, host, exc)
+                            break
                     if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code in (403, 567):
                         # A rejected mirror should not delay every file in a pack.
                         with self._blocked_hosts_lock:
@@ -684,9 +847,16 @@ class MinecraftDownloader:
                         # Missing cache entries and permanent client errors will
                         # not improve by retrying the same URL immediately.
                         break
+                    if not retryable and attempt >= 2:
+                        break
                     if attempt < attempts - 1 and self.cancel.wait(0.5 * (attempt + 1)):
                         self.check_cancelled()
-        raise RuntimeError(f"下载 {target.name} 失败：{errors[-1] if errors else url}")
+        if not failures:
+            for candidate in candidates:
+                from utils.download_address import source_name
+                failures[source_name(candidate) or '下载源'] = '暂时不可用（此前请求失败）'
+        summary = '；'.join(f'{name}：{reason}' for name, reason in failures.items())
+        raise DownloadSourcesExhausted(f'下载 {target.name} 失败：全部可用下载源均失败。{summary}。已下载进度保留，可稍后重试。')
 
     def fetch_json(self, url, relative, sha1=None, size=None, *, label='下载信息', valid=None):
         data = None
@@ -773,13 +943,14 @@ class MinecraftDownloader:
                 self.cancel.set()
                 raise
 
-    def install(self, version):
-        if not version or version in (".", "..") or any(c in version for c in '/\\:'):
-            raise ValueError("无效的游戏版本")
-        with download_lock(self.inside(f'versions/{version}/.buggcraft-install'), self.cancel):
-            return self._install(version)
+    def install(self, version, *, identity=None):
+        from core.modpacks import instance_name
+        identity = instance_name(identity or version)
+        instance_name(version)
+        with download_lock(self.inside(f'versions/{identity}/.buggcraft-install'), self.cancel):
+            return self._install(version, identity=identity)
 
-    def _install(self, version):
+    def _install(self, version, *, identity=None):
         self.status(f"正在准备 Minecraft {version}…")
         manifest = self.manifest()
         entry = next((item for item in manifest["versions"] if item["id"] == version), None)
@@ -788,9 +959,12 @@ class MinecraftDownloader:
         metadata = self.fetch_json(entry['url'], f'.buggcraft-downloads/{version}.json', entry.get('sha1'),
                                    label=f'Minecraft {version} 版本信息', valid=lambda value: value.get('id') == version)
 
-        self.install_metadata(version, metadata)
+        identity = identity or version
+        if identity != version:
+            metadata = dict(metadata, id=identity, clientVersion=version)
+        self.install_metadata(identity, metadata)
 
-    def install_metadata(self, version, metadata):
+    def install_metadata(self, version, metadata, *, preserve_client=False):
         """Repair a resolved local instance without looking up its display name."""
         if metadata.get('id') != version or not metadata.get('downloads', {}).get('client'):
             raise ValueError('实例缺少游戏核心下载信息')
@@ -813,7 +987,24 @@ class MinecraftDownloader:
                 library_jobs.append((native["url"], relative, native.get("sha1"), native.get("size")))
                 natives.append(relative)
         client = metadata["downloads"]["client"]
-        jobs = [(client["url"], f"versions/{version}/{version}.jar", client.get("sha1"), client.get("size"))]
+        client_relative = f"versions/{version}/{version}.jar"
+        if preserve_client:
+            # Loader and room JARs may be patched even when their resolved
+            # metadata still carries the vanilla client download URL.
+            existing_client = self.inside(client_relative)
+            if not existing_client.is_file():
+                raise FileNotFoundError('缺少游戏核心文件，请重新安装此游戏版本：' + str(existing_client))
+            try:
+                with zipfile.ZipFile(existing_client) as archive:
+                    if not archive.infolist():
+                        raise ValueError('游戏核心文件为空')
+            except (OSError, zipfile.BadZipFile) as exc:
+                raise ValueError('游戏核心文件已损坏，请重新安装此游戏版本') from exc
+            with self._verified_lock:
+                self._verified[client_relative] = _sha1(existing_client)
+            jobs = []
+        else:
+            jobs = [(client["url"], client_relative, client.get("sha1"), client.get("size"))]
         logging = metadata.get("logging", {}).get("client", {}).get("file")
         if logging:
             jobs.append((logging["url"], "assets/log_configs/" + logging["id"], logging.get("sha1"), logging.get("size")))

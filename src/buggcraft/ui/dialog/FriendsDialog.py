@@ -70,7 +70,7 @@ class FriendsController(QObject):
                     self.backend.window.showNormal()
                     self.backend.window.raise_()
                     self.backend.window.activateWindow()
-            elif action == 'replaceNodeCode':
+            elif action in ('reloginNode', 'replaceNodeCode'):
                 self.backend.act(action, data)
                 self.backend.window.showNormal()
                 self.backend.window.raise_()

@@ -46,6 +46,9 @@ class MinecraftSignals(QObject):
     progress = Signal(int)  # 进度百分比
     java_install_progress = Signal(str, int, int)
     java_installed = Signal(object)
+    game_file_preparation_started = Signal()
+    game_file_preparation_progress = Signal(str, int, int)
+    game_file_preparation_finished = Signal()
 
 
 class OutputHandlerThread(QThread):
@@ -256,7 +259,8 @@ class MinecraftLibLauncher(QObject):
                         self.signals.java_install_progress.emit(message, done, total)
                         if not done or done == total:
                             self.signals.output.emit('[Java 安装] ' + message)
-                    package, entry = install_java(packages, get_launcher_directory() / '.buggcraft' / 'java',
+                    from utils.storage_paths import active_storage_root
+                    package, entry = install_java(packages, active_storage_root() / 'java',
                                                   self._java_cancel, progress)
                     if self._java_cancel.is_set():
                         raise InterruptedError('Java 安装已取消')
@@ -319,35 +323,101 @@ class MinecraftLibLauncher(QObject):
 
             if self.minecraft_server: self.signals.output.emit(f"连接服务器: {self.minecraft_server}")
             
-            # 安装游戏库文件
-            self.signals.output.emit("正在安装游戏库文件...")
+            # Preparing an imported instance may repair libraries and assets.
+            # Report the stage and item counts so the launcher does not appear frozen.
+            self.signals.game_file_preparation_started.emit()
+            self.signals.output.emit("正在检查游戏文件...")
             install_progress = InstallProgress(self.signals.progress.emit)
+            install_status = '正在检查游戏文件…'
+            processed = 0
+            last_file_report = 0.0
+            progress_lock = threading.Lock()
+
+            def report_status(message):
+                nonlocal install_status
+                translated = {
+                    'Download Libraries': '正在检查并下载依赖库…',
+                    'Download Assets': '正在检查并下载游戏资源…',
+                    'Install java runtime': '正在准备运行环境…',
+                    'Download modules': '正在检查并下载游戏模块…',
+                }.get(message, message)
+                if translated.startswith('Download '):
+                    translated = '正在下载 ' + translated[len('Download '):]
+                with progress_lock:
+                    install_status = translated
+                    current, maximum = processed, install_progress.maximum
+                self.signals.output.emit(f"[安装] {message}")
+                self.signals.game_file_preparation_progress.emit(translated, current, maximum)
+
+            def report_maximum(value):
+                maximum = max(0, int(value))
+                with progress_lock:
+                    if maximum == install_progress.maximum:
+                        return
+                    install_progress.set_max(maximum)
+                    status, current = install_status, processed
+                self.signals.game_file_preparation_progress.emit(status, current, maximum)
+
+            def report_progress(value):
+                nonlocal processed
+                with progress_lock:
+                    install_progress.set_progress(value)
+                    maximum = install_progress.maximum
+                    processed = min(max(0, int(value)), maximum)
+                    status, current = install_status, processed
+                self.signals.game_file_preparation_progress.emit(status, current, maximum)
+
+            def report_file(event):
+                nonlocal last_file_report
+                if event.get('state') != 'downloading':
+                    return
+                now = time.monotonic()
+                with progress_lock:
+                    if now - last_file_report < 0.3:
+                        return
+                    last_file_report = now
+                    current, maximum = processed, install_progress.maximum
+                name = str(event.get('name') or '游戏文件')
+                done, total = int(event.get('done') or 0), int(event.get('total') or 0)
+                status = f'正在下载 {name}'
+                if total > 0:
+                    status += f' · {done / 1048576:.1f} / {total / 1048576:.1f} MiB'
+                self.signals.game_file_preparation_progress.emit(status, current, maximum)
+
             callback = {
-                "setStatus": lambda msg: self.signals.output.emit(f"[安装] {msg}"),
-                "setProgress": install_progress.set_progress,
-                "setMax": install_progress.set_max,
+                "setStatus": report_status,
+                "setProgress": report_progress,
+                "setMax": report_maximum,
+                "fileEvent": report_file,
             }
             jar_owner = None
-            if metadata.get('inheritsFrom'):
-                jar_owner = prepare_inherited(
-                    self.minecraft_directory, self.minecraft_version, callback,
-                    self.settings_manager.get_setting('settings.general.mirrors', '自动'))
-                options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')
-            elif isinstance(metadata.get('buggcraftModpack'), dict):
-                from core.launch_preparation import prepare_standalone
-                prepare_standalone(self.minecraft_directory, self.minecraft_version, callback,
-                                   self.settings_manager.get_setting('settings.general.mirrors', '自动'))
-            elif not verified_installation(self.minecraft_directory, self.minecraft_version):
-                from core.loaders import _use_download_source
-                with _use_download_source(self.settings_manager.get_setting('settings.general.mirrors', '自动')):
-                    minecraft_launcher_lib.install.install_minecraft_version(
-                        self.minecraft_version, self.minecraft_directory, callback=callback)
+            try:
+                if metadata.get('inheritsFrom'):
+                    jar_owner = prepare_inherited(
+                        self.minecraft_directory, self.minecraft_version, callback,
+                        self.settings_manager.get_setting('settings.general.mirrors', '自动'))
+                    options['nativesDirectory'] = str(Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')
+                elif (isinstance(metadata.get('buggcraftModpack'), dict) or
+                      isinstance(metadata.get('buggcraftRoom'), dict) or
+                      (metadata.get('clientVersion') and metadata.get('clientVersion') != self.minecraft_version)):
+                    from core.launch_preparation import prepare_standalone
+                    prepare_standalone(self.minecraft_directory, self.minecraft_version, callback,
+                                       self.settings_manager.get_setting('settings.general.mirrors', '自动'))
+                elif not verified_installation(self.minecraft_directory, self.minecraft_version):
+                    from core.loaders import _use_download_source
+                    with _use_download_source(self.settings_manager.get_setting('settings.general.mirrors', '自动')):
+                        minecraft_launcher_lib.install.install_minecraft_version(
+                            self.minecraft_version, self.minecraft_directory, callback=callback)
+            finally:
+                self.signals.game_file_preparation_finished.emit()
 
             # Each process loads its own native files. A second inherited launch
             # can then prepare libraries without overwriting DLLs used by the first.
             native_source = Path(options.get('nativesDirectory', str(
                 Path(self.minecraft_directory) / 'versions' / self.minecraft_version / 'natives')))
-            native_workspace = tempfile.TemporaryDirectory(prefix='buggcraft-game-natives-', ignore_cleanup_errors=True)
+            from utils.storage_paths import temporary_directory
+            native_workspace = tempfile.TemporaryDirectory(prefix='game-natives-', dir=temporary_directory(),
+                                                           ignore_cleanup_errors=True)
             if native_source.is_dir():
                 shutil.copytree(native_source, native_workspace.name, dirs_exist_ok=True)
             options['nativesDirectory'] = native_workspace.name
@@ -360,7 +430,7 @@ class MinecraftLibLauncher(QObject):
                 self.minecraft_directory,
                 options
             )
-            command = deduplicate_classpath(complete_auth_arguments(command))
+            command = complete_auth_arguments(command)
             
             # 设置窗口大小
             if not self.minecraft_fullscreen:
@@ -376,7 +446,8 @@ class MinecraftLibLauncher(QObject):
                 command.append(arg)
 
             # 清理命令参数
-            command = [arg for arg in command if arg != "None" and arg is not None]
+            command = deduplicate_classpath(
+                [arg for arg in command if arg != "None" and arg is not None])
 
             # 打印命令用于调试
             safe_command = redacted_command(command, self.token)

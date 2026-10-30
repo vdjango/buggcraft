@@ -16,6 +16,31 @@ from core import loaders
 
 
 class LoaderCatalogueTests(unittest.TestCase):
+    def test_shared_cache_accepts_long_maven_paths(self):
+        from utils.path_helper import filesystem_path
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            relative = Path('com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar')
+            source = filesystem_path(root / 'source' / relative)
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b'verified dependency')
+            destination = root / ('deep-directory-' * 6) / '.buggcraft-downloads/loader-cache/libraries'
+            try:
+                loaders._link_install_cache(root / 'source', destination, threading.Event())
+                self.assertGreater(len(str(destination / relative)), 260)
+                self.assertEqual(filesystem_path(destination / relative).read_bytes(), b'verified dependency')
+            finally:
+                __import__('shutil').rmtree(filesystem_path(root))
+
+    @staticmethod
+    def write_vanilla(root, version='1.20.1'):
+        folder = Path(root) / 'versions' / version
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / (version + '.json')).write_text(json.dumps({
+            'id': version, 'mainClass': 'net.minecraft.client.main.Main',
+            'libraries': [{'name': 'com.example:base:1'}]}), encoding='utf-8')
+        (folder / (version + '.jar')).write_bytes(b'client')
+
     def test_loader_metadata_parser_error_is_actionable_and_closes_response(self):
         response = Mock()
         response.json.side_effect = json.JSONDecodeError('Expecting value', '', 0)
@@ -47,6 +72,7 @@ class LoaderCatalogueTests(unittest.TestCase):
 
         def install_game(downloader, _version):
             downloader._batch(jobs('game-'), 'game files')
+            self.write_vanilla(downloader.root)
 
         def prefetch(_loader, _game, _version, root, _callback, cancel, _source, publish):
             self.assertFalse(publish)
@@ -71,12 +97,15 @@ class LoaderCatalogueTests(unittest.TestCase):
               patch.object(loaders.MinecraftDownloader, 'install') as install_game,
               patch.object(loaders, '_profile_loader', return_value=(
                   identity, {'id': identity, 'inheritsFrom': '1.20.1'}))):
+            self.write_vanilla(root)
             result = loaders._install_loader('Fabric', '1.20.1', '0.15.0', root, None,
                 {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
                  'setMax': lambda _value: None}, threading.Event(), '官方')
+            identity = '1.20.1-Fabric-0.15.0'
             self.assertEqual(result, identity)
             install_game.assert_not_called()
             self.assertTrue((Path(root) / 'versions' / identity / (identity + '.json')).is_file())
+            self.assertTrue((Path(root) / 'versions' / '1.20.1').exists())
 
     def test_fabric_prefetch_overlaps_vanilla_without_early_profile(self):
         game_started = threading.Event()
@@ -87,6 +116,7 @@ class LoaderCatalogueTests(unittest.TestCase):
         def install_game(_downloader, _version):
             game_started.set()
             self.assertTrue(loader_started.wait(2), 'loader prefetch should start with the game')
+            self.write_vanilla(_downloader.root)
 
         def prefetch(_loader, _game, _version, root, _callback, _cancel, _source, publish):
             self.assertFalse(publish)
@@ -101,8 +131,11 @@ class LoaderCatalogueTests(unittest.TestCase):
             result = loaders._install_loader('Fabric', '1.20.1', '0.15.0', root, None,
                 {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
                  'setMax': lambda _value: None}, threading.Event(), '官方')
+            identity = '1.20.1-Fabric-0.15.0'
             self.assertEqual(result, identity)
             self.assertTrue((Path(root) / 'versions' / identity / (identity + '.json')).is_file())
+            self.assertFalse((Path(root) / 'versions' / '1.20.1').exists())
+            self.assertEqual((Path(root) / 'versions' / identity / (identity + '.jar')).read_bytes(), b'client')
 
     def test_fabric_libraries_download_together_before_profile_is_published(self):
         game_version, loader_version = '1.20.1', '0.15.0'
@@ -173,7 +206,8 @@ class LoaderCatalogueTests(unittest.TestCase):
         self.assertEqual(get.call_count, 2)
 
     def test_no_matching_build_reports_no_compatible_version(self):
-        response = self.response(records=[{'mcversion': '1.20.1', 'version': '47.4.0'}])
+        response = self.response(content=b'<metadata><versioning><versions><version>1.20.1-47.4.0</version></versions></versioning></metadata>',
+                                 records=[{'mcversion': '1.20.1', 'version': '47.4.0'}])
         with patch.object(loaders.requests, 'get', return_value=response):
             with self.assertRaisesRegex(ValueError, '暂无适用于 Minecraft 1.21.8'):
                 loaders.available_versions('Forge', '1.21.8', 'BMCLAPI')
@@ -206,7 +240,8 @@ class LoaderCatalogueTests(unittest.TestCase):
             (forge / 'natives/forge.dll').write_bytes(b'forge')
             (forge / '1.20.1-forge-47.4.0.json').write_text(json.dumps({'id': 'forge', 'inheritsFrom': '1.20.1',
                 'mainClass': 'cpw.mods.bootstraplauncher.BootstrapLauncher',
-                'libraries': [{'name': 'net.minecraftforge:forge:1.20.1-47.4.0'}]}), encoding='utf-8')
+                'libraries': [{'name': 'net.minecraftforge:forge:1.20.1-47.4.0'}],
+                'arguments': {'jvm': ['-DignoreList=base.jar']}}), encoding='utf-8')
             loaders._flatten_forge_version(root, forge.name, '1.20.1', set())
             metadata = json.loads((forge / (forge.name + '.json')).read_text(encoding='utf-8'))
             self.assertNotIn('inheritsFrom', metadata)
@@ -214,6 +249,7 @@ class LoaderCatalogueTests(unittest.TestCase):
             self.assertEqual({item['name'] for item in metadata['libraries']},
                              {'com.example:base:1', 'net.minecraftforge:forge:1.20.1-47.4.0'})
             self.assertEqual((forge / (forge.name + '.jar')).read_bytes(), b'client')
+            self.assertIn(forge.name + '.jar', metadata['arguments']['jvm'][0])
             self.assertEqual((forge / 'natives/base.dll').read_bytes(), b'base')
             self.assertEqual((forge / 'natives/forge.dll').read_bytes(), b'forge')
             self.assertFalse(base.exists())
@@ -238,6 +274,103 @@ class LoaderCatalogueTests(unittest.TestCase):
                 loaders._flatten_forge_version(root, 'forge-profile', '1.20.1', before)
                 self.assertTrue(base.exists())
 
+    def test_neoforge_install_publishes_one_external_launcher_version_folder(self):
+        with tempfile.TemporaryDirectory() as root:
+            identity = 'neoforge-21.1.265'
+            def install_game(downloader, _version):
+                self.write_vanilla(downloader.root, '1.21.1')
+            def install_neoforge(_version, directory, *_args):
+                folder = Path(directory) / 'versions' / identity
+                folder.mkdir()
+                (folder / (identity + '.json')).write_text(json.dumps({
+                    'id': identity, 'inheritsFrom': '1.21.1',
+                    'mainClass': 'cpw.mods.bootstraplauncher.BootstrapLauncher',
+                    'libraries': [{'name': 'net.neoforged:neoforge:21.1.265'}]}), encoding='utf-8')
+                return identity
+            with (patch.object(loaders.MinecraftDownloader, 'install', install_game),
+                  patch.object(loaders, '_neo_forge', side_effect=install_neoforge)):
+                result = loaders._install_loader('NeoForge', '1.21.1', '21.1.265', root, 'java',
+                    {'setStatus': lambda _value: None, 'setProgress': lambda _value: None,
+                     'setMax': lambda _value: None}, threading.Event(), '官方')
+            identity = '1.21.1-NeoForge-21.1.265'
+            self.assertEqual(result, identity)
+            self.assertEqual([path.name for path in (Path(root) / 'versions').iterdir()], [identity])
+            profile = json.loads((Path(root) / 'versions' / identity / (identity + '.json')).read_text(encoding='utf-8'))
+            self.assertNotIn('inheritsFrom', profile)
+            self.assertEqual(profile['clientVersion'], '1.21.1')
+            self.assertEqual((Path(root) / 'versions' / identity / (identity + '.jar')).read_bytes(), b'client')
+
+    def test_private_loader_workspace_retries_and_preserves_existing_versions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_vanilla(root, '1.21.1')
+            original = root / 'versions/1.21.1/1.21.1.jar'
+            original.write_bytes(b'existing user client')
+            library = root / 'libraries/example.jar'
+            library.parent.mkdir()
+            library.write_bytes(b'broken cache')
+            calls = []
+
+            def install_neoforge(_version, directory, *_args):
+                work = Path(directory)
+                calls.append(work)
+                self.assertNotEqual(work, root)
+                self.assertEqual(original.read_bytes(), b'existing user client')
+                if len(calls) == 1:
+                    (work / 'checkpoint.txt').write_text('keep', encoding='utf-8')
+                    raise RuntimeError('interrupted installer')
+                self.assertTrue((work / 'checkpoint.txt').exists())
+                repaired = work / 'libraries/example.jar'
+                staged = repaired.with_suffix('.tmp')
+                staged.write_bytes(b'repaired dependency')
+                staged.replace(repaired)
+                identity = 'neoforge-21.1.265'
+                folder = work / 'versions' / identity
+                folder.mkdir(parents=True)
+                (folder / (identity + '.json')).write_text(json.dumps(dict(
+                    id=identity, inheritsFrom='1.21.1')), encoding='utf-8')
+                return identity
+
+            def vanilla(downloader, version):
+                self.write_vanilla(downloader.root, version)
+            callback = dict(setStatus=lambda _: None, setProgress=lambda _: None, setMax=lambda _: None)
+            with (patch.object(loaders, '_neo_forge', side_effect=install_neoforge),
+                  patch.object(loaders.MinecraftDownloader, 'install', vanilla)):
+                with self.assertRaisesRegex(RuntimeError, 'interrupted'):
+                    loaders._install_loader('NeoForge', '1.21.1', '21.1.265', root, None,
+                        callback, threading.Event(), 'BMCLAPI')
+                result = loaders._install_loader('NeoForge', '1.21.1', '21.1.265', root, None,
+                    callback, threading.Event(), 'BMCLAPI')
+            self.assertEqual(result, '1.21.1-NeoForge-21.1.265')
+            self.assertEqual(calls[0], calls[1])
+            self.assertFalse(calls[0].exists())
+            self.assertEqual(original.read_bytes(), b'existing user client')
+            self.assertEqual(library.read_bytes(), b'repaired dependency')
+            self.assertEqual({item.name for item in (root / 'versions').iterdir()},
+                             {'1.21.1', result})
+
+    def test_verified_base_profile_is_copied_without_user_saves_or_mutable_hard_links(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_vanilla(root)
+            base = root / 'versions/1.20.1'
+            original = (base / '1.20.1.json').read_bytes()
+            (base / 'saves').mkdir()
+            (base / 'saves/level.dat').write_bytes(b'user world')
+            def prefetch(_loader, _mc, _version, directory, *_args):
+                staged = Path(directory) / 'versions/1.20.1'
+                self.assertFalse((staged / 'saves').exists())
+                self.assertFalse(__import__('os').path.samefile(base / '1.20.1.json', staged / '1.20.1.json'))
+                return 'fabric-loader-0.15.0-1.20.1', dict(id='fabric-loader-0.15.0-1.20.1', inheritsFrom='1.20.1')
+            with (patch.object(loaders, 'verified_installation', return_value=True),
+                  patch.object(loaders, '_profile_loader', side_effect=prefetch)):
+                result = loaders._install_loader('Fabric', '1.20.1', '0.15.0', root, None,
+                    dict(setStatus=lambda _: None, setMax=lambda _: None, setProgress=lambda _: None),
+                    threading.Event(), 'BMCLAPI')
+            self.assertEqual(result, '1.20.1-Fabric-0.15.0')
+            self.assertEqual((base / '1.20.1.json').read_bytes(), original)
+            self.assertEqual((base / 'saves/level.dat').read_bytes(), b'user world')
+
     def test_loader_download_has_timeout_and_falls_back_without_global_patches(self):
         import requests
         import threading
@@ -255,7 +388,7 @@ class LoaderCatalogueTests(unittest.TestCase):
         self.assertEqual(session.get.call_count, 2)
         self.assertEqual(session.get.call_args.kwargs['timeout'], (8, 20))
         self.assertTrue(session.get.call_args_list[0].args[0].startswith(loaders.BMCLAPI))
-        self.assertEqual(session.get.call_args.args[0], 'https://maven.minecraftforge.net/installer.jar')
+        self.assertEqual(session.get.call_args.args[0], 'https://mirror.minguncle.cn/maven.minecraftforge.net/installer.jar')
         cancel = threading.Event()
         cancel.set()
         with self.assertRaises(InterruptedError):
@@ -304,7 +437,8 @@ class LoaderCatalogueTests(unittest.TestCase):
                         self.assertIn(loaders.BMCLAPI, candidates[0])
                         self.assertNotIn('/maven/releases/', candidates[0])
                     elif source == '官方':
-                        self.assertEqual(candidates, [url])
+                        self.assertEqual(candidates[0], url)
+                        self.assertEqual(len(candidates), 3)
                     else:
                         self.assertEqual(candidates[0], url)
                         self.assertIn(loaders.BMCLAPI, candidates[1])

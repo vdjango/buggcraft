@@ -1,4 +1,4 @@
-"""Native login approval polling and OS-protected launcher credentials."""
+"""Native login approval polling and portable launcher credentials."""
 import asyncio
 import base64
 import json
@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
+from utils.http_identity import USER_AGENT
+
 NODE_WEB = 'https://node.bugg.icu'
 SERVICE = 'Buggcraft launcher device v1'
 
@@ -21,13 +23,26 @@ def canonical(value):
 
 
 def _keyring():
+    from utils.portable_credentials import PortableCredentials
+    return PortableCredentials()
+
+
+def _read_credential(account):
+    vault = _keyring()
+    value = vault.get_password(SERVICE, account)
+    if value:
+        return value
+    if hasattr(vault, 'is_deleted') and vault.is_deleted(SERVICE, account):
+        return None
+    # Import an existing authorization once, without writing new user-profile files.
     try:
         import keyring
-    except ImportError as exc:
-        raise RuntimeError('需要系统凭据库组件，请重新安装最新版启动器。') from exc
-    if keyring.get_keyring().priority <= 0:
-        raise RuntimeError('此系统没有可用的安全凭据库，请启用系统钥匙串后重试。')
-    return keyring
+        value = keyring.get_password(SERVICE, account)
+    except Exception:
+        value = None
+    if value:
+        vault.set_password(SERVICE, account, value)
+    return value
 
 
 def save_private_key(account, private_key):
@@ -37,7 +52,7 @@ def save_private_key(account, private_key):
 
 
 def load_private_key(account):
-    value = _keyring().get_password(SERVICE, account)
+    value = _read_credential(account)
     if not value:
         return None
     try:
@@ -64,7 +79,7 @@ def claims(token):
 
 
 def protect_data(value):
-    """New device credentials never write private scalars into profile/cache JSON."""
+    """Node profiles contain references; secrets live in the local encrypted vault."""
     if isinstance(value, list):
         return [protect_data(item) for item in value]
     if not isinstance(value, dict):
@@ -81,10 +96,17 @@ def protect_data(value):
 
 def reveal_token(token):
     if isinstance(token, str) and token.startswith('vault1:'):
-        value = _keyring().get_password(SERVICE, token[7:])
+        value = _read_credential(token[7:])
         if not value:
-            raise ValueError('系统凭据库中没有此设备的登录授权，请重新登录。')
-        return value
+            raise ValueError('启动器缓存中没有此设备的登录授权，请重新登录。')
+        token = value
+    if isinstance(token, str) and '~' not in token:
+        grant = claims(token).get('g', {})
+        if grant.get('p') == 'buggcraft-launcher-device-v1' and isinstance(grant.get('d'), dict):
+            key = load_private_key(grant['r'])
+            if key is None or public_jwk(key) != grant['d']:
+                raise ValueError('此设备的登录密钥不可用，请使用节点地址重新登录。')
+            token += '~' + _private_scalar(key)
     return token
 
 
@@ -139,20 +161,36 @@ def request(path, body, origin=NODE_WEB):
     origin = validate_origin(origin)
     payload = json.dumps(body, separators=(',', ':')).encode()
     call = urllib.request.Request(origin + path, data=payload,
-        headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
+        headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store',
+                 'User-Agent': USER_AGENT, 'Accept': 'application/json'})
+    return _read_json(call, origin, timeout=12)
+
+
+def _read_json(call, origin, timeout):
     try:
-        with _open(call, origin, timeout=12) as response:
+        with _open(call, origin, timeout=timeout) as response:
             raw = response.read(65537)
     except urllib.error.HTTPError as exc:
         detail = exc.read(2048).decode('utf-8', 'replace')
         try:
-            detail = json.loads(detail).get('error', detail)
+            value = json.loads(detail)
         except ValueError:
-            pass
-        raise ValueError(detail[:500]) from None
+            value = {}
+        if exc.code == 403 and (isinstance(value, dict) and value.get('cloudflare_error')
+                                or 'error code: 1010' in detail.lower()
+                                or 'cf-error-details' in detail.lower()):
+            raise ValueError('节点代理拒绝了启动器请求（HTTP 403），请检查节点的代理访问规则。') from None
+        if isinstance(value, dict) and 'error' in value:
+            detail = value['error']
+        if not isinstance(detail, str) or '<' in detail or not detail.strip():
+            detail = '节点暂时无法处理登录请求，请稍后重试。'
+        raise ValueError(f'{detail[:300]}（HTTP {exc.code}）') from None
     if len(raw) > 65536:
         raise ValueError('联机节点返回的数据超过限制。')
-    value = json.loads(raw)
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError('节点返回了无效的登录响应，请检查接入地址和节点代理。') from None
     if not isinstance(value, dict):
         raise ValueError('联机节点响应无效。')
     return value
@@ -160,11 +198,8 @@ def request(path, body, origin=NODE_WEB):
 
 async def begin(name, remember, origin=NODE_WEB):
     origin = validate_origin(origin)
-    # Test the system vault before asking the user to approve a device.
+    # Check the portable vault before asking the user to approve a device.
     await asyncio.to_thread(_keyring)
-    status = await asyncio.to_thread(get_status, origin)
-    if status.get('launcher_login') != 1:
-        raise ValueError('此节点尚未支持浏览器设备登录，请让管理员升级节点，或在“更多选项”中输入旧接入码。')
     key = ec.generate_private_key(ec.SECP256R1())
     result = await asyncio.to_thread(request, '/api/launcher/start',
         {'key': public_jwk(key), 'name': name[:64], 'remember': bool(remember)}, origin)
@@ -177,15 +212,9 @@ async def begin(name, remember, origin=NODE_WEB):
 
 def get_status(origin):
     origin = validate_origin(origin)
-    call = urllib.request.Request(origin + '/api/status', headers={'Cache-Control': 'no-store'})
-    with _open(call, origin, timeout=10) as response:
-        raw = response.read(65537)
-    if len(raw) > 65536:
-        raise ValueError('节点状态响应过大。')
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError('节点状态响应无效。')
-    return value
+    call = urllib.request.Request(origin + '/api/status',
+        headers={'Cache-Control': 'no-store', 'User-Agent': USER_AGENT, 'Accept': 'application/json'})
+    return _read_json(call, origin, timeout=10)
 
 
 async def poll(result, key):
