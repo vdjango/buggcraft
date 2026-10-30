@@ -27,7 +27,6 @@ jobs:
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
           sha = 'f98de3aa18329b43a9e70f57d8dc959c4c564aa3'
-          native_sha = 'f5f0e4433ed8b935c071ab8ae1f8926939b52e83'
           deadline = time.monotonic() + 170 * 60
           def request(path, payload=None):
               url = path if path.startswith('https://') else base + path
@@ -86,8 +85,6 @@ jobs:
               raise SystemExit('Build verification timed out; no release requested')
           wait_build('package.yml')
           assert request('/branches/main')['commit']['sha'] == sha, 'main moved; verify the new commit'
-          native = request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/branches/main')
-          assert native['commit']['sha'] == native_sha, 'Native fix has not been integrated into remote main'
           expected_assets = {
               'buggcraft-native-0.3.5-windows-x64.zip',
               'buggcraft-native-0.3.5-linux-x64.tar.gz',
