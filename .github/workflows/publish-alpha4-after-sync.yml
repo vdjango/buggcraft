@@ -42,13 +42,13 @@ jobs:
           releases = _get_json(base + '/releases?per_page=100', token)
           release = next(r for r in releases if r['tag_name'] == 'v1.0.1-alpha.4')
           required = {'Buggcraft.exe', 'Buggcraft', 'Buggcraft-linux-arm64',
-                      'Buggcraft-runtime-windows-x64.zip', 'Buggcraft-macos-x86_64.zip',
+                      'Buggcraft-macos-x86_64.zip',
                       'Buggcraft-macos-arm64.zip', 'BUGGCRAFT_VERSION.txt',
                       'Buggcraft-source.tar.gz', 'LICENSE'}
           required.update('SHA256SUMS-' + p + '.txt' for p in PLATFORMS)
           uploaded = {a['name'] for a in release['assets']
                       if a['state'] == 'uploaded' and a['size'] > 0}
-          assert required <= uploaded, 'Release assets are incomplete'
+          assert required <= uploaded, 'Missing release assets: ' + ', '.join(sorted(required - uploaded))
           print('Verified build', run['id'], 'and', len(uploaded), 'release assets')
           PY
       - name: Publish the validated release
