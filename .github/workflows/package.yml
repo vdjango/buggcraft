@@ -50,9 +50,9 @@ env:
   GIT_CONFIG_VALUE_0: HTTP/1.1
 
 concurrency:
-  # A stuck runner for an older commit must not block a validated replacement.
-  group: package-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  # A newer branch commit replaces its older build; release tags remain independent.
+  group: package-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   validate:

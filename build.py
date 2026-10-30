@@ -253,7 +253,7 @@ def make_command(onefile=False, output=None, jobs=None, native=None):
                f'--output-dir={output or root / "dist"}',
                f'--report={(output or root / "dist") / "compilation-report.xml"}',
                f'--jobs={jobs or min(os.cpu_count() or 2, 8)}',
-               '--assume-yes-for-downloads', '--lto=yes',
+               '--assume-yes-for-downloads', '--lto=no',
                '--nofollow-import-to=*.tests,*.test,pytest,unittest,tkinter,IPython',
                '--noinclude-data-files=resources/icons/*/app.png',
                '--noinclude-data-files=resources/fonts/*']
