@@ -26,7 +26,7 @@ jobs:
           from urllib.parse import urlencode
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          sha = '514eac76915c7ff39344f612fb3f35077acbe4d3'
+          sha = 'f98de3aa18329b43a9e70f57d8dc959c4c564aa3'
           native_sha = 'f5f0e4433ed8b935c071ab8ae1f8926939b52e83'
           deadline = time.monotonic() + 170 * 60
           def request(path, payload=None):
