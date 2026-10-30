@@ -1,15 +1,15 @@
-﻿name: Publish verified alpha 2 release
+﻿name: Cancel superseded launcher package run
 on:
   push:
     branches: [ci/alpha2-release-promotion]
     paths: [.github/workflows/alpha2-release-promotion.yml]
 permissions:
-  contents: write
+  actions: write
 jobs:
-  publish:
+  cancel:
     runs-on: ubuntu-latest
     steps:
-      - name: Publish the complete reviewed alpha 2 release
+      - name: Cancel older main package run
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit v1.0.1-alpha.2 --repo vdjango/buggcraft --draft=false --prerelease
+        run: gh api -X POST repos/vdjango/buggcraft/actions/runs/41062075588/cancel
