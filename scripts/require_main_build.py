@@ -1,6 +1,7 @@
 """Require preflight and five-platform packaging for this main commit."""
 import json
 import os
+from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -85,7 +86,17 @@ def main():
     repository = os.environ['GITHUB_REPOSITORY']
     sha = os.environ['GITHUB_SHA']
     token = os.environ['GH_TOKEN']
+    ref = os.environ.get('GITHUB_REF', '')
+    if ref.startswith('refs/tags/v'):
+        version = (Path(__file__).resolve().parents[1] / 'resources/app-version.txt').read_text(
+            encoding='ascii').strip()
+        if ref.removeprefix('refs/tags/v') != version:
+            raise RuntimeError('Release tag does not match resources/app-version.txt')
     run = require_success(repository, sha, token)
+    output = os.environ.get('GITHUB_OUTPUT')
+    if output:
+        with open(output, 'a', encoding='utf-8') as stream:
+            stream.write(f"run_id={run['id']}\n")
     print(f"Verified Package launcher run #{run['run_number']} for {sha}; preflight and all five platforms passed.")
 
 

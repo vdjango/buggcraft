@@ -24,7 +24,7 @@ Windows 和 Linux 使用独立可执行文件，macOS 使用包含应用的 ZIP�
 
 日常推送或 PR 只运行一条 Package launcher 工作流：Ubuntu 先完成静态校验和启动器单元回归，再并行打包五个平台，逐个平台执行原生桥接和打包后启动检查。联机节点固定到已发布版本；Windows、Linux x86_64 与两种 macOS 直接下载对应仓库的已验证发布包并核对 SHA-256 和源码提交，Linux ARM64 暂由固定提交编译。每个平台还缓存该固定版本的运行库，后续构建无需重复编译。网络下载、完整页面和深入协议回归通过手动触发 Client and native regression，不阻塞常规发布。
 
-修复在独立 release/* 分支完成后合入 main。同一提交的 Package launcher 预检和五平台构建通过，再运行 Release launcher build 并输入版本号。发布校验拒绝缺失、未完成、失败、取消、跳过或其他提交的结果；标签构建只复核该 main 结果，不重复执行完整测试。
+修复在独立 release/* 分支完成后合入 main。同一提交的 Package launcher 预检和五平台构建通过，再运行 Release launcher build 并输入版本号。发布校验拒绝缺失、未完成、失败、取消、跳过或其他提交的结果；标签工作流直接下载该 main 构建的五平台产物，校验源码内版本与标签一致，再创建发行草稿，不重复编译启动器。
 
 版本构建覆盖 Windows x64、Linux x86_64/ARM64、macOS Intel/Apple Silicon。全部检查通过后，在 GitHub 创建草稿并自动同步到[下载站](https://download.bugg.icu)。核对五个平台的文件、内嵌版本、大小和 SHA-256 后，在下载站后台审核发布；GitHub 草稿与下载站发布状态分别管理。
 

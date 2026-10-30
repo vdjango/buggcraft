@@ -1,11 +1,13 @@
 import os
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from urllib.error import HTTPError
 
 from scripts.require_main_build import PLATFORMS, release_exists, require_success
-from scripts import release_launcher_tag
+from scripts import release_launcher_tag, require_main_build
 
 
 class ReleaseGateTests(unittest.TestCase):
@@ -73,6 +75,28 @@ class ReleaseGateTests(unittest.TestCase):
         jobs.append({'name': 'validate', 'conclusion': 'success'})
         with self.assertRaisesRegex(RuntimeError, 'incomplete: macos-arm64'):
             self.run_gate([run], jobs)
+
+    def test_tag_gate_exports_validated_main_artifact_run(self):
+        version = (Path(__file__).resolve().parents[1] / 'resources/app-version.txt').read_text(
+            encoding='ascii').strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'github-output'
+            environment = dict(GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha',
+                               GITHUB_REF='refs/tags/v' + version, GH_TOKEN='test-token',
+                               GITHUB_OUTPUT=str(output))
+            with patch.dict(os.environ, environment), patch.object(
+                    require_main_build, 'require_success', return_value={'id': 123, 'run_number': 47}):
+                require_main_build.main()
+            self.assertEqual(output.read_text(encoding='utf-8'), 'run_id=123\n')
+
+    def test_tag_gate_rejects_version_mismatch_before_artifact_selection(self):
+        environment = dict(GITHUB_REPOSITORY='owner/repo', GITHUB_SHA='commit-sha',
+                           GITHUB_REF='refs/tags/v0.0.0-wrong', GH_TOKEN='test-token')
+        with patch.dict(os.environ, environment), patch.object(
+                require_main_build, 'require_success') as success:
+            with self.assertRaisesRegex(RuntimeError, 'does not match'):
+                require_main_build.main()
+            success.assert_not_called()
 
     def test_existing_github_release_blocks_retagging(self):
         def existing_release(url, token):

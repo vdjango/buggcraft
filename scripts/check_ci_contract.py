@@ -33,6 +33,10 @@ if any(len(values) != 1 for values in refs.values()) or len({value for values in
     errors.append('Native source SHA must be pinned identically in both workflows')
 if 'actions/cache@v4' not in workflows['package.yml'] or 'steps.native-cache.outputs.cache-hit' not in workflows['package.yml']:
     errors.append('Launcher package must reuse the pinned native runtime cache')
+if ('run-id: ${{ needs.validate.outputs.main_run_id }}' not in workflows['package.yml']
+        or 'github-token: ${{ github.token }}' not in workflows['package.yml']
+        or 'if: "!startsWith(github.ref, \'refs/tags/v\')"' not in workflows['package.yml']):
+    errors.append('Release tags must promote the validated main artifacts without rebuilding')
 
 for name in ('requirements.txt', 'requirements-build.txt', 'requirements-test.txt'):
     for number, raw in enumerate((ROOT / name).read_text(encoding='utf-8').splitlines(), 1):
