@@ -71,15 +71,11 @@ class CatalogueSourceRegressionUiTests(_UiCase):
                     calls = self.routes[first:]
                     self.check(calls[0]['url'].startswith(loaders.BMCLAPI) == (source_index != 1),
                                'settings controls the first list request')
-                    self.check(len(calls) == (2 if self.fail_mirror else 1),
-                               'automatic source falls back; explicit source stays selected')
+                    self.check(len(calls) == (2 if calls[0]['failed'] else 1),
+                               'a failed selected source falls back to another available source')
+                    self.check(not calls[-1]['failed'], 'fallback catalogue source succeeds')
                     if name == 'NeoForge' and source_index != 1:
                         self.check('/neoforge/list/1.21.8' in calls[0]['url'], 'NeoForge uses its dedicated API')
-                    if name == 'Quilt' and source_index == 2:
-                        self.check(not page.controller.component_versions
-                                   and '切换下载源' in page.controller.loader_status,
-                                   'explicit mirror reports missing Quilt metadata without inventing a version')
-                        continue
                     self.check(page.controller.component_versions[0]['name'] == expected,
                                f'{name} source {source_index} renders latest compatible version')
                     self.click_ui(page, 'component-version-0')
