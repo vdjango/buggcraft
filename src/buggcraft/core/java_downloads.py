@@ -253,6 +253,12 @@ def register(settings, entry):
     entries = [item for item in entries if isinstance(item, (list, tuple)) and item
                and isinstance(item[0], str) and os.path.normcase(item[0]) != os.path.normcase(path)]
     settings.set_setting('java.installations', entries + [[path, raw, parsed]])
+    # The automatic choice needs a real fallback path once the first runtime
+    # has been downloaded. Keep explicit per-game Java selections untouched.
+    selected = settings.get_version_setting('java.path')
+    name = str(settings.get_version_setting('java.name') or '')
+    if not selected and name.startswith('使用推荐的 Java 版本'):
+        settings.set_version_setting('java.path', path)
     settings.save_settings()
 
 

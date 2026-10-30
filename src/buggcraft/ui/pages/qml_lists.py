@@ -260,10 +260,7 @@ class JavaManagementPage(QmlPage):
         if not os.path.isfile(path) or not raw or not found or found == (0, 0, 0):
             self.set_status('无法添加 Java：所选文件无法执行或无法读取 Java 版本。')
             return False
-        entries = self.settings_manager.get_setting('java.installations', []) or []
-        entries = [item for item in entries if os.path.normcase(item[0]) != os.path.normcase(path)]
-        self.settings_manager.set_setting('java.installations', entries + [[path, raw, list(found)]])
-        self.settings_manager.save_settings()
+        register_java(self.settings_manager, (path, raw, list(found)))
         self.refresh_list()
         return True
 

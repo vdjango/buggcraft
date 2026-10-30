@@ -68,7 +68,7 @@ class InstallerJavaRegressionTests(unittest.TestCase):
         self.assertEqual(catalogue.call_args.args[0], 21)
         self.assertEqual(install.call_args.args[1], self.root / 'cache/java')
         self.assertIs(install.call_args.args[2], self.cancel)
-        self.assertIsNone(self.settings.get_setting('java.path'))
+        self.assertEqual(self.settings.get_setting('java.path'), self.paths[21])
         self.assertEqual(self.settings.get_setting('java.installations')[0][0], self.paths[21])
 
     def test_moved_or_incompatible_selected_java_uses_compatible_alternative(self):

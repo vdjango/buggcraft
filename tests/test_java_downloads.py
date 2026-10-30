@@ -9,10 +9,25 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from core.java_downloads import JavaPackage, _package, _temurin, catalogue, install
+from core.java_downloads import JavaPackage, _package, _temurin, catalogue, install, register
 
 
 class JavaDownloadTests(unittest.TestCase):
+    def test_first_download_sets_auto_java_path_and_preserves_explicit_selection(self):
+        from config.settings import SettingsManager
+
+        with tempfile.TemporaryDirectory() as directory:
+            settings = SettingsManager(Path(directory) / 'config')
+            first = str(Path(directory) / 'java-21.exe')
+            second = str(Path(directory) / 'java-17.exe')
+            settings.set_setting('java.path', None)
+            register(settings, (first, 'Java 21', [21, 0, 1]))
+            self.assertEqual(settings.get_version_setting('java.path'), first)
+            self.assertEqual(SettingsManager(Path(directory) / 'config').get_setting('java.path'), first)
+            settings.set_version_setting('java.name', '自定义 Java 路径')
+            register(settings, (second, 'Java 17', [17, 0, 1]))
+            self.assertEqual(settings.get_version_setting('java.path'), first)
+
     def test_tuna_package_uses_catalogued_sha256_and_official_fallback(self):
         payload = [{'release_type': 'ga', 'version': {'major': 25, 'semver': '25.0.2+1'},
                     'binary': {'architecture': 'x64', 'os': 'windows', 'image_type': 'jre',
