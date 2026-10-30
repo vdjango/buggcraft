@@ -1,0 +1,32 @@
+name: Publish launcher alpha.4 after synchronization
+
+on:
+  workflow_run:
+    workflows: ["Package launcher"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'v1.0.1-alpha.4' &&
+      github.event.workflow_run.head_sha == '56139a20fb2eacf6054fc47e63b080d715e8802a' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the synchronized release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          state="$(gh api "repos/$GH_REPO/releases/tags/v1.0.1-alpha.4" --jq '.draft')"
+          if [[ "$state" == true ]]; then
+            gh release edit v1.0.1-alpha.4 --draft=false
+          elif [[ "$state" != false ]]; then
+            echo "Unexpected release state: $state" >&2
+            exit 1
+          fi
