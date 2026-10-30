@@ -26,7 +26,7 @@ jobs:
           from urllib.parse import urlencode
           base = 'https://api.github.com/repos/' + os.environ['GH_REPO']
           token = os.environ['GH_TOKEN']
-          sha = 'fbe4f0359066d027dcf3526336d5be8126c763b2'
+          sha = 'e9623252b2dd819efdbffdecc6846b0a7d9f4751'
           native_sha = '1bee479ef1d9f2fbd6d906956a8fa5b28cdc4007'
           deadline = time.monotonic() + 170 * 60
           def request(path, payload=None):
@@ -47,9 +47,9 @@ jobs:
                           raise
                       time.sleep(5 * (attempt + 1))
           # Stop superseded jobs before building the dependency correction.
-          previous_sha = '49e4a60d4ab662e063221b89e6e08f3e73901912'
+          previous_sha = 'fbe4f0359066d027dcf3526336d5be8126c763b2'
           previous = request('/actions/runs?' + urlencode({'head_sha':previous_sha,'per_page':100}))['workflow_runs']
-          previous += [request('/actions/runs/41026107069')]
+          previous += [request('/actions/runs/41026837541')]
           for old in previous:
               if old['status'] != 'completed':
                   request('/actions/runs/' + str(old['id']) + '/cancel', {})
