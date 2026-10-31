@@ -43,6 +43,22 @@ class LoaderSourceUiTests(_UiCase):
         self.routes, self.unavailable = [], set()
         current = {}
         mirror = urlsplit(loaders.BMCLAPI).hostname
+        original_file = self.fixtures.file
+
+        def file(name):
+            data = original_file(name)
+            if name == 'client.jar':
+                data['url'] = 'https://piston-data.mojang.com/v1/objects/' + data['sha1'] + '/' + name
+            elif name == '1.21.8.json':
+                data['url'] = 'https://piston-meta.mojang.com/v1/packages/' + data['sha1'] + '/' + name
+            return data
+
+        self._patch(patch.object(self.fixtures, 'file', file))
+        self.fixtures.metadata['downloads']['client'] = file('client.jar')
+        self.fixtures.payloads['1.21.8.json'] = json.dumps(self.fixtures.metadata).encode()
+        self.fixtures.payloads['manifest.json'] = json.dumps({'versions': [dict(
+            id='1.21.8', type='release', releaseTime='2026-01-01T00:00:00Z',
+            **file('1.21.8.json'))]}).encode()
         self._patch(patch.object(downloads.MinecraftDownloader, 'urls', REAL_URLS))
 
         def transport(url, **kwargs):
@@ -64,7 +80,7 @@ class LoaderSourceUiTests(_UiCase):
                                 lambda _session, url, **kw: transport(url, **kw)))
         self.fixtures.payloads['source-fixture-1.jar'] = b'loader-specific transport evidence'
         digest = hashlib.sha1(self.fixtures.payloads['source-fixture-1.jar']).hexdigest()
-        policies = ('自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI', 'MCMirror')
+        policies = ('BMCLAPI', '官方', 'MCMirror', 'Buggcraft')
         for loader, host in (('Fabric', 'meta.fabricmc.net'), ('Quilt', 'meta.quiltmc.org')):
             for index, fail in ((0, False), (1, False), (2, False), (3, False), (0, True), (1, True)):
                 general = self.settings_tab(0)
@@ -78,11 +94,13 @@ class LoaderSourceUiTests(_UiCase):
                         name='test.acceptance:source-fixture:1',
                         downloads=dict(artifact=dict(sha1=digest,
                             size=len(self.fixtures.payloads['source-fixture-1.jar']),
-                            url='https://' + lib_host + '/test/acceptance/source-fixture/1/source-fixture-1.jar')))])
+                            url='https://' + lib_host + ('/net/fabricmc/fabric-loader/1/'
+                                if loader == 'Fabric' else '/repository/release/org/quiltmc/quilt-loader/1/')
+                                + 'source-fixture-1.jar')))])
                 self.fixtures.payloads['loader-profile.json'] = json.dumps(profile).encode()
                 library = self.game_dir / 'libraries/test/acceptance/source-fixture/1/source-fixture-1.jar'
                 library.unlink(missing_ok=True)
-                self.unavailable = ({mirror, 'mirror.minguncle.cn'} if index == 0 else {host, lib_host}) if fail else set()
+                self.unavailable = ({mirror} if index == 0 else {host, lib_host}) if fail else set()
                 before = len(self.routes)
                 page = self.seed_games()
                 self.click_ui(page, 'install-1.21.8')
@@ -96,22 +114,24 @@ class LoaderSourceUiTests(_UiCase):
                 self.check(task['source'] == policies[index], 'selected policy reaches actual loader worker')
                 calls = self.routes[before:]
                 profiles = [row['host'] for row in calls if row['file'] == 'loader-profile.json']
-                first_profile = (mirror if index in (0, 2) or (index == 3 and loader == 'Quilt') else
-                                 'mirror.minguncle.cn' if index == 3 else host)
+                first_profile = (mirror if index == 0 else host if index == 1 else
+                                 'mirror.minguncle.cn' if index == 2 and loader != 'Quilt' else
+                                 'mirror.bugg.icu')
                 self.check(profiles and profiles[0] == first_profile,
                            'loader profile first host follows settings: ' + repr(profiles))
                 identity = '1.21.8-' + loader + '-' + version
                 metadata = self.game_dir / 'versions' / identity / (identity + '.json')
                 if fail:
-                    self.check((host if index == 0 else mirror) in profiles,
+                    self.check('mirror.bugg.icu' in profiles,
                                'failed preferred source falls back to another available source')
                 libraries = [row['host'] for row in calls if row['file'] == 'source-fixture-1.jar']
-                first_library = (mirror if index in (0, 2) or (index == 3 and loader == 'Quilt') else
-                                 'mirror.minguncle.cn' if index == 3 else lib_host)
+                first_library = (mirror if index == 0 else lib_host if index == 1 else
+                                 'mirror.minguncle.cn' if index == 2 and loader != 'Quilt' else
+                                 'mirror.bugg.icu')
                 self.check(libraries and libraries[0] == first_library,
                            'loader dependency first host follows settings: ' + repr(libraries))
                 if fail:
-                    self.check((lib_host if index == 0 else mirror) in libraries,
+                    self.check('mirror.bugg.icu' in libraries,
                                'dependency download also follows the fallback policy')
                 installed = json.loads(metadata.read_text(encoding='utf-8'))
                 self.check(library.read_bytes() == self.fixtures.payloads['source-fixture-1.jar']

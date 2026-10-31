@@ -78,9 +78,11 @@ def source_urls(source, official, bmcl=None):
     bmcl = bmcl or mirror_url(official, BMCLAPI)
     ming = mirror_url(official, MCMIRROR)
     if source == 'MCMirror':
-        urls = [ming, bmcl, official]
-    elif source in ('官方', '自动（官方优先，失败切换镜像）'):
-        urls = [official, bmcl, ming]
+        urls = [ming]
+    elif source in ('官方', '自动（官方优先）', '自动（官方优先，失败切换镜像）'):
+        urls = [official]
+    elif source == 'Buggcraft':
+        urls = []
     else:
-        urls = [bmcl, ming, official]
-    return list(dict.fromkeys(url for url in ([bugg] if bugg else []) + urls if url))
+        urls = [bmcl]
+    return list(dict.fromkeys(url for url in urls + [bugg] if url))

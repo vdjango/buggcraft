@@ -130,51 +130,17 @@ def _curseforge(version, file, cancel):
 
 
 def resolve_download_urls(addresses, sha1, size, *, sha512=None, preference='自动测速', cancel):
-    """Keep original addresses when a publisher has no identical public file."""
-    if preference == '自动（CurseForge 优先）':
-        preference = '自动'
+    """Honor the selected publisher. Only our source can follow it."""
+    _check(cancel)
     addresses = list(dict.fromkeys(addresses))
-    if (preference not in ('自动测速', '自动', 'CurseForge', 'Modrinth')
-            or not any(provider(url) in ('Modrinth', 'CurseForge') for url in addresses)
-            or type(size) is not int or size <= 0):
-        return addresses
-    if sha1 and not re.fullmatch('[0-9a-fA-F]{40}', sha1) or sha512 and not re.fullmatch('[0-9a-fA-F]{128}', sha512):
-        return addresses
-    sha1, sha512 = (sha1 or '').lower(), (sha512 or '').lower()
-    if not sha1 and not sha512:
-        return addresses
-    available = {provider(url) for url in addresses}
-    if preference != 'Modrinth' and 'CurseForge' in available:
-        # Do not add a very slow publisher or probe it when a known identical
-        # CurseForge file is already supplied. Explicit selection still works.
-        return [url for url in addresses if provider(url) != 'Modrinth']
-    if {'CurseForge', 'Modrinth'} <= available:
-        return addresses
-    if preference in available and preference in ('CurseForge', 'Modrinth'):
-        return addresses
-    cache_key = (sha1, sha512, size, preference)
-    _check(cancel)
-    with _LOCK:
-        cached = _CACHE.get(cache_key)
-        if cached and cached[0] > time.monotonic():
-            return list(dict.fromkeys([*addresses, *cached[1]]))
-    additions = []
-    deadline_token = _DEADLINE.set(time.monotonic() + 12)
-    try:
-        file, version = _modrinth(sha1, sha512, size, cancel)
-        if file:
-            additions.append(file['url'])
-            if preference != 'Modrinth' and 'CurseForge' not in available:
-                url = _curseforge(version, file, cancel)
-                if url:
-                    additions.append(url)
-    except (ValueError, TypeError, AttributeError, KeyError):
-        logger.info('content_alternative_invalid preference=%s', preference)
-    finally:
-        _DEADLINE.reset(deadline_token)
-    _check(cancel)
-    with _LOCK:
-        if len(_CACHE) >= 4096:
-            _CACHE.clear()
-        _CACHE[cache_key] = (time.monotonic() + (600 if additions else 30), tuple(additions))
-    return list(dict.fromkeys([*addresses, *additions]))
+    if preference in ('自动', '自动测速', '自动（CurseForge 优先）'):
+        preference = 'CurseForge'
+    if preference in ('CurseForge', 'Modrinth'):
+        selected = [url for url in addresses if provider(url) in (preference, '')]
+        if preference == 'Modrinth' and not any(provider(url) == 'Modrinth' for url in selected) and (sha1 or sha512):
+            # Only an explicit Modrinth choice may query its hash index.
+            file, _version = _modrinth(sha1, sha512, size, cancel)
+            if file:
+                selected.insert(0, file['url'])
+        return selected
+    return addresses

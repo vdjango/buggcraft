@@ -44,11 +44,12 @@ Surface {
             }
             ActionButton {
                 objectName: "room-quick-launch"; visible: !header.roomView.host && header.roomView.online
-                text: header.roomView.preparing ? "正在准备…" : header.roomView.record.prepareFailed ? "重试下载" : header.roomView.record.compatibility ? "同步安装" : header.roomView.waiting ? "启动到主菜单" : "进入游戏"
+                text: header.roomView.record.prepareWaiting ? "继续补齐" : header.roomView.preparing ? "正在准备…" : header.roomView.record.prepareFailed ? "重试下载" : header.roomView.record.compatibility ? "同步安装" : header.roomView.waiting ? "启动到主菜单" : "进入游戏"
                 primary: true; implicitHeight: 28
-                enabled: !header.roomView.preparing && (!lobby.view.instanceLoading || !!header.roomView.record.preparedSource)
+                enabled: !!header.roomView.record.prepareWaiting || !header.roomView.preparing && (!lobby.view.instanceLoading || !!header.roomView.record.preparedSource)
                 onClicked: {
-                    if (header.roomView.record.prepareFailed) lobby.act("prepareRoom", {mode:header.roomView.record.prepareMode || "fresh"})
+                    if (header.roomView.record.prepareWaiting) lobby.act("continueRoomPreparation", {})
+                    else if (header.roomView.record.prepareFailed) lobby.act("prepareRoom", {mode:header.roomView.record.prepareMode || "fresh"})
                     else if (!header.roomView.record.compatibility) lobby.act("launchRoom", {})
                     else if ((header.roomView.game.mods_count || 0) > 0) header.preparationRequested()
                     else lobby.act("prepareRoom", {})

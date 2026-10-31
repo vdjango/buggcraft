@@ -79,7 +79,8 @@ class ContentCatalogue:
                offset=0, limit=20, page_info=False):
         if source not in self.SOURCES:
             raise ValueError('不支持的资源来源')
-        names = list(self.clients) if source == '自动' else [source]
+        # Automatic discovery must not probe the slow Modrinth service.
+        names = ['CurseForge'] if source == '自动' else [source]
         self.warnings = []
         hits, successful, by_source, warnings, has_more = [], 0, {}, [], False
         # Catalogues contain different projects, not interchangeable file mirrors.

@@ -35,8 +35,10 @@ class CurseForgeAPI:
         if self.cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
         endpoint = OFFICIAL_API if self.api_key else PUBLIC_API
+        if self.mirror == 'MCIM':
+            endpoint = 'https://mod.mcimirror.top/curseforge/v1'
         headers = {'User-Agent': USER_AGENT, 'Accept': 'application/json'}
-        if self.api_key:
+        if self.api_key and self.mirror != 'MCIM':
             headers['x-api-key'] = self.api_key
         call = requests.get if method == 'GET' else requests.post
         options = {'params': params} if method == 'GET' else {'json': body}

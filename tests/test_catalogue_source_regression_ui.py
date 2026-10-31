@@ -69,12 +69,12 @@ class CatalogueSourceRegressionUiTests(_UiCase):
                     self.click_ui(page, 'component-' + name)
                     self.wait_for(lambda: not page.controller.loader_busy, 'real metadata parser completes: ' + name)
                     calls = self.routes[first:]
-                    self.check(calls[0]['url'].startswith(loaders.BMCLAPI) == (source_index != 1),
+                    self.check(calls[0]['url'].startswith(loaders.BMCLAPI) == (source_index == 0),
                                'settings controls the first list request')
                     self.check(len(calls) == (2 if calls[0]['failed'] else 1),
                                'a failed selected source falls back to another available source')
                     self.check(not calls[-1]['failed'], 'fallback catalogue source succeeds')
-                    if name == 'NeoForge' and source_index != 1:
+                    if name == 'NeoForge' and source_index == 0:
                         self.check('/neoforge/list/1.21.8' in calls[0]['url'], 'NeoForge uses its dedicated API')
                     self.check(page.controller.component_versions[0]['name'] == expected,
                                f'{name} source {source_index} renders latest compatible version')

@@ -107,9 +107,10 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
         self.check(self.persisted().get_setting('launcher.allow_multiple') is False,
                    'disabled multi-open state survives a fresh settings read')
         for key, values in (
-                ('settings.general.mirrors', ['自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI',
-                                              'MCMirror', '自动（官方优先，失败切换镜像）']),
-                ('settings.general.content_mirror', ['CurseForge', 'Modrinth', '自动（CurseForge 优先）'])):
+                ('settings.general.mirrors', ['BMCLAPI', '官方', 'MCMirror', 'Buggcraft',
+                                              '自动（BMCLAPI 优先）', '自动（官方优先）']),
+                ('settings.general.content_mirror', ['CurseForge', 'Modrinth', 'MCIM',
+                                                      'Buggcraft', '自动（CurseForge 优先）'])):
             for index, expected in enumerate(values):
                 self.select_choice(page, key, index)
                 self.check(self.persisted().get_setting(key) == expected,

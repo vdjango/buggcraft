@@ -48,19 +48,7 @@ Item {
                         onTextEdited: contentController.setPackName(text)
                     }
                 }
-                RowLayout {
-                    Layout.fillWidth: true; spacing: 15
-                      visible: root.state.pack_source === "Buggcraft"
-                    Label { text: "下载方式"; color: "#eee8f7"; font.pixelSize: 13 }
-                    ChoiceBox {
-                        objectName: "pack-download-mode"; Layout.fillWidth: true
-                        visible: root.state.pack_source === "Buggcraft"
-                        model: ["整合包原地址（默认，下载源兜底）", "应用启动器下载源"]
-                        currentIndex: root.state.pack_download_mode === "settings" ? 1 : 0
-                        onActivated: contentController.setPackDownloadMode(currentIndex === 1 ? "settings" : "pack")
-                    }
-                }
-                  Label { visible: root.state.pack_source === "Buggcraft"; text: "下载过程中也可以在下载记录切换，已下载进度会保留。"; color: "#bcb6d0"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                Label { text: "按启动器所选下载源获取文件；失败时仅尝试 Buggcraft 源站。切换设置后可保留进度继续下载。"; color: "#bcb6d0"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 Label { objectName: "pack-import-error"; text: root.state.pack_error; color: "#ff9b91"; Layout.fillWidth: true; wrapMode: Text.Wrap; visible: !!text }
                 RowLayout {
                     Layout.fillWidth: true

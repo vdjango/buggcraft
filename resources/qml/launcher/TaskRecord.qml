@@ -5,8 +5,8 @@ import QtQuick.Layouts
 ListRow {
     id: root
     required property var modelData
-    property bool active: ["等待中", "进行中", "正在取消"].indexOf(modelData.state) >= 0
-    property string actionText: modelData.state === "正在取消" ? "正在取消" : active ? "取消"
+    property bool active: ["等待中", "进行中", "等待补齐", "正在取消"].indexOf(modelData.state) >= 0
+    property string actionText: modelData.state === "等待补齐" ? "继续补齐" : modelData.state === "正在取消" ? "正在取消" : active ? "取消"
         : modelData.kind === "room" ? "重试下载"
         : modelData.modpack && modelData.state === "已完成" ? "已导入"
         : modelData.modpack ? "继续安装"
@@ -41,20 +41,6 @@ ListRow {
     footer: Component {
         ColumnLayout {
             spacing: 5
-            RowLayout {
-                Layout.fillWidth: true
-                visible: root.modelData.pack_source === "Buggcraft" && root.modelData.state !== "已完成"
-                Label { text: "下载方式"; color: "#bcb6d0"; font.pixelSize: 11 }
-                ChoiceBox {
-                    objectName: "task-pack-mode-" + root.modelData.id
-                    Layout.preferredWidth: 275; implicitHeight: 28
-                    model: ["整合包原地址（默认，下载源兜底）", "应用启动器下载源"]
-                    currentIndex: root.modelData.pack_download_mode === "settings" ? 1 : 0
-                    enabled: root.modelData.state !== "正在取消"
-                    onActivated: taskHistory.setPackDownloadMode(root.modelData.id, currentIndex === 1 ? "settings" : "pack")
-                }
-                Item { Layout.fillWidth: true }
-            }
             RowLayout {
                 Layout.fillWidth: true
                 Label { objectName: "task-status-" + root.modelData.id; Layout.fillWidth: true; text: root.modelData.error || (root.active && root.modelData.modpack && root.modelData.status === "安装完成" ? "正在完成整合包安装…" : root.modelData.status || ""); color: root.modelData.error ? "#ff9b91" : "#b3ffffff"; font.pixelSize: 11; elide: Text.ElideRight }

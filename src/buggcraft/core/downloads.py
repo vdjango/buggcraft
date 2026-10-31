@@ -391,18 +391,23 @@ class MinecraftDownloader:
         parsed = urlsplit(original)
         trusted = (parsed.scheme == 'https' and parsed.port in (None, 443)
                    and not parsed.username and not parsed.password)
-        # Recover old cached addresses without ever contacting the retired host.
+        content_source = self.content_source or self.source
         if trusted and parsed.hostname == _RETIRED_CONTENT_HOST:
             upstream = ('cdn.modrinth.com' if parsed.path.startswith('/data/') else
                         'edge.forgecdn.net' if parsed.path.startswith('/files/') else None)
             return self.urls(parsed._replace(netloc=upstream).geturl()) if upstream else []
-        if trusted and parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net'):
+        if trusted and parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net', 'cdn.modrinth.com'):
             from core.bugg_mirror import mirror_url as bugg_url
-            alternate = 'mediafilez.forgecdn.net' if parsed.hostname == 'edge.forgecdn.net' else 'edge.forgecdn.net'
-            return [value for value in (bugg_url(original), original, parsed._replace(netloc=alternate).geturl()) if value]
-        if trusted and parsed.hostname == 'cdn.modrinth.com':
-            from core.bugg_mirror import mirror_url as bugg_url
-            return [value for value in (bugg_url(original), original) if value]
+            selected = []
+            if content_source == 'MCIM':
+                # MCIM explicitly excludes mediafilez from URL rewriting.
+                selected = ([original] if parsed.hostname == 'mediafilez.forgecdn.net' else
+                            [parsed._replace(netloc=_RETIRED_CONTENT_HOST).geturl()])
+            elif (content_source == '官方'
+                    or content_source == 'Modrinth' and parsed.hostname == 'cdn.modrinth.com'
+                    or content_source not in ('Modrinth', 'Buggcraft') and parsed.hostname != 'cdn.modrinth.com'):
+                selected = [original]
+            return list(dict.fromkeys(value for value in selected + [bugg_url(original)] if value))
         from core.game_sources import source_urls
         return source_urls(self.source, original)
 
@@ -661,14 +666,15 @@ class MinecraftDownloader:
                                                preference=content_source, cancel=self.cancel)
         candidates = list(dict.fromkeys(candidate for address in addresses
                                         for candidate in self.urls(address)))
+        from core.bugg_mirror import mirror_url as bugg_url
+        candidates.extend(value for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
+                          if (value := bugg_url(address)) and value not in candidates)
         candidates = [candidate for candidate in candidates if candidate not in _skip_urls]
         if not getattr(self, 'preserve_content_order', False):
             from core.content_routes import provider
             preferred = 'Modrinth' if content_source == 'Modrinth' else 'CurseForge'
             candidates.sort(key=lambda candidate: 0 if provider(candidate) == preferred else
                             2 if provider(candidate) == 'Modrinth' else 1)
-            if candidates and preferred == 'CurseForge' and provider(candidates[0]) == 'Modrinth':
-                self.status(f'CurseForge 未找到相同文件，最后尝试 Modrinth · {target.name}')
         attempt_number = 0
         max_attempts = self.retries + 1
 
@@ -706,6 +712,9 @@ class MinecraftDownloader:
                         self._sessions.session = session
                     headers = {"User-Agent": USER_AGENT, 'Accept-Encoding': 'identity',
                                **getattr(self, 'request_headers', {})}
+                    from core.bugg_mirror import BASE_URL as own_origin
+                    if host == urlsplit(own_origin).hostname:
+                        headers['X-Buggcraft-Origin-Only'] = '1'
                     if offset:
                         headers['Range'] = f'bytes={offset}-'
                     timeout = (8, 30)

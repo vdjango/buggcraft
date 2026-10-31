@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from hookup.modpack import manifest_hash
 from hookup.preparation import install_game, prepare_configuration
+from hookup.room_cache import PendingRoomFiles
 from hookup.rooms import compatibility, instance_metadata, metadata_loader
 from utils.storage_paths import game_cache
 
@@ -529,20 +530,20 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
                 item['downloads'] = [url]
                 found = await fetch_public_mod(item, self.root, self.root / 'mods' / item['name'],
                     selected, threading.Event(), Mock())
-                self.assertEqual(found, selected == 'Modrinth')
+                self.assertTrue(found)  # The mock returns a download; routing is tested separately.
                 lookup.assert_not_called()
                 if found:
                     self.assertEqual(downloader.return_value.content_source, selected)
-                    self.assertFalse(downloader.return_value.resolve_content_sources)
+                    self.assertTrue(downloader.return_value.resolve_content_sources)
 
     async def test_invited_install_surfaces_host_transfer_denial_without_publishing_partial_instance(self):
         denial = '房主尚未允许房间成员从本机接收模组，请房主在房间设置中开启模组共享。'
         with patch('hookup.preparation.fetch_public_mod', new=AsyncMock(return_value=False)):
             self.endpoint.download_mod.side_effect = ConnectionError(denial)
-            with self.assertRaisesRegex(ConnectionError, '房主尚未允许'):
+            with self.assertRaisesRegex(PendingRoomFiles, '房主尚未允许'):
                 await self.prepare()
-        failed = next(event for event in self.events if event.get('state') == 'failed')
-        self.assertIn('房主尚未允许', failed['error'])
+        waiting = next(event for event in self.events if event.get('kind') == 'file' and event.get('state') == 'waiting')
+        self.assertIn('房主尚未允许', waiting['error'])
         for folder in (self.root / 'versions').glob('room-*'):
             self.assertFalse((folder / (folder.name + '.json')).exists())
 
@@ -568,10 +569,14 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
                 self.endpoint.download_mod.side_effect = transfer
                 # Each run gets its own fixture root, just like separate clients.
                 self.root = self.root / str(corrupt)
-                with self.assertRaisesRegex(ValueError, '校验失败|配置发生变化'):
-                    await self.prepare()
                 if corrupt:
-                    self.assertTrue(any(item.get('state') == 'failed' and item['name'] == 'example.jar'
+                    with self.assertRaisesRegex(PendingRoomFiles, '校验失败'):
+                        await self.prepare()
+                else:
+                    with self.assertRaisesRegex(ValueError, '配置发生变化'):
+                        await self.prepare()
+                if corrupt:
+                    self.assertTrue(any(item.get('state') == 'waiting' and item['name'] == 'example.jar'
                                         and '校验失败' in item['error'] for item in self.events))
                 for folder in (self.root / 'versions').glob('room-*'):
                     self.assertFalse((folder / (folder.name + '.json')).exists())

@@ -80,7 +80,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
             if name == 'client.jar':
                 data['url'] = 'https://piston-data.mojang.com/v1/objects/' + data['sha1'] + '/' + name
             elif name.startswith('ui-fixture-'):
-                data['url'] = 'https://cdn.modrinth.com/data/ui-acceptance/' + name
+                data['url'] = 'https://cdn.modrinth.com/data/ui-acceptance/versions/ui-test/' + name
             return data
 
         self._patch(patch.object(self.fixtures, 'file', file))
@@ -92,7 +92,8 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
         trusted = {urlsplit(value).hostname for value in (
             downloads.MANIFEST_URL, downloads.MIRROR,
             MCMIRROR, self.fixtures.ORIGIN, 'https://piston-data.mojang.com',
-            'https://cdn.modrinth.com')}
+            'https://cdn.modrinth.com', 'https://edge.forgecdn.net',
+            'https://mirror.bugg.icu')}
 
         def get(session, url, **kwargs):
             parsed = urlsplit(url)
@@ -109,8 +110,6 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
 
         self._patch(patch.object(downloads.MinecraftDownloader, 'urls', REAL_DOWNLOAD_URLS))
         self._patch(patch.object(downloads._DownloadSession, 'get', get))
-        self._patch(patch('core.content_routes.resolve_download_urls',
-                          side_effect=lambda addresses, *args, **kwargs: addresses))
         # Deterministic probe results exercise the real ranking policy. They
         # make no claim about current public CDN throughput.
         downloads._CONTENT_ROUTE_CACHE.clear()
@@ -194,7 +193,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
 
     def test_game_download_source_preferences_reach_real_install_tasks(self):
         self.use_production_download_routes()
-        sources = ('自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI')
+        sources = ('BMCLAPI', '官方', 'MCMirror')
         mirror = urlsplit(downloads.MIRROR).hostname
         for index, fail_official in ((0, False), (1, False), (2, False), (0, True), (1, True)):
             source = sources[index]
@@ -212,10 +211,11 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                 task = self.finished_task()
                 self.check(task['source'] == source, 'selected game policy reaches production download worker')
                 hosts = [row['host'] for row in self.route_requests[before:] if row['file'] == 'client.jar']
-                self.check(hosts and hosts[0] == (mirror if index in (0, 2) else 'piston-data.mojang.com'),
+                self.check(hosts and hosts[0] == (mirror if index == 0 else
+                    'piston-data.mojang.com' if index == 1 else urlsplit(MCMIRROR).hostname),
                            'actual first HTTP host follows the selected game source: ' + repr(hosts))
                 if fail_official:
-                    expected_fallback = urlsplit(MCMIRROR).hostname if index == 0 else mirror
+                    expected_fallback = 'mirror.bugg.icu'
                     self.check(hosts[-1] == expected_fallback,
                                'failed first source switches to the next available mirror')
                 self.check(archive.read_bytes() == self.fixtures.payloads['client.jar'],
@@ -236,7 +236,8 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
         self._patch(patch('core.content.ContentCatalogue.project',
                           lambda _client, *args, **kwargs: catalogue.project(*args, **kwargs)))
         folders = dict(mod='mods', resourcepack='resourcepacks', shader='shaderpacks')
-        for index, source in enumerate(('CurseForge', 'Modrinth', '自动（CurseForge 优先）')):
+        for index, source in ((0, 'CurseForge'), (1, 'Modrinth'),
+                              (4, '自动（CurseForge 优先）')):
             for kind in self.KINDS[1:]:
                 with self.subTest(source=source, kind=kind):
                     general = self.settings_tab(0)
@@ -287,11 +288,11 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                                'source selection is followed by actual HTTP content transfer')
                     content_hosts = [row['host'] for row in requests if row['file'] == filename]
                     self.check(bool(content_hosts), 'the selected archive is downloaded through the production router')
-                    self.check(content_hosts[0] in ('cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'),
-                               'automatic content uses a trusted route: ' + repr(content_hosts))
-                    if source in ('CurseForge', 'Modrinth'):
-                        self.check(content_hosts[0] == 'cdn.modrinth.com',
-                                   'publisher preference uses a matching publisher or available original: ' + repr(content_hosts))
+                    expected_host = 'cdn.modrinth.com' if source == 'Modrinth' else 'mirror.bugg.icu'
+                    self.check(content_hosts[0] == expected_host,
+                               'selected publisher or own fallback handles available fixture: ' + repr(content_hosts))
+                    self.check(all(host in (expected_host, 'mirror.bugg.icu') for host in content_hosts),
+                               'downloads do not try an unselected publisher: ' + repr(content_hosts))
         self.screenshot_ui('settings-content-source-downloads')
         self.assert_no_qml_errors()
         self.finish_test()

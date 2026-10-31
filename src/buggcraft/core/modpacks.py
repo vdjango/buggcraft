@@ -685,12 +685,11 @@ class ModpackImporter:
                                          status=self.status, progress=report_download, file_event=self.file_event,
                                          retries=6, allow_missing_mods=True)
         downloader.content_source = self.content_source
-        # This override belongs to our format only. Third-party manifests keep
-        # their own source rules, regardless of the remembered import choice.
-        mode = self.download_mode if info.source == 'Buggcraft' else 'pack'
-        downloader.preserve_content_order = mode == 'pack'
-        downloader.resolve_content_sources = mode == 'settings'
-        downloader.fallback_content_sources = info.source == 'Buggcraft' and mode == 'pack'
+        # Importers share the same explicit source policy as ordinary downloads.
+        # A publisher's manifest is metadata, not permission to switch CDN.
+        downloader.preserve_content_order = False
+        downloader.resolve_content_sources = True
+        downloader.fallback_content_sources = False
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         if info.source in ('Modrinth', 'Buggcraft'):

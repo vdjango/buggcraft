@@ -1,8 +1,9 @@
-"""Reserved routes for the Buggcraft mirror. No requests until rollout enables it."""
+"""Buggcraft is the only automatic fallback after the selected download source."""
+import os
 from urllib.parse import urlsplit, unquote, quote
 
-BASE_URL = 'https://mirror.bugg.icu'
-ENABLED = False
+BASE_URL = os.environ.get('BUGGCRAFT_RESOURCE_ORIGIN', 'https://mirror.bugg.icu').rstrip('/')
+ENABLED = True
 
 
 def mirror_url(url):
@@ -31,6 +32,9 @@ def mirror_url(url):
         route = '/assets' + path
     elif host == 'libraries.minecraft.net':
         route = '/maven' + path
+    elif host == 'maven.minecraftforge.net' and path.startswith(
+            ('/net/minecraftforge/', '/de/oceanlabs/', '/cpw/mods/')):
+        route = '/maven' + path
     elif host in ('meta.fabricmc.net', 'meta.quiltmc.org'):
         route = ('/fabric-meta' if host == 'meta.fabricmc.net' else '/quilt-meta') + path
     elif host == 'maven.fabricmc.net' and path.startswith(('/net/fabricmc/fabric-loader/',
@@ -43,10 +47,10 @@ def mirror_url(url):
             '/releases/cpw/mods/', '/releases/net/minecraftforge/')):
         route = '/neoforge-maven' + path
     elif host in ('edge.forgecdn.net', 'mediafilez.forgecdn.net') and re.fullmatch(
-            r'/files/[0-9]+/[0-9]+/[A-Za-z0-9._ +@-]+\.jar', path):
+            r'/files/[0-9]+/[0-9]+/[A-Za-z0-9._ +@-]+\.(?:jar|zip|mrpack|litemod)', path):
         route = '/mods/curseforge' + path
     elif host == 'cdn.modrinth.com' and re.fullmatch(
-            r'/data/[A-Za-z0-9_-]+/versions/[A-Za-z0-9_-]+/[A-Za-z0-9._ +@-]+\.jar', path):
+            r'/data/[A-Za-z0-9_-]+/versions/[A-Za-z0-9_-]+/[A-Za-z0-9._ +@-]+\.(?:jar|zip|mrpack|litemod)', path):
         route = '/mods/modrinth' + path
     else:
         return None

@@ -114,7 +114,7 @@ class ContentBrowserController(QObject):
         self.selected_project = None
         self.pack_path = ""
         self.pack_name = ""
-        self.pack_download_mode = 'pack'
+        self.pack_download_mode = 'settings'
         self.pack_source = ''
         self.pack_summary = "支持 Buggcraft、CurseForge 和 Modrinth 整合包，可拖入启动器任意页面。"
         self.pack_error = ""
@@ -744,7 +744,7 @@ class ContentBrowserController(QObject):
         self._pack_candidate = resolved
         self.pack_source = ''
         if old_path != resolved:
-            self.pack_download_mode = 'pack'
+            self.pack_download_mode = 'settings'
         if not self.pack_name or old_path != resolved:
             self.pack_name = suggested_name(path)
         self.pack_path = resolved
@@ -779,9 +779,8 @@ class ContentBrowserController(QObject):
 
     @Slot(str)
     def setPackDownloadMode(self, mode):
-        if self.pack_source == 'Buggcraft' and mode in ('pack', 'settings'):
-            self.pack_download_mode = mode
-            self.changed.emit()
+        # Retained for old UI clients. The selected source is always authoritative.
+        return
 
     @Slot()
     def importPack(self):

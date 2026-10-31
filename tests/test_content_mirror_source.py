@@ -13,12 +13,12 @@ from core.curseforge import CurseForgeAPI, PUBLIC_API
 
 
 class ContentMirrorSourceTests(unittest.TestCase):
-    def test_saved_sources_survive_and_retired_source_migrates_to_curseforge(self):
+    def test_saved_manual_sources_survive(self):
         settings = MagicMock()
-        for saved in ('自动测速', 'CurseForge', 'Modrinth', '官方', 'MCIM', 'unknown'):
+        for saved in ('自动测速', 'CurseForge', 'Modrinth', '官方', 'MCIM', 'Buggcraft', 'unknown'):
             settings.get_setting.return_value = saved
             self.assertEqual(configured_source(settings), '自动（CurseForge 优先）' if saved == '自动测速'
-                             else saved if saved not in ('MCIM', 'unknown') else 'CurseForge')
+                             else saved if saved != 'unknown' else 'CurseForge')
         self.assertEqual(display_source('官方', 'CurseForge'), 'CurseForge')
         self.assertEqual(display_source('官方', 'Modrinth'), 'Modrinth')
 
@@ -30,7 +30,8 @@ class ContentMirrorSourceTests(unittest.TestCase):
         for source in ('CurseForge', '自动测速', 'Modrinth', 'MCIM'):
             with self.subTest(source=source), patch('core.content_mirrors.requests.get', return_value=response) as get:
                 self.assertEqual(get_modrinth('/project/id', {'limit': 10}, threading.Event(), source), {'id': 'actual-project'})
-                self.assertEqual(get.call_args.args[0], 'https://api.modrinth.com/v2/project/id')
+                expected = 'https://mod.mcimirror.top/modrinth/v2' if source == 'MCIM' else 'https://api.modrinth.com/v2'
+                self.assertEqual(get.call_args.args[0], expected + '/project/id')
                 self.assertEqual(get.call_args.kwargs['params'], {'limit': 10})
                 self.assertEqual(get.call_args.kwargs['headers']['User-Agent'], USER_AGENT)
 
@@ -40,14 +41,14 @@ class ContentMirrorSourceTests(unittest.TestCase):
                 get_modrinth('/project', None, threading.Event(), '自动测速')
         self.assertEqual(get.call_count, 1)
 
-    def test_curseforge_legacy_preference_still_uses_gateway_without_key_leak(self):
+    def test_explicit_mcim_uses_its_gateway_without_key_leak(self):
         response = MagicMock(status_code=200)
         response.__enter__.return_value = response
         response.json.return_value = {'data': []}
         with patch.dict(os.environ, BUGGCRAFT_CURSEFORGE_API_KEY=''), \
                 patch('core.curseforge.requests.get', return_value=response) as get:
             self.assertEqual(CurseForgeAPI(mirror='MCIM').get('/mods/238222/files', {'gameVersion': '1.20.1'}), [])
-        self.assertEqual(get.call_args.args[0], PUBLIC_API + '/mods/238222/files')
+        self.assertEqual(get.call_args.args[0], 'https://mod.mcimirror.top/curseforge/v1/mods/238222/files')
         self.assertNotIn('x-api-key', get.call_args.kwargs['headers'])
 
 

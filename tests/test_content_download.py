@@ -34,15 +34,18 @@ class ContentDownloadTests(unittest.TestCase):
         _CONTENT_ROUTE_CACHE.clear()
 
 
-    def test_both_provider_searches_receive_offset_without_implicit_version_filters(self):
+    def test_auto_search_only_uses_curseforge_and_manual_modrinth_remains_available(self):
         catalogue = ContentCatalogue()
         with patch.object(catalogue.clients['Modrinth'], 'search', return_value=[dict(project_id='mr')]) as mr, \
                 patch.object(catalogue.clients['CurseForge'], 'search', return_value=[dict(project_id='cf')]) as cf:
             data = catalogue.search('fixture', 'mod', offset=20, limit=1, page_info=True)
-        for call in (mr, cf):
-            call.assert_called_once_with('fixture', 'mod', '', '', 1, 20)
+            mr.assert_not_called()
+            manual = catalogue.search('fixture', 'mod', source='Modrinth', offset=20, limit=1, page_info=True)
+        mr.assert_called_once_with('fixture', 'mod', '', '', 1, 20)
+        cf.assert_called_once_with('fixture', 'mod', '', '', 1, 20)
         self.assertTrue(data['has_more'])
-        self.assertEqual([row['source'] for row in data['hits']], ['Modrinth', 'CurseForge'])
+        self.assertEqual([row['source'] for row in data['hits']], ['CurseForge'])
+        self.assertEqual([row['source'] for row in manual['hits']], ['Modrinth'])
 
     def test_curseforge_keeps_pagination_when_page_contains_unavailable_files(self):
         client = CurseForgeContentClient()
@@ -69,7 +72,7 @@ class ContentDownloadTests(unittest.TestCase):
                               'filename': 'pack.mrpack', 'hashes': {'sha1': hashlib.sha1(payload).hexdigest()},
                               'size': len(payload)}]}
         with TemporaryDirectory() as root, patch('core.downloads._DownloadSession.get', return_value=self._response(payload)):
-            download_content(version, root, 'modpack')
+            download_content(version, root, 'modpack', content_source='Modrinth')
             self.assertEqual((Path(root) / 'modpacks/pack.mrpack').read_bytes(), payload)
 
     def test_hash_mismatch_does_not_publish_file(self):
@@ -78,7 +81,7 @@ class ContentDownloadTests(unittest.TestCase):
                               'hashes': {'sha1': '0' * 40}, 'size': len(payload)}]}
         with TemporaryDirectory() as root, patch('core.downloads._DownloadSession.get', return_value=self._response(payload)):
             with self.assertRaisesRegex(RuntimeError, '校验失败'):
-                download_content(version, root, 'mod')
+                download_content(version, root, 'mod', content_source='Modrinth')
             self.assertFalse((Path(root) / 'mods/x.jar').exists())
 
     def test_content_files_download_in_parallel_with_a_bounded_pool(self):
@@ -106,7 +109,7 @@ class ContentDownloadTests(unittest.TestCase):
 
         with TemporaryDirectory() as root, patch('core.downloads.download_concurrency', return_value=DEFAULT_CONCURRENCY), \
                 patch('core.downloads._DownloadSession.get', response):
-            download_content(version, root, 'modpack')
+            download_content(version, root, 'modpack', content_source='Modrinth')
             self.assertGreaterEqual(peak, 2)
             self.assertLessEqual(peak, DEFAULT_CONCURRENCY)
             self.assertEqual(sorted(path.name for path in (Path(root) / 'modpacks').iterdir()), sorted(payloads))
@@ -136,7 +139,7 @@ class ContentDownloadTests(unittest.TestCase):
 
         with TemporaryDirectory() as root, patch('core.downloads.download_concurrency', return_value=64), \
                 patch('core.downloads._DownloadSession.get', response):
-            download_content(version, root, 'modpack')
+            download_content(version, root, 'modpack', content_source='Modrinth')
         self.assertEqual(peak, 64)
         self.assertLessEqual(peak, 64)
 

@@ -102,6 +102,7 @@ class MultiplayerController(RoomPreparation, QObject):
         self.instance_job = None
         self.instance_source = None
         self.preparations = {}
+        self.preparation_resumes = {}
         self.preparation_tasks = {}
         self.preparation_view_timer = QTimer(self)
         self.preparation_view_timer.setSingleShot(True)
@@ -642,6 +643,8 @@ class MultiplayerController(RoomPreparation, QObject):
                     self.publish_connections()
             elif action == 'prepareRoom':
                 self.prepare_room(data.get('mode', 'fresh'))
+            elif action == 'continueRoomPreparation':
+                self.continue_preparation(self._state['selected'])
             elif action == 'cancelPreparation':
                 cancel = self.preparations.get(self._state['selected'])
                 if cancel:
@@ -1555,6 +1558,8 @@ class MultiplayerController(RoomPreparation, QObject):
         page = self.launcher_page
         if not record or not endpoint or record['state'] != 'online':
             raise ValueError('房间尚未连接。')
+        if record.get('role') == 'client' and (record.get('preparing') or record.get('prepareFailed')):
+            raise ValueError('必需模组尚未补齐并校验，暂时不能启动游戏。')
         pinned = record.get('lockedSource') or record.get('preparedSource')
         if pinned:
             actual = instance_metadata(*pinned)
@@ -1598,6 +1603,14 @@ class MultiplayerController(RoomPreparation, QObject):
         self.job('syncgame:' + name, endpoint.update_game(self.game, self.instance_source[2] if self.instance_source else None))
         self.patch(busy=True)
 
+    def continue_preparation(self, name):
+        record = self.records.get(name)
+        resume = self.preparation_resumes.get(name)
+        if record and record.get('prepareWaiting') and resume:
+            record.update(prepareWaiting=False, prepareStatus='正在继续补齐缺失文件…')
+            resume.set()
+            self.publish_connections()
+
     def prepare_room(self, mode='fresh', retry_task_id=None):
         name = self._state['selected']
         record = self.records.get(name)
@@ -1630,11 +1643,15 @@ class MultiplayerController(RoomPreparation, QObject):
         from hookup.preparation import prepare_configuration
         cancel = threading.Event()
         self.preparations[name] = cancel
+        resume = self.preparation_resumes[name] = threading.Event()
         history = self.preparation_history()
         def retry(task_id):
             if self.service.endpoints.get(name) is not endpoint or name not in self.records:
                 raise ValueError('房间已断开，请重新加入房间后重试。')
             self.patch(selected=name, error='', notice='')
+            if self.records[name].get('prepareWaiting'):
+                self.continue_preparation(name)
+                return
             self.prepare_room(mode, retry_task_id=task_id)
         if history:
             self.preparation_tasks[name] = history.track_room_preparation(
@@ -1644,7 +1661,7 @@ class MultiplayerController(RoomPreparation, QObject):
         record.update(preparing=True, prepareStatus='正在核对房间文件…', prepareProgress=0,
                       prepareMaximum=0, prepareFile='', prepareFileDone=0, prepareFileTotal=0,
                       prepareIndex=0, prepareCount=0, prepareSpeed='', modError='',
-                      prepareFailed=False, prepareMode=mode)
+                      prepareFailed=False, prepareWaiting=False, prepareMode=mode)
         record.update(prepareTask=uuid.uuid4().hex, prepareLogs=[])
         self.add_prepare_log(record, '开始核对房间配置', 'configuration')
         self.report_room_state(name, 'checking', 'configuration')
@@ -1674,11 +1691,11 @@ class MultiplayerController(RoomPreparation, QObject):
         source = settings.get_setting('settings.general.mirrors', '自动')
         existing_instance = ({'version': self.instance_source[1], 'game_directory': self.instance_source[2]}
                              if mode == 'existing' else None)
-        content_source = configured_source(settings)
+        content_source = lambda: configured_source(settings)
         async def prepare():
             try:
                 return await prepare_configuration(endpoint, directory, java, source, cancel, report,
-                    event=event, existing_instance=existing_instance, content_source=content_source)
+                    event=event, existing_instance=existing_instance, content_source=content_source, resume=resume)
             finally:
                 batcher.flush()
         self.job('prepare:' + name, prepare())
@@ -1736,8 +1753,11 @@ class MultiplayerController(RoomPreparation, QObject):
                 record['prepareFileDone'] = event['size']
         elif kind == 'pending':
             record['prepareStage'] = 'waiting'
-            record['prepareStatus'] = f"等待补齐 {len(event.get('files', []))} 个必需文件；已完成文件已保留。"
+            record['prepareWaiting'] = bool(event.get('manual'))
+            record['prepareStatus'] = f"已完成 {event.get('completed', 0)}/{event.get('total', 0)}，正在补齐 {len(event.get('files', []))} 个" + ('；点击“继续补齐”。' if event.get('manual') else '；正在自动补齐。')
             self.report_room_state(name, 'downloading', 'waiting')
+        elif kind == 'resumed':
+            record.update(prepareWaiting=False, prepareStatus='正在继续补齐缺失文件…')
         elif kind in ('progress', 'download'):
             from core.transfer_metrics import speed_label
             record.update(prepareFile=event['name'], prepareFileDone=event.get('done', 0),
@@ -2229,6 +2249,7 @@ class MultiplayerController(RoomPreparation, QObject):
             display_error = download_error_message(error)
             name = key[8:]
             cancel = self.preparations.pop(name, None)
+            self.preparation_resumes.pop(name, None)
             task_id = self.preparation_tasks.pop(name, None)
             history = self.preparation_history()
             if task_id and history:
@@ -2237,6 +2258,7 @@ class MultiplayerController(RoomPreparation, QObject):
             record = self.records.get(name)
             if record:
                 record['preparing'] = False
+                record['prepareWaiting'] = False
                 record['prepareFailed'] = bool(error)
                 record['prepareStatus'] = display_error or '配置已安装，正在复核加载器和模组…'
                 self.publish_connections()

@@ -357,9 +357,8 @@ class DownloadWorker(QRunnable):
                 from core.modpacks import ModpackImporter, inspect_pack
                 pack_source = inspect_pack(self.modpack).source
                 self.signals.pack_format.emit(self.task_id, pack_source)
-                mode = self.pack_download_mode if pack_source == 'Buggcraft' else 'pack'
-                status('整合包文件下载方式：' + ('使用启动器下载源' if mode == 'settings'
-                    else '优先包内地址，启动器下载源兜底' if pack_source == 'Buggcraft' else '使用整合包原有规则'))
+                mode = 'settings'
+                status('整合包文件使用启动器所选下载源，失败时仅尝试 Buggcraft 源站')
                 importer = ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
                                 status, progress, self.api_key, content_source=self.content_source,
                                 file_event=file_event, unavailable_mods=self.confirm_missing_mods,
@@ -429,7 +428,7 @@ class TasksPage(QWidget):
 
     installed = Signal(str, str)
     game_queued = Signal()
-    ACTIVE = ("等待中", "进行中", "正在取消")
+    ACTIVE = ("等待中", "进行中", "等待补齐", "正在取消")
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -540,7 +539,7 @@ class TasksPage(QWidget):
 
     def start_install(self, version: str, game_dir: str, loader=None, base_version=None,
                       loader_version=None, modpack=None, api_key=None, content=None, addons=None,
-                      *, _name_confirmed=False, pack_download_mode='pack'):
+                      *, _name_confirmed=False, pack_download_mode='settings'):
         """Record the requested install and run it off the UI thread."""
         if self._closing:
             return False
@@ -584,7 +583,7 @@ class TasksPage(QWidget):
             "base_version": base_version or "",
             "loader_version": loader_version or "",
             "modpack": modpack or "",
-            "pack_download_mode": pack_download_mode if pack_download_mode in ('pack', 'settings') else 'pack',
+            "pack_download_mode": 'settings',
             "content": content or {},
             "addons": addons or [],
             "game_dir": game_dir,
@@ -701,8 +700,7 @@ class TasksPage(QWidget):
             task = self._find_task(task_id)
             if not task or task['state'] not in ('等待中', '进行中'):
                 continue
-            pack_first = bool(task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack') and task.get('pack_download_mode', 'pack') == 'pack'
-            if worker.source == source and (pack_first or worker.content_source == content_source):
+            if worker.source == source and worker.content_source == content_source:
                 continue
             worker.restart_for_source = True
             task.update(state='正在取消', status='正在切换下载源，已下载进度会保留…', error='')
@@ -711,21 +709,8 @@ class TasksPage(QWidget):
         self._persist_and_refresh()
 
     def set_pack_download_mode(self, task_id, mode):
-        task = self._find_task(task_id)
-        if (not task or task.get('pack_source') != 'Buggcraft'
-                or mode not in ('pack', 'settings') or task.get('kind') == 'room'
-                or not (task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack')
-                or task.get('pack_download_mode', 'pack') == mode or task['state'] == '已完成'):
-            return
-        task['pack_download_mode'] = mode
-        label = '优先整合包内地址' if mode == 'pack' else '使用设置中的下载源'
-        self._log(task, '切换下载方式：' + label)
-        worker = self._workers.get(task_id)
-        if worker is not None:
-            worker.restart_for_source = True
-            task.update(state='正在取消', status='正在切换下载方式，已下载进度会保留…', error='')
-            worker.cancel_event.set()
-        self._persist_and_refresh()
+        # Compatibility with old QML callers; source settings now always apply.
+        return
 
     def track_room_preparation(self, title, game_dir, game, cancel, *, retry=None, task_id=None):
         """Track the lobby's async installer in the same persistent history."""
@@ -779,6 +764,11 @@ class TasksPage(QWidget):
         elif kind == 'complete':
             task['installed_version'] = event['version']
             self._log(task, '已生成隔离实例：' + event['version'])
+        elif kind == 'pending' and event.get('manual'):
+            task.update(state='等待补齐', error='', speed=0,
+                        status=f"已完成 {event['completed']}/{event['total']}，正在补齐 {len(event['files'])} 个")
+        elif kind == 'resumed':
+            task.update(state='进行中', error='', status='正在继续补齐缺失文件…')
         self._schedule_save()
         self._update_row(task)
 
@@ -1076,12 +1066,19 @@ class TasksPage(QWidget):
         if not task:
             return
         if task.get('kind') == 'room':
+            if task['state'] == '等待补齐' and task_id in self._external_retries:
+                try:
+                    self._external_retries[task_id](task_id)
+                except ValueError as exc:
+                    task.update(state='失败', error=str(exc), status=str(exc))
+                    self._persist_and_refresh()
+                return
             cancel = self._external_cancellations.get(task_id)
             if cancel and task['state'] in self.ACTIVE:
                 cancel.set()
                 task.update(state='正在取消', status='正在停止房间配置下载…')
                 self._persist_and_refresh()
-            elif task['state'] not in self.ACTIVE and task_id in self._external_retries:
+            elif (task['state'] not in self.ACTIVE or task['state'] == '等待补齐') and task_id in self._external_retries:
                 try:
                     self._external_retries[task_id](task_id)
                 except ValueError as exc:

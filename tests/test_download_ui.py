@@ -550,29 +550,23 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.assert_no_qml_errors()
         self.finish_test()
 
-    def test_import_form_download_policy_is_passed_to_worker_and_retained_on_retry(self):
+    def test_import_uses_selected_source_for_all_pack_formats(self):
         archive, _ = self.exported_compact_pack()
         host, controller = self.open_import(archive)
-        self.check(controller.pack_download_mode == 'pack', 'new import defaults to package addresses')
-        self.click_ui(host, 'pack-download-mode')
-        self.key_ui(host, Qt.Key_End, 'choose-settings-download-mode')
-        self.key_ui(host, Qt.Key_Return, 'confirm-settings-download-mode')
-        self.check(controller.pack_download_mode == 'settings', 'form changes the real import policy')
-        self.screenshot_ui('import-download-policy-form', host)
+        self.check(controller.pack_download_mode == 'settings', 'new import uses the configured source')
+        controller.setPackDownloadMode('pack')
+        self.check(controller.pack_download_mode == 'settings', 'legacy mode cannot override the source')
         self.text_ui(host, 'pack-instance-name', 'selected-download-policy')
         self.click_ui(host, 'start-pack-import')
         task = self.finished_task()
         self.check(task['pack_download_mode'] == 'settings', 'task retains the selected policy')
         self.screenshot_ui('import-selected-download-policy')
         host, controller = self.open_import(self.fixtures.pack_path)
-        self.check(not self.item(host, 'pack-download-mode').isVisible(), 'third-party pack hides the custom policy')
-        controller.setPackDownloadMode('settings')
-        self.check(controller.pack_download_mode == 'pack', 'hidden policy cannot change third-party behavior')
+        self.check(controller.pack_download_mode == 'settings', 'third-party pack uses the configured source')
         another = self.directory / 'another-own-pack.buggpack'
         another.write_bytes(archive.read_bytes())
         host, controller = self.open_import(another)
-        self.check(self.item(host, 'pack-download-mode').isVisible() and controller.pack_download_mode == 'pack',
-                   'another custom pack defaults back to original addresses')
+        self.check(controller.pack_download_mode == 'settings', 'another custom pack uses the configured source')
         self.assert_no_qml_errors()
         self.finish_test()
 
@@ -628,12 +622,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.fixtures.pauses.pop(filename)
         before = time.monotonic()
         settings.controller.setValue('settings.general.content_mirror', 'Modrinth')
-        self.check(tasks._workers.get(task['id']) is old_worker,
-                   'pack-first mode does not change addresses when global preferences change')
         self.window.download_page.on_progress_clicked()
-        self.click_ui(tasks, 'task-pack-mode-' + task['id'])
-        self.key_ui(tasks, Qt.Key_End, 'select-settings-source')
-        self.key_ui(tasks, Qt.Key_Return, 'confirm-settings-source')
         self.wait_for(lambda: tasks._workers.get(task['id']) is not old_worker,
                       'source change wakes the blocked socket and restarts the same task', timeout=5000)
         self.check(time.monotonic() - before < 5, 'source change does not wait for the old 30 second read timeout')
@@ -679,9 +668,6 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.fixtures.pauses.pop(filename)
         release.set()
         self.window.download_page.on_progress_clicked()
-        self.click_ui(tasks, 'task-pack-mode-' + task['id'])
-        self.key_ui(tasks, Qt.Key_End, 'select-settings-source')
-        self.key_ui(tasks, Qt.Key_Return, 'confirm-settings-source')
         self.click_ui(tasks, 'task-action-' + task['id'])
         self.finished_task(task)
         requests = [r for r in attempts if r['url'].endswith(filename)]
