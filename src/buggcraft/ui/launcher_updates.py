@@ -12,7 +12,7 @@ from config.settings import get_settings_manager
 from core.update_client import apply_update, check_for_update, current_version, download_update
 
 logger = logging.getLogger(__name__)
-STARTUP_DELAY_MS = 10_000
+STARTUP_DELAY_MS = 30_000
 CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 REMINDER_SECONDS = 24 * 60 * 60
 
@@ -181,7 +181,7 @@ class LauncherUpdateController(QObject):
         dialog = self._show_dialog('发现新版本', '新的启动器版本已准备就绪。',
                                   update.get('notes') or '修复问题并改进启动器体验。',
                                   ['稍后提醒', install], install, update, 'offer')
-        dialog.controller.data['footer'] = ('启动 10 秒后首次检查，此后每 4 小时检查一次。更新完成后自动重启。'
+        dialog.controller.data['footer'] = ('启动 30 秒后首次检查，此后每 4 小时检查一次。更新完成后自动重启。'
                                             if self.packaged else '源码运行时从官网下载打包版本。') + \
                                            '稍后提醒将在 24 小时后再次提示。'
         dialog.controller.changed.emit()

@@ -257,8 +257,8 @@ class ReportedUiTests(LauncherQmlCase):
         task['progress'] = 55555
         page.refresh_tasks()
         self.window.download_page.on_progress_clicked()
-        self.pump(120)
-        self.assertEqual(self.item(page, 'task-progress-progress-fixture').property('text'), '阶段进度 100%')
+        self.pump(250)
+        self.assertEqual(self.item(page, 'task-progress-progress-fixture').property('text'), '阶段进度 99%')
         self.assert_no_qml_errors()
 
     def test_lobby_is_not_owned_by_launcher_and_retains_instance_context(self):

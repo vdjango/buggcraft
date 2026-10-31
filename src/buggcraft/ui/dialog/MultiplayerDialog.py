@@ -10,20 +10,21 @@ from utils.app_icon import get_app_icon
 
 
 class MultiplayerDialog(QDialog):
-    def __init__(self, parent=None, storage_path=None):
+    def __init__(self, parent=None, storage_path=None, *, background=False):
         # A native owned dialog is minimized automatically with its owner on
         # Windows. Lifecycle remains explicitly managed by the launcher.
         super().__init__(None, Qt.Window | Qt.FramelessWindowHint)
         self.launcher_page = parent
         self._shutdown = False
+        self._ui_loaded = False
         if parent is not None:
             parent.destroyed.connect(self.deleteLater)
         self.setWindowTitle('BUGG·联机大厅')
         # Match the launcher's original collapsed canvas (926 - 205, 505).
         main_window = getattr(parent, 'parent', None)
-        background = getattr(main_window, 'bg_image', None)
-        width = background.width() - main_window.menu_width if background else 721
-        height = background.height() if background else 505
+        canvas = getattr(main_window, 'bg_image', None)
+        width = canvas.width() - main_window.menu_width if canvas else 721
+        height = canvas.height() if canvas else 505
         self.setFixedSize(width, height)
         resources = Path(getattr(parent, 'resource_path', None) or
                          Path(__file__).resolve().parents[4] / 'resources')
@@ -58,10 +59,8 @@ class MultiplayerDialog(QDialog):
         tutorial = getattr(getattr(parent, 'parent', None), 'tutorial_controller', None)
         if tutorial is not None:
             self.quick.rootContext().setContextProperty('tutorial', tutorial)
-        self.quick.setSource(QUrl.fromLocalFile(str(resources / 'qml/multiplayer/Lobby.qml')))
-        if self.quick.status() == QQuickWidget.Error:
-            self.backend.close()
-            raise RuntimeError('联机页面加载失败：' + '\n'.join(e.toString() for e in self.quick.errors()))
+        if not background:
+            self.load_ui()
         layout.addWidget(self.quick)
         self.timer = QTimer(self)
         self.timer.setInterval(15000)
@@ -69,10 +68,18 @@ class MultiplayerDialog(QDialog):
         self.timer.start()
         self.backend.detect_instance()
         self.runtime_timer = QTimer(self)
-        self.runtime_timer.setInterval(3000)
+        self.runtime_timer.setInterval(5000)
         self.runtime_timer.timeout.connect(self.backend.detect_runtime)
         self.runtime_timer.start()
-        self.backend.detect_runtime()
+
+    def load_ui(self):
+        if self._ui_loaded:
+            return
+        self.quick.setSource(QUrl.fromLocalFile(str(self.resources / 'qml/multiplayer/Lobby.qml')))
+        if self.quick.status() == QQuickWidget.Error:
+            self.backend.close()
+            raise RuntimeError('联机页面加载失败：' + '\n'.join(e.toString() for e in self.quick.errors()))
+        self._ui_loaded = True
 
     def detect_instance(self):
         self.backend.detect_instance()
@@ -97,6 +104,7 @@ class MultiplayerDialog(QDialog):
         return super().eventFilter(watched, event)
 
     def showEvent(self, event):
+        self.load_ui()
         super().showEvent(event)
         tutorial = getattr(getattr(self.launcher_page, 'parent', None), 'tutorial_controller', None)
         if not self._shutdown and not (tutorial is not None and tutorial.visible):

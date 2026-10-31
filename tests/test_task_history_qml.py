@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "buggcraft"))
 
 from PySide6.QtCore import QUrl
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QApplication, QWidget
 from ui.pages.download.tasks import TaskHistoryController
@@ -18,6 +19,27 @@ class TaskHistoryQmlTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_progress_changes_keep_existing_task_rows_and_only_update_changed_data(self):
+        page = QWidget()
+        page._external_retries = {}
+        controller = TaskHistoryController(page)
+        task = dict(id='active', state='进行中', version='game', progress=0, maximum=100)
+        controller.set_tasks([task])
+        controller._publish_tasks()
+        model = controller.taskModel
+        resets, updates = QSignalSpy(model.modelReset), QSignalSpy(model.dataChanged)
+        try:
+            for progress in range(1, 101):
+                task['progress'] = progress
+                controller._publish_tasks()
+            self.assertEqual(resets.count(), 0)
+            self.assertEqual(updates.count(), 100)
+            self.assertEqual(model.data(model.index(0, 0), model.RecordRole)['progress'], 100)
+            controller._publish_tasks()
+            self.assertEqual(updates.count(), 100)
+        finally:
+            page.close()
 
     def test_task_and_file_presentations_hide_raw_error_but_preserve_details(self):
         raw = '{"code": "UPSTREAM_FAILED", "message": "internal detail"}'
@@ -39,6 +61,29 @@ class TaskHistoryQmlTests(unittest.TestCase):
             self.assertTrue(controller.logLines[1].startswith('12:34:56  mod.jar 下载失败：'))
             self.assertNotIn('ConnectionPool', controller.logLines[1])
             self.assertEqual(task['files'][0]['error'], raw)
+        finally:
+            controller.closeLog()
+            page.close()
+
+    def test_large_file_log_uses_one_shared_model_and_progress_updates_one_row(self):
+        page = QWidget()
+        page._external_retries = {}
+        task = dict(id='assets', state='进行中', version='game',
+                    files=[dict(name=f'asset-{index}', key=str(index), state='cached', done=1, total=1)
+                           for index in range(20000)], logs=[])
+        page._find_task = lambda _task_id: task
+        controller = TaskHistoryController(page)
+        controller.showLog('assets')
+        model = controller.fileModel
+        resets, updates = QSignalSpy(model.modelReset), QSignalSpy(model.dataChanged)
+        try:
+            task['files'][100]['done'] = 2
+            controller._refresh_log()
+            self.assertEqual(model.rowCount(), 20000)
+            self.assertEqual(controller.fileCount, 20000)
+            self.assertEqual(resets.count(), 0)
+            self.assertEqual(updates.count(), 1)
+            self.assertEqual(model.data(model.index(100, 0), model.RecordRole)['done'], 2)
         finally:
             controller.closeLog()
             page.close()

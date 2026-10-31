@@ -337,6 +337,8 @@ class MinecraftLibLauncher(QObject):
             processed = 0
             last_file_report = 0.0
             progress_lock = threading.Lock()
+            from core.transfer_metrics import ProgressGate
+            progress_gate = ProgressGate(interval=.15)
 
             def report_status(message):
                 nonlocal install_status
@@ -351,8 +353,11 @@ class MinecraftLibLauncher(QObject):
                 with progress_lock:
                     install_status = translated
                     current, maximum = processed, install_progress.maximum
-                self.signals.output.emit(f"[安装] {message}")
-                self.signals.game_file_preparation_progress.emit(translated, current, maximum)
+                routine = message.startswith('Download ') and message not in (
+                    'Download Libraries', 'Download Assets', 'Download modules')
+                if progress_gate.allow('status', force=not routine):
+                    self.signals.output.emit(f"[安装] {message}")
+                    self.signals.game_file_preparation_progress.emit(translated, current, maximum)
 
             def report_maximum(value):
                 maximum = max(0, int(value))
@@ -370,7 +375,8 @@ class MinecraftLibLauncher(QObject):
                     maximum = install_progress.maximum
                     processed = min(max(0, int(value)), maximum)
                     status, current = install_status, processed
-                self.signals.game_file_preparation_progress.emit(status, current, maximum)
+                if progress_gate.allow('progress', force=maximum > 0 and current >= maximum):
+                    self.signals.game_file_preparation_progress.emit(status, current, maximum)
 
             def report_file(event):
                 nonlocal last_file_report

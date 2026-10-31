@@ -14,7 +14,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QObject, Property, QRunnable, QThreadPool, QTimer, Signal, Slot, Qt
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QObject, Property, QRunnable, QThreadPool, QTimer, Signal, Slot, Qt
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -30,6 +30,40 @@ from core.modpacks import suggested_name
 from core.transfer_metrics import ProgressGate, TransferMeter
 
 logger = logging.getLogger(__name__)
+
+
+class DownloadListModel(QAbstractListModel):
+    """Update progress in existing delegates instead of recreating every row."""
+
+    RecordRole = Qt.UserRole + 1
+
+    def __init__(self, parent, *, key=lambda row: row['id']):
+        super().__init__(parent)
+        self.rows = []
+        self.row_key = key
+
+    def roleNames(self):
+        return {self.RecordRole: b'modelData'}
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if index.isValid() and 0 <= index.row() < len(self.rows) and role == self.RecordRole:
+            return self.rows[index.row()]
+        return None
+
+    def replace(self, rows):
+        if [self.row_key(row) for row in self.rows] != [self.row_key(row) for row in rows]:
+            self.beginResetModel()
+            self.rows = rows
+            self.endResetModel()
+            return
+        for number, row in enumerate(rows):
+            if row != self.rows[number]:
+                self.rows[number] = row
+                index = self.index(number, 0)
+                self.dataChanged.emit(index, index, [self.RecordRole])
 
 
 class TaskHistoryController(QObject):
@@ -48,10 +82,12 @@ class TaskHistoryController(QObject):
         self._log_title = ""
         self._log_lines = []
         self._log_files = []
+        self._task_model = DownloadListModel(self)
+        self._file_model = DownloadListModel(self, key=lambda row: row.get('key') or row.get('path') or row['name'])
         self._tasks_timer = QTimer(self)
         self._tasks_timer.setSingleShot(True)
-        self._tasks_timer.setInterval(80)
-        self._tasks_timer.timeout.connect(self.changed.emit)
+        self._tasks_timer.setInterval(200)
+        self._tasks_timer.timeout.connect(self._publish_tasks)
         self._log_timer = QTimer(self)
         self._log_timer.setInterval(500)
         self._log_timer.timeout.connect(self._refresh_log)
@@ -68,6 +104,14 @@ class TaskHistoryController(QObject):
                                       " ".join(item.get('name', '') for item in task.get('files', []))).casefold())
                 and (self._filter == "全部记录" or task.get("state") == self._filter
                      or (self._filter in ("进行中", "正在安装") and task.get("state") in TasksPage.ACTIVE))]
+
+    @Property(QObject, constant=True)
+    def taskModel(self):
+        return self._task_model
+
+    def _publish_tasks(self):
+        self._task_model.replace(self.tasks)
+        self.changed.emit()
 
     @Property(bool, notify=changed)
     def canClear(self):
@@ -93,21 +137,29 @@ class TaskHistoryController(QObject):
     def currentFiles(self):
         return self._log_files
 
+    @Property(QObject, constant=True)
+    def fileModel(self):
+        return self._file_model
+
+    @Property(int, notify=logChanged)
+    def fileCount(self):
+        return len(self._log_files)
+
     @Slot(str)
     def setQuery(self, value):
         self._query = value.strip()
-        self.changed.emit()
+        self._publish_tasks()
 
     @Slot(str)
     def setFilter(self, value):
         self._filter = value
-        self.changed.emit()
+        self._publish_tasks()
 
     @Slot()
     def resetFilters(self):
         self._query = ""
         self._filter = "全部记录"
-        self.changed.emit()
+        self._publish_tasks()
 
     @Slot()
     def clearCompleted(self):
@@ -134,6 +186,7 @@ class TaskHistoryController(QObject):
         self._log_task_id = ""
         self._log_files = []
         self._log_lines = []
+        self._file_model.replace([])
         self.logChanged.emit()
 
     def set_tasks(self, tasks):
@@ -155,6 +208,7 @@ class TaskHistoryController(QObject):
             self._log_files = sorted([dict(item, error=download_error_message(item.get('error', '')))
                                       for item in task.get('files', [])],
                                      key=lambda item: order.get(item.get('state'), 5))
+            self._file_model.replace(self._log_files)
             self.logChanged.emit()
         elif self._log_task_id:
             self.closeLog()
@@ -395,7 +449,7 @@ class TasksPage(QWidget):
         self._save_revision = 0
         self.init_ui()
         self.refresh_tasks()
-        self._flush_history()
+        self._queue_history_save()
 
     def _load_history(self):
         try:
@@ -920,7 +974,8 @@ class TasksPage(QWidget):
         return next((task for task in self._tasks if task.get("id") == task_id), None)
 
     def _persist_and_refresh(self):
-        self._flush_history()
+        self._save_timer.stop()
+        self._queue_history_save()
         self.refresh_tasks()
 
     def _schedule_save(self):
@@ -928,9 +983,14 @@ class TasksPage(QWidget):
             self._save_timer.start()
 
     def _queue_history_save(self):
-        # The snapshot is cheap compared with JSON formatting and fsync. Only
-        # the immutable copy crosses threads; the live task list stays on Qt.
-        snapshot = deepcopy(self._tasks)
+        # File events contain flat scalar records. Copying their dictionaries
+        # avoids a recursive deepcopy of tens of thousands of asset fields on Qt.
+        snapshot = []
+        for task in self._tasks:
+            row = deepcopy({key: value for key, value in task.items() if key not in ('files', 'logs')})
+            row['files'] = [dict(item) for item in task.get('files', [])]
+            row['logs'] = list(task.get('logs', []))
+            snapshot.append(row)
         self._save_revision += 1
         revision = self._save_revision
 

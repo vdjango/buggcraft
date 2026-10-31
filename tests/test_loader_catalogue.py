@@ -351,6 +351,33 @@ class LoaderCatalogueTests(unittest.TestCase):
             self.assertEqual({item.name for item in (root / 'versions').iterdir()},
                              {'1.21.1', result})
 
+    def test_forge_case_only_name_survives_workspace_cleanup_and_publication(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            upstream, expected = '1.19.2-forge-43.3.5', '1.19.2-Forge-43.3.5'
+
+            def vanilla(downloader, version):
+                self.write_vanilla(downloader.root, version)
+
+            def forge(_version, directory, **_kwargs):
+                folder = Path(directory) / 'versions' / upstream
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / (upstream + '.json')).write_text(json.dumps(dict(
+                    id=upstream, inheritsFrom='1.19.2',
+                    libraries=[dict(name='net.minecraftforge:forge:1.19.2-43.3.5')])), encoding='utf-8')
+
+            callback = dict(setStatus=lambda _: None, setProgress=lambda _: None, setMax=lambda _: None)
+            with patch.object(loaders.MinecraftDownloader, 'install', vanilla), \
+                    patch.object(loaders.minecraft_launcher_lib.forge, 'install_forge_version', side_effect=forge), \
+                    patch('core.java_runtime.prepare_installer_java', return_value='java'):
+                result = loaders._install_loader('Forge', '1.19.2', '43.3.5', root, 'java',
+                    callback, threading.Event(), '官方')
+            self.assertEqual(result, expected)
+            metadata = json.loads((root / 'versions' / expected / (expected + '.json')).read_text(encoding='utf-8'))
+            self.assertEqual(metadata['id'], expected)
+            self.assertNotIn('inheritsFrom', metadata)
+            self.assertEqual((root / 'versions' / expected / (expected + '.jar')).read_bytes(), b'client')
+
     def test_verified_base_profile_is_copied_without_user_saves_or_mutable_hard_links(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

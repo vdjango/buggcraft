@@ -81,6 +81,7 @@ class MultiplayerController(RoomPreparation, QObject):
         self.pending_node_update = None
         self.device_login = None
         self.device_refresh_attempts = {}
+        self.device_refresh_successes = {}
         self.device_refresh_denied = set()
         self.device_login_timer = QTimer(self)
         self.device_login_timer.setInterval(1000)
@@ -204,16 +205,18 @@ class MultiplayerController(RoomPreparation, QObject):
         credential_required = any(text in reason for text in (
             'personal launcher credential is required', 'personal credential expired',
             'invalid personal credential', 'invalid delegated key', 'delegated key mismatch',
-            'node authentication failed', '匿名接入没有好友功能'))
+            '匿名接入没有好友功能'))
         logging.getLogger('hookup.social').warning(
             'social_ui_sync_failed source=%s consecutive=%s contacts=%s ready=%s entry_available=%s',
             source, self.social_failures, len(self._state['contacts']), self._state['socialReady'],
             self.friend_entry_available())
         contacts = [dict(item, online=False, presenceStale=True) for item in self._state['contacts']]
         device_managed = bool(self.node_path and Path(self.node_path + '.device.json').is_file())
+        recovering = device_managed and self.node_path not in self.device_refresh_denied
         self.patch(socialLoading=False, socialState='stale', contacts=contacts,
-                   nodeCredentialRequired=credential_required or self._state['nodeCredentialRequired'],
-                   socialError=('节点账号登录已失效，请在浏览器重新登录并授权此设备。'
+                   nodeCredentialRequired=(credential_required and not recovering) or self._state['nodeCredentialRequired'],
+                   socialError=('账号验证暂未完成，正在自动恢复连接。' if credential_required and recovering else
+                                '节点账号登录已失效，请在浏览器重新登录并授权此设备。'
                                 if credential_required else '好友节点同步失败：' + str(error)))
         if credential_required:
             self.prompt_node_credential_update()
@@ -227,7 +230,13 @@ class MultiplayerController(RoomPreparation, QObject):
 
     def prompt_node_credential_update(self):
         device_managed = bool(self.node_path and Path(self.node_path + '.device.json').is_file())
-        if device_managed and self.renew_device_login():
+        if device_managed and self.renew_device_login(force=True):
+            return
+        # Directory/friend requests use separate connections. Their failure
+        # cannot establish that a live game room has lost its authorization.
+        if any(record.get('state') in ('connecting', 'reconnecting', 'online')
+               for record in self.records.values()):
+            self.patch(notice='好友状态暂时无法同步，当前房间保持连接；可在联机节点页查看登录状态。')
             return
         if not self.node_path or self.credential_prompted_node == self.node_path:
             return
@@ -1013,7 +1022,7 @@ class MultiplayerController(RoomPreparation, QObject):
         return await poll(result, key)
 
     @Slot()
-    def renew_device_login(self):
+    def renew_device_login(self, force=False):
         if self.closed or not self.node_path or self.node_path in self.device_refresh_denied:
             return False
         path = self.node_path
@@ -1026,13 +1035,18 @@ class MultiplayerController(RoomPreparation, QObject):
             expiry = credential_expiry(profile)
         except Exception:
             return False
-        if expiry is None or expiry > time.time() + 86400:
+        if expiry is None:
+            return False
+        # Refresh active devices daily, including long-lived remembered grants.
+        # The server's inactivity lease must be touched before its 30-day limit.
+        if (not force and expiry > time.time() + 86400 and
+                time.monotonic() - self.device_refresh_successes.get(path, float('-inf')) < 86400):
             return False
         key = 'device-refresh:' + path
         if key in self.jobs:
             return True
         if time.monotonic() - self.device_refresh_attempts.get(path, -120) < 60:
-            return False
+            return bool(force)
         self.device_refresh_attempts[path] = time.monotonic()
         from hookup.device_login import refresh
         self.job(key, refresh(path))
@@ -1154,15 +1168,17 @@ class MultiplayerController(RoomPreparation, QObject):
         if launcher and not self.runtime_job and not self.closed:
             self.runtime_job = True
             self.job('runtime', asyncio.to_thread(running_games, launcher.minecraft_directory))
-        # The native scanner already probes Java listeners. Process command-line
-        # detection must not prevent discovery (other launchers can hide it).
+        # LAN discovery holds a native control request for 2.5 seconds. Do not
+        # continuously occupy that channel while the launcher has no game.
         waiting_hosts = [record for record in self.records.values()
                          if record.get('role') == 'host' and record.get('state') == 'online'
                          and record.get('availability') == 'waiting']
         quick_enabled = bool(waiting_hosts) or not page or page.settings_manager.get_setting('multiplayer.quick_action', '首页提示') != '关闭'
         if not quick_enabled and self._state['openWorldPrompt']:
             self.patch(openWorldPrompt=False, openWorldPort=0)
-        if (quick_enabled and launcher and (waiting_hosts or len(getattr(launcher, 'sessions', [])) <= 1) and not self.closed and not self.auto_lan_job
+        game_active = bool(getattr(page, 'current_client', False) or getattr(launcher, 'running', False)
+                           or self.external_running)
+        if (quick_enabled and (game_active or waiting_hosts) and launcher and (waiting_hosts or len(getattr(launcher, 'sessions', [])) <= 1) and not self.closed and not self.auto_lan_job
                 and (not self._state['connections'] or any(record.get('role') == 'host' and record.get('availability') == 'waiting'
                                                           for record in self.records.values()))):
             source = getattr(launcher, 'running_instance', None) or self.external_running or self.instance_source
@@ -2006,6 +2022,7 @@ class MultiplayerController(RoomPreparation, QObject):
                         self.mark_node_expired()
             elif path == self.node_path:
                 self.device_refresh_denied.discard(path)
+                self.device_refresh_successes[path] = time.monotonic()
                 self.reload_store(path, refresh_identity=True)
                 self.patch(notice='账号登录已自动续期。', nodeCredentialRequired=False)
             return

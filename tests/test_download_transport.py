@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
-from core.downloads import MinecraftDownloader, DownloadCancelled, CONTENT_MIRROR, _DownloadSession, _MirrorHealth
+from core.downloads import MinecraftDownloader, DownloadCancelled, CONTENT_MIRROR, _DownloadSession, _MirrorHealth, use_shared_download_cache
 from utils.http_identity import USER_AGENT
 import requests
 
@@ -257,6 +257,40 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(paths[0].read_bytes(), self.payload)
         self.assertEqual(self.requests, ['/artifact'])
         self.assertFalse(list(Path(self.temp.name).rglob('*.buggcraft-part')))
+
+    def test_parallel_isolated_installs_download_shared_libraries_and_assets_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        root = Path(self.temp.name)
+        digest = hashlib.sha1(self.payload).hexdigest()
+        relatives = ('libraries/example/shared.jar', f'assets/objects/{digest[:2]}/{digest}')
+        with use_shared_download_cache(root):
+            workers = [MinecraftDownloader(root / name, source='官方') for name in ('first', 'second')]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(worker.fetch, self.url, relative, digest, len(self.payload))
+                       for worker in workers for relative in relatives]
+            for future in futures:
+                self.assertEqual(future.result(timeout=5).read_bytes(), self.payload)
+        self.assertEqual(self.requests, ['/artifact', '/artifact'])
+        for relative in relatives:
+            self.assertEqual((root / relative).read_bytes(), self.payload)
+        # Installed resources outlive either workspace and remain reusable.
+        self.requests.clear()
+        for relative in relatives:
+            self.downloader.fetch(self.url, relative, digest, len(self.payload))
+        self.assertEqual(self.requests, [])
+
+    def test_shared_cache_checks_hash_before_reusing_cancelled_workspace_file(self):
+        root = Path(self.temp.name)
+        relative = 'libraries/example/shared.jar'
+        with use_shared_download_cache(root):
+            worker = MinecraftDownloader(root / 'workspace', source='官方')
+        local = worker.inside(relative)
+        local.parent.mkdir(parents=True)
+        local.write_bytes(b'broken')
+        result = worker.fetch(self.url, relative, hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(result.read_bytes(), self.payload)
+        self.assertEqual((root / relative).read_bytes(), self.payload)
+        self.assertEqual(self.requests, ['/artifact'])
 
     def setUp(self):
         health = patch('core.downloads._CONTENT_HEALTH', _MirrorHealth())

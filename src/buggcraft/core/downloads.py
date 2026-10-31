@@ -33,6 +33,17 @@ MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json
 MIRROR = "https://bmclapi2.bangbang93.com"
 CONTENT_MIRROR = 'https://mod.mcimirror.top'
 logger = logging.getLogger(__name__)
+_SHARED_DOWNLOAD_ROOT = ContextVar('shared_download_root', default=None)
+
+
+@contextmanager
+def use_shared_download_cache(directory):
+    """Keep isolated loader installs on the game's shared immutable resources."""
+    token = _SHARED_DOWNLOAD_ROOT.set(_resolved(directory))
+    try:
+        yield
+    finally:
+        _SHARED_DOWNLOAD_ROOT.reset(token)
 
 
 class _MirrorHealth:
@@ -379,6 +390,7 @@ class MinecraftDownloader:
     def __init__(self, directory, source="自动", cancel=None, status=None, progress=None, file_event=None, workers=None,
                  retries=2):
         self.root = _resolved(directory)
+        self.shared_root = _SHARED_DOWNLOAD_ROOT.get()
         self.source = source
         self.content_source = None
         self.resolve_content_sources = False
@@ -451,16 +463,56 @@ class MinecraftDownloader:
         self._file_event(relative, 'pending', total=size or 0)
         try:
             with download_lock(self.inside(relative), self.cancel):
-                if self.budget is None:
-                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress, _validate=_validate)
-                with self.budget.reserve(self.cancel):
-                    return self._fetch(url, relative, sha1, size, sha512=sha512, file_progress=file_progress, _validate=_validate)
+                return self._fetch_resource(url, relative, sha1, size, sha512=sha512, file_progress=file_progress, _validate=_validate)
         except (DownloadCancelled, InterruptedError):
             self._file_event(relative, 'cancelled')
             raise
         except Exception as exc:
             self._file_event(relative, 'failed', error=str(exc))
             raise
+
+    def _fetch_resource(self, url, relative, sha1, size, **options):
+        parts = Path(relative).parts
+        if (not self.shared_root or self.shared_root == self.root or not (sha1 or options.get('sha512'))
+                or not parts or parts[0] not in ('libraries', 'assets')):
+            return self._fetch_budgeted(url, relative, sha1, size, **options)
+        shared = _resolved(self.shared_root / relative)
+        if not shared.is_relative_to(self.shared_root):
+            raise ValueError('共享资源路径超出游戏目录：' + str(relative))
+        local = self.inside(relative)
+        with download_lock(shared, self.cancel):
+            # A cancelled workspace may hold a complete file not yet published.
+            # Seed it first; _fetch still checks the expected size and digest.
+            if local.is_file() and not shared.exists():
+                self._link_resource(local, shared)
+            self._fetch_budgeted(url, relative, sha1, size, _destination=shared, **options)
+            self.check_cancelled()
+            self._link_resource(shared, local)
+        return local
+
+    def _fetch_budgeted(self, *args, **options):
+        # Acquire file locks before a network slot: a waiter must not starve
+        # the writer holding the shared file and waiting for that same slot.
+        with self.budget.reserve(self.cancel) if self.budget is not None else nullcontext():
+            return self._fetch(*args, **options)
+
+    @staticmethod
+    def _link_resource(source, destination):
+        from utils.path_helper import filesystem_path
+        source, destination = filesystem_path(source), filesystem_path(destination)
+        if destination.exists() and os.path.samefile(source, destination):
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(destination.name + '.buggcraft-cache-part')
+        try:
+            temporary.unlink(missing_ok=True)
+            try:
+                os.link(source, temporary)
+            except OSError:
+                shutil.copy2(source, temporary)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _file_event(self, relative, state, **values):
         if self.file_event:
@@ -560,10 +612,11 @@ class MinecraftDownloader:
             for part in parts:
                 part.unlink(missing_ok=True)
 
-    def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None, _validate=None):
+    def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None, _validate=None,
+               _destination=None):
         """Download into a temporary file; never publish truncated files."""
         from utils.path_helper import filesystem_path
-        destination = self.inside(relative)
+        destination = self.inside(relative) if _destination is None else _destination
         # Cache roots can be deep, especially inside loader workspaces. Use
         # extended paths for both the artifact and its longer checkpoint names.
         target = filesystem_path(destination)

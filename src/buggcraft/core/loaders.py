@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 import minecraft_launcher_lib
 import requests
 
-from core.downloads import MinecraftDownloader, use_download_budget, verified_installation
+from core.downloads import MinecraftDownloader, use_download_budget, use_shared_download_cache, verified_installation
 from utils.download_locks import download_lock
 from utils.http_identity import USER_AGENT
 from utils.path_helper import filesystem_path
@@ -278,6 +278,9 @@ def _flatten_forge_version(directory, installed, minecraft_version, before_versi
         json.dumps(resolved, ensure_ascii=False, indent=2), encoding='utf-8')
 
     created = {name for name, _ in chain} - set(before_versions) - {identity}
+    # On Windows (and case-insensitive macOS volumes), Forge/forge can be
+    # different names for the directory we just published. Never clean it up.
+    created = {name for name in created if not (versions / name).samefile(target)}
     referenced = set()
     for metadata_path in versions.glob('*/*.json'):
         if metadata_path.parent.name in created:
@@ -837,8 +840,9 @@ def _install_native_loader_isolated(loader, minecraft_version, loader_version, d
             shutil.copytree(base / 'natives', staged_base / 'natives', dirs_exist_ok=True)
     completed = False
     try:
-        installed = _run_loader_install(loader, minecraft_version, loader_version, str(work), java,
-            callback, cancel, source, identity, set(), _workspace=True)
+        with use_shared_download_cache(root):
+            installed = _run_loader_install(loader, minecraft_version, loader_version, str(work), java,
+                callback, cancel, source, identity, set(), _workspace=True)
         target = root / 'versions' / identity
         if target.exists():
             raise FileExistsError('实例名称已被占用，请选择新名称：' + identity)

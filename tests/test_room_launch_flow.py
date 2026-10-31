@@ -200,20 +200,22 @@ class RoomLaunchFlowTests(unittest.TestCase):
         self.assertFalse(self.window.isVisible())
         self.assertTrue(self.controller.view['openWorldPrompt'])
 
-    def test_native_scan_runs_when_process_command_line_cannot_be_identified(self):
+    def test_idle_launcher_does_not_queue_native_lan_scan(self):
         self.controller.runtime_job = True
         self.controller.patch(connections=[])
         world = dict(port=51234, version='1.21.8')
+        request = AsyncMock(return_value={'worlds': [world]})
         with patch.object(self.controller, 'job', side_effect=self.run_job), \
-                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(
-                    request=AsyncMock(return_value={'worlds': [world]}))):
+                patch('ui.multiplayer_controller.native_bridge', return_value=SimpleNamespace(request=request)):
             self.controller.detect_runtime()
         self.assertFalse(self.parent.launcher.running)
         self.assertIsNone(self.controller.external_running)
-        self.assertTrue(self.controller.view['openWorldPrompt'])
+        self.assertFalse(self.controller.view['openWorldPrompt'])
+        request.assert_not_awaited()
 
     def test_reopening_world_on_same_port_prompts_without_a_missed_scan(self):
         from utils.instances import lan_world_token
+        self.parent.launcher.running = True
         directory = Path(self.parent.launcher.minecraft_directory)
         log = directory / 'logs/latest.log'
         log.parent.mkdir()
@@ -737,7 +739,21 @@ class BackgroundLanMonitorTests(unittest.TestCase):
         page = SimpleNamespace(_ensure_multiplayer_dialog=Mock(
             return_value=SimpleNamespace(backend=SimpleNamespace(view={'nodes': []}, node_path=''))))
         StartGamePage._start_background_social(page)
-        page._ensure_multiplayer_dialog.assert_called_once_with()
+        page._ensure_multiplayer_dialog.assert_called_once_with(background=True)
+
+    def test_background_monitor_defers_qml_until_opened(self):
+        from ui.dialog.MultiplayerDialog import MultiplayerDialog
+        with tempfile.TemporaryDirectory() as folder, \
+                patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'check_node'):
+            dialog = MultiplayerDialog(storage_path=Path(folder) / 'rooms.json', background=True)
+            try:
+                self.assertEqual(dialog.quick.status(), QQuickWidget.Null)
+                self.assertTrue(dialog.runtime_timer.isActive())
+                dialog.load_ui()
+                self.assertEqual(dialog.quick.status(), QQuickWidget.Ready, str(dialog.quick.errors()))
+            finally:
+                self.destroy_dialog(dialog)
 
     def test_hidden_dialog_continues_checking_node_health(self):
         from ui.dialog.MultiplayerDialog import MultiplayerDialog

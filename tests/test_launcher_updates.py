@@ -124,7 +124,7 @@ class LauncherUpdateTests(LauncherQmlCase):
     def test_check_schedule_and_reminder_lifetime(self):
         self.assertEqual(self.updates.startup_timer.interval(), updater.STARTUP_DELAY_MS)
         self.assertEqual(self.updates.timer.interval(), updater.CHECK_INTERVAL_MS)
-        self.assertEqual(updater.STARTUP_DELAY_MS, 10_000)
+        self.assertEqual(updater.STARTUP_DELAY_MS, 30_000)
         self.assertEqual(updater.CHECK_INTERVAL_MS, 4 * 60 * 60 * 1000)
         self.assertEqual(updater.REMINDER_SECONDS, 24 * 60 * 60)
 

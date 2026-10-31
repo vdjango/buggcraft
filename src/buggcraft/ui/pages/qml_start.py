@@ -151,7 +151,7 @@ class StartGamePage(QmlPage):
         self.auth_refresh_timer.start()
         self.refresh_game_sessions()
         # Saved nodes also monitor opened worlds before the hall is shown.
-        QTimer.singleShot(0, self._start_background_social)
+        QTimer.singleShot(1500, self, self._start_background_social)
         self._quick_action_scheduled = False
         self._handled_multiplayer_invite = ''
         QApplication.clipboard().dataChanged.connect(self._clipboard_changed)
@@ -345,18 +345,20 @@ class StartGamePage(QmlPage):
             return
         self._multiplayer_dialog.show_friends()
 
-    def _ensure_multiplayer_dialog(self):
+    def _ensure_multiplayer_dialog(self, *, background=False):
         from ui.dialog.MultiplayerDialog import MultiplayerDialog
         if not hasattr(self, '_multiplayer_dialog'):
-            self._multiplayer_dialog = MultiplayerDialog(self)
+            self._multiplayer_dialog = MultiplayerDialog(self, background=background)
             self._multiplayer_dialog.backend.changed.connect(self._social_changed)
+        elif not background:
+            self._multiplayer_dialog.load_ui()
         return self._multiplayer_dialog
 
     def _start_background_social(self):
         if hasattr(self, '_multiplayer_dialog'):
             return
         try:
-            dialog = self._ensure_multiplayer_dialog()
+            dialog = self._ensure_multiplayer_dialog(background=True)
             nodes = dialog.backend.view.get('nodes', [])
             selected = next((node for node in nodes if node['path'] == dialog.backend.node_path), {})
             if not selected.get('personalCode'):

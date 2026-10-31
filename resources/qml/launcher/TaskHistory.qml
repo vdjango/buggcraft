@@ -8,8 +8,7 @@ Item {
     property bool textLog: false
     property var filters: ["全部记录", "进行中", "已完成", "失败", "已取消", "已中断"]
     function showTaskLog(taskId) {
-        // showLog refreshes the task model and can destroy the calling row.
-        // Finish the operation in this persistent page's context.
+        // Keep the modal's lifecycle in the persistent page's context.
         taskHistory.showLog(taskId)
         root.logOpen = true
     }
@@ -24,7 +23,7 @@ Item {
         CatalogueList {
             listObjectName: "download-history-list"
             Layout.fillWidth: true; Layout.fillHeight: true
-            rows: taskHistory.tasks; query: taskHistory.query
+            rows: taskHistory.taskModel; query: taskHistory.query
             filterLabel: "状态："; filterOptions: root.filters
             filterIndex: Math.max(0, root.filters.indexOf(taskHistory.filterValue))
             emptyText: "暂无下载记录"
@@ -66,17 +65,17 @@ Item {
                 ActionButton { objectName: "log-files-tab"; text: "文件进度"; primary: !root.textLog; onClicked: root.textLog = false }
                 ActionButton { objectName: "log-text-tab"; text: "文字日志"; primary: root.textLog; onClicked: root.textLog = true }
                 Item { Layout.fillWidth: true }
-                Label { text: taskHistory.currentFiles.length + " 个文件"; color: "#b6a8c6"; font.pixelSize: 11 }
+                Label { text: taskHistory.fileCount + " 个文件"; color: "#b6a8c6"; font.pixelSize: 11 }
             }
             ListView {
                 id: fileList; objectName: "task-log-files"
                 Layout.fillWidth: true; Layout.fillHeight: true
                 visible: !root.textLog; clip: true; spacing: 7
-                model: taskHistory.currentFiles.length
+                model: taskHistory.fileModel
                 delegate: DownloadFileRow {
-                    required property int index
+                    required property var modelData
                     width: fileList.width - 12
-                    file: taskHistory.currentFiles[index] || ({})
+                    file: modelData
                 }
                 ScrollBar.vertical: ScrollBar {}
                 Label {

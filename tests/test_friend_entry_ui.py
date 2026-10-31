@@ -232,6 +232,9 @@ class FriendEntryUiTests(LauncherQmlCase):
         self.assertTrue(self.backend.view['nodes'][0]['deviceManaged'])
         self.backend.apply_social_state(social_state())
         self.backend.social_failure('request', 'Invalid delegated key')
+        self.assertIsNone(self.backend.credential_prompt_dialog)
+        self.assertFalse(self.backend.view['nodeCredentialRequired'])
+        self.backend.finish('device-refresh:' + self.backend.node_path, None, '设备授权已失效，请重新登录。')
         dialog = self.backend.credential_prompt_dialog
         self.assertIsNotNone(dialog)
         # macOS native alerts can omit the window title; the visible guidance

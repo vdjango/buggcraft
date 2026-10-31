@@ -137,16 +137,49 @@ class FriendEntryRegressionTests(unittest.TestCase):
     def test_expired_and_invalid_credentials_offer_recovery_but_timeout_does_not(self):
         for message in ('Personal credential expired; sign in on the node website',
                         'Invalid personal credential', 'Invalid delegated key',
-                        'Delegated key mismatch', 'Node authentication failed'):
+                        'Delegated key mismatch'):
             with self.subTest(message=message), patch.object(self.backend, 'prompt_node_credential_update') as prompt:
                 self.fail_refresh(message)
                 prompt.assert_called_once()
                 self.assertTrue(self.backend.view['nodeCredentialRequired'])
                 self.backend.apply_social_state(social_state())
-        with patch.object(self.backend, 'prompt_node_credential_update') as prompt:
-            self.fail_refresh('Node connection failed')
-            prompt.assert_not_called()
-            self.assertFalse(self.backend.view['nodeCredentialRequired'])
+        for message in ('Node connection failed', 'Node authentication failed'):
+            with self.subTest(message=message), patch.object(self.backend, 'prompt_node_credential_update') as prompt:
+                self.fail_refresh(message)
+                prompt.assert_not_called()
+                self.assertFalse(self.backend.view['nodeCredentialRequired'])
+
+    def test_online_room_does_not_show_login_popup_after_friend_sync_failure(self):
+        self.backend.records['room'] = dict(state='online')
+        with patch('ui.multiplayer_controller.QMessageBox') as popup:
+            self.fail_refresh('Invalid delegated key')
+            popup.assert_not_called()
+        self.assertEqual(self.backend.records['room']['state'], 'online')
+        self.assertIn('当前房间保持连接', self.backend.view['notice'])
+
+    def test_remembered_device_renews_before_asking_user_to_login(self):
+        save_json(self.path, profile_data(personal_profile(expiry=int(time.time()) + 3 * 86400)))
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': 'https://community.example'})
+        self.backend.reload_store(refresh_identity=True)
+        with patch.object(self.backend, 'job', side_effect=lambda key, task: task.close()) as job, \
+                patch('ui.multiplayer_controller.QMessageBox') as popup:
+            self.fail_refresh('Invalid delegated key')
+            self.assertEqual(job.call_args.args[0], 'device-refresh:' + self.backend.node_path)
+            popup.assert_not_called()
+        self.assertFalse(self.backend.view['nodeCredentialRequired'])
+        self.assertIn('自动恢复', self.backend.view['socialError'])
+
+    def test_active_remembered_device_is_refreshed_daily_even_with_valid_token(self):
+        save_json(self.path, profile_data(personal_profile(expiry=int(time.time()) + 3 * 86400)))
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': 'https://community.example'})
+        self.backend.reload_store(refresh_identity=True)
+        with patch.object(self.backend, 'job', side_effect=lambda key, task: task.close()) as job:
+            self.assertTrue(self.backend.renew_device_login())
+            self.assertEqual(job.call_args.args[0], 'device-refresh:' + self.backend.node_path)
+            self.backend.device_refresh_successes[self.backend.node_path] = time.monotonic()
+            job.reset_mock()
+            self.assertFalse(self.backend.renew_device_login())
+            job.assert_not_called()
 
     def test_verified_identity_change_clears_credential_warning(self):
         with patch.object(self.backend, 'prompt_node_credential_update'):
