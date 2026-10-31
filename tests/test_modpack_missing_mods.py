@@ -26,6 +26,9 @@ class MissingModImportTests(unittest.TestCase):
         self.game = self.root / 'game'
         self.fixtures = ClientUiFixtures(self.root)
         self.addCleanup(self.fixtures.close)
+        origin = patch('core.client_file_source._origin', '')
+        origin.start()
+        self.addCleanup(origin.stop)
         self.original_urls = MinecraftDownloader.urls
         def urls(downloader, url):
             if url.startswith(('https://cdn.modrinth.com/', ClientUiFixtures.ORIGIN)):

@@ -516,6 +516,7 @@ class LobbyLayoutTests(unittest.TestCase):
             'chatSending':False, 'bridgeStatus':'同步未开启'}
         self.backend.viewChanged.emit()
         QTest.qWait(50)
+        self.click('room-info-toggle')
         chat = find_item(self.window, 'room-chat')
         before = (chat.y(), chat.height())
         self.click('copy-address')

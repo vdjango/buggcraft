@@ -237,7 +237,9 @@ async def publish(endpoint):
                 # Register metadata once per room configuration, then poll only
                 # for new missing-file demand; polling never renews a lease.
                 result = await cache.plan(files=files if getattr(cache, 'published', None) != signature else None)
-                cache.published = signature
+                # A replaced/cleared source index needs metadata again; the
+                # next poll restores it without hashing the local files again.
+                cache.published = None if files and result.get('state') == 'waiting' else signature
                 requested = {item['sha256'] for item in result.get('upload', [])}
                 slots = asyncio.Semaphore(2)
                 async def upload(file):

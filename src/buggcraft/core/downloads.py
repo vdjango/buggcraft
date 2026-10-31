@@ -840,7 +840,13 @@ class MinecraftDownloader:
             except DownloadSourcesExhausted as exc:
                 source_errors.extend(exc.source_errors)
                 errors.append(str(exc))
-                raise DownloadSourcesExhausted(str(exc), source_errors=source_errors) from exc
+                # Keep the original failures when the fallback has no new URL;
+                # otherwise the useful HTTP/timeout reason is lost in the UI.
+                from utils.download_address import source_name
+                for error in exc.source_errors:
+                    address = getattr(getattr(error, 'request', None), 'url', '') or ''
+                    name = source_name(address) or urlsplit(address).hostname or '备用来源'
+                    failures[name] = _source_failure_reason(error)
         if not failures:
             for candidate in candidates:
                 from utils.download_address import source_name
