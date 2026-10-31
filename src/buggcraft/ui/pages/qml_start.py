@@ -154,6 +154,12 @@ class StartGamePage(QmlPage):
         QTimer.singleShot(1500, self, self._start_background_social)
         self._quick_action_scheduled = False
         self._handled_multiplayer_invite = ''
+        # Reading the Windows clipboard can call into another process through
+        # OLE.  Keep the last validated invitation in memory so a social
+        # update (which is frequent while a room is active) never performs a
+        # synchronous clipboard read on the Qt GUI thread.
+        self._clipboard_invite = ''
+        self._clipboard_scan_pending = False
         QApplication.clipboard().dataChanged.connect(self._clipboard_changed)
         self._refresh_multiplayer_entry()
 
@@ -264,6 +270,24 @@ class StartGamePage(QmlPage):
         self._refresh_multiplayer_entry()
 
     def _clipboard_changed(self):
+        # Clipboard notifications can be delivered while the clipboard owner
+        # is still servicing its OLE callback.  Defer the read until the
+        # notification has returned, and coalesce bursts of notifications.
+        if self._clipboard_scan_pending:
+            return
+        self._clipboard_scan_pending = True
+        QTimer.singleShot(0, self, self._scan_clipboard)
+
+    def _scan_clipboard(self):
+        self._clipboard_scan_pending = False
+        try:
+            invite = self._clipboard_room_invite()
+        except (RuntimeError, OSError):
+            # A busy or disappearing clipboard owner is not a launcher error.
+            invite = ''
+        if invite == self._clipboard_invite:
+            return
+        self._clipboard_invite = invite
         self._refresh_multiplayer_entry()
 
     @staticmethod
@@ -277,7 +301,7 @@ class StartGamePage(QmlPage):
         return text
 
     def _acknowledge_multiplayer_invite(self):
-        invite = self._clipboard_room_invite()
+        invite = self._clipboard_invite
         if invite:
             self._handled_multiplayer_invite = invite
 
@@ -286,7 +310,7 @@ class StartGamePage(QmlPage):
             return
         dialog = getattr(self, '_multiplayer_dialog', None)
         state = dialog.backend.view if dialog else {}
-        invite = self._clipboard_room_invite()
+        invite = self._clipboard_invite
         if invite and dialog and invite == dialog.backend.consumed_clipboard_invite:
             self._handled_multiplayer_invite = invite
         action = 'join' if invite and invite != self._handled_multiplayer_invite else ''

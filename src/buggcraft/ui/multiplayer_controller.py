@@ -323,7 +323,13 @@ class MultiplayerController(RoomPreparation, QObject):
             return
         if self._state['page'] not in ('hall', 'join', 'nodes'):
             return
-        text = QApplication.clipboard().text().strip()
+        # Automatic home-page actions use the invitation cached by
+        # StartGamePage.  Avoid touching the Windows/OLE clipboard during a
+        # social state refresh; an explicit user action may still fall back to
+        # reading it once when no cache is available.
+        text = getattr(self.launcher_page, '_clipboard_invite', '')
+        if not text:
+            text = QApplication.clipboard().text().strip()
         try:
             RoomInvite.decode(text)
         except ValueError:

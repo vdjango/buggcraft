@@ -162,6 +162,33 @@ class AllLauncherPagesTests(LauncherQmlCase):
         QApplication.clipboard().clear()
         self.assert_no_qml_errors()
 
+    def test_social_refresh_never_reads_busy_windows_clipboard(self):
+        """A room disconnect/social patch must not hang on a clipboard owner."""
+        from ui.multiplayer_controller import MultiplayerController
+        page = self.window.started_page
+        page._clipboard_invite = ''
+        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'job', side_effect=lambda key, task: task.close()), \
+                patch.object(page, '_clipboard_room_invite', side_effect=RuntimeError('clipboard busy')):
+            page._ensure_multiplayer_dialog()
+            # This is the callback reached by MultiplayerController.patch and
+            # was the GUI-thread frame in the incident crash log.
+            page._social_changed()
+        self.assertEqual(page._clipboard_invite, '')
+
+    def test_clipboard_notification_is_deferred_and_cached(self):
+        from hookup.profiles import RoomInvite
+        page = self.window.started_page
+        invite = RoomInvite.create().encode()
+        with patch.object(page, '_clipboard_room_invite', return_value=invite) as read:
+            page._clipboard_changed()
+            # The read is deliberately queued so it cannot run inside the
+            # Windows clipboard dataChanged/OLE callback.
+            read.assert_not_called()
+            self.pump()
+            read.assert_called_once_with()
+        self.assertEqual(page._clipboard_invite, invite)
+
     def test_automatic_world_creation_waits_for_node_then_shows_result_window(self):
         from ui.multiplayer_controller import MultiplayerController
         from PySide6.QtWidgets import QApplication
