@@ -96,6 +96,11 @@ class LobbyLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        # Standalone lobby views use the same bundled CJK font as the launcher.
+        from PySide6.QtGui import QFontDatabase, QFont
+        font_id = QFontDatabase.addApplicationFont(str(ROOT / 'resources/fonts/SourceHanSansCN-Normal.otf'))
+        if font_id >= 0:
+            cls.app.setFont(QFont(QFontDatabase.applicationFontFamilies(font_id)[0]))
         cls.app.setQuitOnLastWindowClosed(False)
 
     def setUp(self):
@@ -723,6 +728,8 @@ class LobbyLayoutTests(unittest.TestCase):
                     'chatState':'在线', 'chatMessages':[], 'chatDraft':'', 'chatError':'',
                     'chatSending':False, 'bridgeStatus':'游戏聊天未开启'}
                 self.backend.viewChanged.emit(); QTest.qWait(35)
+                if not find_item(self.window, 'room-details').isVisible():
+                    self.click('room-info-toggle')
                 self.click('room-details')
                 self.assertIn(expected, find_item(self.window, 'room-access-summary').property('text'))
                 self.assertLess(len(find_item(self.window, 'room-access-guidance').property('text')), 40)
@@ -923,6 +930,7 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertIn('1.0 MiB / 2.0 MiB', find_item(self.window, 'room-download-bytes').property('text'))
         self.assertIn('正在同步房主', find_item(self.window, 'room-compatibility').property('text'))
         self.assertNotIn('模组集合不一致', find_item(self.window, 'room-compatibility').property('text'))
+        self.click('room-info-toggle')
         self.click('show-room-mods')
         self.assertEqual(self.backend.actions[-1], ('loadMods', {}))
         self.assertTrue(find_item(self.window, 'room-mods-body').isVisible())
@@ -990,6 +998,7 @@ class LobbyLayoutTests(unittest.TestCase):
         QTest.qWait(40)
         self.assertEqual(find_item(self.window, 'room-node-latency').property('text'), '到联机节点 12 ms')
         self.assertEqual(find_item(self.window, 'room-host-latency').property('text'), '到房主 57 ms')
+        self.click('room-info-toggle')
         self.click('room-details')
         for name, expected in [('room-member-count','房间内 4 / 10 人'),
                 ('game-player-count','游戏内 2 人'), ('game-latency','游戏延迟 57 ms')]:
@@ -1006,6 +1015,7 @@ class LobbyLayoutTests(unittest.TestCase):
             'chatMessages':[], 'chatDraft':'', 'chatError':'', 'chatSending':False}
         self.backend.viewChanged.emit()
         QTest.qWait(40)
+        self.click('room-info-toggle')
         self.click('room-details')
         self.assertEqual(find_item(self.window, 'game-latency').property('text'), '游戏延迟 0 ms · 本地')
 

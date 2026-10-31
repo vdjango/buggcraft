@@ -685,8 +685,12 @@ class ModpackImporter:
                                          status=self.status, progress=report_download, file_event=self.file_event,
                                          retries=6, allow_missing_mods=self.unavailable_mods is not None)
         downloader.content_source = self.content_source
-        downloader.preserve_content_order = self.download_mode == 'pack'
-        downloader.resolve_content_sources = self.download_mode == 'settings'
+        # This override belongs to our format only. Third-party manifests keep
+        # their own source rules, regardless of the remembered import choice.
+        mode = self.download_mode if info.source == 'Buggcraft' else 'pack'
+        downloader.preserve_content_order = mode == 'pack'
+        downloader.resolve_content_sources = mode == 'settings'
+        downloader.fallback_content_sources = info.source == 'Buggcraft' and mode == 'pack'
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         if info.source in ('Modrinth', 'Buggcraft'):

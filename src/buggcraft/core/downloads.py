@@ -397,10 +397,12 @@ class MinecraftDownloader:
                         'edge.forgecdn.net' if parsed.path.startswith('/files/') else None)
             return self.urls(parsed._replace(netloc=upstream).geturl()) if upstream else []
         if trusted and parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net'):
+            from core.bugg_mirror import mirror_url as bugg_url
             alternate = 'mediafilez.forgecdn.net' if parsed.hostname == 'edge.forgecdn.net' else 'edge.forgecdn.net'
-            return [original, parsed._replace(netloc=alternate).geturl()]
+            return [value for value in (bugg_url(original), original, parsed._replace(netloc=alternate).geturl()) if value]
         if trusted and parsed.hostname == 'cdn.modrinth.com':
-            return [original]
+            from core.bugg_mirror import mirror_url as bugg_url
+            return [value for value in (bugg_url(original), original) if value]
         from core.game_sources import source_urls
         return source_urls(self.source, original)
 
@@ -572,7 +574,7 @@ class MinecraftDownloader:
                 part.unlink(missing_ok=True)
 
     def _fetch(self, url, relative, sha1=None, size=None, *, sha512=None, file_progress=None, _validate=None,
-               _destination=None):
+               _destination=None, _fallback=False, _skip_urls=()):
         """Download into a temporary file; never publish truncated files."""
         from utils.path_helper import filesystem_path
         destination = self.inside(relative) if _destination is None else _destination
@@ -651,7 +653,7 @@ class MinecraftDownloader:
             discard_partial()
         content_source = self.content_source or self.source
         addresses = [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
-        if self.resolve_content_sources:
+        if self.resolve_content_sources or _fallback:
             from core.content_routes import resolve_download_urls
             self.check_cancelled()
             self.status(f'正在解析下载源 · {target.name}')
@@ -659,6 +661,7 @@ class MinecraftDownloader:
                                                preference=content_source, cancel=self.cancel)
         candidates = list(dict.fromkeys(candidate for address in addresses
                                         for candidate in self.urls(address)))
+        candidates = [candidate for candidate in candidates if candidate not in _skip_urls]
         if not getattr(self, 'preserve_content_order', False):
             from core.content_routes import provider
             preferred = 'Modrinth' if content_source == 'Modrinth' else 'CurseForge'
@@ -824,6 +827,20 @@ class MinecraftDownloader:
                         break
                     if attempt < attempts - 1 and self.cancel.wait(0.5 * (attempt + 1)):
                         self.check_cancelled()
+        if (getattr(self, 'fallback_content_sources', False) and not _fallback
+                and not self.resolve_content_sources):
+            # Resolve alternatives only after the pack's own URLs fail. Keep
+            # policy per call: pack resources share this downloader across threads.
+            self.check_cancelled()
+            self.status('整合包原地址暂不可用，正在尝试启动器下载源 · ' + target.name)
+            try:
+                return self._fetch(url, relative, sha1, size, sha512=sha512,
+                    file_progress=file_progress, _validate=_validate, _destination=_destination,
+                    _fallback=True, _skip_urls=tuple(candidates))
+            except DownloadSourcesExhausted as exc:
+                source_errors.extend(exc.source_errors)
+                errors.append(str(exc))
+                raise DownloadSourcesExhausted(str(exc), source_errors=source_errors) from exc
         if not failures:
             for candidate in candidates:
                 from utils.download_address import source_name

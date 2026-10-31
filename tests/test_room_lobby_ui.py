@@ -71,7 +71,7 @@ class RoomLobbyUiTests(unittest.TestCase):
         for width, height in ((721, 505), (1000, 650)):
             self.window.resize(width, height); QTest.qWait(80)
             self.assertTrue(find_item(self.window, 'room-members-list').isVisible())
-            self.assertGreater(find_item(self.window, 'room-members-list').height(), 150)
+            self.assertGreater(find_item(self.window, 'room-members-list').height(), 210)
             self.assertEqual(find_item(self.window, 'room-ready-count').property('text'), '2 / 4 已准备')
             self.assertEqual(find_item(self.window, 'member-state-guest1').property('text'), '下载中')
             self.assertEqual(find_item(self.window, 'member-progress-guest1').property('value'), 40)
@@ -81,6 +81,75 @@ class RoomLobbyUiTests(unittest.TestCase):
             self.save('preparation-room-' + str(width))
         self.click('host-start-game')
         self.assertEqual(self.backend.actions[-1], ('launchRoom', {}))
+
+    def test_room_information_folds_and_leaves_the_workspace_and_primary_action_visible(self):
+        record = self.room()
+        self.click('room-tab-members')
+        workspace = find_item(self.window, 'room-members-list')
+        collapsed_height = workspace.height()
+        self.assertFalse(find_item(self.window, 'room-game-requirements').isVisible())
+        self.assertTrue(find_item(self.window, 'host-start-game').isVisible())
+        self.click('room-info-toggle')
+        self.assertTrue(find_item(self.window, 'room-game-requirements').isVisible())
+        self.assertTrue(find_item(self.window, 'show-room-mods').isVisible())
+        self.assertLess(workspace.height(), collapsed_height - 40)
+        self.save('room-information-expanded')
+        self.click('room-info-toggle')
+        self.assertAlmostEqual(workspace.height(), collapsed_height, delta=2)
+        record.update(role='client', preparing=True, isManager=False,
+            prepareProgress=45, prepareMaximum=100, prepareSpeed='2.4 MiB/s',
+            prepareFile='mods/example.jar', prepareFileTotal=1024, prepareFileDone=512)
+        self.backend.viewChanged.emit(); QTest.qWait(60)
+        self.assertTrue(find_item(self.window, 'room-install-progress').isVisible())
+        self.assertTrue(find_item(self.window, 'room-download-bytes').isVisible())
+        self.assertFalse(find_item(self.window, 'show-room-mods').isVisible())
+        self.assertTrue(find_item(self.window, 'room-quick-launch').isVisible())
+        self.save('room-information-collapsed-download')
+
+    def test_member_identity_game_state_and_scroll_remain_readable(self):
+        from PySide6.QtCore import QPoint, QMetaObject
+        from PySide6.QtGui import QWheelEvent
+        from PySide6.QtWidgets import QApplication
+        record = self.room()
+        record['lobby']['members'] = [dict(id='player-' + str(i), name='GameRole' + str(i),
+            account_name='NodeAccount' + str(i), online=True, state='playing',
+            manager=i == 0, provider=i == 0, path='local' if i == 0 else 'p2p', rtt_ms=23,
+            total=100, done=100) for i in range(12)]
+        record['lobby']['self_id'] = 'player-0'
+        record['lobby'].update(total=12, online=12, ready=12)
+        self.backend.viewChanged.emit()
+        self.click('room-tab-members')
+        member_list = find_item(self.window, 'room-members-list')
+        self.assertGreater(member_list.height(), 210)
+        self.assertGreater(member_list.property('contentHeight'), member_list.height())
+        self.assertEqual(find_item(self.window, 'member-name-player-0').property('text'), 'GameRole0（我）')
+        self.assertIn('NodeAccount0', find_item(self.window, 'member-identity-player-0').property('text'))
+        self.assertEqual(find_item(self.window, 'member-state-player-0').property('text'), '游戏中')
+        self.assertFalse(find_item(self.window, 'member-progress-player-0').isVisible())
+        self.save('room-members-identities')
+        start = member_list.mapToScene(QPointF(member_list.width() / 2, member_list.height() - 20)).toPoint()
+        before = member_list.property('contentY')
+        event = QWheelEvent(QPointF(start), QPointF(self.window.mapToGlobal(start)),
+            QPoint(), QPoint(0, -360), Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False)
+        QApplication.sendEvent(self.window, event)
+        QTest.qWait(200)
+        self.assertGreater(member_list.property('contentY'), before)
+        QMetaObject.invokeMethod(member_list, 'cancelFlick')
+        QTest.qWait(50)
+        scrolled = member_list.property('contentY')
+        # A heartbeat can change status while the player reads another row.
+        # It must not rebuild delegates or send the scroll back to the top.
+        record['lobby']['members'][4].update(state='ready', rtt_ms=37)
+        self.backend.viewChanged.emit()
+        QTest.qWait(100)
+        self.assertAlmostEqual(member_list.property('contentY'), scrolled, delta=2)
+        for i in range(12):
+            try:
+                label = find_item(self.window, 'member-name-player-' + str(i))
+            except AssertionError:  # ListView intentionally virtualizes rows.
+                continue
+            self.assertEqual(label.property('text'), 'GameRole' + str(i) + ('（我）' if i == 0 else ''))
+        self.save('room-members-scrolled')
 
     def test_guest_download_room_shows_client_progress_speed_and_install_log(self):
         """Capture the actual guest room while its launcher installs the host's config."""

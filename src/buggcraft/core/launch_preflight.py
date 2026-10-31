@@ -59,13 +59,12 @@ def check_launch_memory(game_directory, command, configured_arguments, available
     warnings = []
     if allocated < required:
         warnings.append(
-            f'当前实例有 {count} 个已启用模组，实际分配 {allocated} MiB；'
-            f'按模组数量建议至少 {required} MiB。'
-            '可在实例设置中提高游戏内存；自动分配或高级 JVM 参数中的 -Xmx 也会影响实际值。')
+            f'{count} 个模组，游戏内存仅 {allocated / 1024:g} GB。'
+            f'建议至少 {required / 1024:g} GB，过低可能无法进入游戏。')
     if available_mib is not None and allocated > max(0, available_mib - 1024):
         warnings.append(
-            f'游戏最大内存 {allocated} MiB，系统当前可用约 {available_mib} MiB；'
-            '建议至少为系统保留 1024 MiB，可关闭其他程序或降低分配。')
+            f'电脑目前可用 {available_mib / 1024:.1f} GB，游戏设置为 {allocated / 1024:g} GB。'
+            '请先关闭其他程序，或调低游戏内存，为电脑留出至少 1 GB。')
     if warnings:
         raise LaunchMemoryWarning((chr(10) * 2).join(warnings))
     return count, allocated, required

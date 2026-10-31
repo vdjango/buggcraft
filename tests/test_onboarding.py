@@ -64,11 +64,32 @@ class OnboardingCoachTests(LauncherQmlCase):
 
     def assert_visible_spotlight(self, coach):
         coach.refresh()
-        self.assertIsNotNone(coach._target_object)
+        if coach._target_object is None:
+            page = self.window.settings_page.general_page
+            name = coach.steps[coach.index]['target']
+            item = coach._find_qml_item(page.quick.rootObject(), name)
+            scroll = coach._find_qml_item(page.quick.rootObject(), 'settings-scroll').property('contentItem')
+            geometry = (item.isVisible(), item.width(), item.height(),
+                        item.mapToScene(item.boundingRect().topLeft())) if item else None
+            self.snapshot('onboarding-missing-spotlight')
+            self.fail(f'{name}: target={geometry}, viewport={page.quick.size()}, '
+                      f'scroll={scroll.property("contentY")}/{scroll.property("contentHeight")}')
         overlay = coach._overlays[coach._window()]
         self.assertTrue(overlay.isVisible())
         self.assertTrue(QRectF(overlay.rect()).contains(coach._target_rect),
                         f'Target outside the launcher: {coach._target_rect}')
+
+    def wait_for_spotlight(self, coach, target):
+        # A settings model rebuild and ScrollView expansion settle over several
+        # QML layout turns. Click only after the real input hole follows them.
+        def ready():
+            coach.refresh()
+            return (coach.steps[coach.index]['target'] == target
+                    and coach._target_object is not None
+                    and coach._target_object.objectName() == target
+                    and not coach._target_rect.isEmpty())
+        self.wait_until(ready)
+        self.assert_visible_spotlight(coach)
 
     def assert_tutorial_glow(self, control):
         self.assertTrue(control.property('tutorialHighlight'))
@@ -448,23 +469,22 @@ class OnboardingCoachTests(LauncherQmlCase):
         coach = self.window.tutorial_controller
         coach.start()
         self.click(self.window.title_bar, 'launcher-nav-settings')
-        self.pump(200)
         page = self.window.settings_page.general_page
-        self.assert_visible_spotlight(coach)
+        self.wait_for_spotlight(coach, 'setting-select-game-language')
         self.click(page, 'setting-select-game-language')
         QTest.keyClick(page.quick, Qt.Key_Down)
         QTest.keyClick(page.quick, Qt.Key_Return)
-        self.pump(250)
+        self.wait_for_spotlight(coach, 'setting-toggle-translation.enabled')
         self.assertEqual(coach.index, 2)
         self.assert_visible_spotlight(coach)
         self.assertEqual(self.manager.get_setting('game.language'),
                          page.controller.groups[3]['value'])
         self.click(page, 'setting-toggle-translation.enabled')
-        self.pump(250)
+        self.wait_for_spotlight(coach, 'setting-group-multiplayer.quick_action')
         self.assertTrue(self.manager.get_setting('translation.enabled'))
         self.assertEqual(coach.index, 3)
         self.click(page, 'setting-option-multiplayer.quick_action-1')
-        self.pump(250)
+        self.wait_for_spotlight(coach, 'setting-toggle-multiplayer.notification_sound')
         self.assertEqual(coach.index, 4)
         self.assert_visible_spotlight(coach)
         self.continue_past_sound_settings(coach)
@@ -584,16 +604,16 @@ class OnboardingCoachTests(LauncherQmlCase):
 
         coach.start()
         self.click(self.window.title_bar, 'launcher-nav-settings')
-        self.pump(200)
         page = self.window.settings_page.general_page
+        self.wait_for_spotlight(coach, 'setting-select-game-language')
         self.click(page, 'setting-select-game-language')
         QTest.keyClick(page.quick, Qt.Key_Down)
         QTest.keyClick(page.quick, Qt.Key_Return)
-        self.pump(200)
+        self.wait_for_spotlight(coach, 'setting-toggle-translation.enabled')
         self.click(page, 'setting-toggle-translation.enabled')
-        self.pump(200)
+        self.wait_for_spotlight(coach, 'setting-group-multiplayer.quick_action')
         self.click(page, 'setting-option-multiplayer.quick_action-1')
-        self.pump(200)
+        self.wait_for_spotlight(coach, 'setting-toggle-multiplayer.notification_sound')
         self.continue_past_sound_settings(coach)
         self.click(self.window.started_page, 'open-lobby-home')
         self.assertEqual(coach.index, self.step_index('open-lobby-home'))

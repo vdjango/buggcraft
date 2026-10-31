@@ -12,6 +12,25 @@ class RoomPreparationControllerTests(unittest.TestCase):
     setUpClass = fixtures.RoomLaunchFlowTests.__dict__['setUpClass']
     dispose_widgets = fixtures.RoomLaunchFlowTests.dispose_widgets
 
+    def test_running_character_and_state_stay_bound_to_room_instance(self):
+        record = self.controller.records['room']
+        source = (self.parent.launcher.minecraft_directory, 'locked-version', self.parent.launcher.minecraft_directory)
+        record.update(lockedSource=source, lobby=dict(config_id='config'))
+        self.parent.launcher.sessions = [dict(instance=source, phase='starting', username='ActualCharacter')]
+        self.controller.sync_game_member_states()
+        self.assertEqual(self.controller.room_reports['room']['state'], 'starting')
+        self.assertEqual(self.controller.room_reports['room']['name'], 'ActualCharacter')
+        self.parent.auth_manager.current.username = 'ChangedLogin'
+        self.parent.launcher.sessions[0]['phase'] = 'running'
+        self.controller.sync_game_member_states()
+        self.assertEqual(self.controller.room_reports['room']['state'], 'playing')
+        self.assertEqual(self.controller.room_reports['room']['name'], 'ActualCharacter')
+        self.parent.launcher.sessions = [dict(instance=(source[0], 'other-version', source[2]), phase='running', username='Other')]
+        self.controller.sync_game_member_states()
+        self.assertEqual(self.controller.room_reports['room']['state'], 'ready')
+        self.assertNotIn('name', self.controller.room_reports['room'])
+
+
     def setUp(self):
         # These controller cases mock the room service, including its job queue.
         # Network-profile discovery has dedicated tests and must not enqueue an

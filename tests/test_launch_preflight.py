@@ -19,7 +19,7 @@ class LaunchPreflightTests(unittest.TestCase):
             for index in range(44):
                 (mods / f'mod-{index}.jar').touch()
             (mods / 'disabled.jar.disabled').touch()
-            with self.assertRaisesRegex(LaunchMemoryWarning, '44 个已启用模组.*建议至少 4096 MiB'):
+            with self.assertRaisesRegex(LaunchMemoryWarning, '44 个模组.*建议至少 4 GB'):
                 check_launch_memory(folder, ['java', '-Xmx1024M'], [], 16384)
             self.assertEqual(check_launch_memory(folder, ['java', '-Xmx4096M'], [], 16384),
                              (44, 4096, 4096))
@@ -31,9 +31,9 @@ class LaunchPreflightTests(unittest.TestCase):
             for index in range(10):
                 (mods / f'mod-{index}.JAR').touch()
             self.assertEqual(effective_heap_mib(['java', '-Xmx4G', '-Xmx2G'], []), 2048)
-            with self.assertRaisesRegex(LaunchMemoryWarning, '建议至少 3072 MiB'):
+            with self.assertRaisesRegex(LaunchMemoryWarning, '建议至少 3 GB'):
                 check_launch_memory(folder, ['java', '-Xmx4G', '-Xmx2G'], [], 16384)
-            with self.assertRaisesRegex(LaunchMemoryWarning, '系统当前可用约 3500 MiB'):
+            with self.assertRaisesRegex(LaunchMemoryWarning, '电脑目前可用 3.4 GB'):
                 check_launch_memory(folder, ['java', '-Xmx3G'], [], 3500)
 
     def test_unmodded_legacy_instance_has_no_mod_floor(self):

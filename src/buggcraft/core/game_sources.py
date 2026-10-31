@@ -73,6 +73,8 @@ def mirror_url(url, mirror):
 
 def source_urls(source, official, bmcl=None):
     official = publisher_url(official)
+    from core.bugg_mirror import mirror_url as bugg_url
+    bugg = bugg_url(official)
     bmcl = bmcl or mirror_url(official, BMCLAPI)
     ming = mirror_url(official, MCMIRROR)
     if source == 'MCMirror':
@@ -81,4 +83,4 @@ def source_urls(source, official, bmcl=None):
         urls = [official, bmcl, ming]
     else:
         urls = [bmcl, ming, official]
-    return list(dict.fromkeys(url for url in urls if url))
+    return list(dict.fromkeys(url for url in ([bugg] if bugg else []) + urls if url))

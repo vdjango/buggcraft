@@ -226,6 +226,7 @@ class DownloadWorkerSignals(QObject):
     resolved = Signal(str, str)
     downloaded = Signal(str, object)
     pack_ready = Signal(str, str)
+    pack_format = Signal(str, str)
     archive_identified = Signal(str, str)
     missing_mods = Signal(str, object)
     finished = Signal(str, bool, str)
@@ -353,11 +354,16 @@ class DownloadWorker(QRunnable):
                 self.signals.pack_ready.emit(self.task_id, self.modpack)
                 status('整合包下载并校验完成，正在安装…')
             if self.modpack:
-                from core.modpacks import ModpackImporter
+                from core.modpacks import ModpackImporter, inspect_pack
+                pack_source = inspect_pack(self.modpack).source
+                self.signals.pack_format.emit(self.task_id, pack_source)
+                mode = self.pack_download_mode if pack_source == 'Buggcraft' else 'pack'
+                status('整合包文件下载方式：' + ('使用启动器下载源' if mode == 'settings'
+                    else '优先包内地址，启动器下载源兜底' if pack_source == 'Buggcraft' else '使用整合包原有规则'))
                 importer = ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
                                 status, progress, self.api_key, content_source=self.content_source,
                                 file_event=file_event, unavailable_mods=self.confirm_missing_mods,
-                                download_mode=self.pack_download_mode)
+                                download_mode=mode)
                 importer.install(
                                     self.modpack, self.version, expected_archive_sha256=self.archive_sha256,
                                     archive_identified=lambda digest: self.signals.archive_identified.emit(self.task_id, digest))
@@ -664,9 +670,6 @@ class TasksPage(QWidget):
         version = (task.get('content') or {}).get('version') or {}
         provider = version.get('source') if isinstance(version, dict) else None
         self._log(task, f"本次下载源：游戏与加载器={source}；模组与整合包={display_source(task['content_source'], provider)}")
-        if task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack':
-            self._log(task, '整合包文件下载方式：' + ('使用设置中的下载源' if task.get('pack_download_mode') == 'settings'
-                                                     else '优先整合包内地址'))
         worker = DownloadWorker(task_id, task['version'], task['game_dir'], source,
                                 task.get('loader') or None, task.get('base_version') or None,
                                 task.get('loader_version') or None, java,
@@ -681,6 +684,7 @@ class TasksPage(QWidget):
         worker.signals.resolved.connect(self.resolve_version)
         worker.signals.downloaded.connect(self.resolve_files)
         worker.signals.pack_ready.connect(self.resolve_pack)
+        worker.signals.pack_format.connect(self.resolve_pack_format)
         worker.signals.archive_identified.connect(self.resolve_archive)
         worker.signals.missing_mods.connect(self._mod_prompts.request)
         worker.signals.finished.connect(self.finish_task)
@@ -708,7 +712,8 @@ class TasksPage(QWidget):
 
     def set_pack_download_mode(self, task_id, mode):
         task = self._find_task(task_id)
-        if (not task or mode not in ('pack', 'settings') or task.get('kind') == 'room'
+        if (not task or task.get('pack_source') != 'Buggcraft'
+                or mode not in ('pack', 'settings') or task.get('kind') == 'room'
                 or not (task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack')
                 or task.get('pack_download_mode', 'pack') == mode or task['state'] == '已完成'):
             return
@@ -851,6 +856,15 @@ class TasksPage(QWidget):
         task = self._find_task(task_id)
         if task:
             task['modpack'] = archive
+            self._schedule_save()
+
+    @Slot(str, str)
+    def resolve_pack_format(self, task_id, source):
+        task = self._find_task(task_id)
+        if task:
+            task['pack_source'] = source
+            if source != 'Buggcraft':
+                task['pack_download_mode'] = 'pack'
             self._schedule_save()
 
     @Slot(str, str)

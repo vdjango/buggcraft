@@ -94,15 +94,16 @@ class RoomPreparation:
                          category=category, level=level))
         del rows[:-600]
 
-    def report_room_state(self, name, state, stage='waiting', **counters):
-        record = self.records.get(name)
+    def report_room_state(self, room_name, state, stage='waiting', **counters):
+        record = self.records.get(room_name)
         if not record or not record.get('lobby', {}).get('config_id'):
             return
-        self.room_reports[name] = dict(state=state, stage=stage,
+        self.room_reports[room_name] = dict(state=state, stage=stage,
             config_id=record['lobby']['config_id'], task=record.get('prepareTask', ''),
             seq=time.monotonic_ns() // 1000, **counters)
 
     def flush_room_reports(self):
+        self.sync_game_member_states()
         for name, fields in list(self.room_reports.items()):
             endpoint = self.service.endpoints.get(name)
             key = 'roomstate:' + name
@@ -120,6 +121,37 @@ class RoomPreparation:
             if rows:
                 entries = [dict(seq=row['seq'], text=shared_log_text(row['text']), category=row['category'], level=row['level']) for row in rows]
                 self.job(key, endpoint.lobby_request('logs_append', entries=entries))
+
+    def sync_game_member_states(self):
+        """Bind process state and character name to this room's exact instance."""
+        launcher = getattr(self.launcher_page, 'launcher', None)
+        sessions = getattr(launcher, 'sessions', None)
+        if not isinstance(sessions, list):
+            return
+        for name, record in self.records.items():
+            if record.get('state') != 'online' or record.get('preparing'):
+                continue
+            source = record.get('lockedSource') or record.get('preparedSource') or self.instance_source
+            if not source:
+                continue
+            def same_instance(session):
+                from pathlib import Path
+                actual = session.get('instance', ())
+                return (len(actual) == 3 and actual[1] == source[1] and
+                        Path(actual[0]).resolve() == Path(source[0]).resolve() and
+                        Path(actual[2] or actual[0]).resolve() == Path(source[2] or source[0]).resolve())
+            session = next((s for s in sessions if same_instance(s) and s.get('phase') == 'running'), None)
+            session = session or next((s for s in sessions if same_instance(s)), None)
+            state = 'playing' if session and session.get('phase') == 'running' else 'starting' if session else 'ready'
+            character = session.get('username', '') if session else ''
+            signature = (state, character, record.get('lobby', {}).get('config_id'))
+            if (record.get('_gameMemberState') == signature and
+                    time.monotonic() - record.get('_gameMemberReportAt', 0) < 10):
+                continue
+            if session or record.get('_gameMemberState') or record.get('role') == 'host':
+                self.report_room_state(name, state, **({'name': character} if character else {}))
+                record['_gameMemberState'] = signature
+                record['_gameMemberReportAt'] = time.monotonic()
 
     def log_action(self, action, data):
         name = self._state['selected']

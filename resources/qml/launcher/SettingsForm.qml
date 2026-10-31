@@ -227,7 +227,7 @@ ScrollView {
                                 onMoved: if (!pressed) settingsPage.setValue("memory.allocation", Math.round(value))
                                 onPressedChanged: if (!pressed && enabled) settingsPage.setValue("memory.allocation", Math.round(value))
                             }
-                            Label { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: Math.round(memory.value) + " MB"; color: "#e0d9ec"; font.pixelSize: 13 }
+                            Label { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: (memory.value / 1024).toFixed(1) + " GB"; color: "#e0d9ec"; font.pixelSize: 13 }
                         }
                         Rectangle {
                             objectName: group.modelData.kind === "memory" ? "setting-memory-bar" : ""
@@ -239,7 +239,7 @@ ScrollView {
                         Label {
                             objectName: group.modelData.kind === "memory" ? "setting-memory-info" : ""
                             Layout.fillWidth: true
-                            text: "设备中已使用 " + ((root.memoryInfo.used || 0) / 1024).toFixed(2) + " GB  |  设备总内存 " + ((root.memoryInfo.total || 0) / 1024).toFixed(2) + " GB  |  可用 " + ((root.memoryInfo.available || 0) / 1024).toFixed(2) + " GB"
+                            text: "电脑共 " + ((root.memoryInfo.total || 0) / 1024).toFixed(0) + " GB，目前可用 " + ((root.memoryInfo.available || 0) / 1024).toFixed(1) + " GB。建议开启自动分配，内存并非越大越好。"
                             color: "#ccc4d8"; font.pixelSize: 12; wrapMode: Text.Wrap
                         }
                     }

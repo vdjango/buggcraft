@@ -8,6 +8,31 @@ from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
 class AllLauncherPagesTests(LauncherQmlCase):
+    def test_clipboard_pauses_for_room_lifecycle_and_resumes_after_last_room_exits(self):
+        from hookup.profiles import RoomInvite
+        from ui.multiplayer_controller import MultiplayerController
+        page = self.window.started_page
+        invite = RoomInvite.create().encode()
+        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'job', side_effect=lambda key, task: task.close()), \
+                patch.object(page, '_clipboard_room_invite', return_value=invite) as read:
+            backend = page._ensure_multiplayer_dialog().backend
+            for state in [dict(page='create', connections=[], busy=False),
+                          dict(page='join', connections=[], busy=False),
+                          dict(page='connected', connections=[dict(id='room', state='online')], busy=False),
+                          dict(page='hall', connections=[dict(id='room', state='reconnecting')], busy=False)]:
+                backend.patch(**state)
+                page._clipboard_changed()
+                self.pump()
+                self.assertEqual(page._clipboard_invite, '')
+            read.assert_not_called()
+            backend.patch(page='hall', connections=[], busy=False)
+            self.pump()
+            read.assert_called_once()
+            self.assertEqual(page._clipboard_invite, invite)
+            backend.patch(connections=[dict(id='finished', state='stopped')])
+            self.assertTrue(page._clipboard_monitoring_allowed())
+
     def test_memory_preflight_uses_styled_launcher_dialog_and_allows_override(self):
         request = {'event': threading.Event(), 'accepted': False}
         self.window.minecraft_preflight_confirmation('44 mods need more memory', request)

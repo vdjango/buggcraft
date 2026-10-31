@@ -115,6 +115,7 @@ class ContentBrowserController(QObject):
         self.pack_path = ""
         self.pack_name = ""
         self.pack_download_mode = 'pack'
+        self.pack_source = ''
         self.pack_summary = "支持 Buggcraft、CurseForge 和 Modrinth 整合包，可拖入启动器任意页面。"
         self.pack_error = ""
         self.pack_inspecting = False
@@ -167,7 +168,7 @@ class ContentBrowserController(QObject):
     def viewState(self):
         return {key: getattr(self, key) for key in (
             'kind', 'status', 'busy', 'results', 'versions', 'selected_version',
-            'selected_project', 'pack_path', 'pack_name', 'pack_summary', 'pack_error', 'pack_download_mode',
+            'selected_project', 'pack_path', 'pack_name', 'pack_summary', 'pack_error', 'pack_download_mode', 'pack_source',
             'pack_inspecting', 'view', 'import_directory', 'source', 'query', 'has_more', 'details_busy', 'file_query',
             'translation_enabled', 'translation_status', 'show_original')} | {
                 'instance': self.settings.get_setting('minecraft.version.enable') or '尚未选择',
@@ -741,6 +742,9 @@ class ContentBrowserController(QObject):
         generation = self._pack_generation
         old_path = self.pack_path
         self._pack_candidate = resolved
+        self.pack_source = ''
+        if old_path != resolved:
+            self.pack_download_mode = 'pack'
         if not self.pack_name or old_path != resolved:
             self.pack_name = suggested_name(path)
         self.pack_path = resolved
@@ -755,6 +759,7 @@ class ContentBrowserController(QObject):
         if generation != self._pack_generation:
             return
         self.pack_inspecting = False
+        self.pack_source = '' if error else info.source
         if error:
             self.pack_path = ''
             self.pack_summary = '无法读取这个整合包。'
@@ -774,7 +779,7 @@ class ContentBrowserController(QObject):
 
     @Slot(str)
     def setPackDownloadMode(self, mode):
-        if mode in ('pack', 'settings'):
+        if self.pack_source == 'Buggcraft' and mode in ('pack', 'settings'):
             self.pack_download_mode = mode
             self.changed.emit()
 

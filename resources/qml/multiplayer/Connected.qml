@@ -15,6 +15,9 @@ ColumnLayout {
     readonly property bool showPublicGuide: host && online && !waiting && !record["public"] && record.publicGuide === true
     property var game: record.game || ({})
     property bool preparing: !!record.preparing
+    property bool infoExpanded: false
+    onSelectedRoomChanged: infoExpanded = false
+    property string selectedRoom: vm.selected || ""
     property int panel: 1
     property string copiedKind: ""
     property string prepareSuggestionRoom: ""
@@ -52,6 +55,7 @@ ColumnLayout {
     RoomHeader {
         objectName: "room-summary"; roomView: connected
         onSettingsRequested: roomSettings.open()
+        onPreparationRequested: preparePopup.open()
     }
     Surface {
         objectName: "room-connecting-card"
@@ -119,7 +123,7 @@ ColumnLayout {
         objectName: "room-game-requirements"
         color: "#211d2b"; border.color: "#49415c"
         Layout.fillWidth: true
-        visible: connected.online
+        visible: connected.online && (connected.infoExpanded || connected.preparing || !!connected.record.compatibility || !!connected.record.prepareFailed)
         implicitHeight: requirements.implicitHeight + 16
         ColumnLayout {
             id: requirements
@@ -127,6 +131,7 @@ ColumnLayout {
             spacing: 5
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
+                visible: connected.infoExpanded
                 CopyText {
                     objectName: "room-version-summary"; Layout.fillWidth: true
                     text: (connected.game.version || "读取中…") + "  ·  " +
@@ -134,37 +139,15 @@ ColumnLayout {
                         "  ·  " + (connected.game.mods_count || 0) + " 个模组"
                     font.pixelSize: 11; color: "#d8cfea"; elide: Text.ElideRight; wrapMode: Text.NoWrap
                 }
-            }
-            RowLayout {
-                Layout.fillWidth: true; spacing: 8
-                Item { Layout.fillWidth: true }
                 ActionButton {
                     objectName: "show-room-mods"; text: "模组列表"; implicitHeight: 27
                     onClicked: { lobby.act("loadMods", {}); modsPopup.open() }
-                }
-                ActionButton {
-                    objectName: "room-quick-launch"; visible: !connected.host
-                    text: connected.preparing ? "正在准备…" : connected.record.prepareFailed ? "重试下载" : connected.record.compatibility ? "同步安装" : connected.waiting ? "启动到主菜单" : "进入游戏"
-                    primary: true; implicitHeight: 27
-                    enabled: !connected.preparing && (!vm.instanceLoading || !!connected.record.preparedSource)
-                    onClicked: {
-                        if (connected.record.prepareFailed) lobby.act("prepareRoom", {mode: connected.record.prepareMode || "fresh"})
-                        else if (!connected.record.compatibility) lobby.act("launchRoom", {})
-                        else if ((connected.game.mods_count || 0) > 0) preparePopup.open()
-                        else lobby.act("prepareRoom", {})
-                    }
                 }
                 ActionButton {
                     objectName: "room-select-configuration"
                     visible: !connected.host && !connected.record.compatibility && !connected.preparing
                     text: "选择配置"; implicitHeight: 27
                     onClicked: preparePopup.open()
-                }
-                ActionButton {
-                    objectName: "host-start-game"; visible: connected.host && connected.waiting
-                    text: vm.instanceLocked ? "游戏已运行" : "启动游戏"; primary: true; implicitHeight: 27
-                    enabled: !vm.instanceLocked
-                    onClicked: lobby.act("launchRoom", {})
                 }
                 ActionButton {
                     objectName: "host-change-configuration"; visible: connected.host && connected.waiting && !vm.instanceLocked && (!connected.record.lobby || connected.record.isManager)
@@ -324,7 +307,8 @@ ColumnLayout {
         }
     }
     StackLayout {
-        Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 150
+        objectName: "room-workspace"
+        Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 210
         visible: connected.online; currentIndex: connected.panel
         Surface {
             Layout.fillWidth: true; Layout.fillHeight: true; color: "#211d2b"; border.color: "#49415c"
@@ -463,6 +447,20 @@ ColumnLayout {
             CheckBox {
                 id: allowModTransfer; objectName: "allow-mod-transfer"
                 text: "允许房间成员从本机接收模组"
+                Layout.fillWidth: true
+                implicitHeight: 30
+                indicator: Rectangle {
+                    x: 0; y: (parent.height - height) / 2
+                    width: 18; height: 18; radius: 4
+                    color: allowModTransfer.checked ? "#9272cb" : "#30283e"
+                    border.color: allowModTransfer.enabled ? "#b59bdc" : "#60556e"
+                    Text { anchors.centerIn: parent; text: "✓"; color: "#fff"; visible: allowModTransfer.checked; font.pixelSize: 14 }
+                }
+                contentItem: Text {
+                    leftPadding: 28; text: allowModTransfer.text; verticalAlignment: Text.AlignVCenter
+                    color: allowModTransfer.enabled ? "#eee8fa" : "#a89ab6"; font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
                 visible: connected.host; enabled: !vm.busy; checked: false
             }
             RowLayout {
