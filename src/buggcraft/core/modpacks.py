@@ -683,7 +683,7 @@ class ModpackImporter:
         from core.modpack_missing import PackResourceDownloader
         downloader = PackResourceDownloader(cache / 'files', source=self.source, cancel=self.cancel,
                                          status=self.status, progress=report_download, file_event=self.file_event,
-                                         retries=6, allow_missing_mods=self.unavailable_mods is not None)
+                                         retries=6, allow_missing_mods=True)
         downloader.content_source = self.content_source
         downloader.preserve_content_order = self.download_mode == 'pack'
         downloader.resolve_content_sources = self.download_mode == 'settings'
@@ -709,11 +709,18 @@ class ModpackImporter:
                 raise
 
     def _approve_missing_mods(self, downloader, jobs):
+        # One batched metadata lookup after normal source retries; successful
+        # files and partial checkpoints remain untouched. No new upload rights.
+        if downloader.missing_mods:
+            downloader.repair_from_origin()
         while not self.skipped_mods:
             missing = self._metadata_missing_mods + downloader.missing_mods
             if not missing:
                 return
             self.check()
+            if self.unavailable_mods is None:
+                names = '、'.join(item['name'] for item in missing[:5])
+                raise RuntimeError(f'还有 {len(missing)} 个模组未下载完成：{names}。已下载文件已保留，重试仅补齐缺失文件。')
             answer = self.unavailable_mods([dict(item) for item in missing]) if self.unavailable_mods else False
             self.check()
             if answer == 'retry':

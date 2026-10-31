@@ -67,6 +67,26 @@ class RoomLoaderTests(unittest.TestCase):
 
 
 class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_220_mods_finish_independently_and_only_failed_file_is_retried(self):
+        payloads = {f'mod-{index}.jar': f'verified mod {index}'.encode() for index in range(220)}
+        items = [dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest())
+                 for name, data in payloads.items()]
+        self.game.update(mods_count=len(items), mods_hash=manifest_hash(items))
+        self.endpoint.mod_manifest.return_value = items
+        calls = {}
+        async def transfer(item, target, cancel, progress):
+            calls[item['name']] = calls.get(item['name'], 0) + 1
+            if item['name'] == 'mod-0.jar' and calls[item['name']] == 1:
+                raise ConnectionError('temporary source outage')
+            target.write_bytes(payloads[item['name']])
+            progress(item['size'], item['size'])
+        self.endpoint.download_mod.side_effect = transfer
+        with patch('hookup.preparation.fetch_public_mod', new=AsyncMock(return_value=False)):
+            identity = await self.prepare()
+        self.assertEqual(calls.pop('mod-0.jar'), 2)
+        self.assertEqual(set(calls.values()), {1})
+        self.assertEqual(len(list((self.root / 'versions' / identity / 'mods').glob('*.jar'))), 220)
+
     async def test_room_retry_reuses_downloaded_files_after_failed_staging_is_removed(self):
         first = self.item
         other_payload = b'second mod bytes'
@@ -103,7 +123,8 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_public_room_download_resumes_after_failure_without_p2p(self):
         from core.downloads import MinecraftDownloader
-        item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest())
+        item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest(),
+                    downloads=['https://edge.forgecdn.net/files/1234/567/example.jar'])
         self.game.update(mods_hash=manifest_hash([item]))
         self.endpoint.mod_manifest.return_value = [item]
         self.endpoint.transport_state = 'relay'
@@ -181,6 +202,9 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(e.get('state') == 'skipped' and e.get('content') == 'resources' for e in self.events))
 
     async def asyncSetUp(self):
+        retry_wait = patch('hookup.preparation._wait_for_retry', new=AsyncMock())
+        retry_wait.start()
+        self.addCleanup(retry_wait.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
@@ -318,6 +342,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         payload = b'room source verified bytes\n' * 340000  # Large enough to tempt Range workers.
         payloads = {f'public-{index}.jar': bytes([index]) + payload[1:] for index in range(5)}
         items = [dict(name=name, size=len(data), sha1=hashlib.sha1(data).hexdigest(),
+                      downloads=['https://edge.forgecdn.net/files/1234/567/' + name],
                       sha256=hashlib.sha256(data).hexdigest()) for name, data in payloads.items()]
         self.game.update(mods_count=len(items), mods_hash=manifest_hash(items))
         self.endpoint.mod_manifest.return_value = items
@@ -474,7 +499,8 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import ANY
         item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest(),
                     sha512=hashlib.sha512(self.payload).hexdigest())
-        url = 'https://cdn.modrinth.com/data/project/version/example.jar'
+        url = 'https://edge.forgecdn.net/files/1234/567/example.jar'
+        item['downloads'] = [url]
         response = {'files': [
             {'hashes': {'sha1': item['sha1'], 'sha512': item['sha512']}, 'size': item['size'] + 1,
              'primary': True, 'url': url},
@@ -486,8 +512,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
             found = await fetch_public_mod(item, self.root, self.root / 'mods' / item['name'],
                                            'BMCLAPI', threading.Event(), Mock())
         self.assertTrue(found)
-        lookup.assert_called_once_with('/version_file/' + item['sha1'], {}, ANY,
-                                       'CurseForge')
+        lookup.assert_not_called()
         downloader.return_value.fetch.assert_called_once_with(url, 'example.jar', item['sha1'],
                                                                item['size'], file_progress=ANY)
 
@@ -501,11 +526,14 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(selected=selected), \
                     patch('core.content_mirrors.get_modrinth', return_value=response) as lookup, \
                     patch('core.downloads.MinecraftDownloader') as downloader:
-                self.assertTrue(await fetch_public_mod(item, self.root, self.root / 'mods' / item['name'],
-                    selected, threading.Event(), Mock()))
-                lookup.assert_called_once_with('/version_file/' + item['sha1'], {}, ANY, selected)
-                self.assertEqual(downloader.return_value.content_source, selected)
-                self.assertTrue(downloader.return_value.resolve_content_sources)
+                item['downloads'] = [url]
+                found = await fetch_public_mod(item, self.root, self.root / 'mods' / item['name'],
+                    selected, threading.Event(), Mock())
+                self.assertEqual(found, selected == 'Modrinth')
+                lookup.assert_not_called()
+                if found:
+                    self.assertEqual(downloader.return_value.content_source, selected)
+                    self.assertFalse(downloader.return_value.resolve_content_sources)
 
     async def test_invited_install_surfaces_host_transfer_denial_without_publishing_partial_instance(self):
         denial = '房主尚未允许房间成员从本机接收模组，请房主在房间设置中开启模组共享。'

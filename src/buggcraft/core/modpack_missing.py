@@ -115,6 +115,18 @@ class PackResourceDownloader(MinecraftDownloader):
             self.check_cancelled()
             self.fetch(url, relative, *args, **kwargs)
 
+    def repair_from_origin(self):
+        from core.client_file_source import lookup
+        urls = lookup(self.missing_mods, self.cancel)
+        for relative, url in urls.items():
+            with self._missing_lock:
+                job = self._missing_jobs.get(relative)
+            if job:
+                self.check_cancelled()
+                self.status('正在从源站补齐：' + PurePosixPath(relative).name)
+                _, relative, args, kwargs = job
+                self.fetch(url, relative, *args, **kwargs)
+
     def supply_mod(self, relative, filename):
         with self._missing_lock:
             item = dict(self._missing_mods.get(relative) or {})

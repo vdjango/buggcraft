@@ -117,7 +117,7 @@ jobs:
                      'test_modpack_missing_mods', 'test_native_code_import',
                      'test_java_runtime_selection', 'test_java_downloads', 'test_launcher_qml', 'test_installation_qml',
                      'test_navigation_polish', 'test_task_history_qml', 'test_payload_cache', 'test_portable_storage',
-                     'test_unix_qt_trimming', 'test_room_mod_installation',
+                     'test_unix_qt_trimming', 'test_room_mod_installation', 'test_room_cache',
                      'test_room_launch_flow', 'test_lobby_layout', 'test_room_lobby_ui',
                      'test_game_log_ui',
                      'test_chat_controller', 'test_clipboard', 'test_friend_directory', 'test_social_diagnostics',

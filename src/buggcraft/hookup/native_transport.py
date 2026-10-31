@@ -52,6 +52,7 @@ class NativeEndpoint:
         # The bridge accepts 16 transfers per guest; leave four slots for
         # manifests and other operations. The host shares its upload budget.
         self._mod_transfer_slots = asyncio.Semaphore(12)
+        self._cache_publisher = None
 
     @property
     def transport_state(self):
@@ -104,6 +105,9 @@ class NativeEndpoint:
             self.connection = self
             self.listener = self.role == 'client'
             await self._emit('online', self.bridge_status)
+            if self.role == 'host':
+                from .room_cache import publish
+                self._cache_publisher = asyncio.create_task(publish(self))
 
             while not self._stopped and self.session:
                 await asyncio.sleep(.5)
@@ -136,6 +140,10 @@ class NativeEndpoint:
         except Exception as exc:
             await self._emit('error', str(exc) or type(exc).__name__)
         finally:
+            if self._cache_publisher:
+                self._cache_publisher.cancel()
+                await asyncio.gather(self._cache_publisher, return_exceptions=True)
+                self._cache_publisher = None
             self.connection = None
             self.listener = False
 

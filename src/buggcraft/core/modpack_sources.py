@@ -184,7 +184,7 @@ def _curseforge_matches(mods, cancel, advance, fingerprint_cache=None):
     return matches
 
 
-def find_public_mod_downloads(mods, cancel=None, progress=None, cache_file=None, publisher='CurseForge'):
+def find_public_mod_downloads(mods, cancel=None, progress=None, cache_file=None, publisher='CurseForge', *, verify_downloads=True):
     """Locate exact files on the selected publishers, independently of names."""
     if publisher not in EXPORT_PUBLISHERS:
         raise ValueError('请选择 CurseForge、Modrinth 或混合来源')
@@ -245,6 +245,10 @@ def find_public_mod_downloads(mods, cancel=None, progress=None, cache_file=None,
     advance('未匹配的模组将随包保留', len(mods) - len(candidates))
     if not candidates:
         return found
+    if not verify_downloads:
+        # Room origin planning needs authenticated file metadata, not a second
+        # download/probe of every file on the user's critical path.
+        return {path: urls for path, (_, urls) in candidates.items()}
 
     def probe(item, urls):
         downloads = []

@@ -1719,7 +1719,7 @@ class MultiplayerController(RoomPreparation, QObject):
             from core.downloads import download_error_message
             self.add_prepare_log(record, event['name'] + ' · ' + {
                 'downloading': '开始下载', 'verified': '校验完成', 'failed': '下载失败',
-                'skipped': '可选内容已跳过'}.get(event['state'], event['state']) +
+                'skipped': '可选内容已跳过', 'waiting': '等待补齐'}.get(event['state'], event['state']) +
                 ((' · ' + download_error_message(event['error'])) if event.get('error') else ''),
                 event.get('content', 'mods'), 'error' if event['state'] == 'failed' else 'info')
             record['mods'] = [dict(item, state=event['state']) if item['name'] == event['name'] else item
@@ -1730,6 +1730,10 @@ class MultiplayerController(RoomPreparation, QObject):
                               _downloadStarted=time.monotonic(), prepareSpeed='')
             elif event['state'] == 'verified' and record.get('prepareFile') == event['name']:
                 record['prepareFileDone'] = event['size']
+        elif kind == 'pending':
+            record['prepareStage'] = 'waiting'
+            record['prepareStatus'] = f"等待补齐 {len(event.get('files', []))} 个必需文件；已完成文件已保留。"
+            self.report_room_state(name, 'downloading', 'waiting')
         elif kind in ('progress', 'download'):
             from core.transfer_metrics import speed_label
             record.update(prepareFile=event['name'], prepareFileDone=event.get('done', 0),

@@ -144,6 +144,10 @@ def resolve_download_urls(addresses, sha1, size, *, sha512=None, preference='自
     if not sha1 and not sha512:
         return addresses
     available = {provider(url) for url in addresses}
+    if preference != 'Modrinth' and 'CurseForge' in available:
+        # Do not add a very slow publisher or probe it when a known identical
+        # CurseForge file is already supplied. Explicit selection still works.
+        return [url for url in addresses if provider(url) != 'Modrinth']
     if {'CurseForge', 'Modrinth'} <= available:
         return addresses
     if preference in available and preference in ('CurseForge', 'Modrinth'):

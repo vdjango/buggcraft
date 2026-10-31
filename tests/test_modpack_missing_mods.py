@@ -95,6 +95,18 @@ class MissingModImportTests(unittest.TestCase):
             ModpackImporter(self.game, content_source='官方').install(self.pack(), 'Strict')
         self.assertFalse((self.game / 'versions/Strict').exists())
 
+    def test_public_origin_repairs_missing_mod_without_redownloading_successes(self):
+        archive = self.pack()
+        def lookup(missing, cancel):
+            self.assertEqual([item['path'] for item in missing], ['mods/missing.jar'])
+            self.fixtures.failures.clear()
+            return {'mods/missing.jar': ClientUiFixtures.ORIGIN + '/missing.jar'}
+        with patch('core.client_file_source.lookup', side_effect=lookup):
+            ModpackImporter(self.game, content_source='官方').install(archive, 'Origin-Repaired')
+        target = self.game / 'versions/Origin-Repaired'
+        self.assertEqual((target / 'mods/missing.jar').read_bytes(), self.fixtures.payloads['missing.jar'])
+        self.assertEqual(sum(row['file'] == 'available.jar' for row in self.fixtures.requests), 1)
+
     def test_curseforge_missing_mod_can_finish_after_explicit_choice(self):
         archive = self.root / 'missing-curseforge.zip'
         with zipfile.ZipFile(archive, 'w') as output:

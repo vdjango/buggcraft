@@ -462,8 +462,13 @@ ColumnLayout {
             }
             CheckBox {
                 id: allowModTransfer; objectName: "allow-mod-transfer"
-                text: "允许房间成员从本机接收模组"
+                text: "允许文件共享与临时下载加速"
                 visible: connected.host; enabled: !vm.busy; checked: false
+            }
+            CopyText {
+                objectName: "room-file-sharing-warning"; Layout.fillWidth: true
+                visible: connected.host; text: "优先正常下载，仅为缺失或持续过慢的模组等文件提供临时缓存，通常保留 8 小时。共享文件可被他人获取；如含敏感或不希望公开的内容，请勿开启。"
+                font.pixelSize: 12; color: "#efc48c"; wrapMode: Text.Wrap
             }
             RowLayout {
                 visible: connected.host; Layout.fillWidth: true; spacing: 10
@@ -476,7 +481,7 @@ ColumnLayout {
             }
             CopyText {
                 Layout.fillWidth: true
-                text: "优先从下载源获取文件，缺少的文件仅在直连成功后向房主获取。限速按房主所有玩家合计计算。"
+                text: "先向源站提交文件信息，正常资源直接下载；仅按源站请求补传无法获取或持续过慢的文件。可用时也会使用 P2P；下方限速按 P2P 共享总量计算。"
                 font.pixelSize: 11; color: "#bcb0d3"; wrapMode: Text.Wrap
             }
             CopyText { Layout.fillWidth: true; visible: !!vm.error; text: vm.error || ""; color: "#e8b3b3"; font.pixelSize: 11 }

@@ -15,6 +15,12 @@ from .modpack import fetch_manifest, fetch_mod, manifest_hash
 from .rooms import metadata_loader
 
 
+async def _wait_for_retry(attempt, signal):
+    deadline = time.monotonic() + min(2 ** (attempt + 1), 15)
+    while time.monotonic() < deadline and not signal.is_set():
+        await asyncio.sleep(.1)
+
+
 class _AnyCancel:
     def __init__(self, *events):
         self.events = events
@@ -109,17 +115,27 @@ async def _download_room_mod_locked(endpoint, item, base, target, source, cancel
     try:
         winner = ''
         try:
-            found = await fetch_public_mod(item, base, paths['public'], source, cancel,
-                                           lambda done, total: progress('public', done, total))
+            public_key = (source, tuple(item.get('downloads', [])))
+            found = False
+            if item.get('_exhausted_public') != public_key:
+                found = await fetch_public_mod(item, base, paths['public'], source, cancel,
+                                               lambda done, total: progress('public', done, total))
+                if not found:
+                    item['_exhausted_public'] = public_key
             if found:
                 await asyncio.to_thread(_verify_mod, paths['public'], item, cancel)
                 winner = 'public'
         except InterruptedError:
             raise
-        except Exception:
+        except ValueError:
             # A corrupt public copy is treated as an unavailable source. The
             # independent direct download must pass the same verification.
             cached.unlink(missing_ok=True)
+        if not winner:
+            origin = getattr(endpoint, '_content_cache', None)
+            if origin and await origin.download(item, cached, cancel,
+                    lambda done, total: progress('origin', done, total)):
+                winner = 'origin'
         if not winner:
             # Public files can overlap game installation; avoid asking the host
             # for a fallback before the requested loader has been validated.
@@ -134,7 +150,8 @@ async def _download_room_mod_locked(endpoint, item, base, target, source, cancel
                 raise InterruptedError('安装已取消。')
             if getattr(endpoint, 'transport_state', None) != 'p2p':
                 raise ConnectionError('下载源未找到可用文件，当前未建立 P2P 直连，无法从房主下载。请更换下载源或在 P2P 连接成功后重试。')
-            await fetch_mod(endpoint, item, paths['p2p'], cancel,
+            transfer_item = {key: value for key, value in item.items() if not key.startswith('_')}
+            await fetch_mod(endpoint, transfer_item, paths['p2p'], cancel,
                             lambda done, total: progress('p2p', done, total))
             await asyncio.to_thread(_verify_mod, paths['p2p'], item, cancel)
             winner = 'p2p'
@@ -230,40 +247,31 @@ def install_game(game, directory, java, source, cancel, report, file_event=None)
 
 
 async def fetch_public_mod(item, base, target, source, cancel, progress):
-    """Try a byte-identical Modrinth file before asking the room host to send it."""
+    """Use the host's hash-checked public metadata; never auto-probe Modrinth."""
+    from requests import RequestException
+    from core.downloads import DownloadSourcesExhausted
     if not item.get('sha1'):
         return False
     try:
-        from core.content_mirrors import get_modrinth
-        content_source = source if source in ('自动测速', '自动（CurseForge 优先）', 'CurseForge', 'Modrinth', '官方') else 'CurseForge'
-        metadata = await asyncio.to_thread(get_modrinth, '/version_file/' + item['sha1'],
-                                           {}, cancel, content_source)
-        candidates = []
-        for file in (metadata or {}).get('files', []):
-            hashes = file.get('hashes', {})
-            if (hashes.get('sha1') == item['sha1'] and file.get('size') == item['size'] and
-                    (not item.get('sha512') or hashes.get('sha512') == item['sha512'])):
-                candidates.append(file)
-        if not candidates:
-            return False
-        file = next((value for value in candidates if value.get('primary') is True), candidates[0])
+        from .room_cache import public_url
         from urllib.parse import urlsplit
-        url = file.get('url', '')
-        parsed = urlsplit(url)
-        if (parsed.scheme != 'https' or parsed.hostname != 'cdn.modrinth.com' or
-                parsed.username or parsed.password or parsed.port not in (None, 443)):
+        content_source = source if source in ('自动测速', '自动（CurseForge 优先）', 'CurseForge', 'Modrinth', '官方') else 'CurseForge'
+        urls = [url for url in item.get('downloads', []) if public_url(url)
+                and (content_source == 'Modrinth' or urlsplit(url).hostname not in ('cdn.modrinth.com', 'mod.mcimirror.top'))]
+        if not urls:
             return False
+        url = urls[0]
         from core.downloads import MinecraftDownloader
         relative = target.name
         downloader = MinecraftDownloader(target.parent, source=source, cancel=cancel, workers=1, retries=6)
         downloader.parallel_content = False  # Room files already share a bounded pool.
+        downloader.resolve_content_sources = False
         downloader.content_source = content_source
-        downloader.resolve_content_sources = True
+        downloader.file_mirrors = {url: urls[1:]}
         await asyncio.to_thread(downloader.fetch, url, relative, item['sha1'], item['size'],
                                 file_progress=progress)
-        item['downloads'] = [url]
         return True
-    except Exception:
+    except (RequestException, DownloadSourcesExhausted, ValueError):
         if cancel.is_set():
             raise InterruptedError('安装已取消。')
         return False
@@ -294,7 +302,7 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     # Fetch and validate before creating a new configuration. No arbitrary URLs
     # or executable paths from a peer are used by the installer.
     try:
-        items = await fetch_manifest(endpoint) if count else []
+        items = [dict(item) for item in await fetch_manifest(endpoint)] if count else []
     except ConnectionError as exc:
         raise ConnectionError('房主文件清单获取失败：' + str(exc)) from exc
     resource_items = []
@@ -303,11 +311,19 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
         # Resource packs and shaders are optional presentation assets. A
         # missing mirror or host file is reported, but does not block joining.
         try:
-            resource_items = await fetch_manifest(endpoint, 'resources')
+            resource_items = [dict(item) for item in await fetch_manifest(endpoint, 'resources')]
         except Exception as exc:
             event(dict(kind='resources', state='skipped', reason=str(exc)))
     game['mods_count'] = len(items)
     game['resources_count'] = len(resource_items)
+    from .room_cache import client as room_cache_client, PendingRoomFiles
+    origin = await room_cache_client(endpoint)
+    if origin:
+        try:
+            await origin.plan(wanted=[item['sha256'] for item in [*items, *resource_items]])
+            origin.enrich([*items, *resource_items])
+        except (ConnectionError, OSError, ValueError):
+            pass  # Older nodes retain local/P2P transfers.
     event(dict(kind='manifest', files=items, resources=resource_items))
     if cancel.is_set():
         raise InterruptedError('安装已取消。')
@@ -438,8 +454,12 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                                                  signal, source_progress_update, host_ready)
                     await asyncio.to_thread(_verify_mod, final_path, item, signal)
                 except BaseException as exc:
+                    item['_download_error'] = str(exc)
+                    from requests import RequestException
+                    from core.downloads import DownloadSourcesExhausted
+                    retryable = isinstance(exc, (ConnectionError, RequestException, DownloadSourcesExhausted))
                     event(dict(kind='file', name=item['name'],
-                               state='skipped' if optional else 'failed', content=kind,
+                               state='skipped' if optional else 'waiting' if retryable else 'failed', content=kind,
                                size=item['size'], error=str(exc)))
                     if optional and isinstance(exc, Exception) and not signal.is_set() and not isinstance(exc, InterruptedError):
                         final_path.unlink(missing_ok=True)
@@ -448,9 +468,13 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                             completed_bytes += item['size']
                         resource_failures.append(item['name'])
                         return
-                    aborted.set()
                     if isinstance(exc, InterruptedError):
                         raise
+                    if retryable and not optional:
+                        with progress_lock:
+                            active_progress[index] = 0
+                        raise ConnectionError('文件暂未就绪（' + item['name'] + '）：' + str(exc)) from exc
+                    aborted.set()
                     if not optional:
                         message = '模组下载失败（' + item['name'] + '）：' + str(exc)
                         if isinstance(exc, ValueError):
@@ -472,10 +496,47 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                     from core.content_records import record_content
                     await asyncio.to_thread(record_content, target, final_path, item['downloads'])
 
-        tasks = [asyncio.create_task(prepare_content(index, kind, item))
-                 for index, (kind, item) in enumerate(contents)]
-        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-        failures = [result for result in outcomes if isinstance(result, BaseException)]
+        # Complete independent files first. A missing required file must not
+        # cancel successful transfers or the parallel game installation.
+        pending = list(enumerate(contents))
+        failures = []
+        for attempt in range(7):
+            tasks = [asyncio.create_task(prepare_content(index, kind, item))
+                     for index, (kind, item) in pending]
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+            failures = [result for result in outcomes if isinstance(result, BaseException)]
+            if not failures or signal.is_set():
+                break
+            from requests import RequestException
+            from core.downloads import DownloadSourcesExhausted
+            recoverable = (ConnectionError, RequestException, DownloadSourcesExhausted)
+            fatal = next((error for error in failures if not isinstance(error, recoverable)), None)
+            if fatal:
+                aborted.set()
+                raise fatal
+            pending = [entry for entry, outcome in zip(pending, outcomes) if isinstance(outcome, BaseException)]
+            waiting = [item for _, (_, item) in pending]
+            event(dict(kind='pending', files=waiting, attempt=attempt, state='waiting'))
+            if attempt == 6:
+                for item in waiting:
+                    event(dict(kind='file', name=item['name'], state='failed', content='mods',
+                               size=item['size'], error=item.get('_download_error', '等待房主补齐')))
+                raise PendingRoomFiles(waiting)
+            report(f'等待补齐 {len(waiting)} 个必需文件 · 自动重试 {attempt + 1}/6；已完成文件已保留', completed_bytes, total_bytes)
+            if origin:
+                try:
+                    await origin.plan(failed=[item['sha256'] for item in waiting])
+                    origin.enrich(waiting)
+                except (ConnectionError, OSError, ValueError):
+                    pass
+            # Cancellation stays responsive while the provider fills the plan.
+            await _wait_for_retry(attempt, signal)
+            if origin:
+                try:
+                    await origin.plan()
+                    origin.enrich(waiting)
+                except (ConnectionError, OSError, ValueError):
+                    pass
         if failures:
             aborted.set()
         if game_task:
