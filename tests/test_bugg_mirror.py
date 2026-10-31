@@ -56,7 +56,7 @@ class BuggMirrorTests(unittest.TestCase):
             'https://cdn.modrinth.com/data/test/versions/ver/file.jar': '/mods/modrinth/data/test/versions/ver/file.jar',
             'https://cdn.modrinth.com/data/test/versions/ver/pack.mrpack': '/mods/modrinth/data/test/versions/ver/pack.mrpack',
             'https://cdn.modrinth.com/data/test/versions/ver/resources.zip': '/mods/modrinth/data/test/versions/ver/resources.zip',
-            'https://mediafilez.forgecdn.net/files/123/456/file.jar': '/mods/curseforge/files/123/456/file.jar',
+            'https://mediafilez.forgecdn.net/files/123/456/file.jar': '/mods/curseforge-mediafilez/files/123/456/file.jar',
             'https://edge.forgecdn.net/files/123/456/resources.zip': '/mods/curseforge/files/123/456/resources.zip',
             'https://meta.fabricmc.net/v2/versions/loader/1.21.1': '/fabric-meta/v2/versions/loader/1.21.1',
             'https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml': '/neoforge-maven/releases/net/neoforged/neoforge/maven-metadata.xml',

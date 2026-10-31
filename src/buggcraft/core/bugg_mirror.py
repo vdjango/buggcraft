@@ -48,7 +48,8 @@ def mirror_url(url):
         route = '/neoforge-maven' + path
     elif host in ('edge.forgecdn.net', 'mediafilez.forgecdn.net') and re.fullmatch(
             r'/files/[0-9]+/[0-9]+/[A-Za-z0-9._ +@-]+\.(?:jar|zip|mrpack|litemod)', path):
-        route = '/mods/curseforge' + path
+        route = ('/mods/curseforge-mediafilez' if host == 'mediafilez.forgecdn.net'
+                 else '/mods/curseforge') + path
     elif host == 'cdn.modrinth.com' and re.fullmatch(
             r'/data/[A-Za-z0-9_-]+/versions/[A-Za-z0-9_-]+/[A-Za-z0-9._ +@-]+\.(?:jar|zip|mrpack|litemod)', path):
         route = '/mods/modrinth' + path

@@ -58,7 +58,7 @@ class ContentRouteTests(unittest.TestCase):
         download.content_source = 'MCIM'
         urls = download.urls('https://mediafilez.forgecdn.net/files/1234/567/mod.jar')
         self.assertEqual(urls, ['https://mediafilez.forgecdn.net/files/1234/567/mod.jar',
-                                BASE_URL + '/mods/curseforge/files/1234/567/mod.jar'])
+                                BASE_URL + '/mods/curseforge-mediafilez/files/1234/567/mod.jar'])
 
     def test_cancel_stops_route_selection(self):
         self.cancel.set()
