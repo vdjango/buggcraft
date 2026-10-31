@@ -117,7 +117,7 @@ class RoomCacheClient:
         plan = self.files.get(item['sha256'], {})
         if plan.get('action') != 'cached' or plan.get('size') != item['size']:
             return False
-        grant = await self.authorize()
+        grant = self.grant if self.grant.get('url') else await self.authorize()
         try:
             await asyncio.to_thread(self._download, grant, item, Path(target), cancel, progress)
         except (requests.RequestException, CacheUnavailable):

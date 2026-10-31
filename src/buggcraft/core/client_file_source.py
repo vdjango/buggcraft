@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-_origin = os.environ.get('BUGGCRAFT_RESOURCE_ORIGIN', '').rstrip('/')
+_origin = os.environ.get('BUGGCRAFT_RESOURCE_ORIGIN', 'https://mirror.bugg.icu').rstrip('/')
 
 
 def set_origin(value):

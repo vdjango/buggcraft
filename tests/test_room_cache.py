@@ -70,6 +70,9 @@ class RoomCacheClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_guest_plan_and_download_never_send_authorization(self):
         with patch.object(client_file_source, '_origin', ''):
             await self.cache.plan(wanted=[self.item['sha256']])
+            bare = {key: value for key, value in self.item.items() if key != 'sha1'}
+            self.cache.enrich([bare])
+            self.assertEqual(bare['sha1'], self.item['sha1'])
             target = Path(self.temp.name) / 'content'
             self.assertTrue(await self.cache.download(self.item, target, threading.Event(), lambda *_: None))
         self.assertEqual(target.read_bytes(), self.payload)
