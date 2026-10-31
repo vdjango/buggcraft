@@ -108,7 +108,7 @@ class UiRefinementTests(LauncherQmlCase):
         self.assertEqual(task['files'][0]['done'], 5 * 1024 ** 3)
         page.refresh_tasks()
         downloads.on_progress_clicked()
-        self.pump(120)
+        self.wait_until(lambda: self.item(page.host, 'download-history-list').property('count') == 1)
         self.click(page.host, 'task-log-file-fixture')
         listing = self.item(page.host, 'task-log-files')
         self.assertEqual(listing.property('count'), 4)
@@ -135,7 +135,7 @@ class UiRefinementTests(LauncherQmlCase):
         page._tasks = [task]
         page.refresh_tasks()
         downloads.on_progress_clicked()
-        self.pump(120)
+        self.wait_until(lambda: self.item(page.host, 'download-history-list').property('count') == 1)
         self.click(page.host, 'task-log-many')
         listing = self.item(page.host, 'task-log-files')
         self.assertEqual(listing.property('count'), 3000)

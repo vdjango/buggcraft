@@ -37,7 +37,7 @@ for setting, channel in [('stable', 'stable'), ('development', 'beta')]:
         schedule(window, app)
         assert window._update_check_timer.isActive()
         assert window._update_check_timer.interval() == 4 * 60 * 60 * 1000
-        assert window.launcher_updates.startup_timer.interval() == 10000
+        assert window.launcher_updates.startup_timer.interval() == 30000
         window.launcher_updates.startup_timer.timeout.emit()
         worker, = window._update_workers
         assert worker.wait(5000), 'Update worker did not finish'

@@ -21,8 +21,8 @@ class NavigationPolishTests(LauncherQmlCase):
                             created_at='2026-10-23', logs=['complete'])]
         page.refresh_tasks()
         downloads.on_progress_clicked()
-        self.pump(120)
         listing = self.item(page.host, 'download-history-list')
+        self.wait_until(lambda: listing.property('count') == 2)
         self.assertEqual(listing.property('count'), 2)
         self.snapshot('history-mixed-states')
         page.view_controller.setFilter('失败')
