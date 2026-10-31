@@ -1,7 +1,7 @@
 """Own game workers independently so stopping one never stops another."""
 import copy
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
 
 from config.settings import get_settings_manager
 from core.launcher import MinecraftLibLauncher, MinecraftSignals
@@ -9,6 +9,7 @@ from core.launcher import MinecraftLibLauncher, MinecraftSignals
 
 class GameSessions(QObject):
     changed = Signal()
+    memory_pressure = Signal(str)
 
     def __init__(self, config_path, parent=None):
         super().__init__(parent)
@@ -23,6 +24,12 @@ class GameSessions(QObject):
         self._sessions = []
         self._sequence = 0
         self.selected_id = None
+        self._memory_samples = 0
+        self._memory_recovered = 0
+        self._memory_alerted = False
+        self._memory_timer = QTimer(self)
+        self._memory_timer.setInterval(10000)
+        self._memory_timer.timeout.connect(self._sample_memory)
 
     @property
     def sessions(self):
@@ -80,6 +87,7 @@ class GameSessions(QObject):
         launcher.set_options(**self._options)
         self._sequence += 1
         record = {'id': self._sequence, 'launcher': launcher, 'phase': 'starting',
+                  'username': self._options.get('username', ''),
                   'instance': (launcher.minecraft_directory, launcher.minecraft_version,
                                launcher.minecraft_isolation_directory)}
         self._sessions.append(record)
@@ -107,12 +115,42 @@ class GameSessions(QObject):
 
     def _started(self, record):
         record['phase'] = 'running'
+        self._memory_timer.start()
         self.changed.emit()
         self.signals.started.emit()
+
+    def _sample_memory(self):
+        """Warn on sustained system pressure without inspecting every Java process."""
+        if not self.running:
+            self._memory_timer.stop()
+            self._memory_samples = self._memory_recovered = 0
+            self._memory_alerted = False
+            return
+        import psutil
+        try:
+            memory = psutil.virtual_memory()
+        except (OSError, RuntimeError):
+            return
+        low = memory.percent >= 92 and memory.available < min(1024 * 1024**2, memory.total * .08)
+        if not low:
+            self._memory_samples = 0
+            self._memory_recovered += 1
+            if self._memory_recovered >= 3:
+                self._memory_alerted = False
+            return
+        self._memory_recovered = 0
+        self._memory_samples += 1
+        if self._memory_samples >= 2 and not self._memory_alerted:
+            self._memory_alerted = True
+            self.memory_pressure.emit('电脑内存快用满了，游戏可能卡顿或退出。先关闭其他程序；仍不足时减少模组，避免继续多开。')
 
     def _stopped(self, record, code):
         record['phase'] = 'exited'
         record['exit_code'] = code
+        if not self.running:
+            self._memory_timer.stop()
+            self._memory_samples = self._memory_recovered = 0
+            self._memory_alerted = False
         if self.selected_id == record['id']:
             self.selected_id = self.sessions[-1]['id'] if self.sessions else None
         self.changed.emit()

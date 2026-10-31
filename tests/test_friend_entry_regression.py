@@ -35,6 +35,24 @@ def social_state():
 
 
 class FriendEntryRegressionTests(unittest.TestCase):
+    def test_invitation_clears_on_accept_expiry_and_room_end_without_masking_presence(self):
+        room_id = 'e' * 32
+        self.backend.records['room'] = dict(roomId=room_id, state='online')
+        invitation = dict(room=room_id, at=time.time(), status='已发送')
+        self.backend.patch(outgoingInvitations={FRIEND: invitation})
+        self.backend.apply_social_state(social_state())
+        self.assertIn(FRIEND, self.backend.view['outgoingInvitations'])
+        state = social_state()
+        state['friends'][0]['room'] = dict(id=room_id, title='Friends', role='client', availability='ready', can_request=False)
+        self.backend.apply_social_state(state)
+        self.assertNotIn(FRIEND, self.backend.view['outgoingInvitations'])
+        self.backend.patch(outgoingInvitations={FRIEND: dict(invitation, at=time.time() - 301)})
+        self.backend.apply_social_state(social_state())
+        self.assertNotIn(FRIEND, self.backend.view['outgoingInvitations'])
+        self.backend.patch(outgoingInvitations={FRIEND: invitation})
+        self.backend.forget_room('room', '已结束')
+        self.assertNotIn(FRIEND, self.backend.view['outgoingInvitations'])
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

@@ -1328,7 +1328,11 @@ class MultiplayerController(RoomPreparation, QObject):
             self.records[name]['lockedSource'] = self.instance_source
         page = self.launcher_page
         current = getattr(getattr(page, 'auth_manager', None), 'current', None)
-        nickname = getattr(current, 'username', '') or '玩家'
+        sessions = getattr(getattr(page, 'launcher', None), 'sessions', [])
+        source = self.instance_source
+        running = next((s for s in sessions if isinstance(s, dict) and
+                        s.get('phase') == 'running' and tuple(s.get('instance', ())) == tuple(source or ())), None) if isinstance(sessions, list) else None
+        nickname = (running or {}).get('username') or getattr(current, 'username', '') or '玩家'
         endpoint.chat_name = ''.join(ch for ch in nickname if ch.isprintable() and ch != '§')[:32] or '玩家'
         endpoint.on_chat = lambda event: self.chat_event.emit(name, event)
         self.service.add(name, endpoint)
@@ -1763,6 +1767,10 @@ class MultiplayerController(RoomPreparation, QObject):
                 self.publish_connections()
 
     def forget_room(self, name, notice):
+        room_id = self.records.get(name, {}).get('roomId')
+        outgoing = {a: item for a, item in self._state['outgoingInvitations'].items()
+                    if not room_id or item.get('room') != room_id}
+        self.patch(outgoingInvitations=outgoing)
         cancel = self.preparations.get(name)
         if cancel:
             cancel.set()
@@ -1941,9 +1949,20 @@ class MultiplayerController(RoomPreparation, QObject):
         live_ids = {item['id'] for item in state['invitations'] if isinstance(item.get('id'), str)}
         self.seen_friend_invitations.intersection_update(live_ids)
         self.ignored_friend_invitations.intersection_update(live_ids)
-        outgoing = {account: dict(item, status='邀请已过期，请重新邀请')
-                    if item.get('status') == '已发送' and time.time() - item['at'] >= 300 else item
-                    for account, item in self._state['outgoingInvitations'].items()}
+        # An invitation is a short-lived action, never the friend's presence.
+        # Drop it after acceptance, expiry or room closure instead of masking
+        # the person's real online/room status indefinitely.
+        live_rooms = {r.get('roomId') for r in self.records.values()
+                      if r.get('state') in ('online', 'connecting', 'reconnecting')}
+        contacts_by_account = {c['account']: c for c in contacts}
+        outgoing = {}
+        for account, item in self._state['outgoingInvitations'].items():
+            room = item.get('room')
+            joined = (contacts_by_account.get(account, {}).get('room') or {}).get('id')
+            age = time.time() - item.get('at', 0)
+            if age >= 300 or (room and room not in live_rooms) or (room and joined == room):
+                continue
+            outgoing[account] = item
         self.patch(contacts=contacts, friendRequests=state['requests'], friendInvitations=invitations,
                    joinRequests=state.get('joinRequests', []), socialCapabilities=capabilities,
                    socialReady=True, socialState='online', socialLoading=False, socialAccount=state['account'],
@@ -2115,7 +2134,8 @@ class MultiplayerController(RoomPreparation, QObject):
             return
         if key == 'feedback-upload':
             if error:
-                self.patch(error=error, notice='上传未完成，请先在节点反馈页检查已有反馈；也可使用“导出日志”保存到本机。')
+                logging.getLogger(__name__).error('diagnostics_upload_failed detail=%s', error)
+                self.patch(error='诊断上传未完成。请稍后重试，也可先导出日志保存。', notice='问题描述已保留；节点反馈页可能已保存本次反馈，请先查看，避免重复提交。')
             else:
                 self.feedback_draft = ''
                 self.patch(error='', notice='反馈已提交，编号：' + str((value or {}).get('issue', '未知')))

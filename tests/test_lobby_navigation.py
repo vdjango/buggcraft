@@ -8,8 +8,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / '.test-tools'), str(ROOT / 'buggcraft/src/buggcraft')]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'src/buggcraft'))
 from PySide6.QtWidgets import QApplication, QDialog
 from ui.multiplayer_controller import MultiplayerController
 
@@ -25,7 +25,10 @@ class LobbyNavigationTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.window = QDialog()
         self.addCleanup(self.window.close)
-        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})):
+        # Navigation uses a fake service; it must not receive a real background
+        # network coroutine which the fake submit() cannot consume.
+        with patch('ui.multiplayer_controller.TunnelService', return_value=Mock(endpoints={})), \
+                patch.object(MultiplayerController, 'refresh_network_profile'):
             self.controller = MultiplayerController(self.window, Path(temporary.name) / 'lobby.json')
         self.addCleanup(self.controller.close)
 

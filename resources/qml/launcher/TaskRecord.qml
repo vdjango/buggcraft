@@ -43,12 +43,12 @@ ListRow {
             spacing: 5
             RowLayout {
                 Layout.fillWidth: true
-                visible: (!!root.modelData.modpack || (root.modelData.content && root.modelData.content.kind === "modpack")) && root.modelData.state !== "已完成"
+                visible: root.modelData.pack_source === "Buggcraft" && root.modelData.state !== "已完成"
                 Label { text: "下载方式"; color: "#bcb6d0"; font.pixelSize: 11 }
                 ChoiceBox {
                     objectName: "task-pack-mode-" + root.modelData.id
-                    Layout.preferredWidth: 235; implicitHeight: 28
-                    model: ["优先整合包内地址", "使用设置中的下载源"]
+                    Layout.preferredWidth: 275; implicitHeight: 28
+                    model: ["整合包原地址（默认，下载源兜底）", "应用启动器下载源"]
                     currentIndex: root.modelData.pack_download_mode === "settings" ? 1 : 0
                     enabled: root.modelData.state !== "正在取消"
                     onActivated: taskHistory.setPackDownloadMode(root.modelData.id, currentIndex === 1 ? "settings" : "pack")

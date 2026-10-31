@@ -240,6 +240,8 @@ class DownloadChecklistUiTests(_DownloadCase):
         for index, archive in enumerate((self.fixtures.pack_path, cf)):
             with self.subTest(archive=archive.suffix):
                 host, controller = self.open_import(archive)
+                self.check(not self.item(host, 'pack-download-mode').isVisible(),
+                           'third-party formats keep their original download rules')
                 self.check(controller.pack_path == str(archive.resolve()) and bool(controller.pack_name)
                            and "1.21.8" in controller.pack_summary, "file selection reads pack metadata and proposes a name")
                 identity = "download-import-" + str(index)
@@ -562,6 +564,15 @@ class DownloadChecklistUiTests(_DownloadCase):
         task = self.finished_task()
         self.check(task['pack_download_mode'] == 'settings', 'task retains the selected policy')
         self.screenshot_ui('import-selected-download-policy')
+        host, controller = self.open_import(self.fixtures.pack_path)
+        self.check(not self.item(host, 'pack-download-mode').isVisible(), 'third-party pack hides the custom policy')
+        controller.setPackDownloadMode('settings')
+        self.check(controller.pack_download_mode == 'pack', 'hidden policy cannot change third-party behavior')
+        another = self.directory / 'another-own-pack.buggpack'
+        another.write_bytes(archive.read_bytes())
+        host, controller = self.open_import(another)
+        self.check(self.item(host, 'pack-download-mode').isVisible() and controller.pack_download_mode == 'pack',
+                   'another custom pack defaults back to original addresses')
         self.assert_no_qml_errors()
         self.finish_test()
 
@@ -701,6 +712,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         tasks.room_preparation_event(task_id, dict(kind='download', name='old.jar', key='old.jar', state='failed'))
         tasks.finish_room_preparation(task_id, False, '下载中断，请重试')
         self.window.download_page.on_progress_clicked()
+        self.pause_ui()
         self.check(self.item(tasks, 'task-action-' + task_id).property('text') == '重试下载', 'room failure exposes retry action')
         self.click_ui(tasks, 'task-action-' + task_id)
         self.check(calls == [task_id] and len(tasks._tasks) == 1, 'one UI click retries the existing room task')

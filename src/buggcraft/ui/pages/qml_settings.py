@@ -182,7 +182,7 @@ class SettingsController(QObject):
                 self._field('settings.general.content_mirror', '模组与整合包下载源',
                             configured_source(s),
                             ['CurseForge', 'Modrinth', '自动（CurseForge 优先）'],
-                            '推荐 CurseForge。Modrinth 速度极慢，不建议轻易尝试；MCIM 也不推荐，不参与房间自动选源。修改后任务保留已校验文件和断点，按新设置切换下载源。'),
+                            '推荐 CurseForge。Modrinth 速度极慢，不建议轻易尝试；MCIM 也不推荐，不参与房间自动选源。修改后任务保留进度并按新设置切换。Buggcraft 常规下载源建设中，暂未启用；房间临时加速由节点配置。'),
                 self._field('downloads.concurrency', '下载并发数', download_concurrency(self.manager),
                             sorted({1, 2, 4, 8, 16, 32, 64, download_concurrency(self.manager)}),
                             '每个任务同时下载的文件数量，默认 32。网络不稳定可调低，修改后对新任务生效。'),

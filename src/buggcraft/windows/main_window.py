@@ -4,7 +4,7 @@ import os
 import logging
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout
+    QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QSystemTrayIcon
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QRect, QEvent, QObject, Slot
 from PySide6.QtGui import QPixmap, QPainter, QMouseEvent, QPen, QColor
@@ -66,6 +66,8 @@ class MinecraftLauncher(QMainWindow):
         self._game_file_dialog = None
         self._preflight_dialog = None
         self._preflight_request = None
+        self._memory_dialog = None
+        self._memory_tray = None
         self._game_file_active = False
         self._game_file_hidden = False
         self._game_file_status = '正在检查游戏文件…'
@@ -269,6 +271,7 @@ class MinecraftLauncher(QMainWindow):
         self.launcher.signals.error.connect(self.minecraft_handle_error)
         self.launcher.signals.java_required.connect(self.minecraft_java_required)
         self.launcher.signals.preflight_confirmation.connect(self.minecraft_preflight_confirmation)
+        self.launcher.memory_pressure.connect(self.minecraft_memory_pressure)
         self.launcher.signals.java_install_progress.connect(self.minecraft_java_install_progress)
         self.launcher.signals.java_installed.connect(self.minecraft_java_installed)
         self.launcher.signals.game_file_preparation_started.connect(self.minecraft_game_file_preparation_started)
@@ -287,7 +290,7 @@ class MinecraftLauncher(QMainWindow):
         if not self.isVisible():
             self.showNormal()
         if self._preflight_dialog is None:
-            dialog = QmlDialog(self, width=620, height=350,
+            dialog = QmlDialog(self, width=520, height=300,
                                title='启动前检查', actions=['返回调整', '仍然启动'],
                                primary_action='返回调整')
             dialog.controller.actionRequested.connect(self._preflight_choice)
@@ -295,8 +298,8 @@ class MinecraftLauncher(QMainWindow):
             self._preflight_dialog = dialog
         self._preflight_request = request
         dialog = self._preflight_dialog
-        dialog.controller.message = '当前游戏内存配置存在风险'
-        dialog.controller.detail = warning + '\n\n继续启动可能导致卡顿或闪退。'
+        dialog.controller.message = '先检查一下内存'
+        dialog.controller.detail = warning
         dialog.controller.changed.emit()
         dialog.open()
         dialog.raise_()
@@ -310,6 +313,37 @@ class MinecraftLauncher(QMainWindow):
             self._preflight_dialog.accept()
         else:
             self._preflight_dialog.reject()
+            self.content_stack.setCurrentWidget(self.settings_page)
+            self.settings_page.global_tab_btn_clicked()
+
+    @Slot(str)
+    def minecraft_memory_pressure(self, message):
+        if self._closing:
+            return
+        logger.warning('game_memory_pressure: %s', message)
+        if self._memory_dialog is None:
+            self._memory_dialog = QmlDialog(self, width=480, height=250,
+                title='内存不足提醒', actions=['知道了'], primary_action='知道了')
+            self._memory_dialog.controller.actionRequested.connect(lambda _: self._memory_dialog.accept())
+        self._memory_dialog.controller.message = '电脑内存快用满了'
+        self._memory_dialog.controller.detail = message
+        self._memory_dialog.controller.changed.emit()
+        self._memory_dialog.setModal(False)
+        self._memory_dialog.show()
+        QApplication.alert(self, 10000)
+        if (not self.isVisible() or self.isMinimized()) and QSystemTrayIcon.isSystemTrayAvailable():
+            if self._memory_tray is None:
+                self._memory_tray = QSystemTrayIcon(self.windowIcon(), self)
+                self._memory_tray.setToolTip('Buggcraft · 内存提醒')
+                self._memory_tray.messageClicked.connect(self._show_memory_warning)
+                self._memory_tray.show()
+            self._memory_tray.showMessage('电脑内存快用满了', message, QSystemTrayIcon.Warning, 10000)
+
+    def _show_memory_warning(self):
+        if not self._closing and self._memory_dialog is not None:
+            self._memory_dialog.showNormal()
+            self._memory_dialog.raise_()
+            self._memory_dialog.activateWindow()
 
     def _preflight_finished(self, _result):
         request = self._preflight_request

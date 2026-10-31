@@ -50,15 +50,17 @@ Item {
                 }
                 RowLayout {
                     Layout.fillWidth: true; spacing: 15
+                      visible: root.state.pack_source === "Buggcraft"
                     Label { text: "下载方式"; color: "#eee8f7"; font.pixelSize: 13 }
                     ChoiceBox {
                         objectName: "pack-download-mode"; Layout.fillWidth: true
-                        model: ["优先整合包内地址（默认）", "使用设置中的下载源"]
+                        visible: root.state.pack_source === "Buggcraft"
+                        model: ["整合包原地址（默认，下载源兜底）", "应用启动器下载源"]
                         currentIndex: root.state.pack_download_mode === "settings" ? 1 : 0
                         onActivated: contentController.setPackDownloadMode(currentIndex === 1 ? "settings" : "pack")
                     }
                 }
-                Label { text: "下载过程中也可以在下载记录切换，已下载进度会保留。"; color: "#bcb6d0"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                  Label { visible: root.state.pack_source === "Buggcraft"; text: "下载过程中也可以在下载记录切换，已下载进度会保留。"; color: "#bcb6d0"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 Label { objectName: "pack-import-error"; text: root.state.pack_error; color: "#ff9b91"; Layout.fillWidth: true; wrapMode: Text.Wrap; visible: !!text }
                 RowLayout {
                     Layout.fillWidth: true

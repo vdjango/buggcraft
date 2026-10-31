@@ -10,9 +10,13 @@ ColumnLayout {
     // rows at the presentation boundary so the manager is still visible on
     // both host and guest clients while newer nodes can keep sending flags.
     property var memberRows: {
-        var rows = members.snapshot.members || []
+        var rows = (members.snapshot.members || []).slice()
         var managerId = members.snapshot.manager_id || ""
         var providerId = members.snapshot.provider_id || ""
+        rows.sort(function(a, b) {
+            var rank = function(r) { return r.id === managerId ? 0 : r.id === members.snapshot.self_id ? 1 : 2 }
+            return rank(a) - rank(b) || String(a.id).localeCompare(String(b.id))
+        })
         return rows.filter(function(row) { return row.online !== false }).map(function(row) {
             var copy = {}
             for (var key in row) copy[key] = row[key]
@@ -22,6 +26,27 @@ ColumnLayout {
         })
     }
     property var selection: ({})
+    ListModel { id: roster; dynamicRoles: true }
+    function syncMembers() {
+        var rows = members.memberRows
+        // Keep delegates and scroll position attached to stable member ids.
+        // Replacing an array on every heartbeat otherwise rebuilds the list.
+        for (var i = 0; i < rows.length; ++i) {
+            var found = -1
+            for (var j = i; j < roster.count; ++j) {
+                if (roster.get(j).entry.id === rows[i].id) { found = j; break }
+            }
+            if (found < 0) roster.insert(i, {entry: rows[i]})
+            else {
+                if (found !== i) roster.move(found, i, 1)
+                if (JSON.stringify(roster.get(i).entry) !== JSON.stringify(rows[i]))
+                    roster.set(i, {entry: rows[i]})
+            }
+        }
+        if (roster.count > rows.length) roster.remove(rows.length, roster.count - rows.length)
+    }
+    onMemberRowsChanged: Qt.callLater(syncMembers)
+    Component.onCompleted: syncMembers()
     property string operation: ""
     signal logsRequested()
     spacing: 8
@@ -50,55 +75,58 @@ ColumnLayout {
     ListView {
         id: list; objectName: "room-members-list"
         Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 5
-        model: members.memberRows
+        model: roster
         ScrollBar.vertical: ScrollBar {}
         delegate: Rectangle {
             id: memberRow
-            required property var modelData
-            objectName: "room-member-" + modelData.id
-            width: list.width - 12; height: modelData.total > 0 && modelData.state !== "ready" && modelData.online ? 60 : 48
-            radius: 6; color: modelData.id === members.snapshot.self_id ? "#30283e" : "#272230"
-            border.color: modelData.id === members.snapshot.self_id ? "#605171" : "#3b3349"
-            opacity: modelData.online ? 1 : 0.55
+            required property var entry
+            objectName: "room-member-" + entry.id
+            property bool transferring: ["checking", "downloading", "installing", "verifying"].indexOf(entry.state) >= 0
+            width: list.width - 12; height: transferring && entry.total > 0 ? 60 : 50
+            radius: 6; color: entry.id === members.snapshot.self_id ? "#30283e" : "#272230"
+            border.color: entry.id === members.snapshot.self_id ? "#605171" : "#3b3349"
+            opacity: entry.online ? 1 : 0.55
             RowLayout {
                 anchors.fill: parent; anchors.margins: 8; spacing: 10
                 Rectangle {
                     implicitWidth: 32; implicitHeight: 32; radius: 8; color: "#544167"
-                    CopyText { anchors.centerIn: parent; text: (memberRow.modelData.name || "?").charAt(0); font.pixelSize: 15; color: "#eee8fa" }
+                    CopyText { anchors.centerIn: parent; text: (memberRow.entry.name || "?").charAt(0); font.pixelSize: 15; color: "#eee8fa" }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 4
                     RowLayout {
                         Layout.fillWidth: true; spacing: 6
-                        CopyText { Layout.fillWidth: true; text: memberRow.modelData.name + (memberRow.modelData.id === members.snapshot.self_id ? "（我）" : ""); color: "#eee8fa"; font.pixelSize: 12; elide: Text.ElideRight; wrapMode: Text.NoWrap }
-                        CopyText { objectName: "member-role-" + memberRow.modelData.id; text: memberRow.modelData.manager ? "房主" : memberRow.modelData.provider ? "世界提供者" : ""; font.pixelSize: 10; color: "#b9a2dc"; visible: text.length > 0 }
+                        CopyText { objectName: "member-name-" + memberRow.entry.id; Layout.maximumWidth: Math.max(60, memberRow.width - 270); text: memberRow.entry.name + (memberRow.entry.id === members.snapshot.self_id ? "（我）" : ""); color: "#eee8fa"; font.pixelSize: 12; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                        CopyText { objectName: "member-role-" + memberRow.entry.id; text: memberRow.entry.manager ? "房主" : memberRow.entry.provider ? "世界提供者" : ""; font.pixelSize: 10; color: "#b9a2dc"; visible: text.length > 0 }
                     }
                     ProgressBar {
-                        objectName: "member-progress-" + memberRow.modelData.id
+                        objectName: "member-progress-" + memberRow.entry.id
                         Layout.fillWidth: true; implicitHeight: 4
-                        visible: memberRow.modelData.total > 0 && memberRow.modelData.state !== "ready" && memberRow.modelData.online
-                        from: 0; to: Math.max(1, memberRow.modelData.total || 0); value: memberRow.modelData.done || 0
+                        visible: memberRow.entry.total > 0 && memberRow.transferring && memberRow.entry.online
+                        from: 0; to: Math.max(1, memberRow.entry.total || 0); value: memberRow.entry.done || 0
                         background: Rectangle { color: "#43384f"; radius: 2 }
                         contentItem: Item { Rectangle { width: parent.width * parent.parent.visualPosition; height: parent.height; radius: 2; color: "#ad91dd" } }
                     }
                     CopyText {
+                        objectName: "member-identity-" + memberRow.entry.id
                         Layout.fillWidth: true; font.pixelSize: 10; color: "#a89ab6"; elide: Text.ElideRight; wrapMode: Text.NoWrap
-                        text: memberRow.modelData.path === "local" ? "本机" :
-                            (memberRow.modelData.path === "p2p" ? "P2P 直连" : memberRow.modelData.path === "relay" ? "节点中转" : "连接测量中") +
-                            (typeof memberRow.modelData.rtt_ms === "number" ? " · " + Math.round(memberRow.modelData.rtt_ms) + " ms" + (memberRow.modelData.rtt_kind === "node" ? "（节点）" : "") : " · —")
+                        text: (memberRow.entry.account_name && memberRow.entry.account_name !== memberRow.entry.name ? "账号 " + memberRow.entry.account_name + " · " : "") + (memberRow.entry.path === "local" ? "本机" :
+                            (memberRow.entry.path === "p2p" ? "P2P 直连" : memberRow.entry.path === "relay" ? "节点中转" : "连接测量中") +
+                            (typeof memberRow.entry.rtt_ms === "number" ? " · " + Math.round(memberRow.entry.rtt_ms) + " ms" + (memberRow.entry.rtt_kind === "node" ? "（节点）" : "") : " · —"))
                     }
                 }
                 CopyText {
-                    objectName: "member-state-" + memberRow.modelData.id
-                    Layout.preferredWidth: 105; horizontalAlignment: Text.AlignRight; font.pixelSize: 11
-                    color: memberRow.modelData.state === "ready" ? "#add4bb" : memberRow.modelData.state === "failed" ? "#ffb5bb" : "#c5b5dc"
-                    text: memberRow.modelData.online && !memberRow.modelData.stale && memberRow.modelData.state === "downloading" && memberRow.modelData.speed > 0 ? (memberRow.modelData.speed / 1048576).toFixed(2) + " MiB/s" : !memberRow.modelData.online ? "已离线" : memberRow.modelData.stale ? "连接中断" :
-                        ({idle:"等待准备",checking:"核对配置",downloading:"下载中",installing:"安装中",verifying:"校验中",ready:"已准备好",failed:"准备失败",cancelled:"已取消",starting:"启动游戏中",playing:"游戏中"})[memberRow.modelData.state] || "等待准备"
+                    objectName: "member-state-" + memberRow.entry.id
+                    Layout.preferredWidth: 90; Layout.minimumWidth: 90; horizontalAlignment: Text.AlignRight; font.pixelSize: 11
+                    color: memberRow.entry.state === "ready" ? "#add4bb" : memberRow.entry.state === "failed" ? "#ffb5bb" : "#c5b5dc"
+                    text: memberRow.entry.online && !memberRow.entry.stale && memberRow.entry.state === "downloading" && memberRow.entry.speed > 0 ? (memberRow.entry.speed / 1048576).toFixed(2) + " MiB/s" : !memberRow.entry.online ? "已离线" : memberRow.entry.stale ? "连接中断" :
+                        ({idle:"等待准备",checking:"核对配置",downloading:"下载中",installing:"安装中",verifying:"校验中",ready:"已准备好",failed:"准备失败",cancelled:"已取消",starting:"启动游戏中",playing:"游戏中"})[memberRow.entry.state] || "等待准备"
                 }
                 ActionButton {
-                    objectName: "member-menu-" + memberRow.modelData.id; text: "管理"; implicitWidth: 52; implicitHeight: 28; quiet: true
-                    visible: !!members.record.isManager && memberRow.modelData.id !== members.snapshot.self_id && memberRow.modelData.online
-                    onClicked: { members.selection = memberRow.modelData; actions.open() }
+                    objectName: "member-menu-" + memberRow.entry.id; text: "···"; implicitWidth: 32; implicitHeight: 28; quiet: true
+                    Accessible.name: "管理 " + memberRow.entry.name
+                    visible: !!members.record.isManager && memberRow.entry.id !== members.snapshot.self_id && memberRow.entry.online
+                    onClicked: { members.selection = memberRow.entry; actions.open() }
                 }
             }
         }

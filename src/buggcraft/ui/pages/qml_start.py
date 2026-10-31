@@ -273,13 +273,15 @@ class StartGamePage(QmlPage):
         # Clipboard notifications can be delivered while the clipboard owner
         # is still servicing its OLE callback.  Defer the read until the
         # notification has returned, and coalesce bursts of notifications.
-        if self._clipboard_scan_pending:
+        if not self._clipboard_monitoring_allowed() or self._clipboard_scan_pending:
             return
         self._clipboard_scan_pending = True
         QTimer.singleShot(0, self, self._scan_clipboard)
 
     def _scan_clipboard(self):
         self._clipboard_scan_pending = False
+        if not self._clipboard_monitoring_allowed():
+            return
         try:
             invite = self._clipboard_room_invite()
         except Exception:
@@ -289,6 +291,14 @@ class StartGamePage(QmlPage):
             return
         self._clipboard_invite = invite
         self._refresh_multiplayer_entry()
+
+    def _clipboard_monitoring_allowed(self):
+        dialog = getattr(self, '_multiplayer_dialog', None)
+        state = dialog.backend.view if dialog else {}
+        active = any(room.get('state') not in ('stopped', 'error') for room in state.get('connections', []))
+        return not (active or state.get('busy') or
+                    state.get('page') in ('create', 'join') or
+                    getattr(self.parent, '_closing', False))
 
     @staticmethod
     def _clipboard_room_invite():
@@ -310,6 +320,13 @@ class StartGamePage(QmlPage):
             return
         dialog = getattr(self, '_multiplayer_dialog', None)
         state = dialog.backend.view if dialog else {}
+        paused = not self._clipboard_monitoring_allowed()
+        was_paused = getattr(self, '_clipboard_paused', False)
+        self._clipboard_paused = paused
+        if paused:
+            self._clipboard_invite = ''
+        elif was_paused:
+            self._clipboard_changed()
         invite = self._clipboard_invite
         if invite and dialog and invite == dialog.backend.consumed_clipboard_invite:
             self._handled_multiplayer_invite = invite

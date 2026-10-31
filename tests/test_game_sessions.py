@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -73,6 +74,31 @@ class GameSessionTests(unittest.TestCase):
             if process and process.poll() is None:
                 process.terminate()
         self.wait_for(lambda: not self.sessions._sessions)
+
+    def test_memory_pressure_warns_once_after_two_samples_and_resets_after_recovery(self):
+        self.assertTrue(self.sessions.start())
+        self.wait_for(lambda: self.sessions.running)
+        self.assertEqual(self.sessions.selected['username'], 'Fixture')
+        notifications = QSignalSpy(self.sessions.memory_pressure)
+        low = SimpleNamespace(percent=96, total=8 * 1024**3, available=300 * 1024**2)
+        recovered = SimpleNamespace(percent=50, total=8 * 1024**3, available=4 * 1024**3)
+        with patch('psutil.virtual_memory', return_value=low):
+            self.sessions._sample_memory()
+            self.assertEqual(notifications.count(), 0)
+            for _ in range(4):
+                self.sessions._sample_memory()
+            self.assertEqual(notifications.count(), 1)
+            self.assertIn('游戏可能卡顿或退出', notifications.at(0)[0])
+        with patch('psutil.virtual_memory', return_value=recovered):
+            for _ in range(3):
+                self.sessions._sample_memory()
+        with patch('psutil.virtual_memory', return_value=low):
+            self.sessions._sample_memory()
+            self.sessions._sample_memory()
+            self.assertEqual(notifications.count(), 2)
+        self.sessions.stop(force=True)
+        self.wait_for(lambda: not self.sessions.sessions)
+        self.assertFalse(self.sessions._memory_timer.isActive())
 
     def test_default_rejects_second_process_and_multi_open_stops_only_selected(self):
         native_source = self.root / 'game/versions/fixture/natives'
@@ -145,7 +171,7 @@ class GameSessionTests(unittest.TestCase):
         self.sessions.signals.preflight_confirmation.connect(decline)
         self.assertTrue(self.sessions.start())
         self.wait_for(lambda: not self.sessions._sessions)
-        self.assertIn('44 个已启用模组', warnings[0])
+        self.assertIn('44 个模组', warnings[0])
         self.assertEqual(stopped.at(0), [0])
         self.assertFalse(self.sessions.running)
 

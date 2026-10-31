@@ -37,7 +37,7 @@ Rectangle {
                 objectName: "friend-presence-" + (row.person.index || 0)
                 Layout.fillWidth: true; font.pixelSize: 11; wrapMode: Text.NoWrap; elide: Text.ElideRight
                 color: row.mode === 0 && row.person.online ? "#a8cbb4" : "#a79bae"
-                text: row.mode === 0 ? (row.inviteState ? row.inviteState.status :
+                text: row.mode === 0 ? (
                     row.person.presenceStale ? "在线状态未知" : !row.person.online ? "离线" : row.room.id ? (row.room.role === "host" ? "房主 · " : "联机中 · ") + (row.room.title || "好友的房间") + (row.room.availability === "waiting" ? " · 等待世界开放" : "") : "在线，可以一起玩") :
                     row.mode === 1 ? (row.person.incoming ? "想添加你为好友" : "申请已发送，等待回应") : row.mode === 3 ? "想加入你的房间 · 同意后自动发送邀请" : row.joining ? "正在接受邀请并连接房间…" : "邀请你一起联机 · 接受后自动连接"
             }
@@ -64,9 +64,9 @@ Rectangle {
             objectName: "invite-friend-" + (row.person.index || 0)
             visible: row.mode === 0; primary: !!row.person.online
             text: !row.inviteState ? "邀请联机" : row.inviteState.status === "发送中…" ? "发送中…" :
-                row.inviteState.status === "等待房间开放，自动发送" ? "继续邀请" : row.inviteState.status === "已发送" ? "再次邀请" : "重试邀请"
+                row.inviteState.status === "等待房间开放，自动发送" ? "继续邀请" : row.inviteState.status === "已发送" ? "已邀请" : "重试邀请"
             implicitHeight: 30; implicitWidth: 88
-            enabled: !row.inviteBlocked && (row.inviteState && row.inviteState.status === "等待房间开放，自动发送" || !!row.person.online && (!row.inviteState || row.inviteState.status !== "发送中…"))
+            enabled: !row.inviteBlocked && (row.inviteState && row.inviteState.status === "等待房间开放，自动发送" || !!row.person.online && (!row.inviteState || ["发送中…", "已发送"].indexOf(row.inviteState.status) < 0))
             ToolTip.visible: hovered; ToolTip.text: row.person.online ? "没有房间时会引导创建，开放世界后自动发送邀请" : "好友上线后可邀请"
             onClicked: row.action(row.inviteState && row.inviteState.status === "等待房间开放，自动发送" ? "continueFriendInvite" : "inviteFriend", {account:row.person.account})
         }

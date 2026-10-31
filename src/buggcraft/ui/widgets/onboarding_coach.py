@@ -236,6 +236,7 @@ class OnboardingCoach(QObject):
         self._lobby = None
         self._multiplayer_demo_active = False
         self._create_snapshot = None
+        self._target_retry_pending = False
         self._timer = QTimer(self)
         self._timer.setInterval(120)
         self._timer.timeout.connect(self.refresh)
@@ -396,7 +397,7 @@ class OnboardingCoach(QObject):
             if name.startswith("setting-"):
                 page = self.launcher.settings_page.general_page
                 if page.isVisible():
-                    page.controller.tutorialTargetRequested.emit(name)
+                    self._reveal_settings_target(name)
             if self.steps[self.index]["window"] == "lobby":
                 # Room delegates can disappear for one event loop turn while
                 # switching pages. Keep the keyboard/click continuation card
@@ -411,7 +412,7 @@ class OnboardingCoach(QObject):
         quick, item = target
         if not item.isVisible() or item.width() <= 0 or item.height() <= 0:
             if name.startswith("setting-"):
-                self.launcher.settings_page.general_page.controller.tutorialTargetRequested.emit(name)
+                self._reveal_settings_target(name)
             if self.steps[self.index]["window"] == "lobby":
                 overlay = self._set_overlay(window)
                 self._target_object = None
@@ -425,7 +426,7 @@ class OnboardingCoach(QObject):
         bottom_right = item.mapToScene(rect.bottomRight())
         scene_rect = QRectF(top_left, bottom_right)
         if name.startswith("setting-") and not QRectF(quick.rect()).contains(scene_rect):
-            self.launcher.settings_page.general_page.controller.tutorialTargetRequested.emit(name)
+            self._reveal_settings_target(name)
             return
         global_top = quick.mapToGlobal(top_left.toPoint())
         global_bottom = quick.mapToGlobal(bottom_right.toPoint())
@@ -435,6 +436,20 @@ class OnboardingCoach(QObject):
         self._target_rect = QRectF(overlay.mapFromGlobal(global_top), overlay.mapFromGlobal(global_bottom))
         overlay.target = self._target_rect
         overlay.update()
+
+    def _reveal_settings_target(self, name):
+        self.launcher.settings_page.general_page.controller.tutorialTargetRequested.emit(name)
+        # Expanding/scrolling and rebuilding a settings delegate takes a QML
+        # layout turn. Acquire the new target as soon as that layout settles,
+        # rather than leaving the previous step's input hole until the poll.
+        if self._target_retry_pending:
+            return
+        self._target_retry_pending = True
+        QTimer.singleShot(20, self, self._retry_settings_target)
+
+    def _retry_settings_target(self):
+        self._target_retry_pending = False
+        self.refresh()
 
     def _popup_item(self):
         if self._target_object is None:
