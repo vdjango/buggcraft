@@ -1441,6 +1441,12 @@ class MultiplayerController(RoomPreparation, QObject):
         if not record:
             return
         if state in ('closed', 'stopped', 'error'):
+            # A background room failure can happen while Minecraft is in the
+            # foreground.  Keep the existing room notification path alive so
+            # the tray/alert and sound make the disconnect visible; an
+            # intentional stop remains silent.
+            if state in ('closed', 'error'):
+                self.room_notification.emit(detail or '房间连接已断开，请检查网络后重新加入。')
             failed = [account for account, pending in self.pending_friend_invites.items() if pending[2:] == (name,)]
             if failed:
                 for account in failed:

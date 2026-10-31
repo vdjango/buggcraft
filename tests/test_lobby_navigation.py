@@ -81,6 +81,16 @@ class LobbyNavigationTests(unittest.TestCase):
                 self.controller.update_status('room', 'online', 'late event')
                 self.assertEqual(self.controller.records, {})
 
+    def test_unexpected_room_disconnect_notifies_while_intentional_stop_stays_silent(self):
+        notifications = []
+        self.controller.room_notification.connect(notifications.append)
+        self.controller.records['room'] = dict(id='room', role='client', state='online')
+        self.controller.update_status('room', 'error', '原生联机桥连接已中断，请重新加入房间。')
+        self.assertEqual(notifications, ['原生联机桥连接已中断，请重新加入房间。'])
+        self.controller.records['room'] = dict(id='room', role='client', state='online')
+        self.controller.update_status('room', 'stopped', '已退出房间。')
+        self.assertEqual(notifications, ['原生联机桥连接已中断，请重新加入房间。'])
+
     def test_waiting_world_preserves_room_and_chat_until_explicit_exit(self):
         self.controller.records['room'] = dict(id='room', role='client', state='online',
             chatMessages=[{'text':'retained'}], bridgeStatus='游戏聊天等待世界')
