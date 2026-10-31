@@ -28,8 +28,6 @@ def provider(url):
             return 'Modrinth'
         if parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net'):
             return 'CurseForge'
-        if parsed.hostname == 'mod.mcimirror.top':
-            return 'MCIM'
     except ValueError:
         pass
     return ''
@@ -133,6 +131,8 @@ def _curseforge(version, file, cancel):
 
 def resolve_download_urls(addresses, sha1, size, *, sha512=None, preference='自动测速', cancel):
     """Keep original addresses when a publisher has no identical public file."""
+    if preference == '自动（CurseForge 优先）':
+        preference = '自动'
     addresses = list(dict.fromkeys(addresses))
     if (preference not in ('自动测速', '自动', 'CurseForge', 'Modrinth')
             or not any(provider(url) in ('Modrinth', 'CurseForge') for url in addresses)

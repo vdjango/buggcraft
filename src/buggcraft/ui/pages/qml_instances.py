@@ -32,17 +32,18 @@ class _ExportSignals(QObject):
 
 
 class _ExportWorker(QRunnable):
-    def __init__(self, directory, identity, destination, mode, game_directory):
+    def __init__(self, directory, identity, destination, mode, game_directory, publisher='CurseForge'):
         super().__init__()
         self.arguments = directory, identity, destination
         self.mode, self.game_directory = mode, game_directory
+        self.publisher = publisher
         self.cancel = threading.Event()
         self.signals = _ExportSignals()
 
     def run(self):
         try:
             result = export_pack(*self.arguments, mode=self.mode, game_directory=self.game_directory,
-                                 progress=self.signals.progress.emit, cancel=self.cancel)
+                                 progress=self.signals.progress.emit, cancel=self.cancel, publisher=self.publisher)
         except DownloadCancelled:
             self.signals.finished.emit(None, '导出已取消')
         except Exception as exc:
@@ -203,7 +204,7 @@ class InstancesController(QObject):
                 self.page, title='导出整合包', message='选择导出方式',
                 detail=identity, actions=['精简导出', '常规导出', '取消'], width=620, height=480,
                 primary_action='精简导出', source='ModpackExportDialog.qml',
-                data=dict(phase='choose', instance=identity))
+                data=dict(phase='choose', instance=identity, publisher='CurseForge'))
             self._export_dialog = dialog
             dialog.controller.actionRequested.connect(
                 lambda label: self._export_action(identity, label))
@@ -298,14 +299,15 @@ class InstancesController(QObject):
             self.action(identity, 'export')
         dialog = self._export_dialog
         model = dialog.controller
+        publisher = model.data.get('publisher', 'CurseForge')
         model.message, model.detail = '正在导出整合包', '正在整理实例文件…'
         model.working, model.progress, model.dismissible = True, -1., False
         model.actions = ['取消导出']
         model.primary_action = ''
-        model.data = dict(phase='exporting', instance=identity, mode=mode, path=destination)
+        model.data = dict(phase='exporting', instance=identity, mode=mode, path=destination, publisher=publisher)
         model.changed.emit()
         game_directory = self.settings.get_minecraft_isolation_directory(directory=directory, version=identity)
-        worker = self._export_worker = _ExportWorker(directory, identity, destination, mode, game_directory)
+        worker = self._export_worker = _ExportWorker(directory, identity, destination, mode, game_directory, publisher)
         worker.signals.progress.connect(self._export_progress, Qt.QueuedConnection)
         worker.signals.finished.connect(self._export_finished, Qt.QueuedConnection)
         QThreadPool.globalInstance().start(worker)

@@ -5,6 +5,46 @@ from _qml_test_support import LauncherQmlCase
 
 
 class InstanceModpackEntryTests(LauncherQmlCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import os
+        if os.name == 'nt' and cls.app.platformName() == 'offscreen':
+            from PySide6.QtGui import QFontDatabase, QFont
+            QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
+            cls.app.setFont(QFont('Microsoft YaHei'))
+
+    def test_export_publisher_choices_reach_manifest_and_completion_waits_for_close(self):
+        from PySide6.QtCore import Qt
+        from _qml_test_support import QTest
+        self.window.switch_pages('实例')
+        page = self.window.version_page.versions_page
+        self.pump()
+        for index, publisher in enumerate(('CurseForge', 'Modrinth', '混合')):
+            with self.subTest(publisher=publisher):
+                archive = self.directory / ('export-' + str(index) + '.buggpack')
+                self.click(page, 'instance-export-1.21.8')
+                dialog = page.controller._export_dialog
+                self.assertEqual(dialog.controller.data['publisher'], 'CurseForge')
+                self.click(dialog.host, 'export-publisher')
+                QTest.keyClick(dialog.quick, Qt.Key_Home)
+                for _ in range(index):
+                    QTest.keyClick(dialog.quick, Qt.Key_Down)
+                QTest.keyClick(dialog.quick, Qt.Key_Return)
+                self.pump()
+                self.assertEqual(dialog.controller.data['publisher'], publisher)
+                self.snapshot('export-publisher-' + str(index), dialog)
+                with patch('ui.pages.qml_instances.QFileDialog.getSaveFileName', return_value=(str(archive), 'buggpack')):
+                    self.click(dialog.host, 'dialog-action-0')
+                self.wait_until(lambda: page.controller._export_worker is None)
+                with zipfile.ZipFile(archive) as pack:
+                    self.assertEqual(json.loads(pack.read('buggcraft.pack.json'))['downloadPublisher'], publisher)
+                self.assertTrue(dialog.isVisible())
+                self.assertEqual(dialog.controller.data['phase'], 'complete')
+                self.click(dialog.host, 'dialog-action-0')
+                self.wait_until(lambda: page.controller._export_dialog is None)
+        self.assert_no_qml_errors()
+
     def test_export_is_cancellable_while_qt_remains_responsive(self):
         import threading
         from PySide6.QtCore import QTimer

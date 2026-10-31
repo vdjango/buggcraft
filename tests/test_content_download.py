@@ -24,22 +24,15 @@ class ContentDownloadTests(unittest.TestCase):
         self.addCleanup(_CONTENT_ROUTE_CACHE.clear)
 
     def test_automatic_source_ranking_uses_cached_measured_speed(self):
-        mirror = 'https://mod.mcimirror.top/data/sample.jar'
+        mirror = 'https://edge.forgecdn.net/files/sample.jar'
         upstream = 'https://cdn.modrinth.com/data/sample.jar'
-        with patch('core.downloads._measure_content_route', side_effect=lambda url: 200_000 if 'mcimirror' in url else 1_000_000):
+        with patch('core.downloads._measure_content_route', side_effect=lambda url: 200_000 if 'forgecdn' in url else 1_000_000):
             _CONTENT_ROUTE_CACHE.clear()
             self.assertEqual(_rank_content_candidates([mirror, upstream]), [upstream, mirror])
             with patch('core.downloads._measure_content_route', side_effect=AssertionError('probe cache missed')):
                 self.assertEqual(_rank_content_candidates([mirror, upstream]), [upstream, mirror])
         _CONTENT_ROUTE_CACHE.clear()
 
-    def test_mcim_preference_only_wins_when_close_to_fastest_source(self):
-        mirror = 'https://mod.mcimirror.top/data/sample.jar'
-        upstream = 'https://cdn.modrinth.com/data/sample.jar'
-        with patch('core.downloads._measure_content_route', side_effect=lambda url: 900_000 if 'mcimirror' in url else 1_000_000):
-            _CONTENT_ROUTE_CACHE.clear()
-            self.assertEqual(_rank_content_candidates([upstream, mirror], 'MCIM'), [mirror, upstream])
-        _CONTENT_ROUTE_CACHE.clear()
 
     def test_both_provider_searches_receive_offset_without_implicit_version_filters(self):
         catalogue = ContentCatalogue()

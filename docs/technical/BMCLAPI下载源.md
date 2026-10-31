@@ -38,7 +38,7 @@
 
 ## 来源显示与验证边界
 
-BMCLAPI 文档要求在下载界面或其他可见区域标明来源。启动器的通用设置页提供“官方 / BMCLAPI / 自动”下载源选择，并解释自动回退规则。下载任务记录文件名、主机和尝试次数，应用日志记录最终命中主机及实际大小。资源和整合包文件在非“官方”模式下优先使用 MCIM，映射和失败回退详见[整合包与资源下载](../guides/整合包导入与兼容.md)。
+BMCLAPI 文档要求在下载界面或其他可见区域标明来源。启动器的通用设置页提供“官方 / BMCLAPI / 自动”下载源选择，并解释自动回退规则。下载任务记录文件名、主机和尝试次数，应用日志记录最终命中主机及实际大小。资源和整合包文件使用独立的平台优先策略，默认 CurseForge，导入还可优先使用包内地址；MCIM 已移除。规则详见[整合包与资源下载](../guides/整合包导入与兼容.md)。
 
 `multiplayer-tests/test_loaders.py` 对镜像路由和失败回退做离线模拟；`multiplayer-tests/test_downloads.py` 使用本地 HTTP 服务验证 SHA-1、长度、重试、损坏响应和安装发布。测试不能证明 BMCLAPI 当前在线、区域速度、配额或所有加载器安装器的实时兼容性。2026-10-29 已使用生产版本查询接口实测 Minecraft 1.21.8 的 Forge、NeoForge、Fabric、Quilt 列表；结果记录在 `.test-tools/loader-catalogue-20261029/live-catalogue.json`。
 

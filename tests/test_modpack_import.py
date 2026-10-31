@@ -18,6 +18,74 @@ from core.downloads import DownloadCancelled, MinecraftDownloader, _DownloadSess
 
 
 class ModpackTests(unittest.TestCase):
+    def test_renamed_mod_identity_comes_from_jar_and_selected_publishers_filter_links(self):
+        source = self.root / 'renamed-source'
+        instance = source / 'versions/Pack'
+        (instance / 'mods').mkdir(parents=True)
+        (instance / 'Pack.json').write_text(json.dumps(dict(id='Pack', clientVersion='1.20.1')))
+        jar = instance / 'mods/not-the-mod-name.jar'
+        with zipfile.ZipFile(jar, 'w') as archive:
+            archive.writestr('META-INF/mods.toml', '[[mods]]\nmodId="actual_mod_id"\ndisplayName="Actual Mod Name"\nversion="1.2.3"\n')
+        cf, mr = 'https://edge.forgecdn.net/files/1/2/original.jar', 'https://cdn.modrinth.com/data/x.jar'
+        self.public_mod_lookup.return_value = {'mods/not-the-mod-name.jar': dict(
+            size=jar.stat().st_size, sha1=hashlib.sha1(jar.read_bytes()).hexdigest(), downloads=[mr, cf])}
+        for publisher, links in (('CurseForge', [cf]), ('Modrinth', [mr]), ('混合', [cf, mr])):
+            with self.subTest(publisher=publisher):
+                progress = []
+                output = self.root / (publisher + '.buggpack')
+                export_pack(source, 'Pack', output, publisher=publisher, progress=lambda *args: progress.append(args))
+                descriptor = self.public_mod_lookup.call_args.args[0][0]
+                self.assertEqual(descriptor['identity'][0]['id'], 'actual_mod_id')
+                self.assertEqual(self.public_mod_lookup.call_args.kwargs['publisher'], publisher)
+                self.assertTrue(any('Actual Mod Name' in row[0] for row in progress))
+                with zipfile.ZipFile(output) as pack:
+                    manifest = json.loads(pack.read('buggcraft.pack.json'))
+                    self.assertEqual(manifest['downloadPublisher'], publisher)
+                    self.assertEqual(manifest['files'][0]['downloads'], links)
+
+    def test_export_never_depends_on_modrinth_only_resources(self):
+        from core.content_records import record_content
+        source = self.root / 'mr-only-source'
+        instance = source / 'versions/Pack'
+        instance.mkdir(parents=True)
+        (instance / 'Pack.json').write_text(json.dumps(dict(id='Pack', clientVersion='1.20.1')))
+        payloads = {}
+        for folder, name in [('mods', 'custom.jar'), ('resourcepacks', 'textures.zip'), ('shaderpacks', 'shader.zip')]:
+            path = instance / folder / name
+            path.parent.mkdir()
+            path.write_bytes((folder + ' original bytes').encode())
+            payloads[path.relative_to(instance).as_posix()] = path.read_bytes()
+            url = 'https://cdn.modrinth.com/data/test/' + name
+            record_content(instance, path, [url])
+            if folder == 'mods':
+                self.public_mod_lookup.return_value = {path.relative_to(instance).as_posix(): dict(
+                    size=path.stat().st_size, sha1=hashlib.sha1(path.read_bytes()).hexdigest(), downloads=[url])}
+        archive = self.root / 'mr-only.buggpack'
+        result = export_pack(source, 'Pack', archive)
+        self.assertEqual(result['external_files'], 0)
+        with zipfile.ZipFile(archive) as pack:
+            manifest = json.loads(pack.read('buggcraft.pack.json'))
+            self.assertTrue(all(item['embedded'] and not item.get('downloads') for item in manifest['files']))
+            for relative, payload in payloads.items():
+                self.assertEqual(pack.read('files/' + relative), payload)
+
+    def test_mixed_record_places_curseforge_first_and_omits_modrinth(self):
+        from core.content_records import record_content
+        source = self.root / 'mixed-record-source'
+        instance = source / 'versions/Pack'
+        (instance / 'resourcepacks').mkdir(parents=True)
+        (instance / 'Pack.json').write_text(json.dumps(dict(id='Pack', clientVersion='1.20.1')))
+        path = instance / 'resourcepacks/textures.zip'
+        path.write_bytes(b'exact resource bytes')
+        cf = 'https://mediafilez.forgecdn.net/files/123/4/textures.zip'
+        record_content(instance, path, ['https://cdn.modrinth.com/data/test/textures.zip', cf])
+        archive = self.root / 'cf-first.buggpack'
+        export_pack(source, 'Pack', archive)
+        with zipfile.ZipFile(archive) as pack:
+            item = json.loads(pack.read('buggcraft.pack.json'))['files'][0]
+            self.assertEqual(item['downloads'], [cf])
+            self.assertFalse(item['embedded'])
+
     def test_malformed_exported_pack_manifest_has_readable_error(self):
         for payload in (b'<html>failure</html>', b'\xff\xfeinvalid'):
             with self.subTest(payload=payload):
@@ -66,13 +134,13 @@ class ModpackTests(unittest.TestCase):
             path.parent.mkdir()
             path.write_bytes(os.urandom(10000))
             payloads[path.relative_to(instance).as_posix()] = path.read_bytes()
-            record_content(instance, path, ['https://cdn.modrinth.com/data/test/' + filename])
+            record_content(instance, path, ['https://edge.forgecdn.net/files/123/4/' + filename])
         local = instance / 'mods/local.jar'
         local.write_bytes(b'local-only')
         shared_resource = source / 'resourcepacks' / 'shared.zip'
         shared_resource.parent.mkdir()
         shared_resource.write_bytes(b'shared game resource')
-        record_content(source, shared_resource, ['https://cdn.modrinth.com/data/test/shared.zip'])
+        record_content(source, shared_resource, ['https://edge.forgecdn.net/files/123/4/shared.zip'])
         compact, standard = self.root / 'compact.buggpack', self.root / 'standard.buggpack'
         result = export_pack(source, 'Pack', compact, game_directory=source)
         export_pack(source, 'Pack', standard, mode='standard', game_directory=source)
@@ -111,7 +179,7 @@ class ModpackTests(unittest.TestCase):
         public, private = instance / 'mods/public.jar', instance / 'mods/private.jar'
         public.write_bytes(os.urandom(65536))
         private.write_bytes(b'local unpublished build')
-        url = 'https://cdn.modrinth.com/data/test/public.jar'
+        url = 'https://edge.forgecdn.net/files/123/4/public.jar'
         self.public_mod_lookup.return_value = {
             'mods/public.jar': {'sha1': hashlib.sha1(public.read_bytes()).hexdigest(),
                                 'size': public.stat().st_size, 'downloads': [url]},

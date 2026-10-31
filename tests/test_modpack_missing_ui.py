@@ -1,6 +1,8 @@
 """Click the real missing-mod dialog and finish/cancel production imports."""
 import hashlib
 import json
+import os
+from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QTimer, Qt
@@ -10,6 +12,14 @@ import test_download_ui as download_ui
 
 
 class MissingModsUiTests(_UiCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if os.name == 'nt' and cls.app.platformName() == 'offscreen':
+            from PySide6.QtGui import QFontDatabase, QFont
+            QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
+            cls.app.setFont(QFont('Microsoft YaHei'))
+
     open_downloads = download_ui.DownloadChecklistUiTests.open_downloads
     open_import = download_ui.DownloadChecklistUiTests.open_import
     finished_task = download_ui.DownloadChecklistUiTests.finished_task
@@ -38,13 +48,13 @@ class MissingModsUiTests(_UiCase):
             self.fixtures.payloads[name] = payload
             if missing or name != 'private.jar':
                 public['mods/' + name] = dict(sha1=hashlib.sha1(payload).hexdigest(), size=len(payload),
-                    downloads=['https://cdn.modrinth.com/data/fixture/' + name])
+                    downloads=['https://edge.forgecdn.net/files/123/4/' + name])
         archive = self.directory / 'missing-mods.buggpack'
         with patch('core.modpack_sources.find_public_mod_downloads', return_value=public):
             export_pack(source, 'Source', archive)
         original_route = self.fixtures.route
         def route(downloader, url):
-            if url.startswith('https://cdn.modrinth.com/data/fixture/'):
+            if url.startswith('https://edge.forgecdn.net/files/123/4/'):
                 return [f'http://127.0.0.1:{self.fixtures.server.server_port}/' + url.rsplit('/', 1)[-1]]
             return original_route(downloader, url)
         self._patch(patch('core.downloads.MinecraftDownloader.urls', route))
@@ -52,8 +62,10 @@ class MissingModsUiTests(_UiCase):
             self.fixtures.failures.add('private.jar')
         return archive, contents
 
-    def start(self):
+    def start(self, failure_status=None):
         archive, contents = self.pack()
+        if failure_status:
+            self.fixtures.failure_statuses = {'private.jar': failure_status}
         host, _ = self.open_import(archive)
         self.text_ui(host, 'pack-instance-name', 'Missing-Mods')
         self.click_ui(host, 'start-pack-import')
@@ -62,6 +74,77 @@ class MissingModsUiTests(_UiCase):
         dialog = tasks._mod_prompts.dialog
         self.wait_for(dialog.isVisible, 'missing mod dialog is visible')
         return tasks, dialog, contents
+
+    def test_retry_download_entry_and_export_list_keep_successful_files(self):
+        from PySide6.QtWidgets import QApplication
+        tasks, dialog, contents = self.start()
+        self.click_ui(dialog, 'missing-mod-copy')
+        self.wait_for(lambda: 'private.jar' in QApplication.clipboard().text(), 'copy real missing-file list')
+        copied = QApplication.clipboard().text()
+        self.check('https://edge.forgecdn.net/files/123/4/private.jar' in copied,
+                   'manual list includes the exact file URL')
+        self.check(hashlib.sha256(contents['private.jar']).hexdigest() in copied,
+                   'manual list includes the original integrity requirement')
+        report = self.directory / 'manual-downloads.txt'
+        with patch('ui.dialog.modpack_missing.QFileDialog.getSaveFileName', return_value=(str(report), 'txt')):
+            self.click_ui(dialog, 'missing-mod-save')
+        self.check(report.read_text(encoding='utf-8') == copied, 'save produces a usable text checklist')
+        with patch('ui.dialog.modpack_missing.QDesktopServices.openUrl', return_value=True) as opened:
+            self.click_ui(dialog, 'missing-mod-download-0')
+        self.check(opened.call_args.args[0].toString().endswith('/private.jar'), 'button opens the exact download')
+        before = sum(row['file'] == 'public.jar' for row in self.fixtures.requests)
+        self.fixtures.failures.clear()
+        self.click_ui(dialog, 'missing-mod-retry')
+        task = self.finished_task()
+        self.check((self.game_dir / 'versions/Missing-Mods/mods/private.jar').read_bytes() == contents['private.jar'],
+                   'retry really fetches missing bytes and finishes the original import')
+        self.check(before == sum(row['file'] == 'public.jar' for row in self.fixtures.requests),
+                   'retry leaves successful mods in cache')
+        self.check('已跳过' not in task['status'], 'repair is reported as a full import')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_manual_repair_rejects_wrong_file_then_accepts_exact_file(self):
+        tasks, dialog, contents = self.start()
+        wrong, correct = self.directory / 'wrong.jar', self.directory / 'correct.jar'
+        wrong.write_bytes(b'X' * len(contents['private.jar']))
+        correct.write_bytes(contents['private.jar'])
+        with patch('ui.dialog.modpack_missing.QFileDialog.getOpenFileName', return_value=(str(wrong), 'jar')):
+            self.click_ui(dialog, 'missing-mod-supply-0')
+        self.wait_for(lambda: tasks._mod_prompts.dialog is not None and tasks._mod_prompts.dialog is not dialog,
+                      'wrong manual download reopens the checklist without failing the task')
+        repaired = tasks._mod_prompts.dialog
+        self.wait_for(repaired.isVisible, 'manual checksum feedback is visible')
+        self.check('校验不匹配' in repaired.controller.data['mods'][0]['reason'],
+                   'same-size wrong file cannot be installed')
+        self.check(not (self.game_dir / 'versions/Missing-Mods').exists(), 'wrong file never publishes an instance')
+        self.screenshot_ui('missing-mods-wrong-manual-file', repaired)
+        with patch('ui.dialog.modpack_missing.QFileDialog.getOpenFileName', return_value=(str(correct), 'jar')):
+            self.click_ui(repaired, 'missing-mod-supply-0')
+        self.finished_task()
+        target = self.game_dir / 'versions/Missing-Mods'
+        self.check((target / 'mods/private.jar').read_bytes() == contents['private.jar'],
+                   'the exact manually supplied file is installed')
+        self.check(correct.read_bytes() == contents['private.jar'], 'manual source remains available to the user')
+        self.check(not (target / '缺失模组清单.txt').exists(), 'completed repairs do not retain a stale missing list')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_network_failure_can_continue_and_retains_manual_checklist(self):
+        tasks, dialog, contents = self.start(failure_status=503)
+        self.check('503' in dialog.controller.data['mods'][0]['reason'],
+                   'server failures display a concise cause instead of raw JSON')
+        self.screenshot_ui('missing-mods-network-failure', dialog)
+        self.click_ui(dialog, 'missing-mod-continue')
+        self.finished_task()
+        target = self.game_dir / 'versions/Missing-Mods'
+        report = (target / '缺失模组清单.txt').read_text(encoding='utf-8')
+        self.check('private.jar' in report and hashlib.sha256(contents['private.jar']).hexdigest() in report,
+                   'after choosing continue the user can still find exact manual downloads')
+        self.check((target / 'mods/public.jar').read_bytes() == contents['public.jar'],
+                   'working files remain installed after a server failure')
+        self.assert_no_qml_errors()
+        self.finish_test()
 
     def test_skip_choice_keeps_ui_responsive_and_publishes_with_warning(self):
         tasks, dialog, contents = self.start()

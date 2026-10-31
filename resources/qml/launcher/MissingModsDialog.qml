@@ -8,11 +8,20 @@ Rectangle {
     color: "#211f2b"; radius: 8; border.color: "#8b85da"
     Connections { target: dialogModel; function onChanged() { root.state = dialogModel.view } }
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 22; spacing: 14
-        Label { text: root.state.title; font.pixelSize: 18; font.bold: true; color: "#f4f1ff" }
+        anchors.fill: parent; anchors.margins: 20; spacing: 12
+        RowLayout {
+            Layout.fillWidth: true
+            Label { text: root.state.title; font.pixelSize: 18; font.bold: true; color: "#f4f1ff" }
+            Item { Layout.fillWidth: true }
+            Label { text: (root.state.data.mods || []).length + " 个"; color: "#d4c4ff"; font.bold: true }
+        }
         Label {
             Layout.fillWidth: true; text: root.state.data.instance || ""
             textFormat: Text.PlainText; elide: Text.ElideMiddle; color: "#aaa2c8"; font.pixelSize: 12
+        }
+        Label {
+            Layout.fillWidth: true; text: "已下载的文件会保留。可以重试失败项，也可以手动下载后在这里补齐。"
+            wrapMode: Text.Wrap; color: "#c8bfdc"; font.pixelSize: 12
         }
         ListView {
             objectName: "missing-mod-list"
@@ -21,6 +30,7 @@ Rectangle {
             ScrollBar.vertical: ScrollBar {}
             delegate: Rectangle {
                 required property var modelData
+                required property int index
                 width: ListView.view.width - 12; height: row.implicitHeight + 20
                 radius: 5; color: "#302a40"; border.color: "#514361"
                 ColumnLayout {
@@ -30,11 +40,40 @@ Rectangle {
                         Layout.fillWidth: true; text: modelData.name; textFormat: Text.PlainText
                         wrapMode: Text.WrapAnywhere; color: "#f1d1a1"; font.bold: true; font.pixelSize: 13
                     }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        ActionButton {
+                            objectName: "missing-mod-download-" + index; text: "打开下载页"; implicitHeight: 30
+                            visible: !!modelData.pageUrl || (modelData.downloads || []).length > 0
+                            onClicked: dialogModel.action("打开下载:" + index)
+                        }
+                        ActionButton {
+                            objectName: "missing-mod-supply-" + index; text: "选择已下载文件"; implicitHeight: 30
+                            visible: !!modelData.canSupply
+                            onClicked: dialogModel.action("手动补齐:" + index)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
                     Label {
                         Layout.fillWidth: true; text: modelData.reason; textFormat: Text.PlainText
                         wrapMode: Text.Wrap; color: "#bfb4cd"; font.pixelSize: 12
                     }
                 }
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true; spacing: 8
+            ActionButton {
+                objectName: "missing-mod-copy"; text: root.state.copied ? "已复制" : "复制清单"; implicitHeight: 30
+                onClicked: dialogModel.copyCode()
+            }
+            ActionButton {
+                objectName: "missing-mod-save"; text: "保存清单"; implicitHeight: 30
+                onClicked: dialogModel.action("保存清单")
+            }
+            Label {
+                Layout.fillWidth: true; text: root.state.data.notice || ""; wrapMode: Text.Wrap
+                color: "#c8bfdc"; font.pixelSize: 11
             }
         }
         Label {
@@ -53,10 +92,10 @@ Rectangle {
         }
         RowLayout {
             Layout.fillWidth: true; spacing: 10
-            Label { text: (root.state.data.mods || []).length + " 个模组"; color: "#aaa2c8"; font.pixelSize: 11 }
             Item { Layout.fillWidth: true }
             ActionButton { objectName: "missing-mod-stop"; text: "停止导入"; onClicked: dialogModel.action(text) }
-            ActionButton { objectName: "missing-mod-continue"; text: "跳过并继续"; primary: true; onClicked: dialogModel.action(text) }
+            ActionButton { objectName: "missing-mod-retry"; text: "重试失败项"; primary: true; onClicked: dialogModel.action(text) }
+            ActionButton { objectName: "missing-mod-continue"; text: "跳过并继续"; onClicked: dialogModel.action(text) }
         }
     }
 }

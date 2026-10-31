@@ -83,12 +83,22 @@ def _valid_download_urls(value):
     return result
 
 
+def _export_download_urls(value, publisher='CurseForge'):
+    hosts = set()
+    if publisher != 'Modrinth':
+        hosts.update(('edge.forgecdn.net', 'mediafilez.forgecdn.net'))
+    if publisher != 'CurseForge':
+        hosts.add('cdn.modrinth.com')
+    urls = list(dict.fromkeys(url for url in _valid_download_urls(value) if urlsplit(url).hostname in hosts))
+    return sorted(urls, key=lambda url: urlsplit(url).hostname == 'cdn.modrinth.com')
+
+
 def export_pack(directory, identity, destination, *, name=None, version='1.0.0', mode='compact',
-                game_directory=None, progress=None, cancel=None):
+                game_directory=None, progress=None, cancel=None, publisher='CurseForge'):
     """Export an installed instance as the launcher's portable ``.buggpack``.
 
     Store a versioned manifest and portable files under ``files/``. Compact
-    packages reference mods found by exact file hash on Modrinth or CurseForge
+    packages reference mods found by exact file hash on selected publishers
     only when their public CDN URL is currently reachable. Unavailable mods
     stay embedded. Other recorded resources can remain external. Standard
     packages embed all portable content. Minecraft and its loader are installed
@@ -104,6 +114,9 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
     instance_name(identity)
     if mode not in ('compact', 'standard'):
         raise ValueError('导出模式必须是 compact 或 standard')
+    from core.modpack_sources import EXPORT_PUBLISHERS
+    if publisher not in EXPORT_PUBLISHERS:
+        raise ValueError('请选择 CurseForge、Modrinth 或混合来源')
     root = Path(directory).resolve() / 'versions' / identity
     metadata_path = root / f'{identity}.json'
     if not root.is_dir() or not metadata_path.is_file():
@@ -162,6 +175,7 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
         'dependencies': dependencies,
         'recommendedRam': pack_metadata.get('recommendedRam', 0),
         'exportMode': mode,
+        'downloadPublisher': publisher,
         'files': [],
     }
     resource_records = {}
@@ -233,10 +247,14 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
             mod_downloads = {}
             if mode == 'compact':
                 mods = []
+                from core.mod_identity import jar_mods
                 for source, relative, size in portable:
                     if relative.parts[0].casefold() != 'mods':
                         continue
-                    report('正在计算模组哈希 ' + relative.name, force=True)
+                    identities = jar_mods(source)
+                    label = (' · '.join(filter(None, (identities[0]['name'], identities[0]['version'])))
+                             if identities else relative.name)
+                    report('正在识别模组 ' + label, force=True)
                     digest = hashlib.sha1()
                     with source.open('rb') as input_stream:
                         for chunk in iter(lambda: input_stream.read(1024 * 1024), b''):
@@ -244,15 +262,17 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                             digest.update(chunk)
                             report('正在计算模组哈希 ' + relative.name, len(chunk))
                     mods.append({'source': source, 'path': relative.as_posix(),
-                                 'sha1': digest.hexdigest(), 'size': size})
+                                 'sha1': digest.hexdigest(), 'size': size, 'identity': identities})
                 if mods:
-                    report('正在查询 Modrinth 和 CurseForge 模组来源…', force=True)
+                    report('正在查询 ' + publisher + ' 模组来源…', force=True)
                     from core.modpack_sources import find_public_mod_downloads
                     lookup_start = done
                     def lookup_progress(label, completed, count):
                         target = lookup_start + query_work * completed // max(count, 1)
                         report(label, max(0, target - done), force=True)
-                    mod_downloads = find_public_mod_downloads(mods, cancel, progress=lookup_progress)
+                    from utils.storage_paths import game_cache
+                    mod_downloads = find_public_mod_downloads(mods, cancel, progress=lookup_progress,
+                        cache_file=game_cache(directory) / 'pack-fingerprints.json', publisher=publisher)
                     report('模组来源检查完成', max(0, lookup_start + query_work - done), force=True)
 
             for source, relative, size in portable:
@@ -271,11 +291,11 @@ def export_pack(directory, identity, destination, *, name=None, version='1.0.0',
                 record = resource_records.get(relative_name.casefold())
                 if relative.parts[0].casefold() == 'mods':
                     public = mod_downloads.get(relative_name)
-                    downloads = public['downloads'] if (public and public['size'] == size
+                    downloads = _export_download_urls(public['downloads'], publisher) if (public and public['size'] == size
                                 and public['sha1'] == sha1.hexdigest()) else []
                     external = mode == 'compact' and bool(downloads)
                 else:
-                    downloads = _valid_download_urls(record.get('downloads')) if isinstance(record, dict) else []
+                    downloads = _export_download_urls(record.get('downloads'), publisher) if isinstance(record, dict) else []
                     external = (mode == 'compact'
                                 and relative.parts[0].casefold() in _BUGGCRAFT_EXTERNAL_DIRECTORIES
                                 and downloads and isinstance(record, dict) and record.get('size') == size
@@ -548,8 +568,8 @@ class CurseForgeClient(CurseForgeAPI):
             link = f'https://www.curseforge.com/minecraft/mc-mods/{project_id}/files/{file_id}'
             if not item and project.get('classId') == 6 and unavailable is not None:
                 unavailable.append(dict(name=project.get('name') or f'CurseForge 模组 {project_id}',
-                    projectId=project_id, fileId=file_id,
-                    reason='模组未发布或已下架，未找到整合包指定的版本。'))
+                    projectId=project_id, fileId=file_id, pageUrl=link,
+                    reason='暂未获得这个模组版本的下载信息，请重试或向整合包作者索要。'))
                 continue
             if item.get('modId') != project_id:
                 raise ValueError(f'CurseForge 文件缺失或项目不匹配（项目 {project_id}，文件 {file_id}）：{link}')
@@ -564,7 +584,7 @@ class CurseForgeClient(CurseForgeAPI):
                 raise ValueError(f'整合包包含重名下载文件：{name}')
             names.add(relative.casefold())
             if folder == 'mods' and item.get('isEarlyAccessContent') and unavailable is not None:
-                unavailable.append(dict(path=relative, name=name, projectId=project_id, fileId=file_id,
+                unavailable.append(dict(path=relative, name=name, projectId=project_id, fileId=file_id, pageUrl=link,
                     reason='这个模组版本尚未公开发布，暂时无法下载。'))
                 continue
             url = download_url(item)
@@ -581,10 +601,13 @@ class CurseForgeClient(CurseForgeAPI):
 
 class ModpackImporter:
     def __init__(self, directory, source='自动', java=None, cancel=None, status=None, progress=None, api_key=None,
-                 content_source=None, file_event=None, unavailable_mods=None):
+                 content_source=None, file_event=None, unavailable_mods=None, download_mode='pack'):
         self.root = Path(directory).resolve()
         self.source, self.java = source, java
         self.content_source = content_source or '自动测速'
+        if download_mode not in ('pack', 'settings'):
+            raise ValueError('整合包下载模式无效')
+        self.download_mode = download_mode
         self.cancel = cancel if cancel is not None else threading.Event()
         self.status = status or (lambda value: None)
         self.progress = progress or (lambda done, total: None)
@@ -662,10 +685,12 @@ class ModpackImporter:
                                          status=self.status, progress=report_download, file_event=self.file_event,
                                          retries=6, allow_missing_mods=self.unavailable_mods is not None)
         downloader.content_source = self.content_source
-        downloader.resolve_content_sources = True
+        downloader.preserve_content_order = self.download_mode == 'pack'
+        downloader.resolve_content_sources = self.download_mode == 'settings'
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
         if info.source in ('Modrinth', 'Buggcraft'):
+            downloader.required_hashes = {item['path']: item['hashes'] for item in info.files}
             downloader.file_mirrors = {item['downloads'][0]: item['downloads'][1:]
                                        for item in info.files if item.get('downloads')}
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix='modpack-resources') as pool:
@@ -683,21 +708,37 @@ class ModpackImporter:
                 self.cancel.set()
                 raise
 
-    def _approve_missing_mods(self, downloader):
-        missing = self._metadata_missing_mods + downloader.missing_mods
-        if not missing or self.skipped_mods:
-            return
-        self.check()
-        if self.unavailable_mods is None or self.unavailable_mods([dict(item) for item in missing]) is not True:
-            self.cancel.set()
-            raise DownloadCancelled('已停止整合包导入，已下载文件会在重试时复用。')
-        self.check()
-        self.skipped_mods = [dict(item) for item in missing]
-        self._skipped_paths = {item['path'] for item in missing if item.get('path')}
-        for item in self.skipped_mods:
-            if item.get('path'):
-                downloader._file_event(item['path'], 'skipped', error='已确认跳过；联机前请按房主实际使用情况补齐。')
-            self.status('已跳过模组：' + item['name'])
+    def _approve_missing_mods(self, downloader, jobs):
+        while not self.skipped_mods:
+            missing = self._metadata_missing_mods + downloader.missing_mods
+            if not missing:
+                return
+            self.check()
+            answer = self.unavailable_mods([dict(item) for item in missing]) if self.unavailable_mods else False
+            self.check()
+            if answer == 'retry':
+                self.status('正在重试未完成的模组…')
+                if self._metadata_missing_mods:
+                    refs = [(item['projectId'], item['fileId']) for item in self._metadata_missing_mods]
+                    self._metadata_missing_mods = []
+                    resolved = self.client.resolve(refs, unavailable=self._metadata_missing_mods)
+                    jobs.extend(resolved)
+                    downloader.curseforge_fallbacks.update(getattr(self.client, 'fallback_urls', {}))
+                    downloader._batch(resolved, '正在下载未完成的模组…')
+                downloader.retry_missing()
+                continue
+            if isinstance(answer, dict) and answer.get('action') == 'manual':
+                downloader.supply_mod(answer.get('path', ''), answer.get('file', ''))
+                continue
+            if answer is not True:
+                self.cancel.set()
+                raise DownloadCancelled('已停止整合包导入，已下载文件会在重试时复用。')
+            self.skipped_mods = [dict(item) for item in missing]
+            self._skipped_paths = {item['path'] for item in missing if item.get('path')}
+            for item in self.skipped_mods:
+                if item.get('path'):
+                    downloader._file_event(item['path'], 'skipped', error='已确认跳过；联机前请按房主实际使用情况补齐。')
+                self.status('已跳过模组：' + item['name'])
 
     def _is_skipped(self, path):
         return path in self._skipped_paths
@@ -803,7 +844,7 @@ class ModpackImporter:
                 vanilla.add_done_callback(show_pending_resources)
                 try:
                     future.result()
-                    self._approve_missing_mods(downloader)
+                    self._approve_missing_mods(downloader, jobs)
                     self._verify_external_files(info, downloader)
                     self.check()
                     vanilla.result()
@@ -835,10 +876,11 @@ class ModpackImporter:
             self.status('[3/5] 正在等待整合包模组和资源下载完成…')
             self.progress(*download_progress)
         future.result()
-        self._approve_missing_mods(downloader)
+        self._approve_missing_mods(downloader, jobs)
         if info.source not in ('Modrinth', 'Buggcraft'):
             self._verify_external_files(info, downloader)
         self.check()
+        resources = self._resource_records(info, jobs, downloader)
         stage = disk_path(tempfile.mkdtemp(prefix='instance-', dir=cache))
         try:
             for url, relative, sha1, size in jobs:
@@ -925,6 +967,8 @@ class ModpackImporter:
                                             'resources': [item for item in resources if not self._is_skipped(item['path'])]}
             if self.skipped_mods:
                 metadata['buggcraftModpack']['skippedMods'] = self.skipped_mods
+                from core.modpack_missing import missing_mods_text
+                (stage / '缺失模组清单.txt').write_text(missing_mods_text(self.skipped_mods, identity), encoding='utf-8')
             # Display metadata is optional for aliases. Include it when available
             # for compatibility with other launchers, without inventing dates.
             for key in ('type', 'time', 'releaseTime'):

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import zipfile
 
 from core.modpacks import CurseForgeClient, ModpackImporter, inspect_pack
-from core.downloads import MinecraftDownloader, _DownloadSession, _MirrorHealth
+from core.downloads import MinecraftDownloader, _DownloadSession
 
 
 class ModrinthImportTests(unittest.TestCase):
@@ -20,12 +20,6 @@ class ModrinthImportTests(unittest.TestCase):
         vanilla = patch.object(ModpackImporter, '_install_vanilla', return_value=None)
         vanilla.start()
         self.addCleanup(vanilla.stop)
-        # This fixture tests mirror fallback, not the route speed probe. Keep
-        # requests on loopback and independent of earlier tests' outage cache.
-        for patcher in (patch('core.downloads._CONTENT_HEALTH', _MirrorHealth()),
-                        patch('core.downloads._rank_content_candidates', side_effect=lambda urls, source: urls)):
-            patcher.start()
-            self.addCleanup(patcher.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -74,11 +68,11 @@ class ModrinthImportTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         original_get = _DownloadSession.get
         def local_get(session, url, **kwargs):
-            self.assertTrue(url.startswith(('https://mod.mcimirror.top/fixture/', 'https://mod.mcimirror.top/files/',
+            self.assertTrue(url.startswith(('https://edge.forgecdn.net/files/', 'https://mediafilez.forgecdn.net/files/',
                                            'https://cdn.modrinth.com/fixture/')))
-            return original_get(session, url.replace('https://mod.mcimirror.top',
-                         f'http://127.0.0.1:{server.server_port}').replace('https://cdn.modrinth.com',
-                         f'http://127.0.0.1:{server.server_port}').replace('/fixture/', '/'), **kwargs)
+            from urllib.parse import urlsplit
+            return original_get(session, f'http://127.0.0.1:{server.server_port}'
+                + urlsplit(url).path.replace('/fixture/', '/'), **kwargs)
         return patch.object(_DownloadSession, 'get', local_get), hits
 
     def test_real_download_hashes_layers_client_environment_and_client_jar(self):
@@ -113,12 +107,11 @@ class ModrinthImportTests(unittest.TestCase):
         http, hits = self.server()
         with http, patch('core.modpacks.install_loader', side_effect=self.loader):
             ModpackImporter(self.game).install(self.archive, 'Mirrors')
-        # A rejected mirror is retried once through the publisher before moving
-        # to the next URL; both routes stay inside this local HTTP fixture.
-        self.assertEqual(hits.count('/broken'), 2)
+        # A permanent 404 moves straight to the next manifest address.
+        self.assertEqual(hits.count('/broken'), 1)
         self.assertIn('/mods/example.jar', hits)
 
-    def test_zip_with_forge_cdn_files_imports_through_domestic_mirror(self):
+    def test_zip_with_forge_cdn_files_imports_directly_from_manifest(self):
         self.archive = self.root / 'pack.zip'
         self.manifest['files'][0]['downloads'] = ['https://edge.forgecdn.net/files/100/20/example.jar',
                                                    'https://cdn.modrinth.com/fixture/mods/example.jar']

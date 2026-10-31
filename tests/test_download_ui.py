@@ -28,6 +28,15 @@ REAL_DOWNLOAD_URLS = MinecraftDownloader.urls
 class DownloadChecklistUiTests(_DownloadCase):
     KINDS = ("game", "mod", "resourcepack", "shader", "modpack")
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import os
+        if os.name == 'nt' and cls.app.platformName() == 'offscreen':
+            from PySide6.QtGui import QFontDatabase, QFont
+            QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
+            cls.app.setFont(QFont('Microsoft YaHei'))
+
     def setUp(self):
         super().setUp()
         self._subtest_failed = False
@@ -463,7 +472,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.assert_no_qml_errors()
         self.finish_test()
 
-    def exported_compact_pack(self):
+    def exported_compact_pack(self, publisher='CurseForge'):
         """Export with production code, then import that exact archive via QML."""
         from core.content_records import record_content
         from core.modpacks import export_pack
@@ -478,16 +487,17 @@ class DownloadChecklistUiTests(_DownloadCase):
             target = instance / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payload)
-            record_content(instance, target, ['https://cdn.modrinth.com/data/fixture/' + target.name])
+            record_content(instance, target, ['https://edge.forgecdn.net/files/123/4/' + target.name,
+                'https://cdn.modrinth.com/data/fixture/versions/test/' + target.name])
             self.fixtures.payloads[target.name] = payload
         (instance / 'config').mkdir()
         (instance / 'config/exported.txt').write_text('production export', encoding='utf-8')
         archive = self.directory / 'exported-compact.buggpack'
         self._patch(patch('core.modpack_sources.find_public_mod_downloads', return_value={}))
-        export_pack(source, '1.21.8', archive)
+        export_pack(source, '1.21.8', archive, publisher=publisher)
         original_route = self.fixtures.route
         def route(downloader, url):
-            if url.startswith('https://cdn.modrinth.com/data/fixture/'):
+            if url.startswith(('https://edge.forgecdn.net/files/123/4/', 'https://cdn.modrinth.com/data/fixture/versions/test/')):
                 return [f'http://127.0.0.1:{self.fixtures.server.server_port}/' + url.rsplit('/', 1)[-1]]
             return original_route(downloader, url)
         self._patch(patch('core.downloads.MinecraftDownloader.urls', route))
@@ -498,12 +508,13 @@ class DownloadChecklistUiTests(_DownloadCase):
         attempts = []
         original_get = _DownloadSession.get
         def route(downloader, url):
-            if url.startswith('https://cdn.modrinth.com/data/fixture/'):
+            if url.startswith(('https://edge.forgecdn.net/files/123/4/', 'https://cdn.modrinth.com/data/fixture/versions/test/')):
                 return REAL_DOWNLOAD_URLS(downloader, url)
             return self.fixtures.route(downloader, url)
         def get(session, url, **kwargs):
-            if url.startswith(('https://cdn.modrinth.com/data/fixture/',
-                               'https://mod.mcimirror.top/data/fixture/')):
+            if url.startswith(('https://edge.forgecdn.net/files/123/4/',
+                               'https://mediafilez.forgecdn.net/files/123/4/',
+                               'https://cdn.modrinth.com/data/fixture/versions/test/')):
                 attempts.append({'url': url, 'range': kwargs.get('headers', {}).get('Range')})
                 response = original_get(session, f'http://127.0.0.1:{self.fixtures.server.server_port}/'
                                         + url.rsplit('/', 1)[-1], **kwargs)
@@ -534,6 +545,23 @@ class DownloadChecklistUiTests(_DownloadCase):
             self.check((target / name).read_bytes() == payload, 'own export resource restored: ' + name)
         self.check(len(tasks._tasks) == 1 and (target / 'config/exported.txt').is_file(),
                    'retry finishes the same task and publishes portable settings')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_import_form_download_policy_is_passed_to_worker_and_retained_on_retry(self):
+        archive, _ = self.exported_compact_pack()
+        host, controller = self.open_import(archive)
+        self.check(controller.pack_download_mode == 'pack', 'new import defaults to package addresses')
+        self.click_ui(host, 'pack-download-mode')
+        self.key_ui(host, Qt.Key_End, 'choose-settings-download-mode')
+        self.key_ui(host, Qt.Key_Return, 'confirm-settings-download-mode')
+        self.check(controller.pack_download_mode == 'settings', 'form changes the real import policy')
+        self.screenshot_ui('import-download-policy-form', host)
+        self.text_ui(host, 'pack-instance-name', 'selected-download-policy')
+        self.click_ui(host, 'start-pack-import')
+        task = self.finished_task()
+        self.check(task['pack_download_mode'] == 'settings', 'task retains the selected policy')
+        self.screenshot_ui('import-selected-download-policy')
         self.assert_no_qml_errors()
         self.finish_test()
 
@@ -570,7 +598,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.finish_test()
 
     def test_import_switches_source_while_stream_is_blocked_and_reuses_files(self):
-        archive, resources = self.exported_compact_pack()
+        archive, resources = self.exported_compact_pack(publisher='混合')
         attempts = self.trace_pack_download_sources()
         filename = 'resume-resources.zip'
         started, release = Event(), Event()
@@ -588,20 +616,26 @@ class DownloadChecklistUiTests(_DownloadCase):
         settings.ensure_loaded()
         self.fixtures.pauses.pop(filename)
         before = time.monotonic()
-        settings.controller.setValue('settings.general.content_mirror', 'MCIM')
+        settings.controller.setValue('settings.general.content_mirror', 'Modrinth')
+        self.check(tasks._workers.get(task['id']) is old_worker,
+                   'pack-first mode does not change addresses when global preferences change')
+        self.window.download_page.on_progress_clicked()
+        self.click_ui(tasks, 'task-pack-mode-' + task['id'])
+        self.key_ui(tasks, Qt.Key_End, 'select-settings-source')
+        self.key_ui(tasks, Qt.Key_Return, 'confirm-settings-source')
         self.wait_for(lambda: tasks._workers.get(task['id']) is not old_worker,
                       'source change wakes the blocked socket and restarts the same task', timeout=5000)
         self.check(time.monotonic() - before < 5, 'source change does not wait for the old 30 second read timeout')
         release.set()
         self.finished_task(task)
-        self.check(task['content_source'] == 'MCIM' and len(tasks._tasks) == 1,
+        self.check(task['content_source'] == 'Modrinth' and task['pack_download_mode'] == 'settings' and len(tasks._tasks) == 1,
                    'new source is used without duplicating the import task')
         requests = [r for r in self.fixtures.requests if r['file'] == filename]
         self.check(len(requests) == 2 and requests[-1]['range'] is not None,
                    'source change resumes the resource from its existing byte offset')
         source_requests = [r for r in attempts if r['url'].endswith(filename)]
         self.check([r['url'].split('/')[2] for r in source_requests] ==
-                   ['cdn.modrinth.com', 'mod.mcimirror.top'],
+                   ['edge.forgecdn.net', 'cdn.modrinth.com'],
                    'active source switch changes the actual requested download host')
         self.check(len([r for r in self.fixtures.requests if r['file'] == 'resume-shader.zip']) == 1,
                    'already verified resources are not downloaded again')
@@ -612,7 +646,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.finish_test()
 
     def test_cancel_change_source_then_continue_import_uses_new_host_and_range(self):
-        archive, resources = self.exported_compact_pack()
+        archive, resources = self.exported_compact_pack(publisher='混合')
         attempts = self.trace_pack_download_sources()
         filename = 'resume-resources.zip'
         started, release = Event(), Event()
@@ -630,17 +664,20 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.click_ui(self.window.settings_page.tab_buttons_widget, 'navigation-option-0')
         settings = self.window.settings_page.stack.currentWidget()
         settings.ensure_loaded()
-        settings.controller.setValue('settings.general.content_mirror', 'MCIM')
+        settings.controller.setValue('settings.general.content_mirror', 'Modrinth')
         self.fixtures.pauses.pop(filename)
         release.set()
         self.window.download_page.on_progress_clicked()
+        self.click_ui(tasks, 'task-pack-mode-' + task['id'])
+        self.key_ui(tasks, Qt.Key_End, 'select-settings-source')
+        self.key_ui(tasks, Qt.Key_Return, 'confirm-settings-source')
         self.click_ui(tasks, 'task-action-' + task['id'])
         self.finished_task(task)
         requests = [r for r in attempts if r['url'].endswith(filename)]
         self.check([r['url'].split('/')[2] for r in requests] ==
-                   ['cdn.modrinth.com', 'mod.mcimirror.top'] and requests[-1]['range'] is not None,
+                   ['edge.forgecdn.net', 'cdn.modrinth.com'] and requests[-1]['range'] is not None,
                    'cancel and resume requests the new source with the previous byte offset')
-        self.check(len(tasks._tasks) == 1 and task['content_source'] == 'MCIM',
+        self.check(len(tasks._tasks) == 1 and task['content_source'] == 'Modrinth' and task['pack_download_mode'] == 'settings',
                    'continue reuses the original task and latest source preference')
         for name, payload in resources.items():
             self.check((self.game_dir / 'versions/canceled-source-switch' / name).read_bytes() == payload,

@@ -1,7 +1,11 @@
 """Ask on the UI thread while an import worker waits for an explicit choice."""
 import threading
+from pathlib import Path
+from urllib.parse import urlsplit
 
-from PySide6.QtCore import QObject, QTimer, Qt, Slot
+from PySide6.QtCore import QObject, QTimer, Qt, QUrl, Slot
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QFileDialog
 
 from core.downloads import DownloadCancelled
 
@@ -11,10 +15,16 @@ class MissingModDecision:
         self.mods = [dict(item) for item in mods]
         self._answered = threading.Event()
         self.accepted = False
+        self.result = False
+
+    @property
+    def answered(self):
+        return self._answered.is_set()
 
     def answer(self, accepted):
         if not self._answered.is_set():
             self.accepted = accepted is True
+            self.result = accepted
             self._answered.set()
 
     def wait(self, cancel):
@@ -23,7 +33,7 @@ class MissingModDecision:
                 raise DownloadCancelled('整合包导入已取消，已下载文件会保留。')
         if cancel.is_set():
             raise DownloadCancelled('整合包导入已取消，已下载文件会保留。')
-        return self.accepted
+        return self.result
 
 
 class MissingModPrompts(QObject):
@@ -56,14 +66,16 @@ class MissingModPrompts(QObject):
             self._open_next()
             return
         task = self.page._find_task(task_id)
-        task['status'] = '有模组暂时无法下载，等待选择是否跳过…'
+        task['status'] = '有模组待补齐，可重试、手动下载或选择继续…'
         self.page._log(task, task['status'])
         self.page._persist_and_refresh()
         from ui.dialog.qml_dialog import QmlDialog
         dialog = QmlDialog(self.page.window(), resources=self.page.resource_path,
-            title='有模组暂时无法下载', width=550, height=min(500, 350 + len(decision.mods) * 50),
+            title='还有模组待补齐', width=620, height=min(620, 330 + len(decision.mods) * 110),
             source='MissingModsDialog.qml', data=dict(mods=decision.mods, instance=task['version']),
-            actions=['停止导入', '跳过并继续'], primary_action='跳过并继续')
+            actions=['停止导入', '重试失败项', '跳过并继续'], primary_action='重试失败项')
+        from core.modpack_missing import missing_mods_text
+        dialog.controller.code = missing_mods_text(decision.mods, task['version'])
         dialog.setWindowModality(Qt.WindowModal)
         self.dialog, self.current = dialog, (task_id, decision)
 
@@ -78,9 +90,43 @@ class MissingModPrompts(QObject):
                 dialog.accept()
             elif name == '停止导入':
                 dialog.reject()
+            elif name == '重试失败项':
+                decision.answer('retry')
+                dialog.accept()
+            elif name == '保存清单':
+                filename, _ = QFileDialog.getSaveFileName(dialog, '保存缺失模组清单',
+                    '缺失模组清单-' + task['version'] + '.txt', '文本文件 (*.txt)')
+                if filename:
+                    try:
+                        Path(filename).write_text(dialog.controller.code, encoding='utf-8')
+                    except OSError:
+                        dialog.controller.data['notice'] = '清单保存失败，请选择其他位置。'
+                    else:
+                        dialog.controller.data['notice'] = '清单已保存，可稍后继续补齐。'
+                    dialog.controller.changed.emit()
+            elif name.startswith(('手动补齐:', '打开下载:')):
+                try:
+                    item = decision.mods[int(name.split(':', 1)[1])]
+                except (ValueError, IndexError):
+                    return
+                if name.startswith('打开下载:'):
+                    url = item.get('pageUrl') or next(iter(item.get('downloads', [])), '')
+                    parsed = urlsplit(url)
+                    if (parsed.scheme == 'https' and not parsed.username and not parsed.password
+                            and parsed.port in (None, 443)
+                            and parsed.hostname in ('modrinth.com', 'www.curseforge.com', 'github.com',
+                                'raw.githubusercontent.com', 'gitlab.com',
+                                'cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net')):
+                        QDesktopServices.openUrl(QUrl(url))
+                elif item.get('canSupply'):
+                    filename, _ = QFileDialog.getOpenFileName(dialog, '选择已下载的 ' + item['name'],
+                                                             '', 'Java 模组 (*.jar);;所有文件 (*)')
+                    if filename:
+                        decision.answer(dict(action='manual', path=item['path'], file=filename))
+                        dialog.accept()
 
         def closed(_result):
-            if not decision.accepted:
+            if not decision.answered:
                 if task['state'] in self.page.ACTIVE and task_id in self.page._workers:
                     self.page.task_action(task_id)
                 decision.answer(False)

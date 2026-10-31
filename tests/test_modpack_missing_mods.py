@@ -13,7 +13,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
 from core.downloads import DownloadCancelled, DownloadSourcesExhausted, MinecraftDownloader
-from core.modpack_missing import unavailable_mod
+from core.modpack_missing import unavailable_mod, recoverable_mod_download
 from core.modpacks import CurseForgeClient, ModpackImporter, export_pack
 from client_ui_fixtures import ClientUiFixtures
 
@@ -136,6 +136,87 @@ class MissingModImportTests(unittest.TestCase):
         self.assertEqual(decisions, [])
         self.assertFalse((self.game / 'versions/Resources').exists())
 
+    def test_server_error_is_collected_without_losing_other_mods(self):
+        archive = self.pack()
+        self.fixtures.failure_statuses = {'missing.jar': 503}
+        decisions = []
+        importer = ModpackImporter(self.game, content_source='官方',
+            unavailable_mods=lambda mods: decisions.append(mods) or True)
+        importer.install(archive, 'Network-Failure')
+        self.assertIn('503', decisions[0][0]['reason'])
+        target = self.game / 'versions/Network-Failure'
+        self.assertEqual((target / 'mods/available.jar').read_bytes(), self.fixtures.payloads['available.jar'])
+        report = (target / '缺失模组清单.txt').read_text(encoding='utf-8')
+        self.assertIn('missing.jar', report)
+        self.assertIn(decisions[0][0]['hashes']['sha256'], report)
+        self.assertIn('https://cdn.modrinth.com/data/fixture/missing.jar', report)
+
+    def test_retry_failed_mod_only_then_finishes_without_skip(self):
+        archive = self.pack()
+        decisions = []
+        before = []
+        def retry(mods):
+            decisions.append(mods)
+            before.append(sum(row['file'] == 'available.jar' for row in self.fixtures.requests))
+            self.fixtures.failures.clear()
+            return 'retry'
+        importer = ModpackImporter(self.game, content_source='官方', unavailable_mods=retry)
+        importer.install(archive, 'Retry-In-Place')
+        target = self.game / 'versions/Retry-In-Place'
+        self.assertEqual((target / 'mods/missing.jar').read_bytes(), self.fixtures.payloads['missing.jar'])
+        self.assertEqual(before[0], sum(row['file'] == 'available.jar' for row in self.fixtures.requests))
+        self.assertEqual(importer.skipped_mods, [])
+        self.assertFalse((target / '缺失模组清单.txt').exists())
+
+    def test_manual_file_must_match_all_manifest_hashes_before_install(self):
+        archive = self.pack()
+        wrong = self.root / 'wrong.jar'
+        correct = self.root / 'correct.jar'
+        payload = self.fixtures.payloads['missing.jar']
+        wrong.write_bytes(b'X' * len(payload))
+        correct.write_bytes(payload)
+        decisions = []
+        def supply(mods):
+            decisions.append(mods)
+            return dict(action='manual', path='mods/missing.jar',
+                        file=str(wrong if len(decisions) == 1 else correct))
+        importer = ModpackImporter(self.game, content_source='官方', unavailable_mods=supply)
+        importer.install(archive, 'Manual-Repair')
+        self.assertEqual(len(decisions), 2)
+        self.assertIn('校验不匹配', decisions[1][0]['reason'])
+        self.assertEqual(decisions[0][0]['hashes']['sha256'], hashlib.sha256(payload).hexdigest())
+        self.assertEqual((self.game / 'versions/Manual-Repair/mods/missing.jar').read_bytes(), payload)
+        self.assertEqual(importer.skipped_mods, [])
+        self.assertEqual(correct.read_bytes(), payload, 'manual repair must not move the user download')
+        self.assertFalse(list(self.game.rglob('.manual-mod-*')))
+
+    def test_curseforge_metadata_retry_downloads_exact_file_and_updates_receipt(self):
+        archive = self.root / 'metadata-retry.zip'
+        payload = b'actual recovered CF publication'
+        self.fixtures.payloads['recovered.jar'] = payload
+        with zipfile.ZipFile(archive, 'w') as output:
+            output.writestr('manifest.json', json.dumps(dict(manifestType='minecraftModpack',
+                manifestVersion=1, minecraft={'version': '1.21.8', 'modLoaders': []},
+                files=[dict(projectID=10, fileID=20, required=True)])))
+        available = [False]
+        def metadata(route, _body):
+            if route == '/mods':
+                return [dict(id=10, classId=6, name='Recovered mod', allowModDistribution=False)]
+            return [dict(id=20, modId=10, fileName='recovered.jar', fileLength=len(payload),
+                         downloadUrl=ClientUiFixtures.ORIGIN + '/recovered.jar',
+                         hashes=[dict(algo=1, value=hashlib.sha1(payload).hexdigest())])] if available[0] else []
+        def retry(_mods):
+            available[0] = True
+            return 'retry'
+        with patch.object(CurseForgeClient, 'post', side_effect=metadata), \
+                patch('core.modpacks.download_url', return_value=ClientUiFixtures.ORIGIN + '/recovered.jar'):
+            importer = ModpackImporter(self.game, content_source='官方', unavailable_mods=retry)
+            importer.install(archive, 'Metadata-Retry')
+        target = self.game / 'versions/Metadata-Retry'
+        self.assertEqual((target / 'mods/recovered.jar').read_bytes(), payload)
+        receipt = json.loads((target / 'buggcraft-modpack.json').read_text(encoding='utf-8'))
+        self.assertEqual(receipt['resources'][0]['path'], 'mods/recovered.jar')
+
     def test_corrupt_mod_does_not_offer_skip(self):
         decisions = []
         archive = self.pack(paths=('mods/available.jar',))
@@ -161,6 +242,17 @@ class MissingModImportTests(unittest.TestCase):
 
 
 class MissingModPolicyTests(unittest.TestCase):
+    def test_remote_failures_allow_explicit_repair_but_local_and_integrity_errors_do_not(self):
+        for error, expected in [(requests.Timeout('slow'), True), (requests.ConnectionError('reset'), True),
+                                (requests.HTTPError(response=type('R', (), {'status_code': 403})()), True),
+                                (ValueError('SHA1 mismatch'), False), (PermissionError('denied'), False)]:
+            with self.subTest(error=error):
+                self.assertEqual(recoverable_mod_download('mods/test.jar', error), expected)
+                self.assertFalse(recoverable_mod_download('libraries/test.jar', error))
+                self.assertFalse(recoverable_mod_download('resourcepacks/test.jar', error))
+        self.assertFalse(recoverable_mod_download('mods/test.jar', DownloadSourcesExhausted(
+            'failed', source_errors=[requests.Timeout('slow'), ValueError('SHA1 mismatch')])))
+        self.assertFalse(recoverable_mod_download('mods/test.jar', DownloadSourcesExhausted('failed')))
     def test_all_sources_must_confirm_missing_before_a_mod_can_be_skipped(self):
         missing = requests.HTTPError(response=type('Response', (), {'status_code': 404})())
         gone = requests.HTTPError(response=type('Response', (), {'status_code': 410})())

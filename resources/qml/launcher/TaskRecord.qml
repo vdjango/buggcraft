@@ -43,6 +43,20 @@ ListRow {
             spacing: 5
             RowLayout {
                 Layout.fillWidth: true
+                visible: (!!root.modelData.modpack || (root.modelData.content && root.modelData.content.kind === "modpack")) && root.modelData.state !== "已完成"
+                Label { text: "下载方式"; color: "#bcb6d0"; font.pixelSize: 11 }
+                ChoiceBox {
+                    objectName: "task-pack-mode-" + root.modelData.id
+                    Layout.preferredWidth: 235; implicitHeight: 28
+                    model: ["优先整合包内地址", "使用设置中的下载源"]
+                    currentIndex: root.modelData.pack_download_mode === "settings" ? 1 : 0
+                    enabled: root.modelData.state !== "正在取消"
+                    onActivated: taskHistory.setPackDownloadMode(root.modelData.id, currentIndex === 1 ? "settings" : "pack")
+                }
+                Item { Layout.fillWidth: true }
+            }
+            RowLayout {
+                Layout.fillWidth: true
                 Label { objectName: "task-status-" + root.modelData.id; Layout.fillWidth: true; text: root.modelData.error || (root.active && root.modelData.modpack && root.modelData.status === "安装完成" ? "正在完成整合包安装…" : root.modelData.status || ""); color: root.modelData.error ? "#ff9b91" : "#b3ffffff"; font.pixelSize: 11; elide: Text.ElideRight }
                 Label { objectName: "task-speed-" + root.modelData.id; visible: root.active; text: (root.modelData.speed || 0) >= 1048576 ? (root.modelData.speed / 1048576).toFixed(2) + " MiB/s" : ((root.modelData.speed || 0) / 1024).toFixed(1) + " KiB/s"; color: "#b9d5c5"; font.pixelSize: 11 }
                 Label { objectName: "task-progress-" + root.modelData.id; text: root.active && root.modelData.maximum > 0 ? "阶段进度 " + Math.max(0, Math.min(99, Math.round((root.modelData.progress || 0) * 100 / root.modelData.maximum))) + "%" : (root.modelData.created_at || "").substring(0, 10); color: "#a99fb8"; font.pixelSize: 11 }

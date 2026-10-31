@@ -531,7 +531,7 @@ class RealMinecraftUiTests(_UiCase):
         (instance / 'config/roundtrip.json').write_text('{"roundtrip":true}')
         (instance / 'options.txt').write_text(
             'lang:en_us\nresourcePacks:["vanilla","file/buggpack-acceptance.zip"]\n')
-        url = 'https://cdn.modrinth.com/data/acceptance/buggpack-acceptance.zip'
+        url = 'https://edge.forgecdn.net/files/123/4/buggpack-acceptance.zip'
         self.fixtures.payloads['buggpack-acceptance.zip'] = resource.read_bytes()
         route = self.fixtures.route
         self._patch(patch.object(self.fixtures, 'route', lambda downloader, value:

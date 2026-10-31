@@ -114,6 +114,7 @@ class ContentBrowserController(QObject):
         self.selected_project = None
         self.pack_path = ""
         self.pack_name = ""
+        self.pack_download_mode = 'pack'
         self.pack_summary = "支持 Buggcraft、CurseForge 和 Modrinth 整合包，可拖入启动器任意页面。"
         self.pack_error = ""
         self.pack_inspecting = False
@@ -166,7 +167,7 @@ class ContentBrowserController(QObject):
     def viewState(self):
         return {key: getattr(self, key) for key in (
             'kind', 'status', 'busy', 'results', 'versions', 'selected_version',
-            'selected_project', 'pack_path', 'pack_name', 'pack_summary', 'pack_error',
+            'selected_project', 'pack_path', 'pack_name', 'pack_summary', 'pack_error', 'pack_download_mode',
             'pack_inspecting', 'view', 'import_directory', 'source', 'query', 'has_more', 'details_busy', 'file_query',
             'translation_enabled', 'translation_status', 'show_original')} | {
                 'instance': self.settings.get_setting('minecraft.version.enable') or '尚未选择',
@@ -771,6 +772,12 @@ class ContentBrowserController(QObject):
         self.pack_name = name.strip()
         self.pack_error = ''
 
+    @Slot(str)
+    def setPackDownloadMode(self, mode):
+        if mode in ('pack', 'settings'):
+            self.pack_download_mode = mode
+            self.changed.emit()
+
     @Slot()
     def importPack(self):
         if self.pack_inspecting:
@@ -788,7 +795,7 @@ class ContentBrowserController(QObject):
                 self._show_import_conflict(directory)
                 return
             started = self.download_pages.tasks_page.start_install(
-                self.pack_name, directory, modpack=self.pack_path)
+                self.pack_name, directory, modpack=self.pack_path, pack_download_mode=self.pack_download_mode)
             if started:
                 self.status = "整合包导入任务已开始，可在任务页查看进度。"
                 self.pageRequested.emit("tasks")
@@ -827,7 +834,8 @@ class ContentBrowserController(QObject):
                     return
                 self.pack_name = name
                 self.changed.emit()
-                started = self.download_pages.tasks_page.start_install(name, directory, modpack=self.pack_path)
+                started = self.download_pages.tasks_page.start_install(name, directory, modpack=self.pack_path,
+                    pack_download_mode=self.pack_download_mode)
                 if started:
                     self.status = '整合包导入任务已开始，可在任务页查看进度。'
                     self.pageRequested.emit('tasks')

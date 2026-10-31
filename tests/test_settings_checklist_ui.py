@@ -90,7 +90,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
             id='1.21.8', type='release', releaseTime='2026-01-01T00:00:00Z',
             **file('1.21.8.json'))]}).encode()
         trusted = {urlsplit(value).hostname for value in (
-            downloads.MANIFEST_URL, downloads.MIRROR, downloads.CONTENT_MIRROR,
+            downloads.MANIFEST_URL, downloads.MIRROR,
             MCMIRROR, self.fixtures.ORIGIN, 'https://piston-data.mojang.com',
             'https://cdn.modrinth.com')}
 
@@ -112,13 +112,11 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
         self._patch(patch('core.content_routes.resolve_download_urls',
                           side_effect=lambda addresses, *args, **kwargs: addresses))
         # Deterministic probe results exercise the real ranking policy. They
-        # make no claim about current public MCIM/CDN throughput.
+        # make no claim about current public CDN throughput.
         downloads._CONTENT_ROUTE_CACHE.clear()
         self.addCleanup(downloads._CONTENT_ROUTE_CACHE.clear)
-        self._patch(patch.object(downloads, '_CONTENT_HEALTH', downloads._MirrorHealth()))
         self._patch(patch.object(downloads, '_measure_content_route',
-                                lambda url: 900_000 if urlsplit(url).hostname ==
-                                urlsplit(downloads.CONTENT_MIRROR).hostname else 1_000_000))
+                                lambda url: 1_000_000))
 
     def test_settings_entry_all_tabs_sidebar_and_return(self):
         for index, kind in ((0, 'general'), (1, 'global'), (2, 'java'), (3, 'about')):
@@ -238,7 +236,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
         self._patch(patch('core.content.ContentCatalogue.project',
                           lambda _client, *args, **kwargs: catalogue.project(*args, **kwargs)))
         folders = dict(mod='mods', resourcepack='resourcepacks', shader='shaderpacks')
-        for index, source in enumerate(('自动测速', 'CurseForge', 'Modrinth', 'MCIM')):
+        for index, source in enumerate(('CurseForge', 'Modrinth', '自动（CurseForge 优先）')):
             for kind in self.KINDS[1:]:
                 with self.subTest(source=source, kind=kind):
                     general = self.settings_tab(0)
@@ -289,7 +287,7 @@ class SettingsChecklistUiTests(settings_ui.ClientUiSettingsTests):
                                'source selection is followed by actual HTTP content transfer')
                     content_hosts = [row['host'] for row in requests if row['file'] == filename]
                     self.check(bool(content_hosts), 'the selected archive is downloaded through the production router')
-                    self.check(content_hosts[0] in ('cdn.modrinth.com', 'mod.mcimirror.top'),
+                    self.check(content_hosts[0] in ('cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'),
                                'automatic content uses a trusted route: ' + repr(content_hosts))
                     if source in ('CurseForge', 'Modrinth'):
                         self.check(content_hosts[0] == 'cdn.modrinth.com',

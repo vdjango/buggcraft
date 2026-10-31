@@ -113,7 +113,9 @@ jobs:
           # lifetime per module just as in the UI and packaging steps.
           for name in ('test_download_transport', 'test_download_locks', 'test_download_concurrency',
                        'test_loader_catalogue', 'test_loader_catalogue_regressions', 'test_download_error_presentation',
-                       'test_modpack_import', 'test_modpack_missing_mods', 'test_room_mod_installation', 'test_room_launch_flow',
+                       'test_content_mirror_source', 'test_content_routes',
+                       'test_mod_identity', 'test_modpack_sources', 'test_modpack_import', 'test_modpack_missing_mods',
+                       'test_room_mod_installation', 'test_room_launch_flow',
                        'test_java_downloads', 'test_java_runtime_selection', 'test_update_client',
                        'test_launcher_updates'):
               log = Path('build/client-regression/' + name + '.log')

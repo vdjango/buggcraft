@@ -1,4 +1,6 @@
-# MCIM 启动器登记信息
+# MCIM 启动器登记信息（历史资料）
+
+2026-10-31 已移除 MCIM 接入，以下仅保留历史登记记录，不再作为当前配置或部署步骤。
 
 在 [MCIM 启动器登记帖](https://github.com/mcmod-info-mirror/mcim-rust-api/issues/12) 中提交以下信息：
 

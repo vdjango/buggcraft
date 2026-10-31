@@ -109,7 +109,7 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
         for key, values in (
                 ('settings.general.mirrors', ['自动（镜像优先，失败切换官方）', '官方', 'BMCLAPI',
                                               'MCMirror', '自动（官方优先，失败切换镜像）']),
-                ('settings.general.content_mirror', ['自动测速', 'CurseForge', 'Modrinth', 'MCIM'])):
+                ('settings.general.content_mirror', ['CurseForge', 'Modrinth', '自动（CurseForge 优先）'])):
             for index, expected in enumerate(values):
                 self.select_choice(page, key, index)
                 self.check(self.persisted().get_setting(key) == expected,

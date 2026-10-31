@@ -74,6 +74,9 @@ class ClientUiFixtures:
                 name = urlsplit(self.path).path.lstrip('/')
                 requested_range = self.headers.get('Range')
                 fixture.requests.append({'file': name, 'time': __import__('time').time(), 'range': requested_range})
+                if name in getattr(fixture, 'failure_statuses', {}):
+                    self.send_error(fixture.failure_statuses[name], 'UI fixture transfer failure')
+                    return
                 if name in fixture.failures or name not in fixture.payloads:
                     self.send_error(404, 'UI fixture unavailable')
                     return

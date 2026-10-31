@@ -16,11 +16,9 @@ CATALOGUE_SEARCH = ContentCatalogue.search
 class ContentBrowserTests(LauncherQmlCase):
     def setUp(self):
         super().setUp()
-        from core.downloads import _MirrorHealth
         # These cases verify the UI and real downloads from a loopback server.
         # Mirror ranking has separate tests; never probe public hosts here.
         for patcher in (
-            patch('core.downloads._CONTENT_HEALTH', _MirrorHealth()),
             patch('core.downloads._rank_content_candidates', side_effect=lambda urls, source: urls),
         ):
             patcher.start()

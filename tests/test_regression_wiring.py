@@ -51,6 +51,8 @@ class RegressionWiringTests(unittest.TestCase):
         for module in ('test_native_cutover', 'test_native_routes', 'test_native_bridge_runtime', 'test_diagnostics_ui',
                        'test_room_lobby_live_ui', 'test_download_transport', 'test_download_locks',
                        'test_instance_modpack_entry', 'test_modpack_drop', 'test_download_ui',
+                       'test_content_mirror_source', 'test_content_routes',
+                       'test_mod_identity', 'test_modpack_sources', 'test_modpack_missing_mods', 'test_modpack_missing_ui',
                        'test_friend_entry_ui',
                        'test_java_downloads', 'test_update_client', 'test_room_launch_flow',
                        'test_peer_heartbeat', 'test_peer_reconnect', 'test_peer_signaling_attempt',

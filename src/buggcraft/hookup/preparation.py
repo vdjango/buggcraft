@@ -217,7 +217,7 @@ async def fetch_public_mod(item, base, target, source, cancel, progress):
         return False
     try:
         from core.content_mirrors import get_modrinth
-        content_source = source if source in ('自动测速', 'CurseForge', 'Modrinth', 'MCIM', '官方') else '自动测速'
+        content_source = source if source in ('自动测速', '自动（CurseForge 优先）', 'CurseForge', 'Modrinth', '官方') else 'CurseForge'
         metadata = await asyncio.to_thread(get_modrinth, '/version_file/' + item['sha1'],
                                            {}, cancel, content_source)
         candidates = []

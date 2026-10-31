@@ -7,8 +7,6 @@ def source_name(url):
         host = urlsplit(url).hostname or ''
     except (ValueError, TypeError):
         return ''
-    if host == 'mod.mcimirror.top':
-        return 'MCIM'
     if host == 'mirror.minguncle.cn':
         return 'MCMirror'
     if host == 'cdn.modrinth.com':

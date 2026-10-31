@@ -482,7 +482,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
                                            'BMCLAPI', threading.Event(), Mock())
         self.assertTrue(found)
         lookup.assert_called_once_with('/version_file/' + item['sha1'], {}, ANY,
-                                       '自动测速')
+                                       'CurseForge')
         downloader.return_value.fetch.assert_called_once_with(url, 'example.jar', item['sha1'],
                                                                item['size'], file_progress=ANY)
 
@@ -492,7 +492,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest())
         url = 'https://cdn.modrinth.com/data/project/version/example.jar'
         response = {'files': [{'hashes': {'sha1': item['sha1']}, 'size': item['size'], 'url': url}]}
-        for selected in ('CurseForge', 'Modrinth', 'MCIM', '自动测速'):
+        for selected in ('CurseForge', 'Modrinth', '自动测速'):
             with self.subTest(selected=selected), \
                     patch('core.content_mirrors.get_modrinth', return_value=response) as lookup, \
                     patch('core.downloads.MinecraftDownloader') as downloader:

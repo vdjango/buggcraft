@@ -1,20 +1,23 @@
 """Find public, byte-identical mod downloads for compact pack export."""
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 import logging
 import os
 from pathlib import Path
 import time
+import tempfile
 from urllib.parse import urljoin, urlsplit
 
 import requests
 
 from core.downloads import DownloadCancelled
-from core.curseforge import OFFICIAL_API, PUBLIC_API
+from core.curseforge import OFFICIAL_API, PUBLIC_API, download_url
 from utils.http_identity import USER_AGENT
 
 logger = logging.getLogger(__name__)
 _WHITE_SPACE = b'\x09\x0a\x0d\x20'
-_CDN_HOSTS = {'cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'}
+_CDN_HOSTS = {'edge.forgecdn.net', 'mediafilez.forgecdn.net'}
+EXPORT_PUBLISHERS = ('CurseForge', 'Modrinth', '混合')
 
 
 def _check(cancel):
@@ -54,13 +57,13 @@ def _fingerprint(path, cancel=None):
     return (value ^ (value >> 15)) & mask
 
 
-def _public_url(url):
+def _public_url(url, hosts=None):
     if (not isinstance(url, str) or len(url) > 8192
             or any(char.isspace() or ord(char) < 32 for char in url)):
         return False
     try:
         parsed = urlsplit(url)
-        return (parsed.scheme == 'https' and parsed.hostname in _CDN_HOSTS
+        return (parsed.scheme == 'https' and parsed.hostname in (hosts or _CDN_HOSTS)
                 and parsed.port in (None, 443) and not parsed.username and not parsed.password)
     except ValueError:
         return False
@@ -68,9 +71,10 @@ def _public_url(url):
 
 def _reachable(url, size, cancel=None):
     """Check that the publisher currently serves a byte range of the exact size."""
+    hosts = {'cdn.modrinth.com'} if urlsplit(url).hostname == 'cdn.modrinth.com' else _CDN_HOSTS
     for _ in range(4):
         _check(cancel)
-        if not _public_url(url):
+        if not _public_url(url, hosts):
             return False
         with requests.get(url, headers={'User-Agent': USER_AGENT, 'Range': 'bytes=0-0',
                                         'Accept-Encoding': 'identity'}, stream=True,
@@ -91,18 +95,7 @@ def _reachable(url, size, cancel=None):
     return False
 
 
-def _candidate(file, sha1, size):
-    if not isinstance(file, dict) or file.get('size') != size:
-        return ''
-    hashes = file.get('hashes') or {}
-    file_sha1 = hashes.get('sha1') if isinstance(hashes, dict) else None
-    if not isinstance(file_sha1, str) or file_sha1.lower() != sha1:
-        return ''
-    url = file.get('url', '')
-    return url if _public_url(url) else ''
-
-
-def _modrinth_matches(mods, cancel, advance):
+def _modrinth_matches(mods, cancel):
     matches = {}
     by_hash = {item['sha1']: item for item in mods}
     for start in range(0, len(by_hash), 100):
@@ -120,25 +113,32 @@ def _modrinth_matches(mods, cancel, advance):
                 version = payload.get(sha1)
                 files = version.get('files', []) if isinstance(version, dict) else []
                 for file in files if isinstance(files, list) else []:
-                    url = _candidate(file, sha1, by_hash[sha1]['size'])
-                    if url:
-                        matches[sha1] = url
+                    if not isinstance(file, dict) or file.get('size') != by_hash[sha1]['size']:
+                        continue
+                    hashes = file.get('hashes') or {}
+                    if (isinstance(hashes, dict) and str(hashes.get('sha1', '')).lower() == sha1
+                            and _public_url(file.get('url'), {'cdn.modrinth.com'})):
+                        matches[sha1] = file['url']
                         break
         except (requests.RequestException, ValueError) as exc:
             logger.info('Modrinth export lookup unavailable: %s', exc)
-        finally:
-            advance('正在查询 Modrinth', len(batch))
     return matches
 
 
-def _curseforge_matches(mods, cancel, advance):
+def _curseforge_matches(mods, cancel, advance, fingerprint_cache=None):
     matches = {}
     if not mods:
         return matches
     fingerprints = {}
+    fingerprint_cache = fingerprint_cache if fingerprint_cache is not None else {}
     for item in mods:
         _check(cancel)
-        fingerprints.setdefault(_fingerprint(item['source'], cancel), []).append(item)
+        key = item['sha1'] + ':' + str(item['size'])
+        fingerprint = fingerprint_cache.get(key)
+        if type(fingerprint) is not int or not 0 <= fingerprint <= 0xffffffff:
+            fingerprint = _fingerprint(item['source'], cancel)
+            fingerprint_cache[key] = fingerprint
+        fingerprints.setdefault(fingerprint, []).append(item)
         advance('正在计算 CurseForge 文件指纹')
     api_key = os.environ.get('BUGGCRAFT_CURSEFORGE_API_KEY', '')
     endpoint = (OFFICIAL_API if api_key else PUBLIC_API) + '/fingerprints/432'
@@ -166,7 +166,10 @@ def _curseforge_matches(mods, cancel, advance):
                 hashes = file.get('hashes') or []
                 if not isinstance(hashes, list):
                     continue
-                url = file.get('downloadUrl', '')
+                try:
+                    url = download_url(file)
+                except ValueError:
+                    continue
                 if not _public_url(url):
                     continue
                 for item in fingerprints[file['fileFingerprint']]:
@@ -181,12 +184,14 @@ def _curseforge_matches(mods, cancel, advance):
     return matches
 
 
-def find_public_mod_downloads(mods, cancel=None, progress=None):
-    """Return downloadable URLs keyed by path; uncertain files stay embedded."""
+def find_public_mod_downloads(mods, cancel=None, progress=None, cache_file=None, publisher='CurseForge'):
+    """Locate exact files on the selected publishers, independently of names."""
+    if publisher not in EXPORT_PUBLISHERS:
+        raise ValueError('请选择 CurseForge、Modrinth 或混合来源')
     mods = list(mods)
     if not mods:
         return {}
-    completed, total = 0, len(mods) * 4
+    completed, total = 0, len(mods) * 3
 
     def advance(label, count=1):
         nonlocal completed
@@ -195,13 +200,45 @@ def find_public_mod_downloads(mods, cancel=None, progress=None):
         if progress:
             progress(f'{label}（{completed}/{total}）', completed, total)
 
-    modrinth = _modrinth_matches(mods, cancel, advance)
-    # Duplicate files share a Modrinth hash query.
-    advance('Modrinth 查询完成', len(mods) - len({item['sha1'] for item in mods}))
-    curseforge = _curseforge_matches(mods, cancel, advance)
+    fingerprint_cache = {}
+    if cache_file is not None:
+        try:
+            cache_file = Path(cache_file)
+            if cache_file.stat().st_size <= 2 * 1024 * 1024:
+                cached = json.loads(cache_file.read_text(encoding='utf-8'))
+                if isinstance(cached, dict):
+                    fingerprint_cache = cached
+        except (OSError, ValueError):
+            pass
+    if publisher != 'Modrinth':
+        curseforge = _curseforge_matches(mods, cancel, advance, fingerprint_cache)
+    else:
+        curseforge = {}
+        advance('正在查询 Modrinth', len(mods) * 2)
+    modrinth = _modrinth_matches(mods, cancel) if publisher != 'CurseForge' else {}
+    if cache_file is not None:
+        temporary = None
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=cache_file.parent,
+                                             prefix='.pack-fingerprints-', delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(dict(list(fingerprint_cache.items())[-10000:]), stream)
+            os.replace(temporary, cache_file)
+        except OSError:
+            logger.info('Pack fingerprint cache unavailable')
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     candidates = {}
     for item in mods:
-        urls = [url for url in (modrinth.get(item['sha1']), curseforge.get(item['sha1'])) if url]
+        urls = [curseforge[item['sha1']]] if item['sha1'] in curseforge else []
+        if urls:
+            parsed = urlsplit(urls[0])
+            alternate = 'mediafilez.forgecdn.net' if parsed.hostname == 'edge.forgecdn.net' else 'edge.forgecdn.net'
+            urls.append(parsed._replace(netloc=alternate).geturl())
+        if item['sha1'] in modrinth:
+            urls.append(modrinth[item['sha1']])
         if urls:
             candidates[item['path']] = (item, urls)
     found = {}
@@ -210,12 +247,16 @@ def find_public_mod_downloads(mods, cancel=None, progress=None):
         return found
 
     def probe(item, urls):
+        downloads = []
         for url in urls:
+            if (urlsplit(url).hostname in _CDN_HOSTS
+                    and any(urlsplit(value).hostname in _CDN_HOSTS for value in downloads)):
+                continue
             for attempt in range(3):
                 _check(cancel)
                 try:
                     if _reachable(url, item['size'], cancel):
-                        return url
+                        downloads.append(url)
                     break
                 except requests.RequestException as exc:
                     logger.info('Mod download probe unavailable (%s/3): %s', attempt + 1, exc)
@@ -225,15 +266,19 @@ def find_public_mod_downloads(mods, cancel=None, progress=None):
                                 _check(cancel)
                         else:
                             time.sleep(.4 * (attempt + 1))
-        return ''
+            # One working CurseForge address is sufficient. Modrinth remains
+            # the final publisher only when mixed was explicitly selected.
+            if downloads and publisher != '混合':
+                break
+        return list(dict.fromkeys(downloads))
 
     with ThreadPoolExecutor(max_workers=min(8, len(candidates)), thread_name_prefix='pack-mod-probe') as pool:
         futures = {pool.submit(probe, item, urls): path for path, (item, urls) in candidates.items()}
         for future in as_completed(futures):
             _check(cancel)
-            url = future.result()
-            if url:
+            urls = future.result()
+            if urls:
                 item = candidates[futures[future]][0]
-                found[item['path']] = {'sha1': item['sha1'], 'size': item['size'], 'downloads': [url]}
+                found[item['path']] = {'sha1': item['sha1'], 'size': item['size'], 'downloads': urls}
             advance('正在检查模组下载地址')
     return found

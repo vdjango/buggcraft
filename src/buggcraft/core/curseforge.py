@@ -27,27 +27,20 @@ class CurseForgeAPI:
         self.mirror = mirror
 
     def request(self, method, route, params=None, body=None):
-        # MCIM has no description endpoint. Keep the authenticated platform
-        # gateway for that route and as fallback; never forward a user key.
-        if self.mirror == 'MCIM' and not self.api_key and not route.endswith('/description'):
-            try:
-                return self._request(method, route, params, body, mirror=True)
-            except (ValueError, requests.RequestException):
-                logger.warning('MCIM CurseForge metadata unavailable; falling back to content gateway')
         return self._request(method, route, params, body)
 
-    def _request(self, method, route, params=None, body=None, mirror=False):
+    def _request(self, method, route, params=None, body=None):
         if not ROUTE.fullmatch(route):
             raise ValueError('不支持的 CurseForge 接口')
         if self.cancel.is_set():
             raise DownloadCancelled('内容查询已取消')
-        endpoint = 'https://mod.mcimirror.top/curseforge/v1' if mirror else OFFICIAL_API if self.api_key else PUBLIC_API
+        endpoint = OFFICIAL_API if self.api_key else PUBLIC_API
         headers = {'User-Agent': USER_AGENT, 'Accept': 'application/json'}
         if self.api_key:
             headers['x-api-key'] = self.api_key
         call = requests.get if method == 'GET' else requests.post
         options = {'params': params} if method == 'GET' else {'json': body}
-        attempts = 1 if mirror else 3
+        attempts = 3
         for attempt in range(attempts):
             try:
                 # Metadata redirects are not needed; never forward a private key.
@@ -62,18 +55,6 @@ class CurseForgeAPI:
                     if response.status_code != 200:
                         raise ValueError('CurseForge 资源服务暂不可用，请稍后重试或切换 Modrinth。')
                     payload = response.json()
-                    if mirror:
-                        from core.content_mirrors import cached_dates
-                        from datetime import datetime, timezone
-                        dates = list(cached_dates(payload))
-                        logger.info('content_metadata provider=CurseForge mirror=True cache_dates=%s',
-                                    [date.isoformat() for date in dates[:5]])
-                        if not dates or (datetime.now(timezone.utc) - min(dates)).total_seconds() > 86400:
-                            # Return fresh platform metadata when available.
-                            try:
-                                return self._request(method, route, params, body)
-                            except (ValueError, requests.RequestException):
-                                logger.warning('CurseForge upstream unavailable; using cached MCIM metadata')
                 break
             except requests.RequestException:
                 if attempt == attempts - 1:

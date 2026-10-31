@@ -169,6 +169,10 @@ class TaskHistoryController(QObject):
     def taskAction(self, task_id):
         self.page.task_action(task_id)
 
+    @Slot(str, str)
+    def setPackDownloadMode(self, task_id, mode):
+        self.page.set_pack_download_mode(task_id, mode)
+
     @Slot(str)
     def showLog(self, task_id):
         task = self.page._find_task(task_id)
@@ -230,13 +234,14 @@ class DownloadWorkerSignals(QObject):
 class DownloadWorker(QRunnable):
     def __init__(self, task_id: str, version: str, game_dir: str, source: str,
                  loader=None, base_version=None, loader_version=None, java=None, modpack=None, api_key=None, content=None,
-                 addons=None, isolated=True, archive_sha256=None, content_source=None):
+                 addons=None, isolated=True, archive_sha256=None, content_source=None, pack_download_mode='pack'):
         super().__init__()
         self.task_id = task_id
         self.version = version
         self.game_dir = game_dir
         self.source = source
         self.content_source = content_source
+        self.pack_download_mode = pack_download_mode
         self.loader = loader
         self.base_version = base_version
         self.loader_version = loader_version
@@ -351,7 +356,8 @@ class DownloadWorker(QRunnable):
                 from core.modpacks import ModpackImporter
                 importer = ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
                                 status, progress, self.api_key, content_source=self.content_source,
-                                file_event=file_event, unavailable_mods=self.confirm_missing_mods)
+                                file_event=file_event, unavailable_mods=self.confirm_missing_mods,
+                                download_mode=self.pack_download_mode)
                 importer.install(
                                     self.modpack, self.version, expected_archive_sha256=self.archive_sha256,
                                     archive_identified=lambda digest: self.signals.archive_identified.emit(self.task_id, digest))
@@ -528,7 +534,7 @@ class TasksPage(QWidget):
 
     def start_install(self, version: str, game_dir: str, loader=None, base_version=None,
                       loader_version=None, modpack=None, api_key=None, content=None, addons=None,
-                      *, _name_confirmed=False):
+                      *, _name_confirmed=False, pack_download_mode='pack'):
         """Record the requested install and run it off the UI thread."""
         if self._closing:
             return False
@@ -561,7 +567,7 @@ class TasksPage(QWidget):
                 self._show_install_conflict(dict(version=version, game_dir=game_dir, loader=loader,
                     base_version=base_version or (version if not modpack and not content else None),
                     loader_version=loader_version, modpack=modpack, api_key=api_key,
-                    content=content, addons=addons))
+                    content=content, addons=addons, pack_download_mode=pack_download_mode))
                 return False
 
         task_id = uuid.uuid4().hex
@@ -572,6 +578,7 @@ class TasksPage(QWidget):
             "base_version": base_version or "",
             "loader_version": loader_version or "",
             "modpack": modpack or "",
+            "pack_download_mode": pack_download_mode if pack_download_mode in ('pack', 'settings') else 'pack',
             "content": content or {},
             "addons": addons or [],
             "game_dir": game_dir,
@@ -657,6 +664,9 @@ class TasksPage(QWidget):
         version = (task.get('content') or {}).get('version') or {}
         provider = version.get('source') if isinstance(version, dict) else None
         self._log(task, f"本次下载源：游戏与加载器={source}；模组与整合包={display_source(task['content_source'], provider)}")
+        if task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack':
+            self._log(task, '整合包文件下载方式：' + ('使用设置中的下载源' if task.get('pack_download_mode') == 'settings'
+                                                     else '优先整合包内地址'))
         worker = DownloadWorker(task_id, task['version'], task['game_dir'], source,
                                 task.get('loader') or None, task.get('base_version') or None,
                                 task.get('loader_version') or None, java,
@@ -664,7 +674,7 @@ class TasksPage(QWidget):
                                 addons=task.get('addons') or [],
                                 isolated=bool(self.settings_manager.get_version_setting('minecraft.isolation', True)),
                                 archive_sha256=task.get('archive_sha256'),
-                                content_source=task['content_source'])
+                                content_source=task['content_source'], pack_download_mode=task.get('pack_download_mode', 'pack'))
         worker.signals.status.connect(self.update_status)
         worker.signals.progress.connect(self.update_progress)
         worker.signals.file_events.connect(self.update_file_events)
@@ -687,11 +697,28 @@ class TasksPage(QWidget):
             task = self._find_task(task_id)
             if not task or task['state'] not in ('等待中', '进行中'):
                 continue
-            if (worker.source, worker.content_source) == (source, content_source):
+            pack_first = bool(task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack') and task.get('pack_download_mode', 'pack') == 'pack'
+            if worker.source == source and (pack_first or worker.content_source == content_source):
                 continue
             worker.restart_for_source = True
             task.update(state='正在取消', status='正在切换下载源，已下载进度会保留…', error='')
             self._log(task, task['status'])
+            worker.cancel_event.set()
+        self._persist_and_refresh()
+
+    def set_pack_download_mode(self, task_id, mode):
+        task = self._find_task(task_id)
+        if (not task or mode not in ('pack', 'settings') or task.get('kind') == 'room'
+                or not (task.get('modpack') or (task.get('content') or {}).get('kind') == 'modpack')
+                or task.get('pack_download_mode', 'pack') == mode or task['state'] == '已完成'):
+            return
+        task['pack_download_mode'] = mode
+        label = '优先整合包内地址' if mode == 'pack' else '使用设置中的下载源'
+        self._log(task, '切换下载方式：' + label)
+        worker = self._workers.get(task_id)
+        if worker is not None:
+            worker.restart_for_source = True
+            task.update(state='正在取消', status='正在切换下载方式，已下载进度会保留…', error='')
             worker.cancel_event.set()
         self._persist_and_refresh()
 
@@ -979,10 +1006,15 @@ class TasksPage(QWidget):
         self.refresh_tasks()
 
     def _schedule_save(self):
-        if not self._save_timer.isActive():
+        if not self._closing and not self._save_timer.isActive():
             self._save_timer.start()
 
     def _queue_history_save(self):
+        # Import decisions can finish on the worker after shutdown has already
+        # flushed history and stopped the executor. The queued Qt signal still
+        # needs to release that worker without scheduling another disk job.
+        if self._closing:
+            return
         # File events contain flat scalar records. Copying their dictionaries
         # avoids a recursive deepcopy of tens of thousands of asset fields on Qt.
         snapshot = []

@@ -18,7 +18,7 @@ Rectangle {
         onPressed: dialogModel.dragWindow()
     }
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 26; spacing: 16
+        anchors.fill: parent; anchors.margins: 24; spacing: 12
         RowLayout {
             Layout.fillWidth: true; spacing: 12
             Rectangle { width: 34; height: 34; radius: 10; color: "#392f66"
@@ -44,24 +44,41 @@ Rectangle {
             Layout.fillWidth: true; visible: root.state.data.phase === "choose"
             spacing: 12
             Rectangle {
-                Layout.fillWidth: true; height: 116; radius: 10; color: "#272239"; border.color: "#514774"
+                Layout.fillWidth: true; height: 80; radius: 10; color: "#272239"; border.color: "#514774"
                 ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 7
                     Label { text: "精简"; color: "#e9e3ff"; font.pixelSize: 15; font.bold: true }
-                    Label { objectName: "compact-export-description"; text: "查询 Modrinth、CurseForge 并比对哈希，可下载的模组仅存链接，其余随包保留"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Label { objectName: "compact-export-description"; text: "体积更小，适合分享"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
             }
             Rectangle {
-                Layout.fillWidth: true; height: 116; radius: 10; color: "#242131"; border.color: "#423a59"
+                Layout.fillWidth: true; height: 80; radius: 10; color: "#242131"; border.color: "#423a59"
                 ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 7
                     Label { text: "常规"; color: "#e9e3ff"; font.pixelSize: 15; font.bold: true }
-                    Label { text: "所有本地模组和资源文件都随包打包，导入时无需从资源站补齐"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Label { text: "文件更完整，适合保存"; color: "#aaa2c8"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
             }
+        }
+        RowLayout {
+            Layout.fillWidth: true; visible: root.state.data.phase === "choose"
+            Label { text: "精简包下载来源"; color: "#d3cbe2"; font.pixelSize: 12 }
+            ChoiceBox {
+                objectName: "export-publisher"; Layout.fillWidth: true
+                model: ["CurseForge（推荐）", "Modrinth", "混合（CurseForge 优先）"]
+                currentIndex: ["CurseForge", "Modrinth", "混合"].indexOf(root.state.data.publisher || "CurseForge")
+                onActivated: dialogModel.setDataValue("publisher", ["CurseForge", "Modrinth", "混合"][currentIndex])
+            }
+        }
+        Label {
+            Layout.fillWidth: true; visible: root.state.data.phase === "choose"
+            text: (root.state.data.publisher || "CurseForge") === "CurseForge"
+                ? "推荐 CurseForge，下载速度快。" : "Modrinth 下载速度可能较慢、不稳定。混合模式优先 CurseForge。"
+            color: root.state.data.publisher === "CurseForge" ? "#b9e5cf" : "#f1d1a1"
+            font.pixelSize: 12; wrapMode: Text.Wrap
         }
         Label {
             objectName: "export-source-links"
             Layout.fillWidth: true; visible: root.state.data.phase === "choose"
-            text: "支持网站：<a href='https://modrinth.com'>modrinth.com</a> · <a href='https://www.curseforge.com/minecraft'>curseforge.com</a>"
+            text: "支持网站：<a style='color:#b7a8ff' href='https://www.curseforge.com/minecraft'>CurseForge</a> · <a style='color:#b7a8ff' href='https://modrinth.com'>Modrinth</a>"
             textFormat: Text.RichText; linkColor: "#b7a8ff"; color: "#aaa2c8"; font.pixelSize: 12
             onLinkActivated: function(link) { Qt.openUrlExternally(link) }
         }

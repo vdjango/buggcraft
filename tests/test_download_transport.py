@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/buggcraft'))
-from core.downloads import MinecraftDownloader, DownloadCancelled, CONTENT_MIRROR, _DownloadSession, _MirrorHealth, use_shared_download_cache
+from core.downloads import MinecraftDownloader, DownloadCancelled, _DownloadSession, use_shared_download_cache
 from utils.http_identity import USER_AGENT
 import requests
 
@@ -293,9 +293,6 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(self.requests, ['/artifact'])
 
     def setUp(self):
-        health = patch('core.downloads._CONTENT_HEALTH', _MirrorHealth())
-        health.start()
-        self.addCleanup(health.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.payload = bytes(range(256)) * 1024
@@ -524,7 +521,23 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual([event['url'] for event in events if event.get('url') in (modrinth, curseforge)],
                          [modrinth, curseforge])
 
-    def test_auto_measures_all_resolved_publishers_before_downloading(self):
+    def test_curseforge_only_pack_does_not_add_modrinth_even_with_modrinth_setting(self):
+        curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
+        self.downloader.content_source = 'Modrinth'
+        self.downloader.resolve_content_sources = False
+        original = _DownloadSession.get
+        hosts = []
+        def get(session, url, **kwargs):
+            hosts.append(urlsplit(url).hostname)
+            return original(session, self.url, **kwargs)
+        with patch.object(_DownloadSession, 'get', get), \
+                patch('core.content_routes.resolve_download_urls') as resolve:
+            result = self.downloader.fetch(curseforge, 'mod.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
+        self.assertEqual(hosts, ['edge.forgecdn.net'])
+        self.assertEqual(result.read_bytes(), self.payload)
+        resolve.assert_not_called()
+
+    def test_auto_keeps_curseforge_before_modrinth_without_extra_probes(self):
         modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
         curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
         self.downloader.content_source = '自动测速'
@@ -537,13 +550,13 @@ class DownloadTransportTests(unittest.TestCase):
         def rank(candidates, preference):
             self.assertIn(curseforge, candidates)
             self.assertIn(modrinth, candidates)
-            self.assertTrue(any(urlsplit(url).hostname == 'mod.mcimirror.top' for url in candidates))
+            self.assertFalse(any('mcimirror' in url for url in candidates))
             return sorted(candidates, key=lambda url: url != curseforge)
         with patch('core.content_routes.resolve_download_urls', return_value=[modrinth, curseforge]), \
              patch('core.downloads._rank_content_candidates', side_effect=rank) as measured, \
              patch.object(_DownloadSession, 'get', get):
             result = self.downloader.fetch(modrinth, 'mod.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        measured.assert_called_once()
+        measured.assert_not_called()
         self.assertEqual(hosts, ['edge.forgecdn.net'])
         self.assertEqual(result.read_bytes(), self.payload)
 
@@ -568,67 +581,46 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), b'previous')
         self.assertFalse(path.with_name(path.name + '.buggcraft-part').exists())
 
-    def test_content_routing_honors_setting_and_preserves_encoded_path(self):
-        urls = ['https://cdn.modrinth.com/data/id/version/a%2Bb.jar?x=1',
-                'https://edge.forgecdn.net/files/123/4/a%20b.jar']
-        for setting in ('自动', 'BMCLAPI', '自动（官方优先，失败切换镜像）'):
-            self.downloader.source = setting
-            for url in urls:
-                routed = self.downloader.urls(url)
-                self.assertTrue(routed[0].startswith('https://mod.mcimirror.top/'))
-                self.assertIn(url, routed)
-                self.assertEqual(urlsplit(routed[0]).path, urlsplit(url).path)
-        self.downloader.source = '官方'
-        for url in urls:
-            self.assertEqual(self.downloader.urls(url)[0], url)
-        self.downloader.source = 'BMCLAPI'
-        media = 'https://mediafilez.forgecdn.net/files/123/4/a%20b.jar?x=1'
+    def test_content_routing_preserves_paths_and_never_contacts_retired_mcim(self):
         for setting in ('自动测速', 'CurseForge', 'Modrinth', 'MCIM', '官方'):
-            with self.subTest(media_source=setting):
-                self.downloader.content_source = setting
-                self.assertEqual(self.downloader.urls(media), [media])
-        self.downloader.content_source = '官方'
-        self.assertEqual(self.downloader.urls(urls[0])[0], urls[0])
-        self.downloader.source = '官方'
-        self.downloader.content_source = 'MCIM'
-        self.assertTrue(self.downloader.urls(urls[0])[0].startswith('https://mod.mcimirror.top/'))
-        self.downloader.content_source = '自动测速'
-        self.assertEqual([urlsplit(url).hostname for url in self.downloader.urls(urls[0])],
-                         ['mod.mcimirror.top', 'cdn.modrinth.com'])
-        self.assertEqual([urlsplit(url).hostname for url in self.downloader.urls(urls[1])],
-                         ['mod.mcimirror.top', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'])
+            self.downloader.content_source = setting
+            for url in ('https://cdn.modrinth.com/data/id/version/a%2Bb.jar?x=1',
+                        'https://edge.forgecdn.net/files/123/4/a%20b.jar'):
+                routed = self.downloader.urls(url)
+                self.assertEqual(routed[0], url)
+                self.assertFalse(any('mcimirror' in candidate for candidate in routed))
+                self.assertTrue(all(urlsplit(candidate).path == urlsplit(url).path for candidate in routed))
         for url in ('https://cdn.modrinth.com.evil.org/x', 'https://user@cdn.modrinth.com/x',
                     'https://cdn.modrinth.com:444/x', 'https://github.com/a/b/releases/download/x.jar'):
             self.assertEqual(self.downloader.urls(url), [url])
 
-    def test_mcim_first_falls_back_to_publisher_with_existing_partial_bytes(self):
+    def test_curseforge_edge_falls_back_to_media_with_existing_partial_bytes(self):
         self.payload = bytes(range(256)) * 2048
         self.mode = 'persistent'
-        self.downloader.content_source = 'MCIM'
+        self.downloader.content_source = 'CurseForge'
         self.downloader.retries = 6
         original = _DownloadSession.get
         routes = []
         def get(session, url, **kwargs):
             host = urlsplit(url).hostname
             routes.append(host)
-            self.mode = 'persistent' if host == urlsplit(CONTENT_MIRROR).hostname else None
+            self.mode = 'persistent' if host == 'edge.forgecdn.net' else None
             return original(session, self.url, **kwargs)
         with (patch('core.downloads._rank_content_candidates',
                     side_effect=lambda candidates, _: candidates),
               patch.object(_DownloadSession, 'get', get)):
             with patch.object(self.downloader.cancel, 'wait', return_value=False):
-                path = self.downloader.fetch('https://cdn.modrinth.com/data/id/version/mod.jar',
+                path = self.downloader.fetch('https://edge.forgecdn.net/files/id/version/mod.jar',
                                              'mod.jar', hashlib.sha1(self.payload).hexdigest(),
                                              len(self.payload))
         self.assertEqual(path.read_bytes(), self.payload)
-        self.assertEqual(routes, ['mod.mcimirror.top', 'cdn.modrinth.com'])
+        self.assertEqual(routes, ['edge.forgecdn.net', 'mediafilez.forgecdn.net'])
         self.assertEqual(self.ranges, [None, 'bytes=65536-'])
 
     def test_official_only_ignores_cached_mcim_fallbacks(self):
-        self.downloader.content_source = '官方'
-        mirror = 'https://mod.mcimirror.top/data/id/version/mod.jar'
-        original = 'https://cdn.modrinth.com/data/id/version/mod.jar'
-        self.assertEqual(self.downloader.urls(mirror), [original])
+        for suffix, host in (('/data/id/version/mod.jar', 'cdn.modrinth.com'),
+                             ('/files/123/4/mod.jar', 'edge.forgecdn.net')):
+            self.assertEqual(self.downloader.urls('https://mod.mcimirror.top' + suffix)[0], 'https://' + host + suffix)
 
     def test_cancel_after_partial_download_preserves_checkpoint_and_installed_file(self):
         path = Path(self.temp.name) / 'pack.zip'
@@ -710,7 +702,7 @@ class DownloadTransportTests(unittest.TestCase):
         hosts = []
         def get(session, url, **kwargs):
             hosts.append(urlsplit(url).hostname)
-            if urlsplit(url).hostname == 'mod.mcimirror.top':
+            if urlsplit(url).hostname == 'edge.forgecdn.net':
                 response = requests.Response()
                 response.status_code = 567
                 response.url = url
@@ -718,71 +710,47 @@ class DownloadTransportTests(unittest.TestCase):
             return original(session, self.url, **kwargs)
         with patch.object(_DownloadSession, 'get', get):
             for name in ('one.zip', 'two.zip'):
-                self.downloader.fetch('https://cdn.modrinth.com/data/' + name, name,
+                self.downloader.fetch('https://edge.forgecdn.net/files/' + name, name,
                                       hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        self.assertEqual(hosts, ['mod.mcimirror.top', 'cdn.modrinth.com', 'cdn.modrinth.com'])
+        self.assertEqual(hosts, ['edge.forgecdn.net', 'mediafilez.forgecdn.net', 'mediafilez.forgecdn.net'])
 
-    def test_unresponsive_mirror_tries_once_then_uses_publisher(self):
-        self.downloader.content_source = 'MCIM'
+    def test_unresponsive_curseforge_edge_tries_media_before_retrying(self):
+        self.downloader.content_source = 'CurseForge'
         original = _DownloadSession.get
         calls, statuses = [], []
         self.downloader.status = statuses.append
         def get(session, url, **kwargs):
             calls.append((urlsplit(url).hostname, kwargs['timeout']))
-            if urlsplit(url).hostname == 'mod.mcimirror.top':
+            if urlsplit(url).hostname == 'edge.forgecdn.net':
                 raise requests.ReadTimeout('no first byte from mirror')
             return original(session, self.url, **kwargs)
         with patch.object(_DownloadSession, 'get', get):
             for name in ('one.mrpack', 'two.mrpack'):
-                result = self.downloader.fetch('https://cdn.modrinth.com/data/' + name, name,
+                result = self.downloader.fetch('https://edge.forgecdn.net/files/' + name, name,
                     hashlib.sha1(self.payload).hexdigest(), len(self.payload))
                 self.assertEqual(result.read_bytes(), self.payload)
-        self.assertEqual(calls, [('mod.mcimirror.top', (3, 4)), ('cdn.modrinth.com', (8, 30)),
-                                 ('cdn.modrinth.com', (8, 30))])
-        self.assertTrue(any('切换原站' in value for value in statuses))
+        self.assertEqual(calls, [('edge.forgecdn.net', (8, 30)), ('mediafilez.forgecdn.net', (8, 30)),
+                                 ('edge.forgecdn.net', (8, 30)), ('mediafilez.forgecdn.net', (8, 30))])
+        self.assertTrue(statuses)
 
-    def test_mirror_outage_is_shared_across_independent_download_tasks(self):
-        original = _DownloadSession.get
-        hosts = []
-        def get(session, url, **kwargs):
-            hosts.append(urlsplit(url).hostname)
-            if hosts[-1] == 'mod.mcimirror.top':
-                raise requests.ReadTimeout('mirror unavailable')
-            return original(session, self.url, **kwargs)
-        with patch.object(_DownloadSession, 'get', get):
-            for name in ('first.jar', 'second.jar'):
-                downloader = MinecraftDownloader(self.temp.name)
-                downloader.content_source = 'MCIM'
-                path = downloader.fetch('https://cdn.modrinth.com/data/' + name, name,
-                                        hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-                self.assertEqual(path.read_bytes(), self.payload)
-                downloader._sessions.session.close()
-        self.assertEqual(hosts, ['mod.mcimirror.top', 'cdn.modrinth.com', 'cdn.modrinth.com'])
 
     def test_mirror_html_error_with_success_status_is_rejected_before_streaming(self):
         original = _DownloadSession.get
         html = MagicMock()
         html.__enter__.return_value = html
-        html.status_code, html.url = 200, 'https://mod.mcimirror.top/data/test.jar'
+        html.status_code, html.url = 200, 'https://edge.forgecdn.net/files/test.jar'
         html.headers = {'Content-Type': 'text/html; charset=utf-8'}
         hosts = []
         def get(session, url, **kwargs):
             hosts.append(urlsplit(url).hostname)
-            return html if hosts[-1] == 'mod.mcimirror.top' else original(session, self.url, **kwargs)
-        self.downloader.content_source = 'MCIM'
+            return html if hosts[-1] == 'edge.forgecdn.net' else original(session, self.url, **kwargs)
+        self.downloader.content_source = 'CurseForge'
         with patch.object(_DownloadSession, 'get', get):
             path = self.downloader.fetch(html.url, 'test.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(path.read_bytes(), self.payload)
         html.iter_content.assert_not_called()
-        self.assertEqual(hosts, ['mod.mcimirror.top', 'cdn.modrinth.com'])
+        self.assertEqual(hosts, ['edge.forgecdn.net', 'mediafilez.forgecdn.net'])
 
-    def test_mirror_cooldown_expires_and_allows_a_new_probe(self):
-        health = _MirrorHealth()
-        with patch('core.downloads.time.monotonic', return_value=100):
-            health.pause()
-            self.assertTrue(health.blocked())
-        with patch('core.downloads.time.monotonic', return_value=161):
-            self.assertFalse(health.blocked())
 
     def large_content(self, endpoint, progress):
         self.payload = bytes(range(256)) * 32768
@@ -790,7 +758,7 @@ class DownloadTransportTests(unittest.TestCase):
         def get(session, url, **kwargs):
             return original(session, self.url.replace('/artifact', endpoint), **kwargs)
         with patch.object(_DownloadSession, 'get', get):
-            return self.downloader.fetch('https://cdn.modrinth.com/data/large.zip', 'large.zip',
+            return self.downloader.fetch('https://edge.forgecdn.net/files/large.zip', 'large.zip',
                 hashlib.sha1(self.payload).hexdigest(), len(self.payload),
                 sha512=hashlib.sha512(self.payload).hexdigest(), file_progress=progress)
 
@@ -852,58 +820,10 @@ class DownloadTransportTests(unittest.TestCase):
             self.assertEqual(self.ranges[-1], f'bytes={offset}-')
         self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
 
-    def test_slow_mirror_switches_with_range_and_verifies_complete_file(self):
-        import itertools
-        self.downloader.content_source = 'MCIM'
-        calls = []
-        def get(session, url, **kwargs):
-            host = urlsplit(url).hostname
-            offset = int(kwargs['headers'].get('Range', 'bytes=0-')[6:-1])
-            calls.append((host, offset))
-            response = MagicMock()
-            response.__enter__.return_value = response
-            response.url = url
-            response.status_code = 206 if offset else 200
-            response.headers = {'Content-Length': str(len(self.payload) - offset)}
-            if offset:
-                response.headers['Content-Range'] = f'bytes {offset}-{len(self.payload)-1}/{len(self.payload)}'
-            response.iter_content.return_value = iter(self.payload[i:i + 16384]
-                                                     for i in range(offset, len(self.payload), 16384))
-            return response
-        ticks = itertools.count()
-        with patch.object(_DownloadSession, 'get', get), patch('core.downloads.time.monotonic', side_effect=lambda: next(ticks)):
-            result = self.downloader.fetch('https://cdn.modrinth.com/data/slow.mrpack', 'slow.mrpack',
-                hashlib.sha1(self.payload).hexdigest(), len(self.payload), sha512=hashlib.sha512(self.payload).hexdigest())
-        self.assertEqual(result.read_bytes(), self.payload)
-        self.assertEqual([host for host, _ in calls], ['mod.mcimirror.top', 'cdn.modrinth.com'])
-        self.assertEqual(calls[0][1], 0)
-        self.assertTrue(0 < calls[1][1] < len(self.payload))
-        self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part')))
 
-    def test_last_available_slow_mirror_finishes_instead_of_reporting_switch_failure(self):
-        import itertools
-        self.downloader.content_source = 'Modrinth'
-        original_get = _DownloadSession.get
-        calls = []
-
-        def get(session, url, **kwargs):
-            host = urlsplit(url).hostname
-            calls.append((host, kwargs['headers'].get('Range')))
-            if host == 'cdn.modrinth.com':
-                raise requests.Timeout('publisher timed out')
-            return original_get(session, self.url, **kwargs)
-
-        # Time advances faster than the stream to exercise low-speed detection.
-        ticks = itertools.count()
-        with patch.object(_DownloadSession, 'get', get), patch('core.downloads.time.monotonic', side_effect=lambda: next(ticks)):
-            result = self.downloader.fetch('https://cdn.modrinth.com/data/last-mirror.jar', 'last-mirror.jar',
-                hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        self.assertEqual(result.read_bytes(), self.payload)
-        self.assertEqual([host for host, _ in calls], ['cdn.modrinth.com', 'mod.mcimirror.top'])
-        self.assertFalse(list(Path(self.temp.name).glob('*.buggcraft-part*')))
 
     def test_last_available_mirror_retries_transient_failure_and_resumes(self):
-        self.downloader.content_source = 'Modrinth'
+        self.downloader.content_source = 'CurseForge'
         self.downloader.retries = 6
         self.mode = 'resume'
         original_get = _DownloadSession.get
@@ -911,60 +831,30 @@ class DownloadTransportTests(unittest.TestCase):
 
         def get(session, url, **kwargs):
             calls.append((urlsplit(url).hostname, kwargs['headers'].get('Range')))
-            if calls[-1][0] == 'cdn.modrinth.com':
+            if calls[-1][0] == 'edge.forgecdn.net':
                 raise requests.Timeout('publisher timed out')
             return original_get(session, self.url, **kwargs)
 
         with patch.object(_DownloadSession, 'get', get):
-            result = self.downloader.fetch('https://cdn.modrinth.com/data/retry-mirror.jar', 'retry-mirror.jar',
+            result = self.downloader.fetch('https://edge.forgecdn.net/files/retry-mirror.jar', 'retry-mirror.jar',
                 hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(result.read_bytes(), self.payload)
-        self.assertEqual(calls, [('cdn.modrinth.com', None), ('mod.mcimirror.top', None),
-                                 ('mod.mcimirror.top', 'bytes=65536-')])
+        self.assertEqual(calls, [('edge.forgecdn.net', None), ('mediafilez.forgecdn.net', None),
+                                 ('mediafilez.forgecdn.net', 'bytes=65536-')])
 
-    def test_fast_mirror_does_not_start_duplicate_official_download(self):
-        self.downloader.content_source = 'MCIM'
+    def test_successful_curseforge_does_not_start_duplicate_download(self):
+        self.downloader.content_source = 'CurseForge'
         original = _DownloadSession.get
         hosts = []
         def get(session, url, **kwargs):
             hosts.append(urlsplit(url).hostname)
             return original(session, self.url, **kwargs)
         with patch.object(_DownloadSession, 'get', get):
-            self.downloader.fetch('https://cdn.modrinth.com/data/fast.zip', 'fast.zip',
+            self.downloader.fetch('https://edge.forgecdn.net/files/fast.zip', 'fast.zip',
                 hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        self.assertEqual(hosts, ['mod.mcimirror.top'])
+        self.assertEqual(hosts, ['edge.forgecdn.net'])
 
-    def test_real_trickle_stream_switches_before_completing_slow_mirror(self):
-        self.downloader.content_source = 'MCIM'
-        original = _DownloadSession.get
-        hosts = []
-        self.mode = 'range'
-        def get(session, url, **kwargs):
-            host = urlsplit(url).hostname
-            hosts.append(host)
-            address = self.url.replace('/artifact', '/trickle') if host == 'mod.mcimirror.top' else self.url
-            return original(session, address, **kwargs)
-        started = time.monotonic()
-        with patch.object(_DownloadSession, 'get', get):
-            result = self.downloader.fetch('https://cdn.modrinth.com/data/trickle.mrpack', 'trickle.mrpack',
-                hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        self.assertEqual(result.read_bytes(), self.payload)
-        self.assertEqual(hosts, ['mod.mcimirror.top', 'cdn.modrinth.com'])
-        self.assertIsNone(self.ranges[0])
-        self.assertTrue(self.ranges[1].startswith('bytes='))
-        self.assertLess(time.monotonic() - started, 7)
 
-    def test_mirror_urls_from_cached_manifest_recover_original_fallback(self):
-        self.downloader.content_source = 'MCIM'
-        for path, host in [('/data/project/version/pack.mrpack?x=1', 'cdn.modrinth.com'),
-                           ('/files/123/45/pack.zip', 'edge.forgecdn.net')]:
-            mirrored = 'https://mod.mcimirror.top' + path
-            routed = self.downloader.urls(mirrored)
-            self.assertEqual(routed[0], mirrored)
-            self.assertEqual(routed[1], 'https://' + host + path)
-            self.downloader.content_source = '官方'
-            self.assertEqual(self.downloader.urls(mirrored)[0], 'https://' + host + path)
-            self.downloader.content_source = 'MCIM'
 
 
 if __name__ == '__main__':

@@ -120,7 +120,7 @@ class SettingsManager:
 
         # 默认配置
         self.default_settings = {
-            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "Modrinth"}},
+            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "CurseForge"}},
             "minecraft": minecraft,
             "translation": {"enabled": False, "source": "Buggcraft"},
             "onboarding": {"completed": False, "game_preferences": []},
