@@ -282,7 +282,7 @@ class StartGamePage(QmlPage):
         self._clipboard_scan_pending = False
         try:
             invite = self._clipboard_room_invite()
-        except (RuntimeError, OSError):
+        except Exception:
             # A busy or disappearing clipboard owner is not a launcher error.
             invite = ''
         if invite == self._clipboard_invite:
