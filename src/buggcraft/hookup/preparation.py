@@ -35,6 +35,23 @@ class _AnyCancel:
         return True
 
 
+def _game_directory_path(directory):
+    try:
+        value = os.fspath(directory)
+    except (TypeError, ValueError):
+        value = None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError('游戏目录无效，请重新选择游戏目录。')
+    return Path(value)
+
+
+def _version_identity(identity):
+    if (not isinstance(identity, str) or not identity or identity in ('.', '..') or
+            '\x00' in identity or '/' in identity or '\\' in identity):
+        raise ValueError('已安装游戏版本信息缺失或无效，请重新选择游戏实例。')
+    return identity
+
+
 def _verify_mod(path, item, cancel):
     digest = hashlib.sha256()
     with path.open('rb') as stream:
@@ -135,9 +152,10 @@ async def _download_room_mod_locked(endpoint, item, base, target, source, cancel
 
 def resolved_metadata(directory, identity, seen=None):
     """Resolve nested loader inheritance before cloning a room configuration."""
-    root = Path(directory)
+    root = _game_directory_path(directory)
+    identity = _version_identity(identity)
     seen = set() if seen is None else seen
-    if identity in seen or Path(identity).name != identity or identity in ('.', '..'):
+    if identity in seen:
         raise ValueError('游戏版本继承无效。')
     seen.add(identity)
     child = json.loads((root / 'versions' / identity / (identity + '.json')).read_text(encoding='utf8'))
@@ -263,7 +281,15 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                                  existing_instance=None, content_source=None, budget=None):
     from core.downloads import DownloadCancelled
     event = event or (lambda value: None)
+    base = _game_directory_path(directory).resolve()
+    installed = None
+    if existing_instance is not None:
+        if not isinstance(existing_instance, dict):
+            raise ValueError('所选游戏实例信息无效，请重新选择游戏实例。')
+        installed = _version_identity(existing_instance.get('version'))
     game = dict((endpoint.room_info or {}).get('game') or {})
+    if not isinstance(game.get('version'), str) or not game['version'].strip():
+        raise ValueError('房间游戏版本信息缺失，请房主重新创建房间。')
     count = game.get('mods_count', len(game.get('mods', [])))
     # Fetch and validate before creating a new configuration. No arbitrary URLs
     # or executable paths from a peer are used by the installer.
@@ -285,11 +311,9 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     event(dict(kind='manifest', files=items, resources=resource_items))
     if cancel.is_set():
         raise InterruptedError('安装已取消。')
-    base = Path(directory).resolve()
     expected_loader = game.get('loader', 'vanilla').lower()
     host_ready = asyncio.Event()
     if existing_instance:
-        installed = existing_instance['version']
         metadata = await asyncio.to_thread(resolved_metadata, base, installed)
         installed_loader, _ = metadata_loader(metadata)
         if installed_loader != expected_loader or (items and installed_loader == 'vanilla'):

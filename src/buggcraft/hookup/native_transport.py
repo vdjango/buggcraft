@@ -7,7 +7,7 @@ import asyncio
 import logging
 import threading
 
-from .native_routes import manager
+from .native_routes import fit_room_host_params, manager
 from .profiles import RoomInvite
 
 LOG = logging.getLogger(__name__)
@@ -78,6 +78,7 @@ class NativeEndpoint:
                               game_chat_enabled=self.game_chat_enabled,
                               game_chat_name=self.game_chat_name or '')
                 method = 'room.host'
+                params = fit_room_host_params(params)
             else:
                 params.update(invite=self.invite.encode(), listen_port=self.listen_port)
                 method = 'room.join'

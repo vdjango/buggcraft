@@ -20,6 +20,46 @@ from .native_library import library_path, load_library
 LOG = logging.getLogger(__name__)
 REQUEST_TRACE = ContextVar('native_request_trace', default=None)
 _managers = weakref.WeakKeyDictionary()
+MAX_REQUEST_BYTES = 8192
+
+
+def _serialized_request_size(method, params):
+    message = {'jsonrpc': '2.0', 'id': 99999999999999999999,
+               'method': method, 'params': params}
+    return len((json.dumps(message, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8'))
+
+
+def fit_room_host_params(params):
+    """Trim optional room previews to fit the bounded native request."""
+    fitted = dict(params)
+    settings = fitted.get('settings')
+    if not isinstance(settings, dict):
+        return fitted
+    settings = dict(settings)
+    game = settings.get('game')
+    if not isinstance(game, dict):
+        return fitted
+    game = dict(game)
+    settings['game'] = game
+    fitted['settings'] = settings
+
+    trimmed = {'resources': 0, 'mods': 0}
+    for key in ('resources', 'mods'):
+        preview = game.get(key)
+        while _serialized_request_size('room.host', fitted) > MAX_REQUEST_BYTES:
+            if not isinstance(preview, list) or not preview:
+                break
+            preview = list(preview)
+            preview.pop()
+            game[key] = preview
+            trimmed[key] += 1
+    size = _serialized_request_size('room.host', fitted)
+    if size > MAX_REQUEST_BYTES:
+        raise ValueError('房间信息超过联机请求限制，请减少资源包或模组文件名长度后重试。')
+    if any(trimmed.values()):
+        LOG.info('native_room_preview_trimmed resources=%s mods=%s request_bytes=%s',
+                 trimmed['resources'], trimmed['mods'], size)
+    return fitted
 
 
 class BridgeError(ConnectionError):
@@ -174,7 +214,7 @@ class NativeRoutes:
             diagnostic['rpc_id'] = serial
             message = {'jsonrpc': '2.0', 'id': serial, 'method': method, 'params': params}
             payload = (json.dumps(message, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8')
-            if len(payload) > 8192:
+            if len(payload) > MAX_REQUEST_BYTES:
                 raise ValueError('Native bridge request exceeds the 8192-byte limit')
             try:
                 async with asyncio.timeout(150 if method == 'feedback.submit' else 45):

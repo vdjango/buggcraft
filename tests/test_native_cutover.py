@@ -2,6 +2,7 @@
 import ast
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -11,10 +12,43 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src' / 'buggcraft'))
 from hookup.native_transport import TunnelClient, TunnelHost
+from hookup.native_routes import MAX_REQUEST_BYTES, fit_room_host_params
 from hookup.profiles import RelayProfile, RoomInvite
 
 
 class NativeBoundaryTests(unittest.TestCase):
+    def test_room_host_previews_are_trimmed_to_the_native_request_limit(self):
+        game = {
+            'version': '1.20.1', 'loader': 'forge', 'loader_version': '47.4.0',
+            'mods_count': 212, 'mods_hash': 'a' * 64,
+            'mods': [{'name': f'mod-{index}.jar', 'sha256': 'b' * 64, 'size': 1000}
+                     for index in range(24)],
+            'resources_count': 24, 'resources_hash': 'c' * 64,
+            'resources': [{'name': f'resource-{index}.zip',
+                           'path': 'resourcepacks/' + ('x' * 220) + f'{index}.zip',
+                           'sha256': 'd' * 64, 'size': 1000}
+                          for index in range(24)],
+        }
+        params = {'node': 'node', 'transport': 'auto', 'compression': 'auto',
+                  'announce': True, 'chat_name': 'Player',
+                  'settings': {'capacity': 100, 'game': game}}
+
+        fitted = fit_room_host_params(params)
+        payload = (json.dumps({'jsonrpc': '2.0', 'id': 99999999999999999999,
+                               'method': 'room.host', 'params': fitted},
+                              separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8')
+        fitted_game = fitted['settings']['game']
+        self.assertGreater(len(json.dumps({'settings': {'game': game}}, ensure_ascii=False)),
+                           len(json.dumps({'settings': {'game': fitted_game}}, ensure_ascii=False)))
+        self.assertLessEqual(len(payload), MAX_REQUEST_BYTES)
+        self.assertEqual(len(fitted_game['mods']), 24)
+        self.assertLess(len(fitted_game['resources']), 24)
+        self.assertEqual(fitted_game['mods_count'], 212)
+        self.assertEqual(fitted_game['resources_count'], 24)
+        self.assertEqual(fitted_game['mods_hash'], 'a' * 64)
+        self.assertEqual(fitted_game['resources_hash'], 'c' * 64)
+        self.assertEqual(len(game['resources']), 24)
+
     def test_runtime_has_no_python_multiplayer_network_implementation(self):
         forbidden = {'asyncssh', 'socket', 'aioice', 'aiortc', 'zstandard', 'cryptography'}
         for file in (ROOT / 'src' / 'buggcraft' / 'hookup').rglob('*.py'):
@@ -69,8 +103,11 @@ class NativeEndpointTests(unittest.IsolatedAsyncioTestCase):
         endpoint.chat_name = 'Alice'
         states = []
         endpoint.on_status = lambda state, reason: states.append(state)
-        with patch('hookup.native_transport.manager', return_value=routes):
+        with patch('hookup.native_transport.manager', return_value=routes), \
+                patch('hookup.native_transport.fit_room_host_params',
+                      wraps=fit_room_host_params) as fit_params:
             await endpoint.run()
+        fit_params.assert_called_once()
         method, params = routes.request.await_args_list[0].args
         self.assertEqual(method, 'room.host')
         self.assertEqual(params['game_chat_name'], 'LobbyBridge')

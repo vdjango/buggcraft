@@ -219,6 +219,11 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
                 cancel or threading.Event(), lambda *value: self.progress.append(value), event=self.events.append,
                 existing_instance=existing_instance)
 
+    async def test_missing_existing_instance_version_fails_before_manifest_requests(self):
+        with self.assertRaisesRegex(ValueError, '版本信息缺失或无效'):
+            await self.prepare(existing_instance={'version': None, 'game_directory': str(self.root)})
+        self.endpoint.mod_manifest.assert_not_awaited()
+
     async def test_downloads_are_verified_and_isolated_with_loader_and_detailed_events(self):
         existing = self.root / 'mods/existing.jar'
         existing.parent.mkdir()

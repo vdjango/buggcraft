@@ -13,6 +13,13 @@ from core.launch_options import configure_room_join
 
 
 class ModManifestTests(unittest.TestCase):
+    def test_resolved_metadata_rejects_missing_identity_before_path_operations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, '版本信息缺失或无效'):
+                resolved_metadata(directory, None)
+            with self.assertRaisesRegex(ValueError, '游戏目录无效'):
+                resolved_metadata(None, '1.20.1')
+
     def test_optional_resources_allow_same_basename_in_distinct_folders_only(self):
         item = dict(name='same.zip', path='resourcepacks/same.zip', sha256='a' * 64, size=10)
         validate_manifest([item, dict(item, path='shaderpacks/same.zip')], 'resources')
