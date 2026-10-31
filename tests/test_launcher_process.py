@@ -117,7 +117,7 @@ class LauncherProcessTests(unittest.TestCase):
         self.launcher.signals.preflight_confirmation.connect(decline)
         with self.assertRaises(InterruptedError):
             self._start()
-        self.assertIn('44 个已启用模组', warnings[0])
+        self.assertIn('44 个模组', warnings[0])
         self.assertFalse(self.record.exists())
         self.assertIsNone(self.launcher.process)
 
@@ -136,7 +136,7 @@ class LauncherProcessTests(unittest.TestCase):
 
         self.launcher.signals.preflight_confirmation.connect(accept)
         self._start()
-        self.assertIn('建议至少 4096 MiB', warnings[0])
+        self.assertIn('建议至少 4 GB', warnings[0])
         self.assertIn('-Xmx1024M', self.options['jvmArguments'])
         self.assertTrue(self.record.exists())
 

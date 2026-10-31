@@ -351,7 +351,9 @@ class AllLauncherPagesTests(LauncherQmlCase):
                 clipboard.setText(another)
                 self.pump()
                 join.assert_called_once()
-                self.assertTrue(page.controller.view['multiplayerAttention'])
+                # Clipboard monitoring pauses during room operations, then
+                # consumes the latest invite once the operation has finished.
+                self.assertFalse(page.controller.view['multiplayerAttention'])
                 backend.patch(busy=False)
                 self.pump()
                 self.assertEqual(join.call_count, 2)
