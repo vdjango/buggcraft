@@ -739,7 +739,13 @@ class MinecraftDownloader:
                 preferred = 'Modrinth' if content_source == 'Modrinth' else 'CurseForge'
                 candidates.sort(key=lambda candidate: 0 if provider(candidate) == preferred else
                                 2 if provider(candidate) == 'Modrinth' else 1)
-        candidates = [candidate for candidate in candidates if candidate not in _skip_urls]
+        # Deferred publisher lookup must not retry the same origin under a
+        # different publisher path after its first hash-verified route failed.
+        origin_attempted = any(urlsplit(address).netloc == urlsplit(own_origin).netloc
+                               for address in _skip_urls)
+        candidates = [candidate for candidate in candidates if candidate not in _skip_urls
+                      and not (origin_attempted and
+                               urlsplit(candidate).netloc == urlsplit(own_origin).netloc)]
         attempt_number = 0
         max_attempts = self.retries + 1
         per_source_retries = self.resolve_content_sources or _fallback

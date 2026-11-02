@@ -604,7 +604,7 @@ class LobbyLayoutTests(unittest.TestCase):
         self.click('create-next')
         self.assertEqual(self.backend.actions[-1], ('quickCreate', {
             'port':0, 'title':'玩家的房间', 'public':False, 'requireInvite':True, 'gameChatEnabled':True,
-            'gameChatName':'LobbyBridge', 'transport':'auto'}))
+            'gameChatName':'LobbyBridge', 'allowModTransfer':False, 'transport':'auto'}))
         self.backend._view = {**self.backend._view, 'step':0}
         self.backend.viewChanged.emit()
         QTest.qWait(25)

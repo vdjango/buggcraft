@@ -24,7 +24,7 @@ class ModpackNoKeyTests(LauncherQmlCase):
         with patch.object(downloads.tasks_page, 'start_install', return_value=True) as start:
             controller.importPack()
         start.assert_called_once_with('Fixture', str(self.game_dir), modpack=str(archive.resolve()),
-                                      pack_download_mode='pack')
+                                      pack_download_mode='settings')
         self.assertEqual(self.window.content_stack.currentIndex(), 1)
         self.assertIs(downloads.stack.currentWidget(), downloads.tasks_page)
 

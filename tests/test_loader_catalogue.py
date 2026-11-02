@@ -196,14 +196,15 @@ class LoaderCatalogueTests(unittest.TestCase):
             versions = loaders.available_versions('Forge', '1.20.1', '官方')
         self.assertEqual(versions, ['47.10.0', '47.2.10', '47.2.9'])
 
-    def test_forge_automatic_fallback_parses_mirror_contract(self):
+    def test_forge_publisher_fallback_parses_origin_maven_contract(self):
         offline = Mock()
         offline.raise_for_status.side_effect = OSError('offline')
-        mirror = self.response(records=[{'mcversion': '1.20.1', 'version': '47.4.0'}])
+        mirror = self.response(content=b'<metadata><versioning><versions><version>1.20.1-47.4.0</version></versions></versioning></metadata>')
         with patch.object(loaders.requests, 'get', side_effect=[offline, mirror]) as get:
             self.assertEqual(loaders.available_versions(
                 'Forge', '1.20.1', '自动（官方优先，失败切换镜像）'), ['47.4.0'])
         self.assertEqual(get.call_count, 2)
+        self.assertTrue(get.call_args.args[0].startswith('https://mirror.bugg.icu/'))
 
     def test_no_matching_build_reports_no_compatible_version(self):
         response = self.response(content=b'<metadata><versioning><versions><version>1.20.1-47.4.0</version></versions></versioning></metadata>',
@@ -412,12 +413,12 @@ class LoaderCatalogueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = str(Path(temp) / 'installer.jar')
             wrapped = loaders._routed_downloader(download, '自动')
-            self.assertTrue(wrapped('https://maven.minecraftforge.net/installer.jar', path,
+            self.assertTrue(wrapped('https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.4.0/forge-1.20.1-47.4.0-installer.jar', path,
                                     callback={}, session=session))
         self.assertEqual(session.get.call_count, 2)
         self.assertEqual(session.get.call_args.kwargs['timeout'], (8, 20))
         self.assertTrue(session.get.call_args_list[0].args[0].startswith(loaders.BMCLAPI))
-        self.assertEqual(session.get.call_args.args[0], 'https://mirror.minguncle.cn/maven.minecraftforge.net/installer.jar')
+        self.assertEqual(session.get.call_args.args[0], 'https://mirror.bugg.icu/maven/net/minecraftforge/forge/1.20.1-47.4.0/forge-1.20.1-47.4.0-installer.jar')
         cancel = threading.Event()
         cancel.set()
         with self.assertRaises(InterruptedError):
@@ -467,10 +468,11 @@ class LoaderCatalogueTests(unittest.TestCase):
                         self.assertNotIn('/maven/releases/', candidates[0])
                     elif source == '官方':
                         self.assertEqual(candidates[0], url)
-                        self.assertEqual(len(candidates), 3)
+                        self.assertEqual(len(candidates), 2)
+                        self.assertTrue(candidates[1].startswith('https://mirror.bugg.icu/'))
                     else:
                         self.assertEqual(candidates[0], url)
-                        self.assertIn(loaders.BMCLAPI, candidates[1])
+                        self.assertTrue(candidates[1].startswith('https://mirror.bugg.icu/'))
                 self.assertEqual(callback_values[0], ('max', 2))
 
             malicious = dict(profile)
