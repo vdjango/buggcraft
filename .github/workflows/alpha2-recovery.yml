@@ -1,0 +1,92 @@
+name: Recover authorized alpha 2 publication
+
+on:
+  push:
+    branches: [release/1.0.2-alpha.2-recovery]
+    paths: [.github/workflows/alpha2-recovery.yml]
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: alpha2-authorized-publication-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover only the authorized main build and publish its exact tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -u - <<'PY'
+          import json, os, subprocess, time
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          repository = 'vdjango/buggcraft'
+          sha = '4fbccaf4019ecb0e108c3a83aab2c8b6efe99923'
+          run_id = 41484385085
+          tag = 'v1.0.2-alpha.2'
+          base = 'https://api.github.com/repos/' + repository
+          def api(path, method='GET', body=None):
+              request = Request(base + path, method=method,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers={'Authorization':'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept':'application/vnd.github+json',
+                           'Content-Type':'application/json',
+                           'X-GitHub-Api-Version':'2022-11-28'})
+              for attempt in range(4):
+                  try:
+                      with urlopen(request, timeout=40) as response:
+                          return json.load(response) if response.status != 204 else {}
+                  except HTTPError as error:
+                      if error.code < 500 or attempt == 3: raise
+                      time.sleep(5)
+          retries = 0
+          deadline = time.monotonic() + 155 * 60
+          while time.monotonic() < deadline:
+              run = api(f'/actions/runs/{run_id}')
+              assert run['head_sha'] == sha and run['head_branch'] == 'main'
+              if run['status'] != 'completed':
+                  print('Waiting for main build attempt', run.get('run_attempt'), flush=True)
+                  time.sleep(40)
+                  continue
+              if run['conclusion'] == 'success': break
+              jobs = api(f'/actions/runs/{run_id}/jobs?per_page=100')['jobs']
+              failed = [job for job in jobs if job['conclusion'] in ('failure', 'cancelled', 'timed_out')]
+              assert failed and all('macos-arm64' in job['name'] for job in failed), 'Unexpected failed platform; inspect before retrying'
+              assert retries < 5, 'Hosted runner capacity remained unavailable'
+              api(f'/actions/runs/{run_id}/rerun-failed-jobs', 'POST', {})
+              retries += 1
+              print('Retried failed Apple Silicon job; attempt', retries, flush=True)
+              time.sleep(50)
+          else:
+              raise RuntimeError('Main build recovery timed out')
+          import sys
+          sys.path.insert(0, 'scripts')
+          from require_main_build import require_success
+          verified = require_success(repository, sha, os.environ['GH_TOKEN'])
+          assert api('/branches/main')['commit']['sha'] == sha, 'Main changed during release'
+          print('Verified all five platforms for main run', verified['id'], flush=True)
+          try:
+              existing = api('/git/ref/tags/' + tag)
+          except HTTPError as error:
+              if error.code != 404: raise
+              subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
+              subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
+              subprocess.run(['git', 'tag', '--annotate', tag, sha, '--message', 'Buggcraft 1.0.2-alpha.2'], check=True)
+              subprocess.run(['git', 'push', 'origin', 'refs/tags/' + tag], check=True)
+          else:
+              obj = existing['object']
+              target = api('/git/tags/' + obj['sha'])['object']['sha'] if obj['type'] == 'tag' else obj['sha']
+              assert target == sha, 'Existing tag has a different commit'
+          # GITHUB_TOKEN tag pushes do not trigger workflows automatically.
+          api('/actions/workflows/package.yml/dispatches', 'POST', {'ref': tag})
+          print('Dispatched publication from the validated tag', tag, flush=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write(f'Validated main: `{sha}`. Recovered run: {run_id}. Dispatched `{tag}` publication.\n')
+          PY
