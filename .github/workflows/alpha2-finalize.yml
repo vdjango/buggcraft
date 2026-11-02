@@ -1,0 +1,62 @@
+name: Finalize authorized alpha 2 GitHub prerelease
+
+on:
+  push:
+    branches: [release/1.0.2-alpha.2-recovery]
+    paths: [.github/workflows/alpha2-finalize.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify public beta and publish matching GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+
+          repo = 'vdjango/buggcraft'
+          tag = 'v1.0.2-alpha.2'
+          sha = '4fbccaf4019ecb0e108c3a83aab2c8b6efe99923'
+          release_id = 431756760
+          base = 'https://api.github.com/repos/' + repo
+          def api(path, method='GET', data=None):
+              req = Request(base + path, method=method,
+                  data=json.dumps(data).encode() if data is not None else None,
+                  headers={'Authorization':'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept':'application/vnd.github+json',
+                           'Content-Type':'application/json',
+                           'X-GitHub-Api-Version':'2022-11-28'})
+              with urlopen(req, timeout=30) as response: return json.load(response)
+          run = api('/actions/runs/41484385085')
+          assert run['head_sha'] == sha and run['conclusion'] == 'success'
+          ref = api('/git/ref/tags/' + tag)
+          obj = ref['object']
+          target = api('/git/tags/' + obj['sha'])['object']['sha'] if obj['type'] == 'tag' else obj['sha']
+          assert target == sha
+          release = api('/releases/' + str(release_id))
+          assert release['tag_name'] == tag and release['prerelease']
+          files = {item['name'] for item in release['assets']}
+          required = {'Buggcraft.exe','Buggcraft','Buggcraft-linux-arm64',
+                      'Buggcraft-macos-x86_64.zip','Buggcraft-macos-arm64.zip',
+                      'BUGGCRAFT_VERSION.txt'}
+          assert required.issubset(files), 'GitHub draft is missing platform assets'
+          for platform in ('windows-x64','linux-x86_64','linux-arm64','macos-x86_64','macos-arm64'):
+              url = ('https://download.bugg.icu/api/launcher/update?'
+                     'current=1.0.2-alpha.1&channel=beta&platform=' + platform)
+              with urlopen(Request(url, headers={'Accept':'application/json',
+                      'User-Agent':'Buggcraft-Launcher'}), timeout=20) as response:
+                  result = json.load(response)
+              assert result.get('update_available') and result.get('version') == tag[1:]
+          if release['draft']:
+              release = api('/releases/' + str(release_id), 'PATCH',
+                            {'draft':False,'prerelease':True})
+          assert not release['draft'] and release['prerelease']
+          print('Published GitHub prerelease', tag, 'after checking five public beta downloads')
+          PY
