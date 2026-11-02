@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: alpha2-authorized-publication-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   recover:
@@ -76,10 +76,9 @@ jobs:
               existing = api('/git/ref/tags/' + tag)
           except HTTPError as error:
               if error.code != 404: raise
-              subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
-              subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
-              subprocess.run(['git', 'tag', '--annotate', tag, sha, '--message', 'Buggcraft 1.0.2-alpha.2'], check=True)
-              subprocess.run(['git', 'push', 'origin', 'refs/tags/' + tag], check=True)
+              annotation = api('/git/tags', 'POST', {'tag': tag, 'message': 'Buggcraft 1.0.2-alpha.2',
+                                                   'object': sha, 'type': 'commit'})
+              api('/git/refs', 'POST', {'ref': 'refs/tags/' + tag, 'sha': annotation['sha']})
           else:
               obj = existing['object']
               target = api('/git/tags/' + obj['sha'])['object']['sha'] if obj['type'] == 'tag' else obj['sha']
