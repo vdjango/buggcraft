@@ -203,6 +203,10 @@ def download_content(version, target_root, kind, cancel=None, status=None, progr
         raise ValueError('项目版本没有有效下载文件')
     downloader = MinecraftDownloader(target_root, source=source, cancel=cancel, status=status,
                                      file_event=file_event, retries=6)
+    if kind == 'modpack':
+        # A pack archive is routed through the origin but never stored there.
+        # Resource-pack ZIP files do not carry this hint and keep their policy.
+        downloader.request_headers = {'X-Buggcraft-Pack-Archive': '1'}
     downloader.content_source = content_source
     downloader.resolve_content_sources = True
     # Parallel files already fill the connection budget; segment only a lone

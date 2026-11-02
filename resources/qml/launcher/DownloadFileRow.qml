@@ -9,7 +9,7 @@ Rectangle {
     property bool active: ["downloading", "verifying", "retrying"].indexOf(file.state) >= 0
     property real total: file.total || file.size || 0
     property real done: file.done || (complete ? total : 0)
-    property string statusText: ({pending:"等待下载", downloading:"下载中", verifying:"校验中",
+    property string statusText: ({pending:"等待下载", resolving:"查询下载源", downloading:"下载中", verifying:"校验中",
         verified:"已完成", cached:"已复用", retrying:"正在重试", failed:"下载失败",
         cancelled:"已取消", interrupted:"已中断", skipped:"已跳过", waiting:"等待补齐"})[file.state] || "等待下载"
     function bytes(value) {
@@ -73,8 +73,12 @@ Rectangle {
             Layout.fillWidth: true
             Label {
                 Layout.fillWidth: true; Layout.minimumWidth: 0
-                text: root.file.error || root.file.path || root.file.name || ""
-                textFormat: Text.PlainText; elide: Text.ElideMiddle; color: "#9e90ae"; font.pixelSize: 10
+                text: root.file.error || root.file.source_reason || root.file.path || root.file.name || ""
+                textFormat: Text.PlainText; elide: Text.ElideMiddle
+                color: root.file.source_reason ? "#dbc292" : "#9e90ae"; font.pixelSize: 10
+                ToolTip.visible: reasonHover.hovered && !!root.file.source_reason
+                ToolTip.text: root.file.source_reason || ""
+                HoverHandler { id: reasonHover }
             }
             Label { text: (root.file.state === "downloading" ? root.bytes(root.file.speed || 0) + "/s · " : "") + root.bytes(root.done) + (root.total > 0 ? " / " + root.bytes(root.total) : ""); color: "#b6a8c6"; font.pixelSize: 10 }
         }

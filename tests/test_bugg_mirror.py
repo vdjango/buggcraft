@@ -6,12 +6,108 @@ from pathlib import Path
 import requests
 from core import bugg_mirror
 from core.game_sources import source_urls
-from core.downloads import MinecraftDownloader
+from core.downloads import DownloadSourcesExhausted, MinecraftDownloader
 from tempfile import TemporaryDirectory
 
 
 class BuggMirrorTests(unittest.TestCase):
-    def test_selected_source_failure_uses_origin_only_without_public_redirect(self):
+    def test_selected_origin_failure_discovers_alternatives_after_first_attempt(self):
+        payload = b'verified fallback mod'
+        original = 'https://cdn.modrinth.com/data/project/versions/release/example.jar'
+        alternate = 'https://edge.forgecdn.net/files/123/456/example.jar'
+        own = bugg_mirror.mirror_url(original)
+        visited = []
+
+        def download(_session, url, **kwargs):
+            visited.append(url)
+            if url != alternate:
+                response = requests.Response()
+                response.status_code = 404
+                response.url = url
+                raise requests.HTTPError('not found', response=response)
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.url, response.status_code, response.headers = url, 200, {}
+            response.iter_content.return_value = [payload]
+            return response
+
+        def discover(addresses, *args, **kwargs):
+            self.assertEqual(visited[0], own)
+            return [*addresses, alternate]
+
+        with TemporaryDirectory() as root, \
+                patch('core.content_routes.resolve_download_urls', side_effect=discover) as lookup, \
+                patch('core.downloads._DownloadSession.get', download):
+            downloader = MinecraftDownloader(root, source='Buggcraft', retries=0)
+            downloader.content_source = 'Buggcraft'
+            downloader.resolve_content_sources = True
+            downloader.fetch(original, 'mods/example.jar', hashlib.sha1(payload).hexdigest(), len(payload))
+            self.assertEqual((Path(root) / 'mods/example.jar').read_bytes(), payload)
+            lookup.assert_called_once()
+        self.assertEqual(visited[-1], alternate)
+
+    def test_selected_origin_hit_does_not_wait_for_publisher_discovery(self):
+        payload = b'verified mod'
+        original = 'https://cdn.modrinth.com/data/project/versions/release/example.jar'
+        own = bugg_mirror.mirror_url(original)
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.url, response.status_code, response.headers = own, 200, {}
+        response.iter_content.return_value = [payload]
+        with TemporaryDirectory() as root, \
+                patch('core.content_routes.resolve_download_urls', side_effect=AssertionError('slow lookup before mirror')), \
+                patch('core.downloads._DownloadSession.get', return_value=response) as get:
+            downloader = MinecraftDownloader(root, source='Buggcraft', retries=0)
+            downloader.content_source = 'Buggcraft'
+            downloader.resolve_content_sources = True
+            downloader.fetch(original, 'mods/example.jar', hashlib.sha1(payload).hexdigest(), len(payload))
+            self.assertEqual((Path(root) / 'mods/example.jar').read_bytes(), payload)
+        self.assertEqual(get.call_args.args, (own,))
+
+    def test_game_cache_miss_can_follow_mirror_redirect_policy(self):
+        payload = b'verified game core'
+        original = 'https://piston-data.mojang.com/v1/objects/' + hashlib.sha1(payload).hexdigest() + '/client.jar'
+        own = bugg_mirror.mirror_url(original)
+        visited = []
+
+        def download(_session, url, **kwargs):
+            visited.append(url)
+            self.assertEqual(url, own)
+            self.assertNotIn('X-Buggcraft-Origin-Only', kwargs['headers'])
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.url = original
+            response.status_code = 200
+            response.headers = {}
+            response.iter_content.return_value = [payload]
+            return response
+
+        with TemporaryDirectory() as root, patch('core.downloads._DownloadSession.get', download):
+            downloader = MinecraftDownloader(root, source='Buggcraft', retries=0)
+            downloader.fetch(original, 'client.jar', hashlib.sha1(payload).hexdigest(), len(payload))
+            self.assertEqual((Path(root) / 'client.jar').read_bytes(), payload)
+        self.assertEqual(visited, [own])
+
+    def test_redirect_to_already_failed_source_stops_repeated_attempts(self):
+        original = 'https://edge.forgecdn.net/files/123/456/test.jar'
+        own = bugg_mirror.mirror_url(original)
+        visited = []
+
+        def download(_session, url, **_kwargs):
+            visited.append(url)
+            error = requests.Timeout('redirected target unavailable')
+            error.request = requests.Request('GET', original).prepare()
+            raise error
+
+        with TemporaryDirectory() as root, patch('core.downloads._DownloadSession.get', download):
+            downloader = MinecraftDownloader(root, source='BMCLAPI', retries=6)
+            downloader.content_source = 'CurseForge'
+            with self.assertRaises(DownloadSourcesExhausted) as failed:
+                downloader.fetch(original, 'test.jar', '0' * 40, 100)
+        self.assertEqual(visited, [original, own])
+        self.assertIn('重定向', str(failed.exception))
+
+    def test_selected_source_failure_defers_to_origin_policy(self):
         payload = b'verified mod'
         original = 'https://edge.forgecdn.net/files/123/456/test.jar'
         own = bugg_mirror.mirror_url(original)
@@ -36,7 +132,7 @@ class BuggMirrorTests(unittest.TestCase):
             downloader.fetch(original, 'test.jar', hashlib.sha1(payload).hexdigest(), len(payload))
             self.assertEqual((Path(root) / 'test.jar').read_bytes(), payload)
         self.assertEqual([url for url, _ in visited], [original, own])
-        self.assertEqual(visited[1][1]['X-Buggcraft-Origin-Only'], '1')
+        self.assertNotIn('X-Buggcraft-Origin-Only', visited[1][1])
         self.assertNotIn('X-Buggcraft-Origin-Only', visited[0][1])
 
     def test_enabled_mirror_is_sole_automatic_fallback(self):

@@ -1,9 +1,10 @@
 """QML settings shared by global and per-instance pages."""
+import logging
 import os
 from pathlib import Path
 
 import psutil
-from PySide6.QtCore import QObject, Property, Signal, Slot, QTimer
+from PySide6.QtCore import QObject, Property, Signal, Slot, QTimer, QRunnable, QThreadPool
 from PySide6.QtWidgets import QFileDialog
 
 from config.javafinder import JavaPathFinder
@@ -12,8 +13,27 @@ from config.downloads import download_concurrency, normalize_concurrency
 from config.settings_scope import GlobalSettingsScope
 from core.visibility import VisibilitySettings
 from core.game_languages import available_languages
-from core.content_mirrors import configured_source
+from core.content_mirrors import configured_source, configured_order, source_order, AUTO_SOURCES
 from ui.pages.qml_host import QmlPage
+
+
+class _ProbeSignals(QObject):
+    finished = Signal(str, object, object)
+
+
+class _SettingsProbe(QRunnable):
+    def __init__(self, kind, context, operation):
+        super().__init__()
+        self.signals = _ProbeSignals()
+        self.kind, self.context, self.operation = kind, context, operation
+
+    def run(self):
+        try:
+            result = self.operation()
+        except Exception:
+            logging.getLogger(__name__).debug('settings_probe_failed kind=%s', self.kind, exc_info=True)
+            result = None
+        self.signals.finished.emit(self.kind, self.context, result)
 
 
 class SettingsController(QObject):
@@ -28,7 +48,11 @@ class SettingsController(QObject):
         self.manager = get_settings_manager()
         self.settings = GlobalSettingsScope(self.manager) if scope == 'global' else self.manager
         self._fields = []
-        self._memory = {}
+        self._memory = dict(total=0, used=0, available=0)
+        self._probes = {}
+        self._language_context = None
+        self._language_options = [dict(value=value, title=value) for value in
+                                  dict.fromkeys(('zh_cn', 'en_us', self.settings.get_setting('game.language', 'zh_cn')))]
         self._updates = None
         self._preview_sound = None
         self.reload()
@@ -89,6 +113,17 @@ class SettingsController(QObject):
                     group['description'] = self._storage_error
             elif key == 'game.language':
                 group.update(kind='choice', summary='', options=self._language_options)
+            elif key == 'settings.general.content_mirror':
+                order = configured_order(self.manager)
+                descriptions = {'CurseForge': '原站下载 · 按整合包哈希匹配文件',
+                                'Modrinth': '部分网络速度较慢，建议放在后面',
+                                'Buggcraft': '我们的源 · 自动重定向或提供缓存文件',
+                                'MCIM': '第三方镜像，不推荐；仅手动加入时尝试'}
+                automatic = field['value'] == '自动测速'
+                group.update(kind='source-priority', automatic=automatic, collapsible=False,
+                             summary='自动比较当前文件的下载速度' if automatic else ' → '.join(order),
+                             priorities=[dict(source=name, description=descriptions[name]) for name in order],
+                             mcim='MCIM' in order)
             elif key == 'minecraft.isolation':
                 group.update(kind='radio', description='', summary='各版本独立' if field['value'] else '默认 (.minecraft/)',
                              options=[dict(value=False, title='默认 (.minecraft/)', description='资源存放在 .minecraft/'),
@@ -145,10 +180,47 @@ class SettingsController(QObject):
 
     @Slot()
     def refreshMemory(self):
-        info = psutil.virtual_memory()
-        self._memory = dict(total=info.total // 1048576, used=info.used // 1048576,
-                            available=info.available // 1048576)
-        self.memoryChanged.emit()
+        def read():
+            info = psutil.virtual_memory()
+            return dict(total=info.total // 1048576, used=info.used // 1048576,
+                        available=info.available // 1048576)
+        self._probe('memory', None, read)
+
+    def _probe(self, kind, context, operation):
+        if kind in self._probes:
+            return
+        probe = _SettingsProbe(kind, context, operation)
+        self._probes[kind] = probe
+        probe.signals.finished.connect(self._probe_finished)
+        QThreadPool.globalInstance().start(probe)
+
+    def _current_language_context(self):
+        return (self.settings.get_setting('minecraft.directory.enable'),
+                self.settings.get_setting('minecraft.version.enable'))
+
+    @Slot()
+    def refreshDetails(self):
+        if self.scope != 'general':
+            self.refreshMemory()
+            return
+        context = self._current_language_context()
+        if context != self._language_context:
+            self._probe('languages', context, lambda: available_languages(*context))
+
+    @Slot(str, object, object)
+    def _probe_finished(self, kind, context, result):
+        self._probes.pop(kind, None)
+        if result is None:
+            return
+        if kind == 'memory':
+            self._memory = result
+            self.memoryChanged.emit()
+        elif context == self._current_language_context():
+            self._language_context = context
+            self._language_options = result
+            self.reload()
+        else:
+            self.refreshDetails()
 
     @Property(str, constant=True)
     def title(self):
@@ -162,8 +234,6 @@ class SettingsController(QObject):
     def reload(self):
         s = self.settings
         if self.scope == 'general':
-            self._language_options = available_languages(s.get_setting('minecraft.directory.enable'),
-                                                         s.get_setting('minecraft.version.enable'))
             self._fields = [
                 self._field('settings.general.update', '启动器更新', s.get_setting('settings.general.update', 'stable'),
                             ['stable', 'development'], '开发版包含测试更新，切换后自动检查。'),
@@ -182,10 +252,9 @@ class SettingsController(QObject):
                             ['BMCLAPI', '官方', 'MCMirror', 'Buggcraft',
                              '自动（BMCLAPI 优先）', '自动（官方优先）'],
                             '默认使用 BMCLAPI。按所选来源下载，失败只由 Buggcraft 源站兜底，不自动切换其他第三方来源；保留已校验文件和有效断点。旧版自动选项沿用其首选来源。'),
-                self._field('settings.general.content_mirror', '模组与整合包下载源',
+                self._field('settings.general.content_mirror', '模组与整合包下载源顺序',
                             configured_source(s),
-                            ['CurseForge', 'Modrinth', 'MCIM', 'Buggcraft', '自动（CurseForge 优先）'],
-                            '推荐 CurseForge。Modrinth 速度极慢，不建议轻易尝试；MCIM 也不推荐，仅手动选择时使用。按所选来源下载，失败只尝试 Buggcraft 源站；自动模式不尝试 Modrinth 或 MCIM。切换后保留进度并按新设置下载。房主文件可按需临时加速。'),
+                            description='从上到下依次尝试：每个来源最多自动重试 6 次，间隔 3 秒。跨站文件必须与整合包哈希一致。调整后立即应用，保留已校验文件和有效断点；自动模式比较 CurseForge、Modrinth 当前文件速度，Buggcraft 兜底。'),
                 self._field('downloads.concurrency', '下载并发数', download_concurrency(self.manager),
                             sorted({1, 2, 4, 8, 16, 32, 64, download_concurrency(self.manager)}),
                             '每个任务同时下载的文件数量，默认 32。网络不稳定可调低，修改后对新任务生效。'),
@@ -219,7 +288,8 @@ class SettingsController(QObject):
                                if option.endswith(' · ' + current_java)), java_options[0])
             if str(get('java.name') or '').startswith('使用推荐的 Java 版本'):
                 java_value = java_options[0]
-            memory_max = max(512, int(psutil.virtual_memory().total / 1048576) - 1024)
+            memory_max = (max(512, self._memory['total'] - 1024) if self._memory['total']
+                          else max(512, int(get('memory.allocation', 2048))))
             fields = []
             if self.scope == 'instance':
                 version = s.get_setting('minecraft.version.enable') or '尚未选择'
@@ -250,9 +320,31 @@ class SettingsController(QObject):
                             get('launcher.debug', '否（推荐）'), ['是', '否（推荐）'], enabled=editable),
             ])
             self._fields = fields
-        self.refreshMemory()
         self.sliderValuesChanged.emit()
         self.changed.emit()
+
+    @Slot(int, int)
+    def moveContentSource(self, index, direction):
+        if self.scope != 'general' or direction not in (-1, 1):
+            return
+        order = configured_order(self.manager)
+        target = index + direction
+        if not 0 <= index < len(order) or not 0 <= target < len(order):
+            return
+        order[index], order[target] = order[target], order[index]
+        self.setValue('settings.general.content_mirror', order)
+
+    @Slot(bool)
+    def setContentAutomatic(self, enabled):
+        self.setValue('settings.general.content_mirror',
+                      '自动测速' if enabled else configured_order(self.manager))
+
+    @Slot(bool)
+    def setContentMcim(self, enabled):
+        order = [name for name in configured_order(self.manager) if name != 'MCIM']
+        if enabled:
+            order.append('MCIM')
+        self.setValue('settings.general.content_mirror', order)
 
     @Slot(str, 'QVariant')
     def setValue(self, key, value):
@@ -293,6 +385,17 @@ class SettingsController(QObject):
             self.settings.set_version_setting(key, int(value))
         elif key == 'downloads.concurrency' and self.scope == 'general':
             self.settings.set_setting(key, normalize_concurrency(value))
+        elif key == 'settings.general.content_mirror' and self.scope == 'general':
+            if isinstance(value, (list, tuple)):
+                self.settings.set_setting('settings.general.content_order', source_order(value))
+                self.settings.set_setting(key, '优先级')
+            elif value in AUTO_SOURCES:
+                self.settings.set_setting('settings.general.content_order', configured_order(self.manager))
+                self.settings.set_setting(key, '自动测速')
+            elif value in ('CurseForge', 'Modrinth', 'Buggcraft', 'MCIM', '官方'):
+                self.settings.set_setting(key, value)
+            else:
+                return
         elif key == 'launcher.opacity' and self.scope == 'general':
             try:
                 value = max(35, min(100, int(value)))
@@ -401,6 +504,7 @@ class QmlSettingsPage(QmlPage):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.controller.refreshDetails()
         if self.controller.scope != 'general':
             self.memory_timer.start()
 
@@ -410,6 +514,7 @@ class QmlSettingsPage(QmlPage):
 
     def on_page_activate(self):
         self.controller.reload()
+        self.controller.refreshDetails()
 
     def on_page_deactivate(self):
         pass

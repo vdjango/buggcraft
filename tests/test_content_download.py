@@ -20,17 +20,21 @@ class ContentDownloadTests(unittest.TestCase):
         probe = patch('core.downloads._measure_content_route', return_value=100_000)
         probe.start()
         self.addCleanup(probe.stop)
+        metadata = patch('core.content_routes._get', return_value={})
+        metadata.start()
+        self.addCleanup(metadata.stop)
         _CONTENT_ROUTE_CACHE.clear()
         self.addCleanup(_CONTENT_ROUTE_CACHE.clear)
 
-    def test_automatic_source_ranking_uses_cached_measured_speed(self):
+    def test_automatic_source_ranking_measures_each_download(self):
         mirror = 'https://edge.forgecdn.net/files/sample.jar'
         upstream = 'https://cdn.modrinth.com/data/sample.jar'
-        with patch('core.downloads._measure_content_route', side_effect=lambda url: 200_000 if 'forgecdn' in url else 1_000_000):
-            _CONTENT_ROUTE_CACHE.clear()
+        speeds = {mirror: 200_000, upstream: 1_000_000}
+        with patch('core.downloads._measure_content_route', side_effect=lambda url: speeds[url]) as probe:
             self.assertEqual(_rank_content_candidates([mirror, upstream]), [upstream, mirror])
-            with patch('core.downloads._measure_content_route', side_effect=AssertionError('probe cache missed')):
-                self.assertEqual(_rank_content_candidates([mirror, upstream]), [upstream, mirror])
+            speeds.update({mirror: 1_000_000, upstream: 200_000})
+            self.assertEqual(_rank_content_candidates([mirror, upstream]), [mirror, upstream])
+            self.assertEqual(probe.call_count, 4)
         _CONTENT_ROUTE_CACHE.clear()
 
 

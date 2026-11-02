@@ -8,17 +8,39 @@ from unittest.mock import MagicMock, patch
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
-from core.content_mirrors import configured_source, display_source, get_modrinth
+from core.content_mirrors import configured_source, configured_order, source_order, display_source, get_modrinth
 from core.curseforge import CurseForgeAPI, PUBLIC_API
 
 
 class ContentMirrorSourceTests(unittest.TestCase):
+    def test_custom_order_survives_restart_and_keeps_mcim_opt_in(self):
+        saved = {'settings.general.content_mirror': '优先级',
+                 'settings.general.content_order': ['Buggcraft', 'Modrinth', 'CurseForge']}
+        settings = MagicMock()
+        settings.get_setting.side_effect = lambda key, default: saved.get(key, default)
+        self.assertEqual(configured_source(settings), saved['settings.general.content_order'])
+        self.assertEqual(display_source(configured_source(settings)), 'Buggcraft → Modrinth → CurseForge')
+        saved['settings.general.content_mirror'] = '自动测速'
+        self.assertEqual(configured_source(settings), '自动测速')
+        self.assertEqual(configured_order(settings), saved['settings.general.content_order'])
+        self.assertNotIn('MCIM', configured_order(settings))
+        self.assertEqual(source_order(['MCIM', 'Buggcraft', 'MCIM', 'invalid']),
+                         ['MCIM', 'Buggcraft', 'CurseForge', 'Modrinth'])
+
+    def test_modrinth_is_the_default_without_probing_external_services(self):
+        settings = MagicMock()
+        settings.get_setting.side_effect = lambda _key, default: default
+        self.assertEqual(configured_source(settings), 'Modrinth')
+        settings.get_setting.assert_called_once_with('settings.general.content_mirror', 'Modrinth')
+
     def test_saved_manual_sources_survive(self):
         settings = MagicMock()
         for saved in ('自动测速', 'CurseForge', 'Modrinth', '官方', 'MCIM', 'Buggcraft', 'unknown'):
             settings.get_setting.return_value = saved
-            self.assertEqual(configured_source(settings), '自动（CurseForge 优先）' if saved == '自动测速'
-                             else saved if saved != 'unknown' else 'CurseForge')
+            expected = source_order(saved) if saved == 'MCIM' else saved if saved != 'unknown' else 'Modrinth'
+            self.assertEqual(configured_source(settings), expected)
+        settings.get_setting.return_value = '自动（CurseForge 优先）'
+        self.assertEqual(configured_source(settings), '自动测速')
         self.assertEqual(display_source('官方', 'CurseForge'), 'CurseForge')
         self.assertEqual(display_source('官方', 'Modrinth'), 'Modrinth')
 

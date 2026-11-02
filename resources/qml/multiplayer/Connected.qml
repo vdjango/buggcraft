@@ -118,6 +118,12 @@ ColumnLayout {
             }
         }
     }
+    RoomAccelerationCard {
+        objectName: "room-file-acceleration-progress"
+        visible: connected.host && connected.online && !!connected.record.allowModTransfer
+        Layout.fillWidth: true
+        flow: connected.record.cacheProgress || ({})
+    }
     CopyText { Layout.fillWidth: true; visible: connected.online && !!connected.record.warning; text: "版本提示：" + connected.record.warning; color: "#dfbd92"; font.pixelSize: 11 }
     Surface {
         objectName: "room-game-requirements"

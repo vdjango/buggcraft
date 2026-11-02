@@ -692,6 +692,15 @@ class ModpackImporter:
         downloader.fallback_content_sources = False
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
+        if len(jobs) > 1:
+            from core.content_routes import prefetch_modrinth_hashes, provider
+            publisher_jobs = [(digest, size) for url, _, digest, size in jobs
+                              if provider(url) in ('CurseForge', 'Modrinth')]
+        else:
+            publisher_jobs = []
+        if len(publisher_jobs) > 1:
+            self.status('[2/5] 正在按文件哈希批量查询备用下载地址…')
+            prefetch_modrinth_hashes(publisher_jobs, self.cancel)
         if info.source in ('Modrinth', 'Buggcraft'):
             downloader.required_hashes = {item['path']: item['hashes'] for item in info.files}
             downloader.file_mirrors = {item['downloads'][0]: item['downloads'][1:]

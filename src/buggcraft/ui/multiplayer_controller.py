@@ -47,8 +47,9 @@ class MultiplayerController(RoomPreparation, QObject):
     route_changed = Signal(str, str)
     roomSettingsSaved = Signal()
     room_notification = Signal(str)
+    cache_progress = Signal(str, object)
 
-    def __init__(self, window, storage_path=None):
+    def __init__(self, window, storage_path=None, *, background=False):
         super().__init__(window)
         self.window = window
         self.launcher_page = getattr(window, "launcher_page", None) or window.parent()
@@ -100,6 +101,7 @@ class MultiplayerController(RoomPreparation, QObject):
         self.seen_friend_invitations = set()
         self.ignored_friend_invitations = set()
         self.instance_job = None
+        self.instance_scan_job = None
         self.instance_source = None
         self.preparations = {}
         self.preparation_resumes = {}
@@ -146,21 +148,27 @@ class MultiplayerController(RoomPreparation, QObject):
         cache = getattr(main_window, 'cache_path', None)
         from utils.storage_paths import cache_directory
         root = Path(cache) / 'multiplayer' if cache else cache_directory('multiplayer')
-        try:
-            self.store = LobbyStore(storage_path or root / 'lobby.json')
-        except (OSError, ValueError) as exc:
-            self.store = None
-            self._state['notice'] = '本地配置未能读取，原文件已保留：' + str(exc)
+        self.store = None
+        store_path = storage_path or root / 'lobby.json'
+        if not background:
+            try:
+                self.store = LobbyStore(store_path)
+            except (OSError, ValueError) as exc:
+                self._state['notice'] = '本地配置未能读取，原文件已保留：' + str(exc)
         self.completed.connect(self.finish)
         self.network_type_detected.connect(self.update_network_type)
         self.status.connect(self.update_status)
+        self.cache_progress.connect(self.update_cache_progress)
         self.chat_event.connect(self.update_chat)
         self.chat_sent.connect(self.finish_chat)
         self.preparation_progress.connect(self.update_preparation)
         self.preparation_event.connect(self.update_preparation_event)
         self.route_changed.connect(self.show_route_tip)
         QApplication.instance().aboutToQuit.connect(self.close)
-        self.reload_store()
+        if background:
+            self.job('startup-store', asyncio.to_thread(self._load_store_background, store_path))
+        else:
+            self.reload_store()
         self.friend_timer = QTimer(self)
         self.friend_timer.setInterval(5000)
         self.friend_timer.timeout.connect(self.refresh_friends)
@@ -357,7 +365,27 @@ class MultiplayerController(RoomPreparation, QObject):
         return (round(value, 1) if type(value) in (int, float) and
                 math.isfinite(value) and value >= 0 else None)
 
-    def reload_store(self, select=None, refresh_identity=False):
+    @staticmethod
+    def _load_store_background(path):
+        """Read saved nodes and profiles without blocking the launcher's GUI."""
+        store = LobbyStore(path)
+        profiles = {}
+        for node in store.data['nodes']:
+            try:
+                profile = RelayProfile.load(node)
+            except (OSError, ValueError, TypeError):
+                profile = None
+            device_path = Path(node + '.device.json')
+            metadata = None
+            if device_path.is_file():
+                try:
+                    metadata = json.loads(device_path.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    metadata = {}
+            profiles[node] = (profile, metadata)
+        return store, profiles
+
+    def reload_store(self, select=None, refresh_identity=False, *, preloaded=None):
         nodes = []
         profiles = {}
         previous = {node['path']: node for node in self._state['nodes']}
@@ -365,7 +393,9 @@ class MultiplayerController(RoomPreparation, QObject):
             personal_code = False
             expired = False
             try:
-                profile = RelayProfile.load(path)
+                profile = preloaded[path][0] if preloaded is not None else RelayProfile.load(path)
+                if profile is None:
+                    raise ValueError('saved profile unavailable')
                 profiles[path] = profile
                 title = self.store.data['node_names'].get(path, '社区节点')
                 personal_code = profile.token.startswith('acct1.')
@@ -380,8 +410,10 @@ class MultiplayerController(RoomPreparation, QObject):
                 logging.getLogger('hookup.social').warning(
                     'social_profile_read_failed error_type=%s selected=%s retained_identity=%s',
                     type(exc).__name__, path == self.node_path, path in previous)
+            device_managed = (preloaded[path][1] is not None if preloaded is not None
+                              else Path(path + '.device.json').is_file())
             nodes.append({'title': title, 'path': path, 'personalCode': personal_code,
-                          'codeExpired': expired, 'deviceManaged': Path(path + '.device.json').is_file()})
+                          'codeExpired': expired, 'deviceManaged': device_managed})
         paths = [node['path'] for node in nodes]
         target = select or self.node_path
         index = paths.index(target) if target in paths else (0 if paths else -1)
@@ -389,12 +421,14 @@ class MultiplayerController(RoomPreparation, QObject):
         self.patch(nodeAccessExpired=bool(index >= 0 and nodes[index]['codeExpired']),
                    nodeAccessMessage=EXPIRED_CODE_MESSAGE if index >= 0 and nodes[index]['codeExpired'] else '')
         new_path = paths[index] if index >= 0 else ''
-        device_managed = bool(new_path and Path(new_path + '.device.json').is_file())
+        device_managed = bool(new_path and (preloaded[new_path][1] is not None if preloaded is not None
+                                            else Path(new_path + '.device.json').is_file()))
         device_origin = 'https://node.bugg.icu'
         if device_managed:
             try:
                 from hookup.device_login import validate_origin
-                metadata = json.loads(Path(new_path + '.device.json').read_text(encoding='utf-8'))
+                metadata = (preloaded[new_path][1] if preloaded is not None else
+                            json.loads(Path(new_path + '.device.json').read_text(encoding='utf-8')))
                 device_origin = validate_origin(metadata['origin'])
             except (OSError, ValueError, TypeError, KeyError):
                 device_origin = ''
@@ -1153,10 +1187,13 @@ class MultiplayerController(RoomPreparation, QObject):
         source = running or (launcher.minecraft_directory, launcher.minecraft_version,
                              settings.get_minecraft_isolation_directory())
         directory, version, game_directory = source
-        installed = installed_instance_ids(directory)
-        self.patch(instances=installed, instanceId=version or '', instanceLocked=bool(running))
+        self.patch(instanceId=version or '', instanceLocked=bool(running))
         if not force and source == self.instance_source and not self._state['instanceError']:
             return
+        if source != self.instance_source:
+            self.instance_scan_job = 'instances-scan:' + uuid.uuid4().hex
+            self.patch(instances=[])
+            self.job(self.instance_scan_job, asyncio.to_thread(installed_instance_ids, directory))
         self.instance_source = source
         self.game = {}
         self.creation = None
@@ -1246,8 +1283,12 @@ class MultiplayerController(RoomPreparation, QObject):
         public, require_invite = data.get('public', False), data.get('requireInvite', False)
         if type(public) is not bool or type(require_invite) is not bool:
             raise ValueError('房间公开和邀请码设置无效，请重新选择。')
+        file_sharing = data.get('allowModTransfer', False)
+        if type(file_sharing) is not bool:
+            raise ValueError('文件共享加速设置无效。')
         settings = {'title': title, 'public': public, 'require_invite': not public or require_invite,
-                    'capacity': 100, 'game': self.creation['game']}
+                    'capacity': 100, 'game': self.creation['game'],
+                    'allow_mod_transfer': file_sharing, 'mod_transfer_limit_kib': 512}
         directory = self.instance_source[2] if self.instance_source else None
         endpoint = TunnelHost(self.profile(), game_port=self.creation['port'], room_settings=settings,
                               game_directory=directory, game_chat_enabled=game_chat_enabled,
@@ -1303,12 +1344,14 @@ class MultiplayerController(RoomPreparation, QObject):
         except (OSError, ValueError, TypeError):
             pass
         endpoint.on_status = lambda state, detail: self.status.emit(name, state, detail)
+        endpoint.on_cache_progress = lambda progress: self.cache_progress.emit(name, progress)
         self.records[name] = {'id': name, 'title': title, 'role': endpoint.role,
                               'automaticPublicGuide': automatic,
                               'state': 'connecting', 'detail': '', 'warning': '',
                               'public': bool((endpoint.room_settings or {}).get('public', False)),
                               'requireInvite': (endpoint.room_settings or {}).get('require_invite', True),
                               'allowModTransfer': (endpoint.room_settings or {}).get('allow_mod_transfer', False),
+                              'cacheProgress': {'state': 'waiting', 'message': '等待连接源站', 'logs': []},
                               'modTransferLimitKib': int((endpoint.room_settings or {}).get('mod_transfer_limit_kib', 512)),
                               'game': dict((endpoint.room_settings or {}).get('game', {})),
                               'nodeName': (endpoint.room_info or {}).get('node_name') or node_info.get('name', self.node_display_names.get(self.node_path, '')),
@@ -1353,6 +1396,21 @@ class MultiplayerController(RoomPreparation, QObject):
                    chatError=selected.get('chatError', ''),
                    chatDraft=selected.get('chatDraft', ''), chatSending=selected.get('chatSending', False),
                    bridgeStatus=selected.get('bridgeStatus', '房主连接游戏后，游戏聊天会同步到大厅。'))
+
+    @Slot(str, object)
+    def update_cache_progress(self, name, progress):
+        record = self.records.get(name)
+        if not record or record.get('role') != 'host' or not isinstance(progress, dict):
+            return
+        old = record.get('cacheProgress', {})
+        logs = list(old.get('logs', []))
+        message = str(progress.get('message', ''))[:160]
+        file = str(progress.get('file', ''))[:180]
+        if message and (progress.get('state'), file, message) != (
+                old.get('state'), old.get('file'), old.get('message')):
+            logs.append(f'{file} · {message}' if file else message)
+        record['cacheProgress'] = {**progress, 'logs': logs[-5:]}
+        self.publish_connections()
 
     def offer_public_room_guide(self, record):
         if not (record.get('automaticPublicGuide') and record.get('role') == 'host'
@@ -2037,6 +2095,15 @@ class MultiplayerController(RoomPreparation, QObject):
         if error:
             error = self.operation_error(error)
         self.jobs.discard(key)
+        if key == 'startup-store':
+            if error:
+                self.patch(notice='本地联机配置读取失败，请检查文件权限：' + error)
+                return
+            self.store, profiles = value
+            preferred = next((path for path, (profile, _) in profiles.items()
+                              if profile is not None and profile.token.startswith('acct1.')), None)
+            self.reload_store(select=preferred, preloaded=profiles)
+            return
         if key.startswith('network-profile:'):
             self.player_network_profile_task = False
             if key == 'network-profile:' + self.generation:
@@ -2450,6 +2517,10 @@ class MultiplayerController(RoomPreparation, QObject):
                     self.save_verified_node(profile)
             except Exception as exc:
                 self.patch(busy=False, error=str(exc), notice='')
+            return
+        if key.startswith('instances-scan:'):
+            if key == self.instance_scan_job:
+                self.patch(instances=[] if error else value)
             return
         if key.startswith('instance:'):
             if key != getattr(self, 'instance_job', None):

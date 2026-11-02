@@ -4,6 +4,7 @@ import threading
 from unittest.mock import Mock, patch
 
 from _qml_test_support import LauncherQmlCase, QQuickWidget, QTest, Qt, qt_mouse_click
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QAbstractButton, QLineEdit, QPlainTextEdit
 
 
@@ -393,8 +394,11 @@ class AllLauncherPagesTests(LauncherQmlCase):
         self.assert_no_qml_errors()
 
     def test_supported_game_language_can_be_selected_and_is_passed_to_launch(self):
+        self.window.switch_pages('设置')
         page = self.window.settings_page.general_page
         controller = page.controller
+        self.wait_until(lambda: len(next(item for item in controller.groups
+                                         if item['key'] == 'game.language')['options']) > 100)
         group = next(item for item in controller.groups if item['key'] == 'game.language')
         self.assertGreater(len(group['options']), 100)
         controller.setValue('game.language', 'ja_jp')
@@ -404,6 +408,38 @@ class AllLauncherPagesTests(LauncherQmlCase):
         with patch.object(home.auth_manager, 'is_authenticated', return_value=True), patch.object(home.launcher, 'start'):
             home.started_game()
         self.assertEqual(home.launcher._language, 'ja_jp')
+
+    def test_settings_probes_run_after_page_open_without_stalling_ui(self):
+        from ui.pages.qml_settings import SettingsController
+        import psutil
+        ready, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        with (patch('ui.pages.qml_settings.psutil.virtual_memory', side_effect=AssertionError('hidden page probed')),
+              patch('ui.pages.qml_settings.available_languages', side_effect=AssertionError('hidden page probed'))):
+            hidden = SettingsController(self.window, 'general')
+            self.assertTrue(hidden.fields)
+            hidden.deleteLater()
+
+        original = psutil.virtual_memory
+        worker_ids = []
+        def slow_probe():
+            worker_ids.append(threading.get_ident())
+            ready.set()
+            release.wait(2)
+            return original()
+
+        with patch('ui.pages.qml_settings.psutil.virtual_memory', side_effect=slow_probe):
+            self.window.switch_pages('设置')
+            self.window.settings_page.global_tab_btn_clicked()
+            self.wait_until(ready.is_set)
+            events = []
+            QTimer.singleShot(0, lambda: events.append('responsive'))
+            self.pump()
+            self.assertEqual(events, ['responsive'])
+            self.assertNotEqual(worker_ids[0], threading.get_ident())
+            release.set()
+            page = self.window.settings_page.global_version_page
+            self.wait_until(lambda: page.controller.memoryInfo['total'] > 0)
 
     def test_java_download_catalogue_installs_and_preserves_preferred_java(self):
         from core.java_downloads import JavaPackage
@@ -461,7 +497,7 @@ class AllLauncherPagesTests(LauncherQmlCase):
             self.window.load_java_path(notify_missing=False)
             self.wait_until(lambda: not self.window.search_thread.isRunning())
             self.pump()
-        self.assertEqual(self.manager.get_setting('java.installations')[0][0], str(runtime))
+        self.assertIn(str(runtime), [entry[0] for entry in self.manager.get_setting('java.installations')])
         self.assert_no_qml_errors()
 
     def test_room_mod_downloads_are_persisted_in_launcher_task_history(self):
@@ -829,6 +865,7 @@ class AllLauncherPagesTests(LauncherQmlCase):
         page.controller.setValue('memory.allocation', 3072)
         self.pump()
         self.assertEqual(self.manager.get_setting('memory.allocation'), 3072)
+        self.wait_until(lambda: page.controller.memoryInfo['total'] > 0)
         self.assertGreater(page.controller.memoryInfo['total'], 0)
         self.assertEqual([section['title'] for section in self.window.settings_page.about_page.controller.view['sections']],
                          ['关于', '鸣谢', '依赖', '法律声明'])

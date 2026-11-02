@@ -1,6 +1,7 @@
 """Prepare a separate game configuration without changing existing mod folders."""
 import asyncio
 import json
+import logging
 import copy
 import hashlib
 import os
@@ -13,6 +14,16 @@ import time
 
 from .modpack import fetch_manifest, fetch_mod, manifest_hash
 from .rooms import metadata_loader
+
+
+def _room_loader(metadata, game, installed):
+    loader, build = metadata_loader(metadata)
+    expected = game.get('loader', 'vanilla').lower()
+    if loader != expected or game.get('mods_count') and loader == 'vanilla':
+        logging.getLogger(__name__).warning('room_loader_validation_failed expected=%s expected_build=%s game=%s installed=%s actual=%s actual_build=%s',
+            expected, game.get('loader_version',''), game.get('version',''), installed, loader, build)
+        raise ValueError(f'加载器安装校验失败：房间需要 {expected}，实际配置 {installed} 为 {loader}。请重新准备房间客户端，或选择与房主一致的配置；不会使用其他加载器启动。')
+    return loader
 
 
 async def _wait_for_retry(attempt, signal):
@@ -114,6 +125,13 @@ async def _download_room_mod_locked(endpoint, item, base, target, source, cancel
     paths = {'public': cached, 'p2p': cache / ('.p2p-' + secrets.token_hex(8))}
     try:
         winner = ''
+        origin = getattr(endpoint, '_content_cache', None)
+        # The batch plan marks only verified copies as cached. Use those
+        # immediately; a missing/expired copy returns False to ordinary sources.
+        if origin and await origin.download(item, cached, cancel,
+                lambda done, total: progress('origin', done, total)):
+            await asyncio.to_thread(shutil.copy2, cached, target)
+            return 'origin'
         try:
             public_key = (source, tuple(item.get('downloads', [])))
             found = False
@@ -262,14 +280,14 @@ async def fetch_public_mod(item, base, target, source, cancel, progress):
         return False
     try:
         from .room_cache import public_url
-        content_source = source if source in ('自动测速', '自动（CurseForge 优先）', 'CurseForge', 'Modrinth', 'MCIM', 'Buggcraft', '官方') else 'CurseForge'
+        content_source = source if isinstance(source, (list, tuple)) or source in ('自动测速', '自动（CurseForge 优先）', 'CurseForge', 'Modrinth', 'MCIM', 'Buggcraft', '官方') else 'CurseForge'
         urls = [url for url in item.get('downloads', []) if public_url(url)]
         if not urls:
             return False
         url = urls[0]
         from core.downloads import MinecraftDownloader
         relative = target.name
-        downloader = MinecraftDownloader(target.parent, source=source, cancel=cancel, workers=1, retries=6)
+        downloader = MinecraftDownloader(target.parent, source=source if isinstance(source, str) else '自动', cancel=cancel, workers=1, retries=6)
         downloader.parallel_content = False  # Room files already share a bounded pool.
         downloader.resolve_content_sources = True
         downloader.content_source = content_source
@@ -324,12 +342,6 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     game['resources_count'] = len(resource_items)
     from .room_cache import client as room_cache_client, PendingRoomFiles
     origin = await room_cache_client(endpoint)
-    if origin:
-        try:
-            await origin.plan(wanted=[item['sha256'] for item in [*items, *resource_items]])
-            origin.enrich([*items, *resource_items])
-        except (ConnectionError, OSError, ValueError):
-            pass  # Older nodes retain local/P2P transfers.
     event(dict(kind='manifest', files=items, resources=resource_items))
     if cancel.is_set():
         raise InterruptedError('安装已取消。')
@@ -337,9 +349,7 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     host_ready = asyncio.Event()
     if existing_instance:
         metadata = await asyncio.to_thread(resolved_metadata, base, installed)
-        installed_loader, _ = metadata_loader(metadata)
-        if installed_loader != expected_loader or (items and installed_loader == 'vanilla'):
-            raise ValueError('加载器安装校验失败：房间需要 ' + expected_loader + '，实际安装为 ' + installed_loader + '。不会启动原版游戏。')
+        installed_loader = _room_loader(metadata, game, installed)
         from .rooms import instance_metadata
         local_game = await asyncio.to_thread(instance_metadata, base, installed,
                                              existing_instance.get('game_directory'))
@@ -357,7 +367,18 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
     target.mkdir(parents=True, exist_ok=False)
     marker = target / '.buggcraft-preparing'
     marker.write_text('Room preparation in progress', encoding='utf8')
+    async def refresh_origin(**fields):
+        from requests import RequestException
+        try:
+            await asyncio.wait_for(origin.plan(**fields, timeout=(1, 2)), timeout=3)
+            origin.enrich([*items, *resource_items])
+        except (ConnectionError, OSError, ValueError, RequestException, asyncio.TimeoutError):
+            pass  # Optional acceleration never holds up ordinary downloads.
+    origin_task = None
     try:
+        if origin:
+            origin_task = asyncio.create_task(refresh_origin(
+                wanted=[item['sha256'] for item in [*items, *resource_items]]))
         if not existing_instance:
             from core.transfer_metrics import TransferMeter
             game_meter = TransferMeter()
@@ -375,9 +396,7 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                         raise ValueError(prefix + str(exc)) from exc
                     raise RuntimeError(prefix + str(exc)) from exc
                 metadata = await asyncio.to_thread(resolved_metadata, base, installed)
-                loader, _ = metadata_loader(metadata)
-                if loader != expected_loader or (items and loader == 'vanilla'):
-                    raise ValueError('加载器安装校验失败：房间需要 ' + expected_loader + '，实际安装为 ' + loader + '。不会启动原版游戏。')
+                loader = _room_loader(metadata, game, installed)
                 host_ready.set()
                 return installed, metadata, loader
 
@@ -544,20 +563,12 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
                 attempt = -1
             report(f'等待补齐 {len(waiting)} 个必需文件 · 自动重试 {attempt + 1}/6；已完成文件已保留', completed_bytes, total_bytes)
             if origin:
-                try:
-                    await origin.plan(failed=[item['sha256'] for item in waiting])
-                    origin.enrich(waiting)
-                except (ConnectionError, OSError, ValueError):
-                    pass
+                await refresh_origin(failed=[item['sha256'] for item in waiting])
             # Cancellation stays responsive while the provider fills the plan.
             if attempt >= 0:
                 await _wait_for_retry(attempt, signal)
             if origin:
-                try:
-                    await origin.plan()
-                    origin.enrich(waiting)
-                except (ConnectionError, OSError, ValueError):
-                    pass
+                await refresh_origin()
             attempt += 1
         if failures:
             aborted.set()
@@ -636,3 +647,7 @@ async def _prepare_configuration(endpoint, directory, java, source, cancel, repo
         if (published / marker.name).exists():
             await asyncio.to_thread(shutil.rmtree, published)
         raise
+    finally:
+        if origin_task:
+            origin_task.cancel()
+            await asyncio.gather(origin_task, return_exceptions=True)

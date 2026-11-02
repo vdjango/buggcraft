@@ -603,6 +603,7 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.finish_test()
 
     def test_import_switches_source_while_stream_is_blocked_and_reuses_files(self):
+        self.manager.set_setting('settings.general.content_mirror', 'CurseForge')
         archive, resources = self.exported_compact_pack(publisher='混合')
         attempts = self.trace_pack_download_sources()
         filename = 'resume-resources.zip'
@@ -621,14 +622,15 @@ class DownloadChecklistUiTests(_DownloadCase):
         settings.ensure_loaded()
         self.fixtures.pauses.pop(filename)
         before = time.monotonic()
-        settings.controller.setValue('settings.general.content_mirror', 'Modrinth')
+        new_order = ['Modrinth', 'Buggcraft', 'CurseForge']
+        settings.controller.setValue('settings.general.content_mirror', new_order)
         self.window.download_page.on_progress_clicked()
         self.wait_for(lambda: tasks._workers.get(task['id']) is not old_worker,
                       'source change wakes the blocked socket and restarts the same task', timeout=5000)
         self.check(time.monotonic() - before < 5, 'source change does not wait for the old 30 second read timeout')
         release.set()
         self.finished_task(task)
-        self.check(task['content_source'] == 'Modrinth' and task['pack_download_mode'] == 'settings' and len(tasks._tasks) == 1,
+        self.check(task['content_source'] == new_order and task['pack_download_mode'] == 'settings' and len(tasks._tasks) == 1,
                    'new source is used without duplicating the import task')
         requests = [r for r in self.fixtures.requests if r['file'] == filename]
         self.check(len(requests) == 2 and requests[-1]['range'] is not None,
@@ -1460,6 +1462,29 @@ class DownloadChecklistUiTests(_DownloadCase):
         self.assert_no_qml_errors()
         self.finish_test()
 
+    def test_parallel_file_sources_and_lookup_failure_are_visible(self):
+        tasks = self.window.download_page.tasks_page
+        task = {'id': 'parallel-sources', 'version': 'source-fixture', 'state': '进行中',
+                'game_dir': str(self.directory), 'status': '正在下载 a.jar · edge.forgecdn.net', 'logs': []}
+        tasks._tasks.insert(0, task)
+        tasks.update_file_events(task['id'], [
+            {'name': 'a.jar', 'key': 'a', 'path': 'mods/a.jar', 'state': 'downloading',
+             'url': 'https://edge.forgecdn.net/files/123/4/a.jar', 'done': 1, 'total': 100},
+            {'name': 'b.jar', 'key': 'b', 'path': 'mods/b.jar', 'state': 'downloading',
+             'url': 'https://cdn.modrinth.com/data/fixture/versions/test/b.jar', 'done': 1, 'total': 100,
+             'source_reason': 'CurseForge 查询超时，按备用来源继续；仍会校验整合包哈希'}])
+        self.window.download_page.on_progress_clicked()
+        self.pause_ui()
+        self.wait_for(lambda: self.item(tasks, 'task-address-' + task['id'] + '-text').property('text')
+                      == 'CurseForge / Modrinth', 'parallel downloads show both active sources')
+        self.click_ui(tasks, 'task-log-' + task['id'])
+        self.check(tasks.view_controller.currentFiles[1]['source_reason'].startswith('CurseForge 查询超时'),
+                   'per-file fallback preserves the actual lookup failure')
+        tasks.update_file_event(task['id'], {'name': 'a.jar', 'key': 'a', 'state': 'verified', 'done': 100})
+        self.check(task['download_source'] == 'Modrinth', 'completed source no longer replaces active downloads')
+        self.assert_no_qml_errors()
+        self.finish_test()
+
     def test_streaming_progress_cancel_log_tabs_and_retry(self):
         filename = "ui-fixture-mod.jar"
         started, release = self.pause_file(filename)
@@ -1662,6 +1687,8 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.search_content(page, controller, "pages")
                 self.check(len(controller.results) == 20, "first project page has twenty rows")
                 self.scroll_list_to_end(page, "content-project-list", lambda: len(controller.results) == 25)
+                self.check(self.item(page, "content-project-list").property("contentY") > 0,
+                           "project pagination preserves the reader's scroll position")
                 self.check(len({r["project_id"] for r in controller.results}) == 25,
                            "project append does not duplicate existing rows")
                 # Use the first row after scrolling back with actual wheel input.
@@ -1671,6 +1698,8 @@ class DownloadChecklistUiTests(_DownloadCase):
                 self.click_ui(page, "content-detail-tab-1")
                 self.check(len(controller.versions) == 30, "first file page is bounded")
                 self.scroll_list_to_end(page, "content-version-list", lambda: len(controller.versions) == 45)
+                self.check(self.item(page, "content-version-list").property("contentY") > 0,
+                           "version pagination preserves the reader's scroll position")
                 self.text_ui(page, "content-file-query", "Build 44")
                 self.click_ui(page, "content-version-0")
                 self.check(controller.versions[controller.selected_version]["id"] == "file-44",

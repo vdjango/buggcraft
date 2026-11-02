@@ -133,9 +133,29 @@ def prepare_installer_java(loader, directory, version, preferred_path, callback,
     try:
         selection = select_java(settings, directory, version, policy=policy, preferred_path=preferred_path)
     except JavaRuntimeUnavailable:
-        # Reuse a system JVM even when startup discovery has not finished yet.
+        # A copied launcher or interrupted settings write can leave an intact
+        # portable JVM unregistered. Read only our installation receipts, not
+        # a recursive system scan, before trying the network or system PATH.
         executable = 'java.exe' if os.name == 'nt' else 'java'
-        candidates = [shutil.which(executable)]
+        candidates = []
+        runtime_root = active_storage_root() / 'java'
+        for receipt in sorted(runtime_root.glob('*/buggcraft-runtime.json')):
+            check_cancelled()
+            try:
+                data = json.loads(receipt.read_text(encoding='utf-8'))
+                if not isinstance(data, dict) or not policy.accepts(data.get('major', 0)):
+                    continue
+                relative = data.get('executable')
+                if not isinstance(relative, str) or not relative:
+                    continue
+                home = receipt.parent.resolve()
+                path = (home / relative).resolve()
+                path.relative_to(home)
+                candidates.append(str(path))
+            except (OSError, ValueError, TypeError):
+                continue
+        # Reuse a system JVM even when startup discovery has not finished yet.
+        candidates.append(shutil.which(executable))
         for variable in ('JAVA_HOME', 'JRE_HOME'):
             root = os.environ.get(variable)
             if root:

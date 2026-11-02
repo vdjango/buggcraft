@@ -332,6 +332,10 @@ class ReportedUiTests(LauncherQmlCase):
                 patch.object(MultiplayerController, 'job', side_effect=schedule):
             start._start_background_social()
             dialog = start._multiplayer_dialog
+            self.assertEqual(dialog.backend.node_path, '')
+            # Complete the deferred disk read before asserting social startup.
+            profiles = {node: (RelayProfile.load(node), None) for node in store.data['nodes']}
+            dialog.backend.finish('startup-store', (store, profiles), None)
             self.assertEqual(dialog.backend.node_path, str(self.directory / 'personal.json'))
             self.assertTrue(dialog.backend.view['friendEntryAvailable'])
             self.assertTrue(dialog.backend.friend_timer.isActive())

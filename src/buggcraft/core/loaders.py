@@ -76,6 +76,11 @@ class _QuietSubprocess:
         kwargs.setdefault('check', True)
         try:
             result = self.original.run(command, **kwargs)
+        except FileNotFoundError as exc:
+            executable = str(command[0]) if isinstance(command, (list, tuple)) and command else str(command)
+            logger.exception('Installer processor executable missing: %s', executable)
+            raise RuntimeError(f'安装处理器无法启动，找不到可执行文件：{executable}。'
+                               '请检查 Java 路径或重新下载 Java 后继续安装，已下载的文件会保留。') from exc
         except subprocess.CalledProcessError as exc:
             output = exc.stdout or exc.stderr or ''
             if isinstance(output, bytes):
@@ -634,15 +639,23 @@ def _neo_forge(version, directory, java, callback, cancel, source):
             callback["setStatus"](line[:500])
         if process.returncode:
             raise RuntimeError(f"NeoForge 安装器退出码 {process.returncode}: {output[-1500:]}")
+    return _installed_neoforge_version(root, version)
+
+
+def _installed_neoforge_version(root, version):
+    from core.loader_identity import metadata_loader
+    root = Path(root)
     installed_id = f"neoforge-{version}"
-    metadata = root / "versions" / installed_id / f"{installed_id}.json"
-    if not metadata.is_file():
-        candidates = list((root / "versions").glob(f"*{version}*/*.json"))
-        if not candidates:
-            raise RuntimeError("安装器已退出，但没有生成可启动的 NeoForge 版本")
-        metadata = candidates[0]
-        installed_id = metadata.stem
-    return installed_id
+    expected = root / "versions" / installed_id / f"{installed_id}.json"
+    candidates = [expected, *sorted((root / 'versions').glob(f'*{version}*/*.json'))]
+    for metadata in dict.fromkeys(candidates):
+        try:
+            profile = json.loads(metadata.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if metadata_loader(profile) == ('neoforge', version):
+            return metadata.stem
+    raise RuntimeError('NeoForge 安装器未生成匹配的加载器配置；不会使用同名 Forge 或旧实例。')
 
 
 def install_loader(loader, minecraft_version, loader_version, directory, java, callback, cancel,

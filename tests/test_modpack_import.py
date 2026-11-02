@@ -18,7 +18,7 @@ from core.downloads import DownloadCancelled, MinecraftDownloader, _DownloadSess
 
 
 class ModpackTests(unittest.TestCase):
-    def test_source_override_is_only_applied_to_buggcraft_format(self):
+    def test_selected_source_applies_to_imported_publisher_packs(self):
         self.manifest['files'] = []
         self.pack()
         def policy(*args):
@@ -27,11 +27,11 @@ class ModpackTests(unittest.TestCase):
                     downloader.fallback_content_sources)
         with patch.object(ModpackImporter, '_install_instance', side_effect=policy):
             third_party = ModpackImporter(self.game, download_mode='settings')
-            self.assertEqual(third_party.install(self.archive, 'cf-instance'), (True, False, False))
+            self.assertEqual(third_party.install(self.archive, 'cf-instance'), (False, True, False))
             with zipfile.ZipFile(self.archive, 'w') as bundle:
                 bundle.writestr('modrinth.index.json', json.dumps(dict(formatVersion=1,
                     game='minecraft', versionId='test', name='Third party', files=[], dependencies={'minecraft':'1.20.1'})))
-            self.assertEqual(third_party.install(self.archive, 'mr-instance'), (True, False, False))
+            self.assertEqual(third_party.install(self.archive, 'mr-instance'), (False, True, False))
             source = self.root / 'source/versions/Test'
             source.mkdir(parents=True)
             (source / 'Test.json').write_text(json.dumps(dict(id='Test', clientVersion='1.20.1')))
@@ -39,7 +39,7 @@ class ModpackTests(unittest.TestCase):
             export_pack(source.parent.parent, 'Test', archive)
             self.assertEqual(third_party.install(archive, 'custom-settings'), (False, True, False))
             original = ModpackImporter(self.game)
-            self.assertEqual(original.install(archive, 'custom-original'), (True, False, True))
+            self.assertEqual(original.install(archive, 'custom-original'), (False, True, False))
 
     def test_renamed_mod_identity_comes_from_jar_and_selected_publishers_filter_links(self):
         source = self.root / 'renamed-source'

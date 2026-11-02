@@ -254,22 +254,8 @@ def compatibility(local, remote):
 
 
 def metadata_loader(metadata):
-    """Read real launch libraries/arguments, including modern Forge profiles."""
-    arguments = [arg for arg in metadata.get('arguments', {}).get('game', []) if isinstance(arg, str)]
-    options = dict(zip(arguments, arguments[1:]))
-    libraries = [item.get('name', '') for item in metadata.get('libraries', []) if isinstance(item, dict)]
-    if options.get('--fml.neoForgeVersion') and any(name.startswith('net.neoforged') for name in libraries):
-        return 'neoforge', options['--fml.neoForgeVersion']
-    for prefix, loader in [('net.neoforged:neoforge:', 'neoforge'),
-                           ('net.fabricmc:fabric-loader:', 'fabric'),
-                           ('org.quiltmc:quilt-loader:', 'quilt'),
-                           ('net.minecraftforge:forge:', 'forge'),
-                           ('net.minecraftforge:fmlloader:', 'forge'),
-                           ('net.minecraftforge:fmlcore:', 'forge')]:
-        name = next((name for name in libraries if name.startswith(prefix)), '')
-        if name:
-            return loader, options.get('--fml.forgeVersion', name.split(':')[2]) if loader == 'forge' else name.split(':')[2]
-    return 'vanilla', ''
+    from core.loader_identity import metadata_loader as identify
+    return identify(metadata)
 
 
 def instance_metadata(directory, version, game_directory=None):

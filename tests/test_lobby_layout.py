@@ -971,6 +971,25 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertLessEqual(latency.mapToScene(QPointF(0, latency.height())).y(),
                              summary.mapToScene(QPointF(0, summary.height())).y())
 
+    def test_room_cache_card_has_compact_progress_and_optional_details(self):
+        room = dict(id='mine',title='Junsizz 的房间',role='host',state='online',availability='ready',
+            allowModTransfer=True,game=dict(version='1.21.1',loader='neoforge',mods_count=43),
+            cacheProgress=dict(state='uploading',done=2,total=5,bytesDone=1048576,bytesTotal=2097152,
+                bytesPerSecond=524288,summary=dict(total=43,cached=35,cached_bytes=20000000,redirect=3,upload=5)))
+        self.backend._view.update(page='connected',selected='mine',connections=[room])
+        self.backend.viewChanged.emit();QTest.qWait(60)
+        card=find_item(self.window,'room-file-acceleration-progress')
+        self.assertTrue(card.isVisible())
+        self.assertLessEqual(card.height(),205)
+        self.assertIn('35',find_item(self.window,'room-cache-confirmed').property('text'))
+        self.assertEqual(find_item(self.window,'room-cache-transfer-progress').property('value'),1048576)
+        self.assertFalse(card.property('expanded'))
+        snapshot=ROOT/'build'/'room-cache-progress.png'
+        snapshot.parent.mkdir(exist_ok=True)
+        self.assertTrue(self.window.grabWindow().save(str(snapshot)))
+        self.click('room-cache-details')
+        self.assertTrue(card.property('expanded'))
+
     def test_top_level_title_bar_identifies_current_page_and_does_not_overlap_window_controls(self):
         for page, expected in (('hall', '· 联机大厅'), ('nodes', '联机节点')):
             if page == 'nodes':

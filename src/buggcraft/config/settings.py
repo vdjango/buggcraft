@@ -6,6 +6,7 @@ import platform
 import secrets
 import threading
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, Optional
 from utils.path_helper import get_default_minecraft_dir, get_launcher_directory
@@ -72,6 +73,8 @@ class SettingsManager:
         """
         self.config_path = config_path if config_path is not None else get_conf_or_cache_manager()[1]
         self._save_lock = threading.RLock()
+        self._save_generation = 0
+        self._save_executor = None
         self.config_file = os.path.join(self.config_path, 'settings.json')
         
         # 确保配置目录存在
@@ -120,7 +123,7 @@ class SettingsManager:
 
         # 默认配置
         self.default_settings = {
-            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "CurseForge"}},
+            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "Modrinth"}},
             "minecraft": minecraft,
             "translation": {"enabled": False, "source": "Buggcraft"},
             "onboarding": {"completed": False, "game_preferences": []},
@@ -218,28 +221,52 @@ class SettingsManager:
         
         try:
             with self._save_lock:
-                target = Path(target_file).resolve()
-                target.parent.mkdir(parents=True, exist_ok=True)
-                # On Windows mkstemp can retry PermissionError up to TMP_MAX when
-                # os.access reports writable despite a sandbox/ACL denial.
-                # One exclusive random filename reports the real error promptly.
-                temporary = target.parent / ('.settings-' + secrets.token_hex(16))
-                descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                try:
-                    with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
-                        json.dump(self.current_settings, output, indent=4, ensure_ascii=False)
-                        output.flush()
-                        os.fsync(output.fileno())
-                    os.replace(temporary, target)
-                finally:
-                    if os.path.exists(temporary):
-                        os.unlink(temporary)
+                self._save_generation += 1
+                self._write_settings(target_file, self.current_settings)
             logger.info(f"配置已保存到文件: {target_file}")
             return True
         except Exception as e:
             logger.info(f"保存配置时出错: {e}")
             return False
     
+    def save_settings_async(self):
+        """Persist a startup repair without blocking the window event loop."""
+        # Called on the UI thread: never wait for a previous worker's fsync lock.
+        snapshot = copy.deepcopy(self.current_settings)
+        self._save_generation += 1
+        generation = self._save_generation
+        if self._save_executor is None:
+            self._save_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='settings-save')
+        return self._save_executor.submit(self._write_settings_if_current, snapshot, generation)
+
+    def _write_settings_if_current(self, snapshot, generation):
+        try:
+            with self._save_lock:
+                if generation != self._save_generation:
+                    return False
+                self._write_settings(self.config_file, snapshot)
+            return True
+        except Exception:
+            logger.exception('Could not save startup settings')
+            return False
+
+    @staticmethod
+    def _write_settings(target_file, settings):
+        target = Path(target_file).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Use a single exclusive filename to avoid mkstemp retries on Windows.
+        temporary = target.parent / ('.settings-' + secrets.token_hex(16))
+        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+                json.dump(settings, output, indent=4, ensure_ascii=False)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
     def get_version_setting_enable(self):
         """获取独立版本设置状态"""
         version = self.get_setting("minecraft.version.enable", None)

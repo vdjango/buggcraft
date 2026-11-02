@@ -4,6 +4,7 @@ This module adapts Qt's existing endpoint lifecycle to bridge RPC. It contains
 no socket, SSH, ICE, relay, compression, or game-packet forwarding code.
 """
 import asyncio
+from concurrent.futures import Future
 import logging
 import threading
 
@@ -36,6 +37,7 @@ class NativeEndpoint:
         self.transport_policy = transport_policy
         self.announce = bool(announce)
         self.on_status = on_status
+        self.on_cache_progress = None
         self.on_chat = None
         self.bridge_status = 'Waiting for native bridge'
         self.room_info = {}
@@ -362,22 +364,79 @@ class TunnelClient(NativeEndpoint):
 class TunnelService:
     """Run bridge-control coroutines away from Qt's GUI event loop."""
     def __init__(self):
-        self.loop = asyncio.new_event_loop()
+        self.loop = None
         self.endpoints = {}
         self._retiring = set()
         self.closed = False
-        self._close_lock = threading.Lock()
+        self._close_lock = threading.RLock()
+        self._ready = Future()
         self.thread = threading.Thread(
-            target=self.loop.run_forever, daemon=True, name='native-multiplayer')
+            target=self._run_loop, daemon=True, name='native-multiplayer')
         self.thread.start()
 
+    def _run_loop(self):
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.loop = loop
+            self._ready.set_result(loop)
+            loop.run_forever()
+        except Exception as exc:
+            if not self._ready.done():
+                self._ready.set_exception(exc)
+            else:
+                LOG.exception('native_multiplayer_loop_failed')
+        finally:
+            if self.loop is not None and not self.loop.is_closed():
+                self.loop.close()
+
+    def _schedule(self, coroutine):
+        result = Future()
+
+        def schedule(ready):
+            if result.cancelled():
+                coroutine.close()
+                return
+            try:
+                loop = ready.result()
+                task = asyncio.run_coroutine_threadsafe(coroutine, loop)
+            except Exception as exc:
+                coroutine.close()
+                if not result.done():
+                    result.set_exception(exc)
+                return
+
+            def propagate(completed):
+                if completed.cancelled():
+                    result.cancel()
+                elif not result.done():
+                    try:
+                        result.set_result(completed.result())
+                    except Exception as exc:
+                        result.set_exception(exc)
+
+            def cancel(completed):
+                if completed.cancelled():
+                    task.cancel()
+
+            result.add_done_callback(cancel)
+            task.add_done_callback(propagate)
+
+        self._ready.add_done_callback(schedule)
+        return result
+
     def add(self, name, endpoint):
-        if self.closed:
-            raise RuntimeError('Multiplayer service is closed')
-        if name in self.endpoints:
-            raise ValueError('Room connection name already exists')
-        self.endpoints[name] = endpoint
-        future = asyncio.run_coroutine_threadsafe(endpoint.run(), self.loop)
+        with self._close_lock:
+            if self.closed:
+                raise RuntimeError('Multiplayer service is closed')
+            if name in self.endpoints:
+                raise ValueError('Room connection name already exists')
+            self.endpoints[name] = endpoint
+            try:
+                future = self._schedule(endpoint.run())
+            except Exception:
+                self.endpoints.pop(name, None)
+                raise
 
         def completed(result):
             if not result.cancelled():
@@ -391,17 +450,23 @@ class TunnelService:
         return future
 
     def submit(self, coroutine):
-        if self.closed:
-            coroutine.close()
-            raise RuntimeError('Multiplayer service is closed')
-        return asyncio.run_coroutine_threadsafe(coroutine, self.loop)
+        with self._close_lock:
+            if self.closed:
+                coroutine.close()
+                raise RuntimeError('Multiplayer service is closed')
+            return self._schedule(coroutine)
 
     def remove(self, name):
-        endpoint = self.endpoints.pop(name)
-        self._retiring.add(endpoint)
-        future = asyncio.run_coroutine_threadsafe(endpoint.stop(), self.loop)
-        future.add_done_callback(lambda _: self._retiring.discard(endpoint))
+        with self._close_lock:
+            endpoint = self.endpoints.pop(name)
+            self._retiring.add(endpoint)
+            future = self._schedule(endpoint.stop())
+        future.add_done_callback(lambda _: self._remove_retiring(endpoint))
         return future
+
+    def _remove_retiring(self, endpoint):
+        with self._close_lock:
+            self._retiring.discard(endpoint)
 
     def close(self):
         async def shutdown():
@@ -420,15 +485,17 @@ class TunnelService:
             if self.closed:
                 return
             self.closed = True
-            if not self.loop.is_closed():
-                future = asyncio.run_coroutine_threadsafe(shutdown(), self.loop)
+            future = self._schedule(shutdown())
+
+        def stopped(completed):
+            if completed.cancelled():
+                LOG.error('native_multiplayer_shutdown_cancelled')
+            else:
                 try:
-                    future.result(timeout=10)
-                except TimeoutError:
-                    LOG.error('native_multiplayer_shutdown_timeout')
-                    future.cancel()
-                finally:
-                    self.loop.call_soon_threadsafe(self.loop.stop)
-                    self.thread.join(timeout=3)
-                    if not self.thread.is_alive():
-                        self.loop.close()
+                    completed.result()
+                except Exception:
+                    LOG.exception('native_multiplayer_shutdown_failed')
+            if self.loop is not None and not self.loop.is_closed():
+                self.loop.call_soon_threadsafe(self.loop.stop)
+
+        future.add_done_callback(stopped)

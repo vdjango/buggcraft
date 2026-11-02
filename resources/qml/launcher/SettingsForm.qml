@@ -151,6 +151,94 @@ ScrollView {
                             settingsPage.setValue(key, value)
                         }
                     }
+                    Loader {
+                        Layout.fillWidth: true
+                        active: group.modelData.kind === "source-priority"
+                        visible: active
+                        sourceComponent: Component {
+                        ColumnLayout {
+                        spacing: 8
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            SettingOption {
+                                objectName: group.modelData.kind === "source-priority" ? "content-source-manual" : ""
+                                Layout.fillWidth: true
+                                text: "按顺序尝试"
+                                checked: !group.modelData.automatic
+                                onChosen: settingsPage.setContentAutomatic(false)
+                            }
+                            SettingOption {
+                                objectName: group.modelData.kind === "source-priority" ? "content-source-auto" : ""
+                                Layout.fillWidth: true
+                                text: "自动测速"
+                                checked: !!group.modelData.automatic
+                                onChosen: settingsPage.setContentAutomatic(true)
+                            }
+                        }
+                        Repeater {
+                            model: group.modelData.kind === "source-priority" ? group.modelData.priorities : []
+                            delegate: Rectangle {
+                                required property var modelData
+                                required property int index
+                                objectName: "content-source-row-" + modelData.source
+                                Layout.fillWidth: true
+                                implicitHeight: 64
+                                color: index === 0 ? "#413c335b" : "#30241f35"
+                                border.width: 1
+                                border.color: index === 0 ? "#8a73bd" : "#50465f"
+                                radius: 6
+                                opacity: group.modelData.automatic ? 0.6 : 1
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 10
+                                    Rectangle {
+                                        Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                                        radius: 5; color: index === 0 ? "#8063c6" : "#42394f"
+                                        Label { anchors.centerIn: parent; text: index + 1; color: "white"; font.bold: true }
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 3
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.source + (index === 0 ? "  ·  优先" : "")
+                                            color: "#f0e9fa"; font.pixelSize: 13; font.bold: true
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.description
+                                            color: modelData.source === "MCIM" || modelData.source === "Modrinth" ? "#d7c294" : "#b9aecb"
+                                            font.pixelSize: 11; elide: Text.ElideRight
+                                        }
+                                    }
+                                    ActionButton {
+                                        objectName: "content-source-up-" + modelData.source
+                                        text: "上移"; implicitWidth: 52; implicitHeight: 28
+                                        enabled: !group.modelData.automatic && index > 0
+                                        onClicked: settingsPage.moveContentSource(index, -1)
+                                    }
+                                    ActionButton {
+                                        objectName: "content-source-down-" + modelData.source
+                                        text: "下移"; implicitWidth: 52; implicitHeight: 28
+                                        enabled: !group.modelData.automatic && index + 1 < group.modelData.priorities.length
+                                        onClicked: settingsPage.moveContentSource(index, 1)
+                                    }
+                                }
+                            }
+                        }
+                        SettingOption {
+                            objectName: group.modelData.kind === "source-priority" ? "content-source-include-mcim" : ""
+                            Layout.fillWidth: true
+                            text: "加入 MCIM 备选（不推荐）"
+                            canToggle: true
+                            checked: !!group.modelData.mcim
+                            enabled: !group.modelData.automatic
+                            onChosen: settingsPage.setContentMcim(!group.modelData.mcim)
+                        }
+                        }
+                        }
+                    }
                     SettingOption {
                         visible: ["instance", "standalone-toggle", "memory"].indexOf(group.modelData.kind) >= 0
                         objectName: "setting-toggle-" + group.modelData.key
@@ -208,7 +296,8 @@ ScrollView {
                                 focusPolicy: Qt.StrongFocus
                                 objectName: group.modelData.kind === "memory" ? "setting-memory-slider" : ""
                                 Layout.fillWidth: true
-                                from: memoryBlock.memoryField.options[0]; to: memoryBlock.memoryField.options[1]
+                                from: memoryBlock.memoryField.options[0]
+                                to: Math.max(from, root.memoryInfo.total > 0 ? root.memoryInfo.total - 1024 : memoryBlock.memoryField.options[1])
                                 stepSize: 512; snapMode: Slider.SnapAlways
                                 implicitHeight: 26
                                 background: Rectangle {
@@ -239,7 +328,9 @@ ScrollView {
                         Label {
                             objectName: group.modelData.kind === "memory" ? "setting-memory-info" : ""
                             Layout.fillWidth: true
-                            text: "电脑共 " + ((root.memoryInfo.total || 0) / 1024).toFixed(0) + " GB，目前可用 " + ((root.memoryInfo.available || 0) / 1024).toFixed(1) + " GB。建议开启自动分配，内存并非越大越好。"
+                            text: root.memoryInfo.total > 0
+                                  ? "电脑共 " + (root.memoryInfo.total / 1024).toFixed(0) + " GB，目前可用 " + (root.memoryInfo.available / 1024).toFixed(1) + " GB。建议开启自动分配，内存并非越大越好。"
+                                  : "正在读取系统内存信息…"
                             color: "#ccc4d8"; font.pixelSize: 12; wrapMode: Text.Wrap
                         }
                     }

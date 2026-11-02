@@ -108,9 +108,7 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
                    'disabled multi-open state survives a fresh settings read')
         for key, values in (
                 ('settings.general.mirrors', ['BMCLAPI', '官方', 'MCMirror', 'Buggcraft',
-                                              '自动（BMCLAPI 优先）', '自动（官方优先）']),
-                ('settings.general.content_mirror', ['CurseForge', 'Modrinth', 'MCIM',
-                                                      'Buggcraft', '自动（CurseForge 优先）'])):
+                                              '自动（BMCLAPI 优先）', '自动（官方优先）']),):
             for index, expected in enumerate(values):
                 self.select_choice(page, key, index)
                 self.check(self.persisted().get_setting(key) == expected,
@@ -125,6 +123,38 @@ class ClientUiSettingsTests(ClientUiAcceptanceCase):
             self.slider_limit(page, 'setting-opacity-slider', upper)
             self.check(self.persisted().get_setting('launcher.opacity') == value,
                        'opacity keyboard boundary persists: ' + str(value))
+        self.assert_no_qml_errors()
+        self.finish_test()
+
+    def test_content_source_priority_reorders_persists_and_preserves_auto_mode(self):
+        from core.content_mirrors import configured_source, configured_order
+        self.manager.set_setting('settings.general.content_mirror', 'CurseForge')
+        page = self.settings_tab(0)
+        self.check(configured_order(self.manager) == ['CurseForge', 'Modrinth', 'Buggcraft'],
+                   'legacy selected publisher becomes the first priority')
+        self.setting_click(page, 'content-source-up-Buggcraft')
+        self.check(configured_source(self.persisted()) == ['CurseForge', 'Buggcraft', 'Modrinth'],
+                   'up moves the origin into the middle and persists exact order')
+        self.setting_click(page, 'content-source-up-Buggcraft')
+        self.check(configured_source(self.persisted()) == ['Buggcraft', 'CurseForge', 'Modrinth'],
+                   'origin can become first priority')
+        self.check(not self.item(page, 'content-source-up-Buggcraft').isEnabled(),
+                   'first priority cannot move above the list')
+        self.setting_click(page, 'content-source-include-mcim')
+        self.check(configured_source(self.persisted())[-1] == 'MCIM', 'MCIM requires an explicit opt in')
+        self.setting_click(page, 'content-source-auto')
+        self.check(configured_source(self.persisted()) == '自动测速'
+                   and not self.item(page, 'content-source-down-Buggcraft').isEnabled(),
+                   'automatic speed mode saves and suspends manual ordering')
+        self.setting_click(page, 'content-source-manual')
+        self.check(configured_source(self.persisted()) == ['Buggcraft', 'CurseForge', 'Modrinth', 'MCIM'],
+                   'switching back restores the exact manual order')
+        self.setting_click(page, 'content-source-include-mcim')
+        self.check('MCIM' not in configured_source(self.persisted()), 'removing MCIM removes its download fallback')
+        self.setting_click(page, 'content-source-down-Buggcraft')
+        self.check(configured_source(self.persisted()) == ['CurseForge', 'Buggcraft', 'Modrinth'],
+                   'down moves a source one position')
+        self.screenshot_ui('settings-content-source-priority')
         self.assert_no_qml_errors()
         self.finish_test()
 

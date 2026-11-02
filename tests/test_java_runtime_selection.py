@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -165,6 +166,59 @@ class JavaDiscoveryTests(unittest.TestCase):
 
 
 class LaunchErrorQmlTests(LauncherQmlCase):
+    def test_startup_java_probe_and_settings_write_keep_ui_responsive(self):
+        from PySide6.QtCore import QTimer
+        from windows.main_window import MinecraftLauncher
+
+        runtime = self.directory / 'downloaded-java.exe'
+        runtime.touch()
+        self.manager.set_setting('java.path', None)
+        self.manager.set_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
+        self.manager.set_setting('java.installations', [[str(runtime), 'stale', [21]]])
+        probe_started, release_probe = threading.Event(), threading.Event()
+        save_started, release_save = threading.Event(), threading.Event()
+        write = self.manager._write_settings
+
+        def probe(_path):
+            probe_started.set()
+            release_probe.wait(3)
+            return 'Java 21', (21, 0, 1)
+
+        def persist(*args):
+            save_started.set()
+            release_save.wait(3)
+            write(*args)
+
+        ticks = []
+        with (
+                patch('config.javafinder.JavaPathFinder._get_java_version', side_effect=probe),
+                patch('config.javafinder.JavaPathFinder.find_all_java_installations',
+                      side_effect=AssertionError('no system scan needed')),
+                patch.object(self.manager, '_write_settings', side_effect=persist),
+        ):
+            try:
+                self.patches[2].stop()
+                MinecraftLauncher.minecraft_not_java_runtime(self.window)
+                self.wait_until(probe_started.is_set)
+                QTimer.singleShot(0, lambda: ticks.append('probe'))
+                self.pump()
+                self.assertEqual(ticks, ['probe'])
+                self.assertIsNone(self.manager.get_setting('java.path'))
+                release_probe.set()
+                self.wait_until(save_started.is_set)
+                QTimer.singleShot(0, lambda: ticks.append('save'))
+                self.pump()
+                self.assertEqual(ticks, ['probe', 'save'])
+                self.assertEqual(self.manager.get_setting('java.path'), str(runtime))
+            finally:
+                release_probe.set()
+                release_save.set()
+                self.wait_until(lambda: not self.window.search_thread.isRunning())
+                if self.manager._save_executor is not None:
+                    self.manager._save_executor.shutdown(wait=True)
+        saved = json.loads(Path(self.manager.config_file).read_text(encoding='utf-8'))
+        self.assertEqual(saved['java']['path'], str(runtime))
+
     def test_missing_game_files_show_progress_until_preparation_finishes(self):
         self.window.minecraft_game_file_preparation_started()
         self.window._close_game_file_progress()
@@ -217,18 +271,25 @@ class LaunchErrorQmlTests(LauncherQmlCase):
 
     def test_startup_uses_configured_alternative_before_system_scan(self):
         self.manager.set_setting('java.path', None)
+        self.manager.set_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
         self.manager.set_setting('minecraft.version.enable', '26.3')
         java25 = self.directory / 'java25.exe'
         java25.touch()
         self.manager.set_setting('java.installations', [[str(java25), 'cached', [25]]])
-        with patch('core.java_runtime.JavaPathFinder._get_java_version', return_value=('25', (25, 0, 1))), \
-                patch.object(self.window, 'load_java_path') as scan, \
-                patch.object(self.window.java_runtime_full, 'exec') as prompt:
+        with (
+                patch('config.javafinder.JavaPathFinder._get_java_version', return_value=('25', (25, 0, 1))),
+                patch('config.javafinder.JavaPathFinder.find_all_java_installations',
+                      side_effect=AssertionError('registered Java should be used first')),
+                patch.object(self.manager, 'save_settings', side_effect=AssertionError('UI must not save synchronously')),
+                patch.object(self.window.java_runtime_full, 'exec') as prompt,
+        ):
             # The fixture disables the startup timer's callback; call the original explicitly.
             from windows.main_window import MinecraftLauncher
             self.patches[2].stop()
             MinecraftLauncher.minecraft_not_java_runtime(self.window)
-        scan.assert_not_called()
+            self.wait_until(lambda: self.manager.get_setting('java.path') == str(java25))
+            self.wait_until(lambda: not self.window.search_thread.isRunning())
+        self.assertEqual(self.manager.get_setting('java.path'), str(java25))
         prompt.assert_not_called()
 
     def test_java_failure_has_actionable_qml_dialog_and_does_not_duplicate_on_exit(self):

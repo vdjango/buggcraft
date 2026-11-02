@@ -36,7 +36,7 @@ class MultiplayerDialog(QDialog):
         self.invitation_dialog = None
         self._invitation = None
         self._invitation_queue = []
-        self.backend = MultiplayerController(self, storage_path)
+        self.backend = MultiplayerController(self, storage_path, background=background)
         QApplication.instance().installEventFilter(self)
         from utils.social_sound import SocialSound
         self.social_sound = SocialSound(resources)
@@ -53,20 +53,21 @@ class MultiplayerDialog(QDialog):
         self.service = self.backend.service
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.quick = QQuickWidget(self)
-        self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self.quick.rootContext().setContextProperty('lobby', self.backend)
-        tutorial = getattr(getattr(parent, 'parent', None), 'tutorial_controller', None)
-        if tutorial is not None:
-            self.quick.rootContext().setContextProperty('tutorial', tutorial)
+        # A background social session must not construct the Qt Quick scene
+        # during startup. QQuickWidget creates a render context on the GUI
+        # thread, which can make the just-shown main window stop dragging.
+        self.quick = None
         if not background:
             self.load_ui()
-        layout.addWidget(self.quick)
         self.timer = QTimer(self)
         self.timer.setInterval(15000)
         self.timer.timeout.connect(self.backend.check_node)
         self.timer.start()
-        self.backend.detect_instance()
+        # Instance enumeration reads every version JSON. Keep that disk scan
+        # out of the automatic startup path; an explicit lobby open refreshes
+        # it, and an already-running game emits instance_changed as usual.
+        if not background:
+            self.backend.detect_instance()
         self.runtime_timer = QTimer(self)
         self.runtime_timer.setInterval(5000)
         self.runtime_timer.timeout.connect(self.backend.detect_runtime)
@@ -75,6 +76,14 @@ class MultiplayerDialog(QDialog):
     def load_ui(self):
         if self._ui_loaded:
             return
+        if self.quick is None:
+            self.quick = QQuickWidget(self)
+            self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
+            self.quick.rootContext().setContextProperty('lobby', self.backend)
+            tutorial = getattr(getattr(self.launcher_page, 'parent', None), 'tutorial_controller', None)
+            if tutorial is not None:
+                self.quick.rootContext().setContextProperty('tutorial', tutorial)
+            self.layout().addWidget(self.quick)
         self.quick.setSource(QUrl.fromLocalFile(str(self.resources / 'qml/multiplayer/Lobby.qml')))
         if self.quick.status() == QQuickWidget.Error:
             self.backend.close()
@@ -224,6 +233,7 @@ class MultiplayerDialog(QDialog):
         if self.friends_window:
             self.friends_window.shutdown()
         # Destroy bindings while the QObject context is still alive.
-        self.quick.setSource(QUrl())
+        if self.quick is not None:
+            self.quick.setSource(QUrl())
         self.backend.close()
         self.close()

@@ -48,7 +48,7 @@ Item {
                         onTextEdited: contentController.setPackName(text)
                     }
                 }
-                Label { text: "按启动器所选下载源获取文件；失败时仅尝试 Buggcraft 源站。切换设置后可保留进度继续下载。"; color: "#bcb6d0"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                Label { text: "按所选来源优先下载；失败后依次尝试另一发布站与 Buggcraft 源站。每个来源最多自动重试 6 次，切换设置后可保留进度继续。"; color: "#bcb6d0"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 Label { objectName: "pack-import-error"; text: root.state.pack_error; color: "#ff9b91"; Layout.fillWidth: true; wrapMode: Text.Wrap; visible: !!text }
                 RowLayout {
                     Layout.fillWidth: true

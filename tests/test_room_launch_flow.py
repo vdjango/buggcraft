@@ -711,8 +711,9 @@ class BackgroundLanMonitorTests(unittest.TestCase):
 
     def destroy_dialog(self, dialog):
         dialog.shutdown()
-        dialog.quick.setSource(QUrl())
-        shiboken6.delete(dialog.quick)
+        if dialog.quick is not None:
+            dialog.quick.setSource(QUrl())
+            shiboken6.delete(dialog.quick)
         shiboken6.delete(dialog)
         self.app.sendPostedEvents(None, QEvent.DeferredDelete)
 
@@ -748,7 +749,7 @@ class BackgroundLanMonitorTests(unittest.TestCase):
                 patch.object(MultiplayerController, 'check_node'):
             dialog = MultiplayerDialog(storage_path=Path(folder) / 'rooms.json', background=True)
             try:
-                self.assertEqual(dialog.quick.status(), QQuickWidget.Null)
+                self.assertIsNone(dialog.quick)
                 self.assertTrue(dialog.runtime_timer.isActive())
                 dialog.load_ui()
                 self.assertEqual(dialog.quick.status(), QQuickWidget.Ready, str(dialog.quick.errors()))

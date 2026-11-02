@@ -62,45 +62,35 @@ def _measure_content_route(url):
             response.raise_for_status()
             if str(response.headers.get('Content-Type', '')).split(';')[0].lower() in ('text/html', 'application/xhtml+xml'):
                 return 0.0
-            chunk = next(response.iter_content(_CONTENT_PROBE_BYTES), b'')
-            if not chunk:
+            received = 0
+            for chunk in response.iter_content(16 * 1024):
+                received += len(chunk)
+                if received >= _CONTENT_PROBE_BYTES or time.monotonic() - started >= 5:
+                    break
+            if not received:
                 return 0.0
-            return len(chunk) / max(time.monotonic() - started, 0.001)
+            return received / max(time.monotonic() - started, 0.001)
     except (requests.RequestException, OSError, ValueError):
         return 0.0
 
 
 def _rank_content_candidates(candidates, preference='自动测速'):
-    # Concurrent files share one measurement per host and cache lifetime.
-    with _CONTENT_PROBE_LOCK:
-        return _rank_content_candidates_locked(candidates, preference)
+    # A file's route may differ from the previous file's route. Probe the
+    # actual two publisher URLs for this download, off the UI thread.
+    return _rank_content_candidates_locked(candidates, preference)
 
 
 def _rank_content_candidates_locked(candidates, preference):
-    """Rank trusted public content routes by a bounded, cached range probe."""
+    """Rank public content routes by a bounded concurrent range probe."""
     candidates = list(dict.fromkeys(candidates))
     if len(candidates) < 2:
         return candidates
     hosts = {candidate: urlsplit(candidate).hostname for candidate in candidates}
-    pending = {}
-    now = time.monotonic()
-    with _CONTENT_ROUTE_LOCK:
-        for candidate, host in hosts.items():
-            cached = _CONTENT_ROUTE_CACHE.get(host)
-            if cached and cached[1] > now:
-                pending[candidate] = cached[0]
-    missing = [candidate for candidate in candidates if candidate not in pending]
-    if missing:
-        with ThreadPoolExecutor(max_workers=min(4, len(missing))) as pool:
-            measured = dict(zip(missing, pool.map(_measure_content_route, missing)))
-        with _CONTENT_ROUTE_LOCK:
-            for candidate, speed in measured.items():
-                host = hosts[candidate]
-                _CONTENT_ROUTE_CACHE[host] = (speed, time.monotonic() + _CONTENT_ROUTE_TTL)
-                pending[candidate] = speed
-    ranked = sorted(candidates, key=lambda candidate: pending.get(candidate, 0), reverse=True)
+    with ThreadPoolExecutor(max_workers=min(2, len(candidates))) as pool:
+        speeds = dict(zip(candidates, pool.map(_measure_content_route, candidates)))
+    ranked = sorted(candidates, key=lambda candidate: speeds.get(candidate, 0), reverse=True)
     logger.info('content_routes_ranked routes=%s', [
-        {'host': hosts[candidate], 'bytes_per_second': round(pending.get(candidate, 0))}
+        {'host': hosts[candidate], 'bytes_per_second': round(speeds.get(candidate, 0))}
         for candidate in ranked])
     return ranked
 
@@ -166,11 +156,17 @@ class DownloadCancellation(threading.Event):
             pass
 
     def set(self):
+        already_set = self.is_set()
         super().set()
+        if already_set:
+            return
         with self._response_lock:
             responses = tuple(self._responses)
-        for response in responses:
-            self._interrupt(response)
+        if responses:
+            # Qt calls set() on the UI thread. Socket shutdown can wait for a
+            # TLS/urllib3 lock, so interrupt active reads on a daemon thread.
+            threading.Thread(target=lambda: [self._interrupt(response) for response in responses],
+                             name='download-cancel', daemon=True).start()
 
     @contextmanager
     def response(self, response):
@@ -389,6 +385,8 @@ class MinecraftDownloader:
 
     def urls(self, original):
         parsed = urlsplit(original)
+        if parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1'):
+            return [original]
         trusted = (parsed.scheme == 'https' and parsed.port in (None, 443)
                    and not parsed.username and not parsed.password)
         content_source = self.content_source or self.source
@@ -398,6 +396,17 @@ class MinecraftDownloader:
             return self.urls(parsed._replace(netloc=upstream).geturl()) if upstream else []
         if trusted and parsed.hostname in ('edge.forgecdn.net', 'mediafilez.forgecdn.net', 'cdn.modrinth.com'):
             from core.bugg_mirror import mirror_url as bugg_url
+            if isinstance(content_source, (list, tuple)):
+                from core.content_mirrors import source_order
+                from core.content_routes import provider
+                order = [*source_order(content_source), '']
+                candidates = [original]
+                if mapped := bugg_url(original):
+                    candidates.append(mapped)
+                if 'MCIM' in order and parsed.hostname != 'mediafilez.forgecdn.net':
+                    candidates.append(parsed._replace(netloc=_RETIRED_CONTENT_HOST).geturl())
+                return sorted(candidates, key=lambda address: order.index(
+                    'MCIM' if urlsplit(address).hostname == _RETIRED_CONTENT_HOST else provider(address)))
             selected = []
             if content_source == 'MCIM':
                 # MCIM explicitly excludes mediafilez from URL rewriting.
@@ -658,25 +667,90 @@ class MinecraftDownloader:
             discard_partial()
         content_source = self.content_source or self.source
         addresses = [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
-        if self.resolve_content_sources or _fallback:
+        from core.bugg_mirror import mirror_url as bugg_url
+        from core.bugg_mirror import BASE_URL as own_origin
+        from core.content_mirrors import source_order
+        defer_lookup = (not _fallback and self.resolve_content_sources
+                        and source_order(content_source)[0] == 'Buggcraft'
+                        and any(bugg_url(address) for address in addresses))
+        if (self.resolve_content_sources or _fallback) and not defer_lookup:
             from core.content_routes import resolve_download_urls
             self.check_cancelled()
             self.status(f'正在解析下载源 · {target.name}')
+            def report_source(reason):
+                self.status(f'{target.name}：{reason}')
+                self._file_event(relative, 'resolving', source_reason=reason)
+            kind = {'resourcepacks': 'resourcepack', 'shaderpacks': 'shader'}.get(Path(relative).parts[0], 'mod')
             addresses = resolve_download_urls(addresses, sha1, size, sha512=sha512,
-                                               preference=content_source, cancel=self.cancel)
-        candidates = list(dict.fromkeys(candidate for address in addresses
-                                        for candidate in self.urls(address)))
-        from core.bugg_mirror import mirror_url as bugg_url
-        candidates.extend(value for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
-                          if (value := bugg_url(address)) and value not in candidates)
-        candidates = [candidate for candidate in candidates if candidate not in _skip_urls]
-        if not getattr(self, 'preserve_content_order', False):
+                                               preference=content_source, cancel=self.cancel,
+                                               report=report_source, kind=kind)
+        content_transfer = self.resolve_content_sources or _fallback
+        if content_transfer and content_source != 'MCIM':
             from core.content_routes import provider
-            preferred = 'Modrinth' if content_source == 'Modrinth' else 'CurseForge'
-            candidates.sort(key=lambda candidate: 0 if provider(candidate) == preferred else
-                            2 if provider(candidate) == 'Modrinth' else 1)
+            candidates = list(dict.fromkeys(candidate for address in addresses
+                                           for candidate in ([address] if provider(address) else self.urls(address))))
+            for address in list(candidates):
+                parsed = urlsplit(address)
+                peer = {'edge.forgecdn.net': 'mediafilez.forgecdn.net',
+                        'mediafilez.forgecdn.net': 'edge.forgecdn.net'}.get(parsed.hostname)
+                if peer and parsed.path.startswith('/files/'):
+                    alternate = parsed._replace(netloc=peer).geturl()
+                    if alternate not in candidates:
+                        candidates.append(alternate)
+            # The origin can redirect or serve bytes; one hash-verified route
+            # suffices, so repeated publisher URLs do not multiply its retries.
+            own = next((mapped for address in addresses
+                        if (mapped := bugg_url(address))), None)
+            if own and own not in candidates:
+                candidates.append(own)
+            from core.content_mirrors import source_order
+            order = [*source_order(content_source), '']
+            if 'MCIM' in order:
+                for address in list(candidates):
+                    parsed = urlsplit(address)
+                    if parsed.hostname in ('edge.forgecdn.net', 'cdn.modrinth.com'):
+                        mapped = parsed._replace(netloc=_RETIRED_CONTENT_HOST).geturl()
+                        if mapped not in candidates:
+                            candidates.append(mapped)
+            def candidate_source(candidate):
+                return 'MCIM' if urlsplit(candidate).hostname == _RETIRED_CONTENT_HOST else provider(candidate)
+            if content_source in ('自动', '自动测速', '自动（CurseForge 优先）'):
+                publishers = [candidate for candidate in candidates
+                              if provider(candidate) in ('CurseForge', 'Modrinth')]
+                if len({provider(candidate) for candidate in publishers}) == 2:
+                    self.check_cancelled()
+                    ranked = _rank_content_candidates(publishers, content_source)
+                    self.check_cancelled()
+                    order = tuple(dict.fromkeys([*(provider(candidate) for candidate in ranked),
+                                                  'Buggcraft', '']))
+                    candidates.sort(key=lambda candidate: (order.index(provider(candidate)),
+                                                           ranked.index(candidate) if candidate in ranked else 0))
+                else:
+                    candidates.sort(key=lambda candidate: order.index(candidate_source(candidate)))
+            else:
+                candidates.sort(key=lambda candidate: order.index(candidate_source(candidate)))
+        else:
+            candidates = list(dict.fromkeys(candidate for address in addresses
+                                            for candidate in self.urls(address)))
+            candidates.extend(value for address in [url, *getattr(self, 'file_mirrors', {}).get(url, [])]
+                              if (value := bugg_url(address)) and value not in candidates)
+            if not getattr(self, 'preserve_content_order', False):
+                from core.content_routes import provider
+                preferred = 'Modrinth' if content_source == 'Modrinth' else 'CurseForge'
+                candidates.sort(key=lambda candidate: 0 if provider(candidate) == preferred else
+                                2 if provider(candidate) == 'Modrinth' else 1)
+        candidates = [candidate for candidate in candidates if candidate not in _skip_urls]
         attempt_number = 0
         max_attempts = self.retries + 1
+        per_source_retries = self.resolve_content_sources or _fallback
+        source_attempts = {}
+
+        def source_key(candidate):
+            if per_source_retries and content_source != 'MCIM':
+                from core.content_routes import provider
+                if name := provider(candidate):
+                    return name
+            return urlsplit(candidate).hostname or candidate
 
         def available(candidate):
             host = urlsplit(candidate).hostname
@@ -685,7 +759,7 @@ class MinecraftDownloader:
 
         for source_index, candidate in enumerate(candidates):
             host = urlsplit(candidate).hostname
-            if attempt_number >= max_attempts:
+            if not per_source_retries and attempt_number >= max_attempts:
                 continue
             with self._blocked_hosts_lock:
                 if self._blocked_hosts.get(host, 0) > time.monotonic():
@@ -695,15 +769,26 @@ class MinecraftDownloader:
             # Switch between configured sources without spending the retry
             # budget on a broken mirror; retry the last viable source.
             alternatives = candidates[source_index + 1:]
-            attempts = 1 if any(available(item) for item in alternatives) else max_attempts - attempt_number
+            key = source_key(candidate)
+            if per_source_retries:
+                remaining = max_attempts - source_attempts.get(key, 0)
+                attempts = (1 if any(available(item) and source_key(item) == key
+                                     for item in alternatives) else remaining)
+                attempts = min(attempts, remaining)
+            else:
+                attempts = 1 if any(available(item) for item in alternatives) else max_attempts - attempt_number
             for attempt in range(attempts):
                 self.check_cancelled()
+                if per_source_retries and source_attempts.get(key, 0) and self.cancel.wait(3):
+                    self.check_cancelled()
                 attempt_number += 1
+                source_attempts[key] = source_attempts.get(key, 0) + 1
+                displayed_attempt = source_attempts[key] if per_source_retries else attempt_number
                 try:
                     offset = temporary.stat().st_size if temporary.exists() and (sha1 or sha512) and size else 0
                     self._file_event(relative, 'downloading', done=offset, total=size or 0,
-                                     host=host or '', url=candidate, attempt=attempt_number, error='')
-                    self.status(f'正在下载 {target.name} · {urlsplit(candidate).hostname} · 第 {attempt_number} 次')
+                                     host=host or '', url=candidate, attempt=displayed_attempt, error='')
+                    self.status(f'正在下载 {target.name} · {urlsplit(candidate).hostname} · 第 {displayed_attempt} 次')
                     logger.info('download_start file=%s host=%s attempt=%s', relative, urlsplit(candidate).hostname, attempt_number)
                     session = getattr(self._sessions, 'session', None)
                     if session is None:
@@ -712,9 +797,9 @@ class MinecraftDownloader:
                         self._sessions.session = session
                     headers = {"User-Agent": USER_AGENT, 'Accept-Encoding': 'identity',
                                **getattr(self, 'request_headers', {})}
-                    from core.bugg_mirror import BASE_URL as own_origin
-                    if host == urlsplit(own_origin).hostname:
-                        headers['X-Buggcraft-Origin-Only'] = '1'
+                    # Every category obeys the mirror's configured routing.
+                    # A miss must be free to redirect immediately instead of
+                    # holding this download until the mirror fills its cache.
                     if offset:
                         headers['Range'] = f'bytes={offset}-'
                     timeout = (8, 30)
@@ -726,7 +811,7 @@ class MinecraftDownloader:
                             logger.info('download_redirect file=%s from=%s to=%s', relative, host, final_host)
                             self._file_event(relative, 'downloading', done=offset, total=size or 0,
                                              host=final_host or host or '', url=response.url,
-                                             attempt=attempt_number, error='')
+                                             attempt=displayed_attempt, error='')
                         if str(response.headers.get('Content-Type', '')).split(';')[0].lower() in ('text/html', 'application/xhtml+xml'):
                             raise ValueError('下载地址返回了网页，请切换来源或手动下载。')
                         if response.status_code == 206:
@@ -811,6 +896,11 @@ class MinecraftDownloader:
                     source_errors.append(exc)
                     from utils.download_address import source_name
                     failures[source_name(candidate) or host or '下载源'] = _source_failure_reason(exc)
+                    if (host == urlsplit(own_origin).hostname and isinstance(exc, requests.HTTPError)
+                            and exc.response is not None and exc.response.status_code in (502, 503, 504)):
+                        failures[source_name(candidate) or host or 'Buggcraft'] = (
+                            f'源站暂时无法获取该文件（HTTP {exc.response.status_code}）；'
+                            '请检查上游文件、镜像容量或源站设置')
                     logger.warning('download_retry file=%s host=%s attempt=%s error=%s', relative,
                                    urlsplit(candidate).hostname, attempt_number, exc)
                     # A rejected source cannot invalidate bytes bound to the
@@ -820,6 +910,22 @@ class MinecraftDownloader:
                     if not transient or not (sha1 or sha512) or not size:
                         discard_partial()
                     self.check_cancelled()
+                    redirected_url = getattr(getattr(exc, 'request', None), 'url', '')
+                    if (host == urlsplit(own_origin).hostname
+                            and redirected_url in candidates[:source_index]):
+                        # The origin obeyed its redirect policy, but the URL
+                        # it selected has already failed in this same task.
+                        # Repeating that redirect six times cannot help.
+                        failures[source_name(candidate) or host or 'Buggcraft'] = (
+                            '源站已重定向到本次任务中失败过的下载地址；请检查该文件的公开来源或等待房主补齐')
+                        break
+                    if (host == urlsplit(own_origin).hostname and isinstance(exc, requests.HTTPError)
+                            and exc.response is not None and exc.response.status_code in (502, 503, 504)):
+                        # The origin asks clients to wait before retrying. Six
+                        # immediate attempts at one 503 cannot make progress.
+                        with self._blocked_hosts_lock:
+                            self._blocked_hosts[host] = time.monotonic() + 30
+                        break
                     if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code in (403, 567):
                         # A rejected mirror should not delay every file in a pack.
                         with self._blocked_hosts_lock:
@@ -834,10 +940,10 @@ class MinecraftDownloader:
                         break
                     if not retryable and attempt >= 2:
                         break
-                    if attempt < attempts - 1 and self.cancel.wait(0.5 * (attempt + 1)):
+                    if not per_source_retries and attempt < attempts - 1 and self.cancel.wait(0.5 * (attempt + 1)):
                         self.check_cancelled()
-        if (getattr(self, 'fallback_content_sources', False) and not _fallback
-                and not self.resolve_content_sources):
+        if not _fallback and (defer_lookup or (
+                getattr(self, 'fallback_content_sources', False) and not self.resolve_content_sources)):
             # Resolve alternatives only after the pack's own URLs fail. Keep
             # policy per call: pack resources share this downloader across threads.
             self.check_cancelled()
@@ -861,6 +967,8 @@ class MinecraftDownloader:
                 from utils.download_address import source_name
                 failures[source_name(candidate) or '下载源'] = '暂时不可用（此前请求失败）'
         summary = '；'.join(f'{name}：{reason}' for name, reason in failures.items())
+        if not addresses and content_source in ('CurseForge', 'Modrinth'):
+            summary += f'；当前选择的 {content_source} 没有该文件的匹配下载地址'
         raise DownloadSourcesExhausted(
             f'下载 {target.name} 失败：全部可用下载源均失败。{summary}。已下载进度保留，可稍后重试。',
             source_errors=source_errors)

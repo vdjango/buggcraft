@@ -86,19 +86,8 @@ class MinecraftLauncher(QMainWindow):
         self.settings_manager = get_settings_manager()  # 获取配置管理器
         self.visibility_manager = LauncherVisibilityManager(self)  # 初始化可见性管理器
 
-        # 配置文件校验
-        java_path = self.settings_manager.get_version_setting('java.path', None)
-        if not (java_path and os.path.isfile(java_path)):
-            self.settings_manager.set_version_setting('java.path', None)
-            self.settings_manager.save_settings()
-        
-        installations = self.settings_manager.get_setting('java.installations', []) or []
-        valid_installations = [entry for entry in installations
-                               if isinstance(entry, (list, tuple)) and len(entry) == 3
-                               and isinstance(entry[0], str)]
-        if installations != valid_installations:
-            self.settings_manager.set_setting('java.installations', valid_installations)
-        
+        # Java probing and configuration repair start after the window is shown.
+        # In particular, do not fsync settings.json on the UI thread here.
         # 同步 TitleBar 菜单顺序，同时主页面添加堆叠页面顺序也需要同步
         self.tab_names = [
             '开始', "下载", '设置', '实例'
@@ -151,7 +140,7 @@ class MinecraftLauncher(QMainWindow):
 
         from utils.windows_taskbar import install_taskbar_identity
         install_taskbar_identity(self, self.resource_path)
-        QTimer.singleShot(500, self.minecraft_not_java_runtime)
+        QTimer.singleShot(0, self.minecraft_not_java_runtime)
 
     def apply_window_opacity(self):
         self.setWindowOpacity(launcher_opacity(self.settings_manager) / 100)
@@ -355,16 +344,9 @@ class MinecraftLauncher(QMainWindow):
         """打开启动器检查Java环境"""
         if self._closing:
             return
-        if self.settings_manager.get_version_setting('java.path', None) is None \
-                and not self.settings_manager.get_setting('java.installations', []):
-            # 尝试本地搜索
-            self.load_java_path(notify_missing=False)
-            logger.warning('尝试本地搜索Java')
-            return
-
-        # Keep startup quiet; selecting Play prepares the correct Java automatically.
-
-        # 对于未安装Java环境时,只提示Java环境安装,
+        # All path checks and subprocess probes belong to the worker too.
+        self.load_java_path(notify_missing=False, configured_first=True)
+        # Selecting Play still verifies the exact runtime for that instance.
         self.minecraft_not_gamed_runtime()
 
     def minecraft_not_gamed_runtime(self):
@@ -373,7 +355,7 @@ class MinecraftLauncher(QMainWindow):
             logger.warning('未安装游戏版本，请安装游戏版本')
             self.started_page.set_minecraft_version(None)
 
-    def load_java_path(self, notify_missing=True):
+    def load_java_path(self, notify_missing=True, configured_first=False):
         """自动加载系统中Java路径"""
 
         # 在后台线程中执行搜索（避免阻塞UI）
@@ -383,29 +365,59 @@ class MinecraftLauncher(QMainWindow):
             return
         self._java_notify_missing = notify_missing
         configured = list(self.settings_manager.get_setting('java.installations', []) or [])
+        selected_path = self.settings_manager.get_version_setting('java.path')
+        directory = self.settings_manager.get_setting('minecraft.directory.enable') or ''
+        version = self.settings_manager.get_setting('minecraft.version.enable') or ''
+        self._java_search_context = (directory, version, selected_path,
+                                     self.settings_manager.get_version_setting('java.name'), configured)
         
         class JavaSearchWorker(QObject):
-            finished = Signal(list)
+            finished = Signal(list, str)
             error = Signal(str)
             
             def run(self):
                 try:
+                    from core.java_runtime import java_policy
+
                     finder = JavaPathFinder(cancelled=QThread.currentThread().isInterruptionRequested)
-                    java_installations = finder.find_all_java_installations()
-                    known = {os.path.normcase(os.path.abspath(item[0])) for item in java_installations}
-                    for entry in configured:
+                    policy = java_policy(directory, version) if version else None
+
+                    def recommend(entries):
+                        candidates = []
+                        for path, _raw, parsed in entries:
+                            major = parsed[1] if parsed[0] == 1 else parsed[0]
+                            if not policy or policy.accepts(major):
+                                candidates.append((major, path))
+                        if selected_path and any(path == selected_path for _major, path in candidates):
+                            return selected_path
+                        return max(candidates)[1] if candidates else ''
+
+                    java_installations = []
+                    known = set()
+                    paths = [entry[0] for entry in configured
+                             if isinstance(entry, (list, tuple)) and entry
+                             and isinstance(entry[0], str)]
+                    if isinstance(selected_path, str):
+                        paths.insert(0, selected_path)
+                    for path in paths:
                         if QThread.currentThread().isInterruptionRequested():
                             break
-                        if not isinstance(entry, (list, tuple)) or not entry or not isinstance(entry[0], str):
+                        identity = os.path.normcase(os.path.abspath(path))
+                        if identity in known or not os.path.isfile(path):
                             continue
-                        identity = os.path.normcase(os.path.abspath(entry[0]))
-                        if identity in known or not os.path.isfile(entry[0]):
-                            continue
-                        raw, parsed = finder._get_java_version(entry[0])
+                        known.add(identity)
+                        raw, parsed = finder._get_java_version(path)
                         if parsed:
-                            java_installations.append((entry[0], raw, parsed))
-                            known.add(identity)
-                    self.finished.emit(java_installations)
+                            java_installations.append((path, raw, parsed))
+                    best = recommend(java_installations)
+                    if not best or not configured_first:
+                        for path, raw, parsed in finder.find_all_java_installations():
+                            identity = os.path.normcase(os.path.abspath(path))
+                            if identity not in known:
+                                java_installations.append((path, raw, parsed))
+                                known.add(identity)
+                        best = recommend(java_installations)
+                    self.finished.emit(java_installations, best)
                 except Exception as e:
                     self.error.emit(str(e))
         
@@ -441,34 +453,51 @@ class MinecraftLauncher(QMainWindow):
             return True
         return False
 
-    def on_java_search_finished(self, java_installations):
+    def on_java_search_finished(self, java_installations, best_java=''):
         """Java搜索完成处理"""
         if self._closing:
+            return
+        context = (self.settings_manager.get_setting('minecraft.directory.enable') or '',
+                   self.settings_manager.get_setting('minecraft.version.enable') or '',
+                   self.settings_manager.get_version_setting('java.path'),
+                   self.settings_manager.get_version_setting('java.name'),
+                   self.settings_manager.get_setting('java.installations', []) or [])
+        if context != self._java_search_context:
+            # A Java download, account/instance switch or manual selection won.
+            # Never apply an old worker's recommendation to the new selection.
+            QTimer.singleShot(50, self.minecraft_not_java_runtime)
             return
         # Refresh marks the list busy. Clear that state before refresh_list(),
         # which deliberately ignores refreshes while a worker is still active.
         self.settings_page.java_page.set_status('')
-        print('java_installations', java_installations)
-        if java_installations:
-            # 自动选择推荐的Java
-            finder = JavaPathFinder()
-            best_java = finder.recommend_best_java(java_installations)
-
-            current = self.settings_manager.get_version_setting('java.path')
-            if not current or not os.path.isfile(current):
-                self.settings_manager.set_version_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
+        changed = False
+        verified = [[path, raw, list(parsed)] for path, raw, parsed in java_installations]
+        if verified != self.settings_manager.get_setting('java.installations', []):
+            self.settings_manager.set_setting('java.installations', verified)
+            changed = True
+        current = self.settings_manager.get_version_setting('java.path')
+        name = str(self.settings_manager.get_version_setting('java.name') or '')
+        automatic = name.startswith('使用推荐的 Java 版本')
+        current_verified = any(path == current for path, _raw, _parsed in java_installations)
+        if best_java and (automatic or not current_verified):
+            if current != best_java:
                 self.settings_manager.set_version_setting('java.path', best_java)
-            self.settings_manager.set_setting('java.installations', java_installations)
-            self.settings_manager.save_settings()
+                changed = True
+            if not automatic:
+                self.settings_manager.set_version_setting('java.name', '使用推荐的 Java 版本|系统将自动选择最适合的 Java 版本')
+                changed = True
+        elif automatic and current and not current_verified:
+            self.settings_manager.set_version_setting('java.path', None)
+            changed = True
+        if changed:
+            self.settings_manager.save_settings_async()
+        if self.settings_page.java_page.isVisible():
             self.settings_page.java_page.refresh_list()
-
+        if java_installations:
             if getattr(self, '_java_notify_missing', True) and self.minecraft_not_java_version_runtime():
                 self.java_runtime_full.exec()
                 return
         else:
-            self.settings_manager.set_setting('java.installations', [])
-            self.settings_manager.save_settings()
-            self.settings_page.java_page.refresh_list()
             logger.warning('未安装Java环境，请下载安装Java')
             if getattr(self, '_java_notify_missing', True):
                 self.java_runtime_full.exec()
@@ -476,8 +505,9 @@ class MinecraftLauncher(QMainWindow):
         
     def on_java_search_error(self, error_message):
         """Java搜索错误处理"""
-        print("搜索出错", f"错误信息: {error_message}")
-        self.settings_page.java_page.refresh_list()
+        logger.warning('Java 搜索失败: %s', error_message)
+        if self.settings_page.java_page.isVisible():
+            self.settings_page.java_page.refresh_list()
         self.settings_page.java_page.set_status('搜索失败，请重试')
 
     def on_gamed_import_signal(self):

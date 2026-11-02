@@ -40,7 +40,7 @@ def validate_manifest(value, kind='mods'):
     return value
 
 
-def manifest(directory, kind='mods'):
+def manifest(directory, kind='mods', progress=None, include_sha1=False, cancel=None, hash_cache=None):
     if kind not in ('mods', 'resources'):
         raise ValueError('Invalid room content kind')
     base = Path(directory).resolve()
@@ -51,18 +51,49 @@ def manifest(directory, kind='mods'):
                   [(folder + '/' + path.name, path)
                    for folder in ('resourcepacks', 'shaderpacks')
                    for path in (base / folder).glob('*') if path.is_file()])
-    for relative, path in sorted(candidates, key=lambda value: value[0].casefold()):
+    candidates = sorted(candidates, key=lambda value: value[0].casefold())
+    for index, (relative, path) in enumerate(candidates, 1):
         parent = root if kind == 'mods' else base / relative.split('/', 1)[0]
         if not path.resolve().is_relative_to(parent.resolve()):
             raise ValueError('模组链接指向游戏目录之外。')
-        digest = hashlib.sha256()
-        with path.open('rb') as source:
-            for block in iter(lambda: source.read(1024 * 1024), b''):
-                digest.update(block)
-        item = dict(name=path.name, sha256=digest.hexdigest(), size=path.stat().st_size)
+        if cancel is not None and cancel.is_set():
+            raise InterruptedError('房间文件核对已取消。')
+        stat = path.stat()
+        stamp = [str(path.resolve()), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+        cached = hash_cache.get(relative, {}) if hash_cache is not None else {}
+        if not isinstance(cached, dict):
+            cached = {}
+        reusable = (cached.get('stat') == stamp and isinstance(cached.get('sha256'), str)
+                    and re.fullmatch('[0-9a-f]{64}', cached['sha256'])
+                    and (not include_sha1 or isinstance(cached.get('sha1'), str)
+                         and re.fullmatch('[0-9a-f]{40}', cached['sha1'])))
+        if reusable:
+            item = dict(name=path.name, size=stat.st_size, sha256=cached['sha256'])
+            if include_sha1:
+                item['sha1'] = cached['sha1']
+        else:
+            digest = hashlib.sha256()
+            sha1 = hashlib.sha1() if include_sha1 else None
+            with path.open('rb') as source:
+                for block in iter(lambda: source.read(1024 * 1024), b''):
+                    if cancel is not None and cancel.is_set():
+                        raise InterruptedError('房间文件核对已取消。')
+                    digest.update(block)
+                    if sha1 is not None:
+                        sha1.update(block)
+            after = path.stat()
+            if (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError('房间文件正在修改，请文件保存完成后重试。')
+            item = dict(name=path.name, sha256=digest.hexdigest(), size=stat.st_size)
+            if sha1 is not None:
+                item['sha1'] = sha1.hexdigest()
+            if hash_cache is not None:
+                hash_cache[relative] = dict(stat=stamp, **{key: item[key] for key in ('sha256', 'sha1') if key in item})
         if kind == 'resources':
             item['path'] = relative
         result.append(item)
+        if progress:
+            progress(index, len(candidates), path.name)
     return validate_manifest(result, kind)
 
 

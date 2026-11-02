@@ -20,6 +20,18 @@ from utils.storage_paths import game_cache
 
 
 class RoomLoaderTests(unittest.TestCase):
+    def test_legacy_neoforge_keeps_its_type_despite_forge_compatibility_names(self):
+        legacy = {'libraries': [{'name': 'net.minecraftforge:fmlloader:1.20.1-47.1.106'},
+                                {'name': 'net.neoforged:forge:1.20.1-47.1.106:universal'}],
+                  'arguments': {'game': ['--launchTarget', 'forgeclient', '--fml.forgeVersion',
+                                        '47.1.106', '--fml.mcVersion', '1.20.1',
+                                        '--fml.forgeGroup', 'net.neoforged']}}
+        self.assertEqual(metadata_loader(legacy), ('neoforge', '47.1.106'))
+        modern = {'libraries': [{'name': 'net.neoforged.fancymodloader:loader:4.0.45'},
+                                {'name': 'net.minecraftforge:srgutils:0.4.15'}],
+                  'arguments': {'game': ['--fml.neoForgeVersion', '21.1.265', '--launchTarget', 'forgeclient']}}
+        self.assertEqual(metadata_loader(modern), ('neoforge', '21.1.265'))
+
     def test_forge_and_neoforge_launch_profiles_are_recognized(self):
         self.assertEqual(metadata_loader({'libraries': [{'name':'net.minecraftforge:fmlloader:1.20.1-47.4.0'}],
             'arguments': {'game':['--fml.forgeVersion', '47.4.0']}}), ('forge', '47.4.0'))
@@ -68,6 +80,31 @@ class RoomLoaderTests(unittest.TestCase):
 
 
 class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_optional_cache_plan_does_not_delay_install_or_normal_transfers(self):
+        gate = asyncio.Event()
+        async def slow_plan(**_kwargs):
+            await gate.wait()
+        origin = SimpleNamespace(plan=AsyncMock(side_effect=slow_plan), enrich=Mock(),
+                                 download=AsyncMock(return_value=False))
+        with patch('hookup.room_cache.client', new=AsyncMock(return_value=origin)), \
+                patch('hookup.preparation.fetch_public_mod', new=AsyncMock(return_value=False)):
+            identity = await asyncio.wait_for(self.prepare(), timeout=2)
+        self.assertFalse(gate.is_set())
+        self.assertTrue((self.root/'versions'/identity/'mods/example.jar').is_file())
+        self.endpoint.download_mod.assert_awaited_once()
+        origin.plan.assert_awaited_once()
+
+    async def test_verified_origin_hit_is_used_before_public_lookup(self):
+        async def cached_download(item,target,cancel,progress):
+            target.write_bytes(self.payload)
+            progress(item['size'],item['size'])
+            return True
+        self.endpoint._content_cache=SimpleNamespace(download=AsyncMock(side_effect=cached_download))
+        with patch('hookup.preparation.fetch_public_mod', new=AsyncMock(side_effect=AssertionError('cached file queried again'))):
+            identity=await self.prepare()
+        self.assertEqual((self.root/'versions'/identity/'mods/example.jar').read_bytes(),self.payload)
+        self.endpoint.download_mod.assert_not_awaited()
+
     async def test_220_mods_finish_independently_and_only_failed_file_is_retried(self):
         payloads = {f'mod-{index}.jar': f'verified mod {index}'.encode() for index in range(220)}
         items = [dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest())
@@ -152,9 +189,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        metadata = dict(files=[dict(primary=True, size=item['size'], hashes=dict(sha1=item['sha1']),
-                                    url='https://cdn.modrinth.com/data/test/example.jar')])
-        with patch('core.content_mirrors.get_modrinth', return_value=metadata), \
+        with patch('core.content_routes.resolve_download_urls', return_value=[f'http://127.0.0.1:{server.server_port}/mod']), \
                 patch.object(MinecraftDownloader, 'urls', lambda *_: [f'http://127.0.0.1:{server.server_port}/mod']):
             with self.assertRaises(ConnectionError):
                 await self.prepare()
@@ -348,10 +383,6 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         self.game.update(mods_count=len(items), mods_hash=manifest_hash(items))
         self.endpoint.mod_manifest.return_value = items
         self.endpoint.transport_state = 'relay'  # Source downloads must succeed without P2P.
-        def metadata(path, *args):
-            item = next(item for item in items if path.endswith(item['sha1']))
-            return dict(files=[dict(primary=True, size=item['size'], hashes=dict(sha1=item['sha1']),
-                                    url='https://cdn.modrinth.com/data/fixture/' + item['name'])])
         lock = threading.Lock()
         active = peak = 0
         ranges = []
@@ -392,7 +423,8 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
                 settings.save_settings()
                 persisted = SettingsManager(settings.config_path)
                 with patch('config.settings.get_settings_manager', return_value=persisted), \
-                        patch('core.content_mirrors.get_modrinth', side_effect=metadata), \
+                        patch('core.content_routes.resolve_download_urls', side_effect=lambda addresses, *_a, **_k:
+                              [f'http://127.0.0.1:{server.server_port}/' + addresses[0].rsplit('/', 1)[-1]]), \
                         patch.object(MinecraftDownloader, 'urls',
                                      lambda _self, url: [f'http://127.0.0.1:{server.server_port}/' + url.rsplit('/', 1)[-1]]):
                     identity = await self.prepare()
@@ -523,7 +555,7 @@ class RoomPreparationTests(unittest.IsolatedAsyncioTestCase):
         item = dict(self.item, sha1=hashlib.sha1(self.payload).hexdigest())
         url = 'https://cdn.modrinth.com/data/project/version/example.jar'
         response = {'files': [{'hashes': {'sha1': item['sha1']}, 'size': item['size'], 'url': url}]}
-        for selected in ('CurseForge', 'Modrinth', '自动测速'):
+        for selected in ('CurseForge', 'Modrinth', '自动测速', ['Buggcraft', 'CurseForge', 'Modrinth']):
             with self.subTest(selected=selected), \
                     patch('core.content_mirrors.get_modrinth', return_value=response) as lookup, \
                     patch('core.downloads.MinecraftDownloader') as downloader:

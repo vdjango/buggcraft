@@ -358,7 +358,7 @@ class DownloadWorker(QRunnable):
                 pack_source = inspect_pack(self.modpack).source
                 self.signals.pack_format.emit(self.task_id, pack_source)
                 mode = 'settings'
-                status('整合包文件使用启动器所选下载源，失败时仅尝试 Buggcraft 源站')
+                status('整合包文件按所选来源优先下载，失败后尝试另一发布站与 Buggcraft 源站')
                 importer = ModpackImporter(self.game_dir, self.source, self.java, self.cancel_event,
                                 status, progress, self.api_key, content_source=self.content_source,
                                 file_event=file_event, unavailable_mods=self.confirm_missing_mods,
@@ -441,6 +441,7 @@ class TasksPage(QWidget):
         )
         self._tasks = self._load_history()
         self._file_indexes = {}
+        self._active_file_sources = {}
         self._workers = {}
         self._external_cancellations = {}
         self._external_retries = {}
@@ -657,6 +658,7 @@ class TasksPage(QWidget):
 
     def _start_worker(self, task, api_key=None):
         task.pop('download_source', None)
+        self._active_file_sources.pop(task['id'], None)
         task.pop('skipped_mods', None)
         source = self.settings_manager.get_setting(
             "settings.general.mirrors", "BMCLAPI"
@@ -939,9 +941,17 @@ class TasksPage(QWidget):
         if event.get('url'):
             entry['source'] = source_name(event['url'])
         if entry.get('url') and event.get('state') in ('downloading', 'verifying', 'verified', 'cached'):
-            task['download_source'] = entry.get('source', '')
             if entry['url'] != previous_url:
                 self._log(task, f"下载地址：{entry['name']} · {entry['url']}")
+        active = self._active_file_sources.setdefault(task_id, {})
+        if entry.get('state') == 'downloading' and entry.get('source'):
+            active[key] = entry['source']
+        else:
+            active.pop(key, None)
+        if active:
+            task['download_source'] = ' / '.join(sorted(set(active.values())))
+        elif entry.get('source'):
+            task['download_source'] = entry['source']
         if 'task_speed' in event:
             task.update(speed=event['task_speed'], _speedAt=time.monotonic())
 
@@ -1005,8 +1015,9 @@ class TasksPage(QWidget):
         return next((task for task in self._tasks if task.get("id") == task_id), None)
 
     def _persist_and_refresh(self):
-        self._save_timer.stop()
-        self._queue_history_save()
+        # A cancel/source switch must return to Qt immediately. Copying every
+        # file and log in a large modpack here can freeze page navigation.
+        self._schedule_save()
         self.refresh_tasks()
 
     def _schedule_save(self):

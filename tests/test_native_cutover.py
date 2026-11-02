@@ -5,15 +5,52 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import threading
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src' / 'buggcraft'))
-from hookup.native_transport import TunnelClient, TunnelHost
+from hookup.native_transport import TunnelClient, TunnelHost, TunnelService
 from hookup.native_routes import MAX_REQUEST_BYTES, fit_room_host_params
 from hookup.profiles import RelayProfile, RoomInvite
+
+
+class TunnelServiceResponsivenessTests(unittest.TestCase):
+    def test_loop_initialization_and_close_never_block_the_caller(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        original = asyncio.new_event_loop
+
+        def slow_loop():
+            started.set()
+            release.wait(2)
+            return original()
+
+        with (patch('hookup.native_transport.asyncio.new_event_loop', side_effect=slow_loop),
+              patch('hookup.native_routes.close', new_callable=AsyncMock)):
+            before = time.monotonic()
+            service = TunnelService()
+            self.assertLess(time.monotonic() - before, .2)
+            self.assertTrue(started.wait(1))
+            queued = service.submit(asyncio.sleep(0, result='queued'))
+            before = time.monotonic()
+            service.close()
+            self.assertLess(time.monotonic() - before, .2)
+            release.set()
+            service.thread.join(2)
+            self.assertFalse(service.thread.is_alive())
+            self.assertTrue(queued.done())
+
+    def test_submitted_work_completes_and_close_stops_background_loop(self):
+        with patch('hookup.native_routes.close', new_callable=AsyncMock):
+            service = TunnelService()
+            self.assertEqual(service.submit(asyncio.sleep(0, result=42)).result(timeout=2), 42)
+            service.close()
+            service.thread.join(2)
+            self.assertFalse(service.thread.is_alive())
 
 
 class NativeBoundaryTests(unittest.TestCase):

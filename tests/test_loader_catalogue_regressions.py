@@ -1,16 +1,35 @@
 """Loader metadata routing and failure contracts; no public network required."""
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from unittest.mock import Mock, patch
 
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'buggcraft'))
 from core import loaders
+
+
+class NeoForgeProfileSelectionTests(unittest.TestCase):
+    def test_neoforge_does_not_pick_a_forge_profile_with_matching_filename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            wrong=root/'versions/neoforge-21.1.265/neoforge-21.1.265.json'
+            wrong.parent.mkdir(parents=True)
+            wrong.write_text(json.dumps({'libraries':[{'name':'net.minecraftforge:fmlloader:1.21.1-52.0.1'}]}),encoding='utf8')
+            with self.assertRaisesRegex(RuntimeError,'NeoForge'):
+                loaders._installed_neoforge_version(root,'21.1.265')
+            correct=root/'versions/neo-21.1.265-client/neo-21.1.265-client.json'
+            correct.parent.mkdir()
+            correct.write_text(json.dumps({'libraries':[{'name':'net.neoforged.fancymodloader:loader:4.0.45'}],
+                'arguments':{'game':['--fml.neoForgeVersion','21.1.265','--launchTarget','forgeclient']}}),encoding='utf8')
+            self.assertEqual(loaders._installed_neoforge_version(root,'21.1.265'),'neo-21.1.265-client')
 
 
 class InstallerJavaRegressionTests(unittest.TestCase):
@@ -71,6 +90,52 @@ class InstallerJavaRegressionTests(unittest.TestCase):
         self.assertEqual(self.settings.get_setting('java.path'), self.paths[21])
         self.assertEqual(self.settings.get_setting('java.installations')[0][0], self.paths[21])
 
+    def test_forge_processors_use_portable_java_without_system_path(self):
+        # Reproduce the reported Forge 47.4.20 failure through the dependency's
+        # real installer and processor functions, not a mocked Forge entrypoint.
+        forge = loaders.minecraft_launcher_lib.forge
+        identity = '1.20.1-forge-47.4.20'
+        processor = 'net.minecraftforge:installertools:1.4.1'
+        profile = dict(version=identity, minecraft='1.20.1', data={},
+            processors=[dict(jar=processor, classpath=[], args=[])])
+        installer = self.root / 'forge-installer.jar'
+        with zipfile.ZipFile(installer, 'w') as archive:
+            archive.writestr('install_profile.json', json.dumps(profile))
+            archive.writestr('version.json', json.dumps(dict(id=identity,
+                inheritsFrom='1.20.1', libraries=[dict(name='net.minecraftforge:forge:1.20.1-47.4.20:client')])))
+        processor_jar = Path(forge.get_library_path(processor, str(self.root)))
+        processor_jar.parent.mkdir(parents=True)
+        with zipfile.ZipFile(processor_jar, 'w') as archive:
+            archive.writestr('META-INF/MANIFEST.MF', 'Manifest-Version: 1.0\nMain-Class: example.Processor\n')
+
+        def download(_url, target, _callback):
+            shutil.copyfile(installer, target)
+            return True
+
+        for installed in (True, False):
+            with self.subTest(java_already_downloaded=installed):
+                self.settings.set_setting('java.path', None)
+                self.settings.set_setting('java.installations',
+                    [[self.paths[17], 'Java 17', [17, 0, 1]]] if installed else [])
+                with (patch.dict('os.environ', {'PATH': ''}),
+                      patch.object(self.downloads, 'catalogue', return_value=['package']) as catalogue,
+                      patch.object(self.downloads, 'install_available', return_value=(
+                          'package', (self.paths[17], 'Java 17', [17, 0, 1]))),
+                      patch.object(loaders, 'verified_installation', return_value=True),
+                      patch.object(loaders, '_routed_downloader', side_effect=lambda original, *_args: original),
+                      patch.object(forge, 'download_file', side_effect=download),
+                      patch.object(forge, 'install_minecraft_version'),
+                      patch.object(loaders, '_flatten_forge_version', return_value=identity),
+                      patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'')) as run):
+                    result = loaders._run_loader_install('Forge', '1.20.1', '47.4.20', self.root,
+                        None, self.callback, self.cancel, 'BMCLAPI', identity, set(), _workspace=True)
+                self.assertEqual(result, identity)
+                run.assert_called_once()
+                self.assertEqual(run.call_args.args[0],
+                    [self.paths[17], '-cp', str(processor_jar), 'example.Processor'])
+                self.assertTrue(run.call_args.kwargs['check'])
+                self.assertEqual(catalogue.call_count, 0 if installed else 1)
+
     def test_moved_or_incompatible_selected_java_uses_compatible_alternative(self):
         self.settings.set_setting('java.installations', [[self.paths[21], 'Java 8', [8]]])
         for selected in (str(self.root / 'moved/java.exe'), self.paths[8], self.paths[17]):
@@ -83,6 +148,52 @@ class InstallerJavaRegressionTests(unittest.TestCase):
                 patch.object(self.downloads, 'catalogue') as fetch:
             self.assertEqual(self.resolve(), self.paths[21])
         fetch.assert_not_called()
+
+    def test_unregistered_portable_java_is_recovered_without_path_or_network(self):
+        # The receipt is relative to its runtime folder, so moving the whole
+        # launcher must not leave Forge processors calling the old location.
+        home = self.root / 'cache/java/moved-runtime'
+        java = home / 'jdk/bin/java.exe'
+        java.parent.mkdir(parents=True)
+        java.touch()
+        self.paths[17] = str(java)
+        (home / 'buggcraft-runtime.json').write_text(json.dumps(dict(
+            major=17, executable='jdk/bin/java.exe')), encoding='utf-8')
+        self.settings.set_setting('java.path', str(self.root / 'old-location/java.exe'))
+        with patch.dict('os.environ', {'PATH': ''}), \
+                patch.object(self.downloads, 'catalogue') as fetch, \
+                patch.object(self.runtime.JavaPathFinder, 'find_all_java_installations',
+                    side_effect=AssertionError('installer must not scan the system')):
+            self.assertEqual(self.resolve(loader='Forge', version='1.20.1'), str(java))
+        fetch.assert_not_called()
+        self.assertEqual(self.settings.get_setting('java.installations')[0][0], str(java))
+
+    def test_broken_or_escaping_runtime_receipts_do_not_replace_java_verification(self):
+        root = self.root / 'cache/java'
+        for name, contents in (
+                ('broken', '{unfinished'),
+                ('wrong-major', json.dumps(dict(major=8, executable='bin/java.exe'))),
+                ('escape', json.dumps(dict(major=21, executable='../../../java-21.exe'))),
+                ('wrong-version', json.dumps(dict(major=21, executable='bin/java.exe')))):
+            home = root / name
+            home.mkdir(parents=True)
+            (home / 'buggcraft-runtime.json').write_text(contents, encoding='utf-8')
+        wrong = root / 'wrong-version/bin/java.exe'
+        wrong.parent.mkdir()
+        wrong.touch()
+        with patch.object(self.downloads, 'catalogue', side_effect=RuntimeError('offline')):
+            with self.assertRaisesRegex(RuntimeError, '自动准备失败'):
+                self.resolve()
+        self.assertEqual(self.settings.get_setting('java.installations'), [])
+
+    def test_missing_processor_executable_names_java_and_preserves_cause(self):
+        missing = FileNotFoundError(2, 'missing executable')
+        with patch.object(subprocess, 'run', side_effect=missing):
+            with self.assertRaisesRegex(RuntimeError, '已下载的文件会保留') as error:
+                loaders._QuietSubprocess(subprocess, self.cancel).run(
+                    [self.paths[17], '-cp', 'processor.jar', 'example.Processor'])
+        self.assertIn(self.paths[17], str(error.exception))
+        self.assertIs(error.exception.__cause__, missing)
 
     def test_legacy_forge_retains_java_8_instead_of_using_java_21(self):
         self.settings.set_setting('java.installations', [[self.paths[8], 'Java 8', [8]]])
@@ -107,6 +218,12 @@ class InstallerJavaRegressionTests(unittest.TestCase):
 
 
 class LoaderCatalogueRegressionTests(unittest.TestCase):
+    def setUp(self):
+        for patcher in (patch('core.bugg_mirror.ENABLED', True),
+                        patch('core.bugg_mirror.BASE_URL', 'https://mirror.example.test')):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     @staticmethod
     def response(records):
         response = Mock()
@@ -128,14 +245,15 @@ class LoaderCatalogueRegressionTests(unittest.TestCase):
                 self.assertEqual(get.call_args.args[0], loaders.BMCLAPI + '/neoforge/list/' + game)
                 response.close.assert_called_once()
 
-    def test_neoforge_automatic_falls_back_from_api_to_official_maven(self):
+    def test_neoforge_automatic_falls_back_from_api_to_buggcraft_maven(self):
         metadata = b'<metadata><versioning><versions><version>21.8.2-beta</version>' \
                    b'<version>21.8.10</version><version>21.7.99</version></versions></versioning></metadata>'
         response = self.response(metadata)
         with patch.object(loaders.requests, 'get', side_effect=[requests.Timeout('mirror timeout'), response]) as get:
             self.assertEqual(loaders.available_versions('NeoForge', '1.21.8'), ['21.8.10', '21.8.2-beta'])
         self.assertIn('/neoforge/list/1.21.8', get.call_args_list[0].args[0])
-        self.assertIn('maven.neoforged.net', get.call_args_list[1].args[0])
+        self.assertEqual(get.call_args_list[1].args[0],
+            'https://mirror.example.test/neoforge-maven/releases/net/neoforged/neoforge/maven-metadata.xml')
         response.close.assert_called_once()
 
     def test_neoforge_official_only_does_not_contact_mirror(self):
@@ -174,14 +292,16 @@ class LoaderCatalogueRegressionTests(unittest.TestCase):
             self.assertEqual(loaders.available_versions('Fabric', '1.14.4', 'BMCLAPI'),
                              ['0.4.1+build.139', '0.4.1+build.10', '0.4.1+build.9'])
 
-    def test_quilt_mirror_404_switches_to_official_in_automatic_mode(self):
+    def test_quilt_mirror_404_switches_to_buggcraft_in_automatic_mode(self):
         missing = self.response(None)
         missing.raise_for_status.side_effect = requests.HTTPError('404 Client Error: missing quilt metadata')
-        official = self.response([{'loader': {'version': '0.29.3'}}])
-        with patch.object(loaders.requests, 'get', side_effect=[missing, official]) as get:
+        fallback = self.response([{'loader': {'version': '0.29.3'}}])
+        with patch.object(loaders.requests, 'get', side_effect=[missing, fallback]) as get:
             self.assertEqual(loaders.available_versions('Quilt', '1.21.8'), ['0.29.3'])
-        self.assertIn('meta.quiltmc.org', get.call_args.args[0])
+        self.assertEqual(get.call_args.args[0],
+            'https://mirror.example.test/quilt-meta/v3/versions/loader/1.21.8')
         missing.close.assert_called_once()
+        fallback.close.assert_called_once()
 
     def test_all_sources_failure_retains_traceback_in_logs_and_clean_ui_message(self):
         raw = 'HTTPSConnectionPool(host=example.invalid): Max retries exceeded with url: /list (ReadTimeoutError)'
@@ -212,4 +332,4 @@ class LoaderCatalogueRegressionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '重新加载') as raised:
                 loaders.available_versions('NeoForge', '1.21.8', '官方')
         self.assertNotIn('<html>', str(raised.exception))
-        self.assertEqual(response.close.call_count, 3)
+        self.assertEqual(response.close.call_count, 2)

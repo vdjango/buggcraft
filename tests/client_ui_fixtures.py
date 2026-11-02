@@ -126,6 +126,10 @@ class ClientUiFixtures:
 
     def route(self, downloader, url):
         from core.downloads import MANIFEST_URL
+        parsed = urlsplit(url)
+        if (parsed.scheme == 'http' and parsed.hostname == '127.0.0.1'
+                and parsed.port == self.server.server_port):
+            return [url]  # A resolved fixture address already belongs to this server.
         if url == MANIFEST_URL:
             name = 'manifest.json'
         elif url.startswith(self.ORIGIN + '/'):

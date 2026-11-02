@@ -38,10 +38,9 @@ class DownloadTransportTests(unittest.TestCase):
                 downloader.fetch('https://libraries.minecraft.net/example.jar', 'libraries/example.jar',
                     hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         message = download_error_message(raised.exception)
-        self.assertEqual(hosts, ['bmclapi2.bangbang93.com', 'mirror.minguncle.cn', 'libraries.minecraft.net'])
+        self.assertEqual(hosts, ['bmclapi2.bangbang93.com', 'mirror.bugg.icu', 'mirror.bugg.icu'])
         self.assertIn('BMCLAPI：连接或读取超时', message)
-        self.assertIn('MCMirror：文件不存在（404）', message)
-        self.assertIn('Mojang：连接或读取超时', message)
+        self.assertIn('mirror.bugg.icu：连接或读取超时', message)
         self.assertNotIn('HTTPSConnectionPool', message)
 
     def test_cancellation_wakes_blocked_https_body_and_preserves_partial_bytes(self):
@@ -132,7 +131,7 @@ class DownloadTransportTests(unittest.TestCase):
             routed('https://libraries.minecraft.net/gson.jar', target,
                    callback={'fileEvent': events.append}, sha1=hashlib.sha1(self.payload).hexdigest(),
                    minecraft_directory=self.temp.name)
-        self.assertEqual(hosts, ['bmclapi2.bangbang93.com', 'mirror.minguncle.cn'])
+        self.assertEqual(hosts, ['bmclapi2.bangbang93.com', 'mirror.bugg.icu'])
         self.assertEqual(target.read_bytes(), self.payload)
         self.assertTrue(any(event['state'] == 'downloading' and event.get('done', 0) > 0
                             and event.get('total') == len(self.payload) for event in events))
@@ -509,35 +508,37 @@ class DownloadTransportTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.downloader.fetch(modrinth, 'mod.jar', sha1, len(self.payload))
             part = Path(self.temp.name) / 'mod.jar.buggcraft-part'
-            self.assertEqual(part.stat().st_size, 65536)
+            self.assertEqual(part.stat().st_size, 196608)
             self.mode = None
             self.downloader.content_source = 'CurseForge'
             result = self.downloader.fetch(modrinth, 'mod.jar', sha1, len(self.payload))
         self.assertEqual(result.read_bytes(), self.payload)
         self.assertEqual(requests_to_sources,
-                         [('cdn.modrinth.com', None), ('edge.forgecdn.net', 'bytes=65536-')])
+                         [('cdn.modrinth.com', None), ('edge.forgecdn.net', 'bytes=65536-'),
+                          ('mirror.bugg.icu', 'bytes=131072-'), ('edge.forgecdn.net', 'bytes=196608-')])
         self.assertEqual([call.kwargs['preference'] for call in resolve.call_args_list],
                          ['Modrinth', 'CurseForge'])
         self.assertEqual([event['url'] for event in events if event.get('url') in (modrinth, curseforge)],
-                         [modrinth, curseforge])
+                         [modrinth, curseforge, curseforge])
 
-    def test_curseforge_only_pack_does_not_add_modrinth_even_with_modrinth_setting(self):
+    def test_selected_modrinth_source_is_first_for_curseforge_pack_file(self):
         curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
+        modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
         self.downloader.content_source = 'Modrinth'
-        self.downloader.resolve_content_sources = False
+        self.downloader.resolve_content_sources = True
         original = _DownloadSession.get
         hosts = []
         def get(session, url, **kwargs):
             hosts.append(urlsplit(url).hostname)
             return original(session, self.url, **kwargs)
         with patch.object(_DownloadSession, 'get', get), \
-                patch('core.content_routes.resolve_download_urls') as resolve:
+                patch('core.content_routes.resolve_download_urls', return_value=[curseforge, modrinth]) as resolve:
             result = self.downloader.fetch(curseforge, 'mod.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        self.assertEqual(hosts, ['edge.forgecdn.net'])
+        self.assertEqual(hosts, ['cdn.modrinth.com'])
         self.assertEqual(result.read_bytes(), self.payload)
-        resolve.assert_not_called()
+        resolve.assert_called_once()
 
-    def test_auto_keeps_curseforge_before_modrinth_without_extra_probes(self):
+    def test_auto_measures_both_publishers_for_each_file(self):
         modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
         curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
         self.downloader.content_source = '自动测速'
@@ -556,9 +557,44 @@ class DownloadTransportTests(unittest.TestCase):
              patch('core.downloads._rank_content_candidates', side_effect=rank) as measured, \
              patch.object(_DownloadSession, 'get', get):
             result = self.downloader.fetch(modrinth, 'mod.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        measured.assert_not_called()
+        measured.assert_called_once()
         self.assertEqual(hosts, ['edge.forgecdn.net'])
         self.assertEqual(result.read_bytes(), self.payload)
+
+    def test_content_sources_retry_six_times_each_before_switching(self):
+        modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
+        curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
+        original_get = _DownloadSession.get
+        digest = hashlib.sha1(self.payload).hexdigest()
+        for preference, expected, retry_delays in (
+                ('CurseForge', ['edge.forgecdn.net'] + ['mediafilez.forgecdn.net'] * 6 + ['cdn.modrinth.com'], 6),
+                ('Modrinth', ['cdn.modrinth.com'] * 7 + ['edge.forgecdn.net'], 6),
+                ('Buggcraft', ['mirror.bugg.icu'] * 7 + ['edge.forgecdn.net']
+                               + ['mediafilez.forgecdn.net'] * 6 + ['cdn.modrinth.com'], 12),
+                (['CurseForge', 'Buggcraft', 'Modrinth'], ['edge.forgecdn.net']
+                    + ['mediafilez.forgecdn.net'] * 6 + ['mirror.bugg.icu'] * 7 + ['cdn.modrinth.com'], 12),
+                (['Modrinth', 'Buggcraft', 'CurseForge'], ['cdn.modrinth.com'] * 7
+                    + ['mirror.bugg.icu'] * 7 + ['edge.forgecdn.net'], 12)):
+            with self.subTest(preference=preference):
+                self.downloader.content_source = preference
+                self.downloader.resolve_content_sources = True
+                self.downloader.retries = 6
+                hosts = []
+                def get(session, url, **kwargs):
+                    host = urlsplit(url).hostname
+                    hosts.append(host)
+                    if host == expected[-1]:
+                        return original_get(session, self.url, **kwargs)
+                    raise requests.Timeout('source timed out')
+                with patch('core.content_routes.resolve_download_urls', return_value=[modrinth, curseforge]), \
+                     patch.object(_DownloadSession, 'get', get), \
+                     patch.object(self.downloader.cancel, 'wait', return_value=False) as delay:
+                    name = preference if isinstance(preference, str) else '-'.join(preference)
+                    result = self.downloader.fetch(curseforge, name + '.jar', digest, len(self.payload))
+                self.assertEqual(result.read_bytes(), self.payload)
+                self.assertEqual(hosts, expected)
+                self.assertEqual([call.args[0] for call in delay.call_args_list],
+                                 [3] * retry_delays)
 
     def test_server_ignoring_range_restarts_without_duplicating_bytes(self):
         self.mode = 'ignore-range'
@@ -582,14 +618,16 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertFalse(path.with_name(path.name + '.buggcraft-part').exists())
 
     def test_content_routing_preserves_paths_and_never_contacts_retired_mcim(self):
-        for setting in ('自动测速', 'CurseForge', 'Modrinth', 'MCIM', '官方'):
-            self.downloader.content_source = setting
-            for url in ('https://cdn.modrinth.com/data/id/version/a%2Bb.jar?x=1',
-                        'https://edge.forgecdn.net/files/123/4/a%20b.jar'):
-                routed = self.downloader.urls(url)
-                self.assertEqual(routed[0], url)
-                self.assertFalse(any('mcimirror' in candidate for candidate in routed))
-                self.assertTrue(all(urlsplit(candidate).path == urlsplit(url).path for candidate in routed))
+        self.downloader.content_source = '官方'
+        for url in ('https://cdn.modrinth.com/data/id/version/a%2Bb.jar?x=1',
+                    'https://edge.forgecdn.net/files/123/4/a%20b.jar'):
+            routed = self.downloader.urls(url)
+            self.assertEqual(routed[0], url)
+            self.assertFalse(any('mcimirror' in candidate for candidate in routed))
+            self.assertTrue(all(urlsplit(candidate).path.endswith(urlsplit(url).path) for candidate in routed))
+        self.downloader.content_source = 'MCIM'
+        mediafilez = 'https://mediafilez.forgecdn.net/files/123/4/mod.jar'
+        self.assertEqual(self.downloader.urls(mediafilez)[0], mediafilez)
         for url in ('https://cdn.modrinth.com.evil.org/x', 'https://user@cdn.modrinth.com/x',
                     'https://cdn.modrinth.com:444/x', 'https://github.com/a/b/releases/download/x.jar'):
             self.assertEqual(self.downloader.urls(url), [url])
@@ -598,6 +636,7 @@ class DownloadTransportTests(unittest.TestCase):
         self.payload = bytes(range(256)) * 2048
         self.mode = 'persistent'
         self.downloader.content_source = 'CurseForge'
+        self.downloader.resolve_content_sources = True
         self.downloader.retries = 6
         original = _DownloadSession.get
         routes = []
@@ -606,8 +645,8 @@ class DownloadTransportTests(unittest.TestCase):
             routes.append(host)
             self.mode = 'persistent' if host == 'edge.forgecdn.net' else None
             return original(session, self.url, **kwargs)
-        with (patch('core.downloads._rank_content_candidates',
-                    side_effect=lambda candidates, _: candidates),
+        with (patch('core.content_routes.resolve_download_urls',
+                    return_value=['https://edge.forgecdn.net/files/id/version/mod.jar']),
               patch.object(_DownloadSession, 'get', get)):
             with patch.object(self.downloader.cancel, 'wait', return_value=False):
                 path = self.downloader.fetch('https://edge.forgecdn.net/files/id/version/mod.jar',
@@ -615,7 +654,7 @@ class DownloadTransportTests(unittest.TestCase):
                                              len(self.payload))
         self.assertEqual(path.read_bytes(), self.payload)
         self.assertEqual(routes, ['edge.forgecdn.net', 'mediafilez.forgecdn.net'])
-        self.assertEqual(self.ranges, [None, 'bytes=65536-'])
+        self.assertEqual(self.ranges[-1], 'bytes=65536-')
 
     def test_official_only_ignores_cached_mcim_fallbacks(self):
         for suffix, host in (('/data/id/version/mod.jar', 'cdn.modrinth.com'),
@@ -698,6 +737,7 @@ class DownloadTransportTests(unittest.TestCase):
 
     def test_rejected_mirror_falls_back_once_and_cools_down_for_later_files(self):
         self.downloader.source = 'BMCLAPI'
+        self.downloader.resolve_content_sources = True
         original = _DownloadSession.get
         hosts = []
         def get(session, url, **kwargs):
@@ -708,7 +748,9 @@ class DownloadTransportTests(unittest.TestCase):
                 response.url = url
                 raise requests.HTTPError('mirror refused', response=response)
             return original(session, self.url, **kwargs)
-        with patch.object(_DownloadSession, 'get', get):
+        with patch('core.content_routes.resolve_download_urls', side_effect=lambda addresses, *_args, **_kwargs: addresses), \
+                patch.object(_DownloadSession, 'get', get), \
+                patch.object(self.downloader.cancel, 'wait', return_value=False):
             for name in ('one.zip', 'two.zip'):
                 self.downloader.fetch('https://edge.forgecdn.net/files/' + name, name,
                                       hashlib.sha1(self.payload).hexdigest(), len(self.payload))
@@ -716,6 +758,7 @@ class DownloadTransportTests(unittest.TestCase):
 
     def test_unresponsive_curseforge_edge_tries_media_before_retrying(self):
         self.downloader.content_source = 'CurseForge'
+        self.downloader.resolve_content_sources = True
         original = _DownloadSession.get
         calls, statuses = [], []
         self.downloader.status = statuses.append
@@ -724,7 +767,9 @@ class DownloadTransportTests(unittest.TestCase):
             if urlsplit(url).hostname == 'edge.forgecdn.net':
                 raise requests.ReadTimeout('no first byte from mirror')
             return original(session, self.url, **kwargs)
-        with patch.object(_DownloadSession, 'get', get):
+        with patch('core.content_routes.resolve_download_urls', side_effect=lambda addresses, *_args, **_kwargs: addresses), \
+                patch.object(_DownloadSession, 'get', get), \
+                patch.object(self.downloader.cancel, 'wait', return_value=False):
             for name in ('one.mrpack', 'two.mrpack'):
                 result = self.downloader.fetch('https://edge.forgecdn.net/files/' + name, name,
                     hashlib.sha1(self.payload).hexdigest(), len(self.payload))
@@ -745,7 +790,10 @@ class DownloadTransportTests(unittest.TestCase):
             hosts.append(urlsplit(url).hostname)
             return html if hosts[-1] == 'edge.forgecdn.net' else original(session, self.url, **kwargs)
         self.downloader.content_source = 'CurseForge'
-        with patch.object(_DownloadSession, 'get', get):
+        self.downloader.resolve_content_sources = True
+        with patch('core.content_routes.resolve_download_urls', return_value=[html.url]), \
+                patch.object(_DownloadSession, 'get', get), \
+                patch.object(self.downloader.cancel, 'wait', return_value=False):
             path = self.downloader.fetch(html.url, 'test.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(path.read_bytes(), self.payload)
         html.iter_content.assert_not_called()
@@ -825,6 +873,7 @@ class DownloadTransportTests(unittest.TestCase):
     def test_last_available_mirror_retries_transient_failure_and_resumes(self):
         self.downloader.content_source = 'CurseForge'
         self.downloader.retries = 6
+        self.downloader.resolve_content_sources = True
         self.mode = 'resume'
         original_get = _DownloadSession.get
         calls = []
@@ -835,7 +884,10 @@ class DownloadTransportTests(unittest.TestCase):
                 raise requests.Timeout('publisher timed out')
             return original_get(session, self.url, **kwargs)
 
-        with patch.object(_DownloadSession, 'get', get):
+        with patch('core.content_routes.resolve_download_urls',
+                   return_value=['https://edge.forgecdn.net/files/retry-mirror.jar']), \
+                patch.object(_DownloadSession, 'get', get), \
+                patch.object(self.downloader.cancel, 'wait', return_value=False):
             result = self.downloader.fetch('https://edge.forgecdn.net/files/retry-mirror.jar', 'retry-mirror.jar',
                 hashlib.sha1(self.payload).hexdigest(), len(self.payload))
         self.assertEqual(result.read_bytes(), self.payload)

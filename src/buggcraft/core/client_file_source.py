@@ -19,7 +19,7 @@ def set_origin(value):
 
 
 def lookup(files, cancel):
-    """Only repair files already cached by a provider; never fabricate bodies."""
+    """Reuse verified cached files or exact public hash mappings in one request."""
     if not _origin or cancel.is_set():
         return {}
     requested = {item.get('hashes', {}).get('sha1'): item for item in files
@@ -48,6 +48,11 @@ def lookup(files, cancel):
             if (original and file.get('action') == 'cached' and original.get('size') == file.get('size')
                     and re.fullmatch('[0-9a-f]{64}', digest)):
                 result[original['path']] = _origin + '/room-cache/files/' + digest
+            elif original and file.get('action') == 'redirect' and original.get('size') == file.get('size'):
+                from hookup.room_cache import public_url
+                urls = file.get('downloads', [])
+                if isinstance(urls,list) and urls and public_url(urls[0]):
+                    result[original['path']] = urls[0]
     except (requests.RequestException, ValueError, TypeError, AttributeError):
         return {}
     return result

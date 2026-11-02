@@ -37,6 +37,11 @@ class MissingModImportTests(unittest.TestCase):
         route = patch.object(MinecraftDownloader, 'urls', urls)
         route.start()
         self.addCleanup(route.stop)
+        content_route = patch('core.content_routes.resolve_download_urls',
+                              side_effect=lambda addresses, *_args, **_kwargs:
+                              [mapped for address in addresses for mapped in urls(None, address)])
+        content_route.start()
+        self.addCleanup(content_route.stop)
 
     def pack(self, paths=('mods/missing.jar', 'mods/available.jar'), source='Buggcraft'):
         files = []

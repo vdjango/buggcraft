@@ -13,6 +13,7 @@ ColumnLayout {
     property bool requireInvite: false
     property bool advanced: false
     property bool gameChatEnabled: false
+    property bool fileSharingEnabled: false
     readonly property bool scanning: !!vm.worldScanning
     onRequestedWorldPortChanged: if (requestedWorldPort) create.prepareOnly = false
     spacing: 10
@@ -240,6 +241,15 @@ ColumnLayout {
                         objectName: "create-game-chat"; text: "同步大厅与游戏聊天"
                         checked: create.gameChatEnabled; onToggled: create.gameChatEnabled = checked
                     }
+                    RoomVisibility {
+                        objectName: "create-file-sharing"; text: "文件共享加速（按需同步到源站）"
+                        checked: create.fileSharingEnabled; onToggled: create.fileSharingEnabled = checked
+                    }
+                    CopyText {
+                        objectName: "create-file-sharing-explanation"; Layout.fillWidth: true
+                        text: "创建后先核对模组等文件信息；只有来源慢或成员下载失败的文件才会同步。房间页会显示进度和结果。共享文件可能被其他人获取，请勿包含敏感内容。"
+                        color: "#efc48c"; font.pixelSize: 11; wrapMode: Text.Wrap
+                    }
                     CopyText {
                         objectName: "create-game-chat-explanation"
                         Layout.fillWidth: true
@@ -292,7 +302,7 @@ ColumnLayout {
                 (!create.manual || port.acceptableInput) && (!create.scanning || (create.manual && port.acceptableInput)))) &&
                 (!create.gameChatEnabled || chatName.acceptableInput)
             onClicked: {
-                lobby.act("quickCreate", {port:!create.prepareOnly && (create.worldIndex >= 0 || create.manual) ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, transport:vm.transportPolicy})
+                lobby.act("quickCreate", {port:!create.prepareOnly && (create.worldIndex >= 0 || create.manual) ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, allowModTransfer:create.fileSharingEnabled, transport:vm.transportPolicy})
                 if (typeof tutorial !== "undefined") tutorial.action("create-world")
             }
         }
