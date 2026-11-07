@@ -20,6 +20,15 @@ class ModrinthImportTests(unittest.TestCase):
         vanilla = patch.object(ModpackImporter, '_install_vanilla', return_value=None)
         vanilla.start()
         self.addCleanup(vanilla.stop)
+        # Import lifecycle tests use local bytes. Source discovery has its own
+        # suite and must not contact public services or delay the overlap case.
+        for item in (
+            patch('core.client_file_source.lookup', return_value={}),
+            patch('core.content_routes.prefetch_modrinth_hashes', return_value=None),
+            patch('core.content_routes.resolve_download_urls', side_effect=lambda addresses, *args, **kwargs: addresses),
+        ):
+            item.start()
+            self.addCleanup(item.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -119,7 +128,7 @@ class ModrinthImportTests(unittest.TestCase):
         self.assertEqual(inspect_pack(self.archive).source, 'Modrinth')
         http, hits = self.server()
         with http, patch('core.modpacks.install_loader', side_effect=self.loader):
-            ModpackImporter(self.game, source='BMCLAPI').install(self.archive, 'Forge-CDN')
+            ModpackImporter(self.game, source='BMCLAPI', content_source='CurseForge').install(self.archive, 'Forge-CDN')
         self.assertEqual(hits, ['/files/100/20/example.jar'])
         self.assertEqual((self.game / 'versions/Forge-CDN/mods/example.jar').read_bytes(), self.payload)
 

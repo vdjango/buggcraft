@@ -152,6 +152,7 @@ class InstanceDeletionTests(LauncherQmlCase):
         self.assert_no_qml_errors()
 
     def test_selected_instance_and_last_instance_refresh_header_safely(self):
+        self.window.switch_pages('实例')
         controller = self.window.version_page.versions_page.controller
         identities = [item['version'] for item in controller.view['versions']]
         for identity in identities:

@@ -194,7 +194,7 @@ class InstanceModpackEntryTests(LauncherQmlCase):
         self.assert_no_qml_errors()
 
     def test_running_instance_is_protected_from_deletion(self):
-        from types import SimpleNamespace
+        self.window.switch_pages('实例')
         page = self.window.version_page.versions_page
         with patch.object(page.controller, '_running', return_value=[(str(self.game_dir), '1.21.8', str(self.game_dir))]):
             page.controller.action('1.21.8', 'deleteVersion')
