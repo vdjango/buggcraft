@@ -280,8 +280,10 @@ async def fetch_public_mod(item, base, target, source, cancel, progress):
         return False
     try:
         from .room_cache import public_url
+        from core.client_file_source import mapped_url
         content_source = source if isinstance(source, (list, tuple)) or source in ('自动测速', '自动（CurseForge 优先）', 'CurseForge', 'Modrinth', 'MCIM', 'Buggcraft', '官方') else 'CurseForge'
-        urls = [url for url in item.get('downloads', []) if public_url(url)]
+        urls = list(dict.fromkeys([*(url for url in item.get('_accelerated_downloads', []) if mapped_url(url)),
+            *(url for url in item.get('downloads', []) if public_url(url))]))
         if not urls:
             return False
         url = urls[0]

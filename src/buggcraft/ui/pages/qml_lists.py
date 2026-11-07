@@ -60,7 +60,8 @@ class RecordController(QObject):
         self._package_records = []
         self.java_installing = False
         self.cancel = threading.Event()
-        self.reload()
+        if kind == 'java':
+            self.reload()
 
     @Property('QVariantMap', notify=changed)
     def view(self):

@@ -692,7 +692,8 @@ class ModpackImporter:
         downloader.fallback_content_sources = False
         downloader.curseforge_key = self.client.api_key
         downloader.curseforge_fallbacks = getattr(self.client, 'fallback_urls', {})
-        if len(jobs) > 1:
+        from core.content_mirrors import source_order
+        if len(jobs) > 1 and source_order(self.content_source)[0] != 'Buggcraft':
             from core.content_routes import prefetch_modrinth_hashes, provider
             publisher_jobs = [(digest, size) for url, _, digest, size in jobs
                               if provider(url) in ('CurseForge', 'Modrinth')]

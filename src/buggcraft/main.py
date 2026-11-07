@@ -176,18 +176,43 @@ def initialize_application():
     app.setStyle('Fusion')
     
     # 创建并显示主窗口
-    launcher = MinecraftLauncher(
-        base_path=BASE_DIR,
-        cache_path=CACHE_DIR,
-        config_path=CONFIG_DIR,
-        resource_path=RESOURCE_DIR
-    )
-    window_seconds = perf_counter() - _STARTUP_STARTED
-    if startup_report is not None:
-        from PySide6.QtCore import Qt
-        launcher.setAttribute(Qt.WA_ShowWithoutActivating)
-        launcher.move(-20000, -20000)
-    launcher.show()
+    startup_settings = get_settings_manager()
+    startup_settings.begin_deferred_saves()
+    try:
+        launcher = MinecraftLauncher(
+            base_path=BASE_DIR,
+            cache_path=CACHE_DIR,
+            config_path=CONFIG_DIR,
+            resource_path=RESOURCE_DIR
+        )
+        window_seconds = perf_counter() - _STARTUP_STARTED
+        if startup_report is not None:
+            from PySide6.QtCore import Qt
+            launcher.setAttribute(Qt.WA_ShowWithoutActivating)
+            launcher.move(-20000, -20000)
+        launcher.show()
+    finally:
+        startup_settings.finish_deferred_saves()
+    if startup_report is None:
+        from PySide6.QtCore import QTimer
+        # Record event-loop starvation after the window appears. This separates
+        # a slow onefile/bootstrap phase from a GUI callback that blocks dragging.
+        shown_at = last_tick = perf_counter()
+        watchdog = QTimer(launcher)
+        watchdog.setInterval(250)
+
+        def check_startup_responsiveness():
+            nonlocal last_tick
+            now = perf_counter()
+            if now - last_tick > 1.0:
+                logger.warning('Startup GUI event loop delayed %.2fs at %.2fs after show',
+                               now - last_tick, now - shown_at)
+            last_tick = now
+
+        watchdog.timeout.connect(check_startup_responsiveness)
+        watchdog.start()
+        QTimer.singleShot(45_000, launcher, watchdog.stop)
+        launcher._startup_watchdog = watchdog
     update_handshake = os.environ.pop('BUGGCRAFT_UPDATE_HANDSHAKE', '')
     completed_update = os.environ.pop('BUGGCRAFT_UPDATE_INSTALLED', '') == '1'
     if update_handshake:

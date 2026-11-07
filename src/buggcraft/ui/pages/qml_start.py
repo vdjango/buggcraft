@@ -144,7 +144,13 @@ class StartGamePage(QmlPage):
         self.launcher.signals.stopped.connect(self.minecraft_handle_stopped)
         self.launcher.signals.error.connect(self.minecraft_handle_error)
         self._pending_auth_launch = None
-        self.auth_manager.load(cache_path)
+        # Restoring an unchanged account must not fsync credentials before the
+        # first frame. A real sign-in or background refresh still persists it.
+        self._restoring_credentials = True
+        try:
+            self.auth_manager.load(cache_path)
+        finally:
+            self._restoring_credentials = False
         self.auth_refresh_timer = QTimer(self)
         self.auth_refresh_timer.setInterval(60000)
         self.auth_refresh_timer.timeout.connect(self.is_expired_token)
@@ -420,7 +426,8 @@ class StartGamePage(QmlPage):
         skin = data.get('skin')
         if skin and Path(skin).is_file():
             user.avatar = skin
-        self.auth_manager.save(self.cache_path)
+        if not self._restoring_credentials:
+            self.auth_manager.save(self.cache_path)
         self.controller.status = ''
         self.controller.changed.emit()
         self.login_success.emit({'uuid': user.uuid, 'username': username, 'token': user.token}, mode)

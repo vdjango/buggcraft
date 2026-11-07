@@ -119,9 +119,9 @@ class SettingsController(QObject):
                                 'Modrinth': '部分网络速度较慢，建议放在后面',
                                 'Buggcraft': '我们的源 · 自动重定向或提供缓存文件',
                                 'MCIM': '第三方镜像，不推荐；仅手动加入时尝试'}
-                automatic = field['value'] == '自动测速'
+                automatic = field['value'] in ('自动','自动测速','自动（CurseForge 优先）')
                 group.update(kind='source-priority', automatic=automatic, collapsible=False,
-                             summary='自动比较当前文件的下载速度' if automatic else ' → '.join(order),
+                             summary='源站统一选源 · 优先健康公共地址，缓存与原始地址兜底' if automatic else ' → '.join(order),
                              priorities=[dict(source=name, description=descriptions[name]) for name in order],
                              mcim='MCIM' in order)
             elif key == 'minecraft.isolation':

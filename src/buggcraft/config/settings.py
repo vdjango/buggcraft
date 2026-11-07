@@ -75,6 +75,8 @@ class SettingsManager:
         self._save_lock = threading.RLock()
         self._save_generation = 0
         self._save_executor = None
+        self._deferred_saves = 0
+        self._save_needed = False
         self.config_file = os.path.join(self.config_path, 'settings.json')
         
         # 确保配置目录存在
@@ -104,7 +106,9 @@ class SettingsManager:
         # Fresh downloads belong next to this launcher, even if another game exists.
         minecraft_dirs = [str(get_default_minecraft_dir())]
 
-        if minecraft_dirs and len(minecraft_dirs) > 0:
+        # Existing settings already contain the selection. The header will
+        # reconcile installed versions once; avoid a duplicate startup scan.
+        if not os.path.isfile(self.config_file) and minecraft_dirs:
             minecraft_path = minecraft_dirs[0]
             # Imported aliases may inherit all display fields from their parent.
             # The third-party scanner indexes optional releaseTime/type fields
@@ -123,7 +127,7 @@ class SettingsManager:
 
         # 默认配置
         self.default_settings = {
-            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "Modrinth"}},
+            "settings": {"general": {"mirrors": "BMCLAPI", "content_mirror": "自动"}},
             "minecraft": minecraft,
             "translation": {"enabled": False, "source": "Buggcraft"},
             "onboarding": {"completed": False, "game_preferences": []},
@@ -218,6 +222,9 @@ class SettingsManager:
             bool: 是否成功保存
         """
         target_file = file_path or self.config_file
+        if file_path is None and self._deferred_saves:
+            self._save_needed = True
+            return True
         
         try:
             with self._save_lock:
@@ -228,6 +235,17 @@ class SettingsManager:
         except Exception as e:
             logger.info(f"保存配置时出错: {e}")
             return False
+
+    def begin_deferred_saves(self):
+        self._deferred_saves += 1
+
+    def finish_deferred_saves(self):
+        if not self._deferred_saves:
+            return
+        self._deferred_saves -= 1
+        if not self._deferred_saves and self._save_needed:
+            self._save_needed = False
+            self.save_settings_async()
     
     def save_settings_async(self):
         """Persist a startup repair without blocking the window event loop."""
@@ -439,8 +457,9 @@ def get_settings_manager() -> SettingsManager:
     if _settings_manager_instance is None:
         _settings_manager_instance = SettingsManager(path)
     
-    _settings_manager_instance.set_setting("settings.general.download.cache", name)
-    _settings_manager_instance.save_settings()
+    if _settings_manager_instance.get_setting("settings.general.download.cache") != name:
+        _settings_manager_instance.set_setting("settings.general.download.cache", name)
+        _settings_manager_instance.save_settings_async()
     return _settings_manager_instance
 
 def set_conf_manager(name):

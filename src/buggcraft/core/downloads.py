@@ -714,21 +714,9 @@ class MinecraftDownloader:
                             candidates.append(mapped)
             def candidate_source(candidate):
                 return 'MCIM' if urlsplit(candidate).hostname == _RETIRED_CONTENT_HOST else provider(candidate)
-            if content_source in ('自动', '自动测速', '自动（CurseForge 优先）'):
-                publishers = [candidate for candidate in candidates
-                              if provider(candidate) in ('CurseForge', 'Modrinth')]
-                if len({provider(candidate) for candidate in publishers}) == 2:
-                    self.check_cancelled()
-                    ranked = _rank_content_candidates(publishers, content_source)
-                    self.check_cancelled()
-                    order = tuple(dict.fromkeys([*(provider(candidate) for candidate in ranked),
-                                                  'Buggcraft', '']))
-                    candidates.sort(key=lambda candidate: (order.index(provider(candidate)),
-                                                           ranked.index(candidate) if candidate in ranked else 0))
-                else:
-                    candidates.sort(key=lambda candidate: order.index(candidate_source(candidate)))
-            else:
-                candidates.sort(key=lambda candidate: order.index(candidate_source(candidate)))
+            # Automatic routing uses the origin's shared health snapshot.
+            # Probing every file here doubles traffic and delays every worker.
+            candidates.sort(key=lambda candidate: order.index(candidate_source(candidate)))
         else:
             candidates = list(dict.fromkeys(candidate for address in addresses
                                             for candidate in self.urls(address)))
@@ -739,6 +727,11 @@ class MinecraftDownloader:
                 preferred = 'Modrinth' if content_source == 'Modrinth' else 'CurseForge'
                 candidates.sort(key=lambda candidate: 0 if provider(candidate) == preferred else
                                 2 if provider(candidate) == 'Modrinth' else 1)
+        # Hash-and-size matched batch plans precede normal fallback ordering.
+        # A missing/failed plan never prevents the original URL from working.
+        planned = getattr(self, '_content_plan', {}).get(url)
+        if planned and planned not in _skip_urls:
+            candidates = [planned, *(candidate for candidate in candidates if candidate != planned)]
         # Deferred publisher lookup must not retry the same origin under a
         # different publisher path after its first hash-verified route failed.
         origin_attempted = any(urlsplit(address).netloc == urlsplit(own_origin).netloc
@@ -1030,6 +1023,15 @@ class MinecraftDownloader:
         self.progress(0, len(jobs))
         if not jobs:
             return
+        from core.content_mirrors import source_order
+        self._content_plan = {}
+        if self.resolve_content_sources and source_order(self.content_source or self.source)[0] == 'Buggcraft':
+            from core.client_file_source import lookup
+            manifest = [dict(path=str(job[1]),size=job[3],hashes={'sha1':job[2]})
+                        for job in jobs if len(job)>=4 and job[2] and job[3] is not None]
+            planned = lookup(manifest,self.cancel)
+            self.check_cancelled()
+            self._content_plan = {job[0]:planned[str(job[1])] for job in jobs if str(job[1]) in planned}
         workers = self.workers if workers is None else normalize_concurrency(workers)
         # Batch workers already parallelize files; do not multiply each worker
         # into additional range transfers.

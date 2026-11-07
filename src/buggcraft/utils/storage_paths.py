@@ -197,10 +197,16 @@ def initialize_storage():
         (launcher / PENDING).unlink(missing_ok=True)
     current.mkdir(parents=True, exist_ok=True)
     origin = current / ORIGIN
+    marker = dict(launcher=str(launcher), storage=str(current))
     if origin.exists():
         previous = json.loads(origin.read_text(encoding='utf-8'))
-        _rebase_records(current, [(previous.get('storage'), current), (previous.get('launcher'), launcher)])
-    origin.write_text(json.dumps(dict(launcher=str(launcher), storage=str(current))), encoding='utf-8')
+        mappings = [(previous.get('storage'), current), (previous.get('launcher'), launcher)]
+        if any(old and str(old) != str(new) for old, new in mappings):
+            _rebase_records(current, mappings)
+    else:
+        previous = None
+    if previous != marker:
+        origin.write_text(json.dumps(marker), encoding='utf-8')
     temporary = current / 'temp'
     temporary.mkdir(parents=True, exist_ok=True)
     for key in ('TEMP', 'TMP', 'TMPDIR'):

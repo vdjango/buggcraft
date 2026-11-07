@@ -2,108 +2,210 @@
 
 # Buggcraft
 
-### Minecraft Java 版启动器与联机大厅
+### 下载、整合包、好友联机，一个启动器搞定
 
-管理游戏实例、安装整合包和内容资源，并与好友加入同一个 Minecraft 世界。
+开源的 Minecraft Java 版启动器，集游戏安装、实例管理、整合包分享和联机大厅于一体。
 
-[![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-6554c0.svg)](LICENSE)
-[![Windows](https://img.shields.io/badge/platform-Windows%20x64-0078D4.svg)](https://github.com/vdjango/buggcraft/releases)
-[![macOS](https://img.shields.io/badge/platform-macOS%20Intel%20%7C%20Apple%20Silicon-555555.svg)](https://github.com/vdjango/buggcraft/releases)
-[![GitHub release](https://img.shields.io/github/v/release/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/releases/latest)
-[![GitHub issues](https://img.shields.io/github/issues/vdjango/buggcraft)](https://github.com/vdjango/buggcraft/issues)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-6554c0.svg)](https://github.com/vdjango/buggcraft/blob/main/LICENSE)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4.svg)](https://download.bugg.icu)
+[![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20ARM64-555555.svg)](https://download.bugg.icu)
+[![macOS](https://img.shields.io/badge/macOS-Intel%20%7C%20Apple%20Silicon-555555.svg)](https://download.bugg.icu)
 
-[下载](#下载与安装) · [功能](#功能) · [联机](#通过节点联机) · [开发](#开发与构建) · [项目关系](#项目关系)
+[官方网站](https://bugg.icu) · [下载启动器](https://download.bugg.icu) · [GitHub Releases](https://github.com/vdjango/buggcraft/releases) · [问题反馈](https://github.com/vdjango/buggcraft/issues)
 
 </div>
 
 ---
 
-Buggcraft 是一个开源的 Minecraft Java 版启动器。它提供游戏版本与实例管理、加载器安装、整合包导入、模组及资源下载，也集成了好友、房间和节点管理功能。联机能力由配套的 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native) 原生项目提供。
+Buggcraft 希望把“装好游戏，再和朋友玩上”这件事做得更简单。你可以安装原版或带加载器的游戏，导入别人分享的整合包，也可以把自己的游戏配置导出分享。想和朋友玩同一个世界时，直接在启动器里创建房间、发送邀请码，朋友加入后可以检查配置并同步安装。
 
-## 功能
+联机时，房主在自己的电脑上运行世界，连接优先尝试 P2P 直连，无法直连时可通过节点中继。房间里可以聊天、查看成员准备进度，遇到安装问题也可以授权房主协助查看日志。
 
-- **管理游戏实例**：安装和启动 Minecraft，管理多个游戏目录与版本，并可同时运行多个实例。
-- **安装加载器**：支持 Forge、NeoForge、Fabric、Quilt 及相关 API；安装界面会处理互斥选项。
-- **导入整合包**：支持常见 `.zip`、`.mrpack` 包格式。可以从下载页面选择整合包，也可以将文件拖到启动器页面；启动器会显示导入进度，并在依赖准备完成后创建游戏实例。
-- **查找和安装内容**：浏览模组、资源包、光影和整合包，查看项目介绍、文件版本及 Minecraft 版本兼容信息。整合包与内容资源使用独立下载源设置。
-- **记录安装任务**：下载、校验与安装在任务记录中显示进度、结果和错误详情；失败任务可以继续或重试。
-- **管理好友与房间**：添加节点和好友、浏览房间、发送邀请或接受邀请。没有现成房间时，启动器会引导房主创建后再发送邀请。
-- **P2P 与中继**：优先尝试玩家间直连；受 NAT 或防火墙限制时可以通过节点中继连接，并可在大厅选择中继模式。
-- **导出诊断信息**：收集启动器、游戏、模组和联机网络拓扑相关日志，帮助定位游戏启动或 P2P 连接问题。
+## 能做什么
+
+| 你想做的事 | Buggcraft 提供的功能 |
+| --- | --- |
+| 从零开始玩 Minecraft | 下载游戏、选择 Forge / NeoForge / Fabric / Quilt，自动准备兼容的 Java |
+| 同时玩几个整合包 | 管理多个游戏目录与实例，为不同实例单独设置 Java、内存等选项 |
+| 安装别人分享的包 | 导入 CurseForge、Modrinth 和 Buggcraft 格式的整合包，查看逐文件下载与安装进度 |
+| 给游戏加点内容 | 搜索模组、资源包、光影和整合包，查看介绍与版本后下载 |
+| 把自己的配置发给朋友 | 导出 `.buggpack`，选择体积较小的精简包或文件更完整的常规包 |
+| 和朋友玩同一个存档 | 创建或加入房间，使用邀请码或好友邀请联机，按需同步游戏配置 |
+| 下载失败后接着装 | 查看错误详情、继续安装或重试缺失项，复用已经校验完成的文件 |
 
 ## 下载与安装
 
-从 [GitHub Releases](https://github.com/vdjango/buggcraft/releases/latest) 下载正式发行包。Windows 提供 x64 启动器；Linux 提供 x86_64 和 ARM64 单文件程序；macOS 提供 Intel（`x86_64`）与 Apple Silicon（`arm64`）版本。macOS 包是应用 `.app` 的归档，解压后运行应用。
+前往 [Buggcraft 下载站](https://download.bugg.icu) 或 [GitHub Releases](https://github.com/vdjango/buggcraft/releases)，选择适合自己电脑的版本。开发版包含较新的功能和修复，下载前请查看对应版本说明。
 
-Windows 启动器可作为单个 `Buggcraft.exe` 分发。首次启动时，它会将应用运行时释放到用户缓存，之后复用该缓存；游戏目录默认位于启动器旁边的 `.minecraft`。正式发行包和对应的校验文件请从 Releases 下载，不要把 Windows 启动器误认为完整运行时之外的游戏文件。
-
-源码构建和 GitHub Actions 产物请参阅[打包说明](docs/technical/Windows打包指南.md)、[macOS 打包说明](docs/technical/macOS打包指南.md)和[构建下载说明](docs/technical/GitHub构建.md)。平台构建由 [Package launcher 工作流](https://github.com/vdjango/buggcraft/actions/workflows/package.yml)执行。
-
-## 基本使用
-
-### 安装游戏与整合包
-
-在“下载”页面选择 Minecraft 版本及加载器，按需安装到所选游戏目录。整合包可从目录中查找，也可以直接拖放本地文件；查看进度请前往任务记录。安装整合包时，启动器会下载清单中的必要文件，并创建可启动的游戏实例。
-
-模组、资源包和光影可以按项目或文件浏览。启动器会显示发布者提供的游戏版本信息，兼容性提示用于辅助判断；最终应以所选文件说明和整合包要求为准。下载后可在对应实例的模组、资源包或光影目录中管理内容。
-
-### Java 运行环境
-
-在“设置 → Java 管理”中可以扫描、手动添加或下载 Java。下载使用免安装压缩包，默认优先清华 Adoptium 镜像，并提供 Adoptium 与 Azul 官方来源；运行环境安装到启动器目录内，无需更改系统 Java 或环境变量。
-
-启动游戏时，启动器会检查实例和加载器的 Java 要求，优先使用已配置的兼容版本；缺少合适版本时会显示下载、校验和安装进度，准备完成后继续启动。Minecraft 26.1 起使用 Java 25；安装 Forge 的 1.12.2 及更早实例使用 Java 8。旧整合包的兼容范围也会限制自动选择，避免直接使用过高版本的 Java。
-
-### 通过节点联机
-
-联机节点是玩家发现房间、交换邀请并建立连接的服务。节点不会托管 Minecraft 世界或存档；房主仍在自己的电脑上运行游戏。
-
-1. 在节点网页领取启动器接入码，并在启动器的节点管理中添加节点。启动器接入码是访问凭据，只应添加可信节点提供的代码。
-2. 房主启动目标游戏，在 Minecraft 中将世界开放到局域网，然后在启动器联机大厅创建房间。
-3. 房主通过好友邀请或房间邀请码邀请朋友。好友接受邀请后，选择相同或兼容的游戏实例并连接启动器提供的地址。
-4. 遇到连接问题时，可在大厅选择“仅通过节点中转”；P2P 直连是否可用取决于双方的路由器、NAT 和防火墙环境。
-
-完整操作见[联机与节点使用指南](docs/guides/联机节点使用指南.md)。发生闪退、下载失败或联机异常时，可从大厅导出诊断包。分享前请检查并移除账号接入码、房间密钥等私密信息；诊断包可能包含系统信息、本机路径和网络探测结果。
-
-## 项目关系
-
-| 项目 | 职责 |
+| 系统 | 怎么选择与运行 |
 | --- | --- |
-| [Buggcraft](https://github.com/vdjango/buggcraft) | 桌面启动器、游戏与整合包管理、好友大厅及节点客户端 |
-| [minecraft-tunnel-native](https://github.com/vdjango/minecraft-tunnel-native) | C++ 原生网络核心、P2P/中继传输、节点服务与桥接接口 |
+| Windows 10 / 11，64 位 | 下载 Windows x64 的 ZIP 压缩包，完整解压到准备长期使用的文件夹，再运行其中的 `Buggcraft.exe` |
+| Linux x86_64 / ARM64 | 按处理器架构下载对应的 ZIP 压缩包，解压后为启动程序赋予可执行权限，再运行 |
+| macOS Intel / Apple Silicon | 按芯片选择对应的 ZIP 压缩包，解压后运行其中的 `.app` 应用 |
 
-启动器通过原生桥接接口连接联机核心。Minecraft 游戏数据的传输由 `minecraft-tunnel-native` 提供的原生运行库处理；节点管理、游戏安装和桌面界面属于 Buggcraft。玩家下载并运行启动器时，不需要另外安装 Python、CMake 或 C++ 编译器。
+各版本提供的平台文件以下载页为准。普通玩家使用发行包即可，无需安装 Python、编译器或开发工具。
 
-## 开发与构建
+建议为启动器、游戏和整合包留出足够的磁盘空间，并放在有写入权限的文件夹。首次运行需要准备启动器运行文件；安装游戏时还会下载游戏资源、依赖库和需要的 Java。
 
-桌面应用使用 Python、Qt for Python（PySide6）和 QML；Minecraft 文件安装与版本管理使用 `minecraft-launcher-lib`。联机传输依赖与启动器版本绑定的 `minecraft-tunnel-native` 原生运行库。Windows 与 macOS 使用独立打包配置，构建入口位于 [`build.py`](build.py) 与 [`build_macos.sh`](build_macos.sh)。
+## 第一次使用
 
-从源码启动界面的基本步骤如下。完整运行和桥接库准备要求请先阅读[第三方桥接接入说明](docs/technical/启动器桥接集成.md)。
+1. **下载并解压启动器。** 建议单独建立一个文件夹，例如 `D:\Games\Buggcraft`，将下载的 ZIP 完整解压到这里，再运行其中的启动程序。Windows 用户运行 `Buggcraft.exe`，请先解压再启动。
+2. **选择游戏账号。** 在账号管理中添加账号；微软账号按提示在浏览器完成登录。游戏账号与联机节点账号分别管理，加入房间仍需满足目标世界的账号要求。
+3. **安装一个游戏。** 打开“下载 → 游戏下载”，选择 Minecraft 版本；玩模组时，再选择整合包或模组要求的加载器及其版本。确认名称与安装目录后开始安装。
+4. **查看安装进度。** 在“下载 → 下载记录”查看当前阶段和结果，点“日志”可以查看每个文件的进度与具体错误。
+5. **启动游戏。** 安装完成后，在首页选中实例并启动。Java 保持自动选择即可；缺少兼容版本时，按提示准备运行环境。
 
-```powershell
-git clone https://github.com/vdjango/buggcraft.git
-cd buggcraft
-py -3.11 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-$env:PYTHONPATH = "$PWD\src"
-.venv\Scripts\python.exe src\buggcraft\main.py
-```
+默认游戏目录是启动器旁边的 `.minecraft`；不存在时会自动创建，已有目录不会被清空。已经装过游戏的玩家，可以直接添加原有游戏目录。
 
-执行测试：
+## 整合包怎么用
 
-```powershell
-.venv\Scripts\python.exe -m unittest discover -s tests
-```
+### 导入别人分享的整合包
 
-构建依赖和发行流程见[Windows 打包](docs/technical/Windows打包指南.md)、[macOS 打包](docs/technical/macOS打包指南.md)及 [GitHub Actions 工作流](.github/workflows/package.yml)。联机核心的单独构建方式见 [`minecraft-tunnel-native` 构建文档](https://github.com/vdjango/minecraft-tunnel-native/blob/main/docs/构建指南.md)。
+打开“下载 → 游戏下载 → 导入整合包”，选择本地文件；也可以把整合包文件拖入启动器，进入导入页面。
 
-## 问题反馈与贡献
+支持的常见格式：
 
-使用 [GitHub Issues](https://github.com/vdjango/buggcraft/issues) 报告问题时，请说明操作步骤、游戏与加载器版本、系统版本，以及错误发生的大致时间。游戏闪退请附上诊断包中对应实例的游戏日志；联机问题请同时说明当时选择的 P2P 或中继模式。
+- **CurseForge 整合包**：包含 `manifest.json` 的 ZIP。
+- **Modrinth 整合包**：包含 `modrinth.index.json` 的 `.mrpack` 或 ZIP。
+- **Buggcraft 整合包**：包含 `buggcraft.pack.json` 的 `.buggpack` 或 ZIP。
 
-提交诊断信息前，请检查个人用户名、目录路径及网络信息，并移除密码、访问令牌、节点接入码、房间邀请码和私钥。代码变更请附上与行为相关的测试；原生联机核心的改动应提交到 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native)。
+确认新实例名称和游戏目录后开始安装。启动器会解析清单、下载所需文件、安装游戏与加载器，并整理包内配置。普通游戏文件夹压成的 ZIP 不一定是可导入的整合包；已有完整游戏目录可以直接添加使用。
 
-## 许可证
+**名称被占用时，请换一个新名称。** 导入会创建独立实例，不直接覆盖已有实例及其存档。
 
-Buggcraft 使用 [GNU Affero General Public License v3.0 或更高版本](LICENSE) 发布。使用的第三方组件及其许可条件以仓库中的依赖清单和发行包许可文件为准。
+下载或安装中断后，在“下载记录”找到原任务，点击“继续安装”或对应的重试按钮。已校验的完整文件会复用；本地导入的原始整合包请保留在原路径，直到安装完成。不要通过重复导入同名包来恢复任务。
 
-更多项目文档见 [文档索引](docs/文档索引.md)。
+Buggcraft 格式的导入页还可以选择优先使用包内原地址，或使用设置中的下载源。任务里的下载来源以实际请求为准。
+
+### 在线寻找整合包
+
+在下载页切换到“整合包”，搜索项目，查看介绍与文件版本后下载。下载完成后，可从下载记录打开文件所在目录，再通过“导入整合包”创建游戏实例。
+
+整合包文件下载完成和游戏安装完成是两个步骤；看到 ZIP 或 MRPACK 下载成功后，还需要完成导入。
+
+### 把自己的整合包分享出去
+
+在“实例”中找到目标实例，选择“导出整合包”：
+
+- **精简导出**：能对应到公开下载源的文件记录为下载信息，适合减小分享文件体积。
+- **常规导出**：保留更完整的本地模组和实例资源，适合保存或分享自己的配置。
+
+朋友拿到 `.buggpack` 后，按上面的方式导入即可。两种方式导入时都可能需要下载游戏本体、加载器或其他依赖，不代表完全离线安装。导出可能包含实例内的存档与配置，分享前请确认其中没有不希望公开的内容。
+
+## 和朋友联机
+
+节点帮助玩家查找房间、完成连接，并在需要时中继流量。**世界和存档由房主的电脑运行与保存**，适合朋友一起玩已有世界或整合包，无需另开专用游戏服务器。
+
+### 先连接一个节点
+
+1. 从首页进入联机大厅，在节点菜单打开“添加与管理节点”。
+2. 填写节点提供的域名、IP 或 HTTPS 地址，点击“浏览器登录”。
+3. 在浏览器登录或注册节点账号，确认授权这台启动器；完成后回到启动器，节点会自动保存。
+
+朋友使用同一个节点最方便；节点互联时，也可以从同一联邦内的节点进入。
+
+### 房主创建房间
+
+1. 选择准备联机的游戏实例，点击“创建房间”，填写房间名称和加入方式。
+2. 可以选择“先开房，稍后进入游戏”，让朋友先加入并准备配置；已经进入世界时，也可以关联已开放的世界。
+3. 启动 Minecraft 并进入目标存档，按 `Esc → 对局域网开放 → 开始局域网世界`。回到启动器，确认房间已关联这个世界。
+4. 把房间邀请码发给朋友，或通过好友入口发送邀请；公开房间也可以从大厅列表加入。
+
+### 朋友加入房间
+
+1. 在大厅点击“加入房间”并粘贴邀请码，或从公开房间、好友邀请进入。
+2. 检查游戏版本、加载器和模组配置。配置不一致时，点击“同步安装”，查看进度并等待准备完成。
+3. 房主开放世界后，点击“进入游戏”；需要手动连接时，在 Minecraft 多人游戏中找到房间，或复制启动器提供的游戏地址到“直接连接”。
+
+房间里的“成员”页可以查看准备进度、线路与延迟。“安装日志”可以查看同步过程；需要房主帮忙时，可授权共享本次安装日志，也可以随时停止。
+
+### 文件共享加速有什么用
+
+房主可在创建房间时开启“文件共享加速”，房间页会显示处理进度和结果。启动器先核对模组、游戏核心、加载器、库和资源等文件的信息，正常资源按可用来源下载；缺失或持续过慢的文件按需由 Buggcraft 源站临时缓存，也可在可用时通过 P2P 从房主获取。
+
+这里处理的是**具体资源文件**。开启后，源站按需请求文件，不要求房主上传整个整合包 ZIP。共享文件可能被他人获取，含敏感或不希望公开内容的配置请勿开启共享。
+
+### 联机时需要注意
+
+- 房主需要保持游戏世界开放，电脑性能、上行带宽和模组数量都会影响联机体验。
+- 默认优先尝试 P2P，无法直连时使用节点中继；连接不稳定时，可以尝试“仅通过节点中转”。
+- 关闭大厅窗口会保留连接；退出主启动器会结束自己的联机连接，房主退出会关闭房间。
+- 房主退出世界后，朋友需要等待重新开放；重新开放或网络恢复后，可能需要重新进入游戏。
+
+详细操作见[联机使用指南](https://github.com/vdjango/buggcraft/blob/main/docs/guides/联机节点使用指南.md)。
+
+## 模组、资源包和光影
+
+在下载页选择“模组”“资源包”或“光影包”，搜索后打开项目，查看适用的 Minecraft 版本、加载器与文件说明，再安装到目标实例。
+
+**下载前先确认选对实例和文件版本。** 模组依赖需按项目说明补齐；光影还需要兼容的 Iris、Oculus 等渲染模组。放入光影文件本身不会自动让原版游戏获得光影支持。
+
+下载源在“设置 → 通用设置”中调整：
+
+- **游戏与加载器下载源**：用于游戏本体和加载器相关下载，与模组源分别设置。
+- **模组与整合包下载源顺序**：可用“上移 / 下移”调整优先级，先尝试靠前的来源，失败后再尝试后续来源；也可以选择“自动测速”。
+
+整合包若选择优先包内地址，会先按该包的下载信息处理。跨平台替换文件时仍需通过原清单校验，不会只凭相似名称安装另一个版本。下载记录及文件进度中可以看到实际使用的下载源。
+
+## Java、内存和文件位置
+
+### Java 和内存怎么设置
+
+一般保持 Java 自动选择、内存自动分配即可。不同 Minecraft 版本及加载器对 Java 的要求不同，不建议把所有实例强制指向同一个 Java。
+
+需要手动管理时，进入“设置 → Java 管理”，扫描已有环境、添加 Java 可执行文件，或直接下载兼容版本。启动器下载的 Java 放在自己的缓存路径中，无需修改系统环境变量。也可以在实例设置中单独指定 Java 和内存。
+
+玩大型整合包时，优先参考作者的内存建议，并给系统和其他程序留出空间；分配的内存并非越多越好。
+
+### 游戏目录和启动器缓存有什么区别
+
+| 位置 | 主要保存什么 |
+| --- | --- |
+| `.minecraft` 游戏目录 | 游戏版本、实例、模组、存档、资源与游戏依赖 |
+| `.buggcraft` 启动器缓存目录 | 启动器配置、下载缓存、下载的 Java、启动器运行库与日志 |
+
+默认两者都位于启动器文件夹内。可在“设置 → 通用设置 → 文件缓存路径”更换启动器缓存目录；更改后下次启动迁移，游戏目录单独管理。
+
+想搬到另一块硬盘或做成便携包，建议保留整个启动器文件夹，包括程序、缓存、需要携带的 `.minecraft`，以及存在时的 `buggcraft-storage.txt` 位置文件。外部自定义目录不会因复制启动器而一起搬走。分享前退出个人账号，换电脑后重新登录。
+
+已有游戏可以从“实例 → 版本列表 → 添加游戏文件夹”登记原有的 `.minecraft`，无需先复制一份。
+
+## 常见问题
+
+**下载失败，要把整个整合包重装吗？**
+
+先查看“下载记录 → 日志”的具体原因，再使用原任务的继续或重试功能。已经校验完成的文件会复用。模组仍有缺失时，按页面提示重试或补入完全相同的文件，不要用其他版本随意替换。
+
+**选择了 CurseForge，为什么看到 Modrinth 在下载？**
+
+可能是包内地址优先，也可能是前面的来源不可用后进入了后续来源。请同时检查导入任务的下载方式、设置中的来源顺序和文件日志；项目搜索来源与文件实际下载来源也可能不同。
+
+**已经有 `.minecraft`，第一次启动会覆盖吗？**
+
+不会因创建默认目录而清空现有文件。添加已有目录即可使用；安装新内容前请选好目标实例。
+
+**删除实例会删存档吗？**
+
+永久删除会删除对应目录中的本地文件，包括其中的存档。若只想从列表移除，请在确认框中选择保留本地文件的方式；重要存档先备份，再确认操作范围。
+
+**能和使用其他启动器的玩家一起玩吗？**
+
+游戏本身是否兼容取决于版本、加载器、模组和账号要求。使用 Buggcraft 的房间邀请、配置同步与节点联机流程，需要参与者运行相应启动器功能。
+
+**启动器就是 Minecraft 吗？**
+
+启动器负责安装、管理与启动游戏。Minecraft Java 版账号的购买、授权及目标服务器的账号要求仍适用。
+
+## 遇到问题
+
+可以在启动器的“反馈问题”中描述情况，提交前查看页面列出的自动收集信息；也可以到 [GitHub Issues](https://github.com/vdjango/buggcraft/issues) 反馈。
+
+尽量提供启动器版本、系统、游戏与加载器版本、复现步骤和报错时间。下载问题附任务日志，闪退附游戏日志，联机问题说明是房主还是加入者、使用 P2P 还是中继。有这些信息，更容易直接定位问题。公开分享日志前请检查其中的账号、路径和网络信息，移除密码与令牌。
+
+## 开发与贡献
+
+想参与开发、自行打包或接入联机能力，可从[文档索引](https://github.com/vdjango/buggcraft/blob/main/docs/文档索引.md)开始，按需查看 [Windows 构建](https://github.com/vdjango/buggcraft/blob/main/docs/technical/Windows打包指南.md)、[macOS 构建](https://github.com/vdjango/buggcraft/blob/main/docs/technical/macOS打包指南.md)、[GitHub 构建](https://github.com/vdjango/buggcraft/blob/main/docs/technical/GitHub构建.md)和[桥接接入](https://github.com/vdjango/buggcraft/blob/main/docs/technical/启动器桥接集成.md)。联机核心与自建节点见 [`minecraft-tunnel-native`](https://github.com/vdjango/minecraft-tunnel-native)。
+
+## 开源许可
+
+Buggcraft 使用 [GNU Affero General Public License v3.0 或更高版本](https://github.com/vdjango/buggcraft/blob/main/LICENSE) 发布。第三方组件遵循各自许可；Minecraft 及相关名称、资源属于其权利人。本项目并非 Mojang 或 Microsoft 官方产品。

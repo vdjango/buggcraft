@@ -14,7 +14,6 @@ class DownloadPages(NavigationPage):
         self.tasks_page = TasksPage(self)
         self.content_page = ContentBrowserPage(self)
         parent.title_bar.version_changed.connect(self.content_page.controller.refreshContext)
-        self.games_page.quick.rootContext().setContextProperty('contentController', self.content_page.controller)
         self.version_stack = self.stack
         for page in (self.games_page, self.tasks_page, self.content_page):
             self.stack.addWidget(page)

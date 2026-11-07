@@ -320,6 +320,11 @@ class GamesPage(QmlPage):
         self.games_content = self
         self.settings_manager = controller.settings
 
+    def ensure_loaded(self):
+        self.quick.rootContext().setContextProperty(
+            'contentController', self.parent.content_page.controller)
+        super().ensure_loaded()
+
     def on_page_activate(self):
         if self.controller.category == 'game' and not self.controller.versions and not self.controller.busy:
             self.controller.refresh()

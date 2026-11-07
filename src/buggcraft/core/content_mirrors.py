@@ -6,10 +6,13 @@ import requests
 
 CONTENT_SOURCES = ('CurseForge', 'Modrinth', 'Buggcraft')
 AUTO_SOURCES = ('自动', '自动测速', '自动（CurseForge 优先）')
+AUTO_ORDER = ('Buggcraft', 'CurseForge', 'Modrinth')
 
 
 def source_order(source):
     """Return a complete priority list; MCIM requires an explicit entry."""
+    if isinstance(source, str) and source in AUTO_SOURCES:
+        return list(AUTO_ORDER)
     if isinstance(source, (list, tuple)):
         selected = [name for name in source if isinstance(name, str)
                     and name in (*CONTENT_SOURCES, 'MCIM')]
@@ -21,21 +24,21 @@ def source_order(source):
 
 
 def configured_order(settings):
-    mode = settings.get_setting('settings.general.content_mirror', 'Modrinth')
-    if mode == '优先级' or mode in AUTO_SOURCES:
+    mode = settings.get_setting('settings.general.content_mirror', '自动')
+    if mode == '优先级':
         return source_order(settings.get_setting('settings.general.content_order', list(CONTENT_SOURCES)))
     return source_order(mode)
 
 
 def configured_source(settings):
-    source = settings.get_setting('settings.general.content_mirror', 'Modrinth')
+    source = settings.get_setting('settings.general.content_mirror', '自动')
     if source == '优先级':
         return configured_order(settings)
     if source == 'MCIM' or isinstance(source, (list, tuple)):
         return source_order(source)
     if source in AUTO_SOURCES:
         return '自动测速'
-    return source if source in ('CurseForge', 'Modrinth', 'MCIM', 'Buggcraft', '官方') else 'Modrinth'
+    return source if source in ('CurseForge', 'Modrinth', 'MCIM', 'Buggcraft', '官方') else '自动测速'
 
 
 def display_source(source, provider=None):

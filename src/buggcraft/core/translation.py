@@ -56,7 +56,8 @@ class TranslationClient:
     def __init__(self, cache_directory):
         self.path = Path(cache_directory) / 'translations.sqlite3'
         self.session = requests.Session()
-        self.session.headers['User-Agent'] = 'Buggcraft-Launcher-Translation/1.0'
+        from utils.http_identity import USER_AGENT
+        self.session.headers['User-Agent'] = USER_AGENT
         self.token, self.expires, self.token_source = '', 0, ''
         self.ensured = {}
 

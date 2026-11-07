@@ -443,7 +443,8 @@ class VersionsPage(QmlPage):
         controller.page = self
         controller.setParent(self)
         self.settings_manager = controller.settings
-        controller.reload()
+        # Hidden pages load their catalogue only when selected. The header
+        # already validates the version selection during startup.
 
     def refresh_version_list(self, directory_path):
         self.controller.reload()

@@ -17,7 +17,7 @@ class SettingsIsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             manager = SettingsManager(folder)
             self.assertEqual(manager.get_setting('settings.general.mirrors'), 'BMCLAPI')
-            self.assertEqual(configured_source(manager), 'Modrinth')
+            self.assertEqual(configured_source(manager), '自动测速')
             manager.set_setting('settings.general.mirrors', '官方')
             manager.set_setting('settings.general.content_mirror', '自动测速')
             self.assertTrue(manager.save_settings())

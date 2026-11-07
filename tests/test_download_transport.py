@@ -400,7 +400,7 @@ class DownloadTransportTests(unittest.TestCase):
 
     def test_public_launcher_identity_survives_redirects_and_range_retries(self):
         release = (Path(__file__).resolve().parents[1] / 'resources/app-version.txt').read_text(encoding='ascii').strip()
-        self.assertEqual(USER_AGENT, 'BUGG | ' + release)
+        self.assertEqual(USER_AGENT, 'Buggcraft/' + release)
         url = self.url.replace('/artifact', '/redirect')
         events = []
         self.downloader.file_event = events.append
@@ -538,7 +538,7 @@ class DownloadTransportTests(unittest.TestCase):
         self.assertEqual(result.read_bytes(), self.payload)
         resolve.assert_called_once()
 
-    def test_auto_measures_both_publishers_for_each_file(self):
+    def test_auto_uses_origin_without_per_file_probing(self):
         modrinth = 'https://cdn.modrinth.com/data/project/versions/version/mod.jar'
         curseforge = 'https://edge.forgecdn.net/files/123/456/mod.jar'
         self.downloader.content_source = '自动测速'
@@ -557,8 +557,8 @@ class DownloadTransportTests(unittest.TestCase):
              patch('core.downloads._rank_content_candidates', side_effect=rank) as measured, \
              patch.object(_DownloadSession, 'get', get):
             result = self.downloader.fetch(modrinth, 'mod.jar', hashlib.sha1(self.payload).hexdigest(), len(self.payload))
-        measured.assert_called_once()
-        self.assertEqual(hosts, ['edge.forgecdn.net'])
+        measured.assert_not_called()
+        self.assertEqual(hosts, ['mirror.bugg.icu'])
         self.assertEqual(result.read_bytes(), self.payload)
 
     def test_content_sources_retry_six_times_each_before_switching(self):

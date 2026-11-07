@@ -14,4 +14,4 @@ def _launcher_version():
 
 
 LAUNCHER_VERSION = _launcher_version()
-USER_AGENT = f'BUGG | {LAUNCHER_VERSION}'
+USER_AGENT = f'Buggcraft/{LAUNCHER_VERSION}'

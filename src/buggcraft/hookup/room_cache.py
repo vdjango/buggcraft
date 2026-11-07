@@ -164,9 +164,12 @@ class RoomCacheClient:
             if isinstance(plan.get('sha1'), str) and re.fullmatch('[0-9a-f]{40}', plan['sha1']):
                 item['sha1'] = plan['sha1']
             urls = plan.get('downloads', []) if plan.get('action') == 'redirect' else []
+            from core.client_file_source import mapped_url
+            item['_accelerated_downloads'] = [url for url in urls if mapped_url(url)]
             # Keep the manifest's public fallbacks when the plan uses a cache.
             # Eviction must not turn an otherwise downloadable file into P2P-only.
-            item['downloads'] = list(dict.fromkeys(url for url in [*urls, *item.get('downloads', [])] if public_url(url)))
+            item['downloads'] = list(dict.fromkeys([*item['_accelerated_downloads'],
+                *(url for url in item.get('downloads', []) if public_url(url))]))
 
     async def download(self, item, target, cancel, progress):
         plan = self.files.get(item['sha256'], {})

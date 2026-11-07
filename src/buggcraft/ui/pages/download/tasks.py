@@ -428,6 +428,7 @@ class TasksPage(QWidget):
 
     installed = Signal(str, str)
     game_queued = Signal()
+    history_loaded = Signal(object)
     ACTIVE = ("等待中", "进行中", "等待补齐", "正在取消")
 
     def __init__(self, parent):
@@ -439,7 +440,10 @@ class TasksPage(QWidget):
         self.history_path = os.path.join(
             self.settings_manager.config_path, "download_history.json"
         )
-        self._tasks = self._load_history()
+        self._tasks = []
+        self._history_loading = True
+        self._history_result = None
+        self._history_save_pending = False
         self._file_indexes = {}
         self._active_file_sources = {}
         self._workers = {}
@@ -461,7 +465,31 @@ class TasksPage(QWidget):
         self._save_revision = 0
         self.init_ui()
         self.refresh_tasks()
-        self._queue_history_save()
+        self.history_loaded.connect(self._finish_history_load)
+        self._history_thread = threading.Thread(target=self._read_history_background,
+                                                name='download-history-load', daemon=True)
+        self._history_thread.start()
+
+    def _read_history_background(self):
+        history = self._load_history()
+        self._history_result = history
+        try:
+            self.history_loaded.emit(history)
+        except RuntimeError:
+            pass  # The window may have closed while the disk read was running.
+
+    @Slot(object)
+    def _finish_history_load(self, history):
+        if not self._history_loading:
+            return
+        self._history_loading = False
+        existing = {task['id'] for task in self._tasks}
+        self._tasks.extend(task for task in history if task['id'] not in existing)
+        if not self._closing:
+            self.refresh_tasks()
+            if self._history_save_pending:
+                self._history_save_pending = False
+                self._queue_history_save()
 
     def _load_history(self):
         try:
@@ -1030,6 +1058,9 @@ class TasksPage(QWidget):
         # needs to release that worker without scheduling another disk job.
         if self._closing:
             return
+        if self._history_loading:
+            self._history_save_pending = True
+            return
         # File events contain flat scalar records. Copying their dictionaries
         # avoids a recursive deepcopy of tens of thousands of asset fields on Qt.
         snapshot = []
@@ -1134,6 +1165,9 @@ class TasksPage(QWidget):
             task = self._find_task(task_id)
             if task and task["state"] in self.ACTIVE:
                 self.task_action(task_id)
+        if self._history_loading:
+            self._history_thread.join()
+            self._finish_history_load(self._history_result or [])
         self._flush_history()
         self._save_executor.shutdown(wait=False, cancel_futures=True)
         return not self._workers

@@ -359,16 +359,13 @@ class Authenticator:
                     return False
             elif not (self.online.uuid and self.online.username and self.online.token):
                 self.online.clear()
-                self.save(path)
 
             if not self.offline.username or self.offline.username == '':
                 self.offline.clear()
                 print('self.offline.username == ""', self.offline.username)
-                self.save(path)
             
             if not (self.online.uuid and self.online.username and self.online.token) or self.online.username == '':
                 self.online.clear()
-                self.save(path)
 
             if self.online.uuid and self.online.username and self.online.token:
                 # 正版登录
