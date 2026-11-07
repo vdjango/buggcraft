@@ -11,7 +11,7 @@ ScrollView {
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
     function submit() {
-        if (canJoin) lobby.act("join", {invite:invite.text.trim(), transport:vm.transportPolicy})
+        if (canJoin) lobby.act("join", {invite:invite.text.trim()})
     }
     ColumnLayout {
         width: join.availableWidth; spacing: 14
@@ -68,21 +68,11 @@ ScrollView {
                         text: vm.joinRoomId ? "请使用这个房间的专属邀请码。" : "与房主选择同一节点；邀请码仅分享给一起玩的朋友。"
                     }
                 }
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 7; visible: !vm.needsVersion
-                    CopyText { text: "连接方式"; color: "#e4daef"; font.pixelSize: 12; font.bold: true }
-                    ChoiceBox {
-                        objectName: "join-transport"; Layout.fillWidth: true
-                        model: ["自动连接 · 优先 P2P，失败时中转", "仅通过节点中转"]
-                        enabled: !vm.busy && !vm.instanceLoading
-                        currentIndex: vm.transportPolicy === "relay" ? 1 : 0
-                        onActivated: function(index) { lobby.act("transport", {policy:index === 1 ? "relay" : "auto"}) }
-                    }
-                    CopyText {
-                        Layout.fillWidth: true; font.pixelSize: 11; color: "#a496b3"
-                        text: vm.transportPolicy === "relay" ? "游戏流量通过节点转发，对方不会通过 P2P 获得你的公网地址。"
-                            : "优先直连；网络不支持时自动切换中转。"
-                    }
+                CopyText {
+                    objectName: "join-connection-hint"
+                    Layout.fillWidth: true; visible: !vm.needsVersion
+                    font.pixelSize: 11; color: "#a496b3"
+                    text: "自动连接：优先尝试 P2P，无法直连时自动通过节点中转。"
                 }
                 CopyText {
                     visible: vm.needsVersion; Layout.fillWidth: true

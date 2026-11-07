@@ -181,18 +181,18 @@ class OnboardingCoachTests(LauncherQmlCase):
         self.assertEqual(coach.index, 2)
         self.assert_no_qml_errors()
 
-    def test_node_dropdown_is_clickable_without_leaving_the_tutorial(self):
+    def test_node_login_entry_is_highlighted_without_leaving_the_tutorial(self):
         coach, backend, dialog, quick = self.open_tutorial_lobby(nodes=[], nodeIndex=-1, nodeAvailable=False)
         node = self.qml_item(quick, 'node-picker')
         self.assert_tutorial_glow(node)
-        empty_add_node = self.qml_item(quick, 'empty-add-node')
-        self.assertFalse(empty_add_node.property('enabled'))
+        login = self.qml_item(quick, 'login-node')
+        self.assertTrue(login.isVisible())
         qt_mouse_click(quick,
-                         empty_add_node.mapToScene(empty_add_node.boundingRect().center()).toPoint())
+                         login.mapToScene(login.boundingRect().center()).toPoint())
         self.pump(100)
         self.assertEqual(backend.view['page'], 'hall')
         self.assertEqual(backend.actions, [])
-        unrelated = self.qml_item(quick, 'hall-transport')
+        unrelated = self.qml_item(quick, 'hall-connection-hint')
         qt_mouse_click(quick,
                          unrelated.mapToScene(unrelated.boundingRect().center()).toPoint())
         self.pump(100)
@@ -200,19 +200,10 @@ class OnboardingCoachTests(LauncherQmlCase):
         qt_mouse_click(quick,
                          node.mapToScene(node.boundingRect().center()).toPoint())
         self.pump(200)
-        self.assertTrue(node.property('tutorialPopupVisible'))
-        popup = coach._popup_item()
-        self.assertIsNotNone(popup)
-        qt_mouse_click(quick,
-                         popup.mapToScene(popup.boundingRect().center()).toPoint())
-        self.pump(200)
         self.assertEqual(backend.view['page'], 'hall')
         self.assertEqual(backend.actions, [])
         self.assertEqual(coach.index, self.step_index('node-picker'))
-        self.assertTrue(node.property('tutorialPopupVisible'))
-        QTest.keyClick(quick, Qt.Key_Escape)
-        self.pump(100)
-        self.assertFalse(node.property('tutorialPopupVisible'))
+        self.assertIsNone(coach._popup_item())
         self.snapshot('onboarding-node')
         coach._continue()
         self.pump(200)
@@ -632,7 +623,7 @@ class OnboardingCoachTests(LauncherQmlCase):
         point = node.mapToScene(node.boundingRect().center()).toPoint()
         qt_mouse_click(quick, point)
         self.pump(200)
-        self.assertTrue(node.property('tutorialPopupVisible'))
+        self.assertIsNone(coach._popup_item())
         self.assertAlmostEqual(coach._target_rect.width(), node.width(), delta=2.0)
         QTest.keyClick(quick, Qt.Key_Return)
         self.pump(200)

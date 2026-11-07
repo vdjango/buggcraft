@@ -69,6 +69,8 @@ class MultiplayerController(RoomPreparation, QObject):
         self.chat_state = '加入房间后连接'
         self.bridge_status = '游戏聊天同步由房主创建房间时设置。'
         self.node_path = ''
+        self.node_routes_generation = uuid.uuid4().hex
+        self.node_auto_pending = False
         self.friend_request = None
         self.social_path = ''
         self.social_identity = None
@@ -125,6 +127,8 @@ class MultiplayerController(RoomPreparation, QObject):
         self.room_search_timer.timeout.connect(self.refresh)
         self.init_preparation()
         self._state = dict(page='hall', step=0, nodes=[], nodeIndex=-1, nodeAvailable=False, nodeLatencyMs=None,
+                           nodeRoutes=[], nodeRoutesBusy=False, nodeRouteError='', nodePickerOpen=False,
+                           activeNodeName='', activeNodeRegion='',
                            rooms=[], contacts=[], friendRequests=[], friendInvitations=[], friendLookupResults=[], socialAccount='', socialName='', socialReady=False, socialState='offline', socialError='',
                            playerNetworkProfile=dict(type='unknown', direct_successes=0, relay_successes=0), playerNetworkTypeReady=False, playerNetworkProfileReady=False,
                            connections=[], worlds=[], worldScanning=False, selected='', busy=False, friendBusy=False, socialLoading=False, loading=False,
@@ -136,7 +140,6 @@ class MultiplayerController(RoomPreparation, QObject):
                            deviceLoginBusy=False, deviceOrigin='https://node.bugg.icu', deviceManaged=False,
                            deviceLoginUrl='', deviceLoginStage='idle', deviceLoginMessage='',
                            joinRoomId='', joinRoomTitle='', invitePrompt=False,
-                           transportPolicy='auto',
                            nodeUpdatePrompt=False, nodeUpdateMessage='',
                            roomQuery='', roomNext=None, roomTotal=None, loadingMore=False,
                            version='', loader='vanilla', loaderVersion='', localModsCount=0, worldPort=0,
@@ -169,6 +172,7 @@ class MultiplayerController(RoomPreparation, QObject):
             self.job('startup-store', asyncio.to_thread(self._load_store_background, store_path))
         else:
             self.reload_store()
+            self.load_node_routes(automatic=True)
         self.friend_timer = QTimer(self)
         self.friend_timer.setInterval(5000)
         self.friend_timer.timeout.connect(self.refresh_friends)
@@ -412,7 +416,17 @@ class MultiplayerController(RoomPreparation, QObject):
                     type(exc).__name__, path == self.node_path, path in previous)
             device_managed = (preloaded[path][1] is not None if preloaded is not None
                               else Path(path + '.device.json').is_file())
-            nodes.append({'title': title, 'path': path, 'personalCode': personal_code,
+            region = self.node_display_regions.get(path, previous.get(path, {}).get('region', ''))
+            if device_managed:
+                try:
+                    metadata = (preloaded[path][1] if preloaded is not None else
+                                json.loads(Path(path + '.device.json').read_text(encoding='utf-8')))
+                    saved_region = metadata.get('region')
+                    if isinstance(saved_region, str) and saved_region.strip():
+                        region = saved_region.strip()[:80]
+                except (OSError, ValueError, TypeError, AttributeError):
+                    pass
+            nodes.append({'title': title, 'region': region, 'path': path, 'personalCode': personal_code,
                           'codeExpired': expired, 'deviceManaged': device_managed})
         paths = [node['path'] for node in nodes]
         target = select or self.node_path
@@ -436,6 +450,9 @@ class MultiplayerController(RoomPreparation, QObject):
                 device_managed != self._state['deviceManaged']):
             self.patch(deviceManaged=device_managed, deviceOrigin=device_origin)
         if new_path != self.node_path or refresh_identity:
+            if new_path != self.node_path:
+                self.node_routes_generation = uuid.uuid4().hex
+                self.patch(nodeRoutes=[], nodeRoutesBusy=False, activeNodeName='', activeNodeRegion='')
             self.node_path = new_path
             self.patch(rooms=[], roomError='', nodeAvailable=False)
             self.refresh()
@@ -549,6 +566,20 @@ class MultiplayerController(RoomPreparation, QObject):
                 self.patch(nodeIndex=index, rooms=[], roomError='', nodeAvailable=False)
                 self.reload_store()
                 self.refresh()
+                self.load_node_routes(automatic=True)
+            elif action == 'openNodePicker':
+                if self._state['connections']:
+                    raise ValueError('房间运行期间不能切换节点，请先退出所有房间。')
+                self.patch(nodePickerOpen=True, nodeRouteError='')
+                self.load_node_routes()
+            elif action == 'closeNodePicker':
+                self.patch(nodePickerOpen=False)
+            elif action == 'refreshNodeRoutes':
+                self.load_node_routes(refresh=True)
+            elif action == 'selectNodeRoute':
+                self.load_node_routes(index=data.get('index'))
+            elif action == 'autoNodeRoute':
+                self.load_node_routes(automatic=True)
             elif action == 'refresh':
                 self.refresh()
             elif action == 'loadMoreRooms':
@@ -616,18 +647,7 @@ class MultiplayerController(RoomPreparation, QObject):
                 if self._state['step'] == 1 and self.creation:
                     self.patch(step=0, error='', notice='', busy=False)
             elif action == 'join':
-                policy = data.get('transport', self._state['transportPolicy'])
-                if policy not in ('auto', 'relay'):
-                    raise ValueError('请选择有效的连接方式。')
-                self.patch(transportPolicy=policy)
                 self.join(data.get('invite', ''), room_id=self._state['joinRoomId'] or None)
-            elif action == 'transport':
-                if self._state['connections']:
-                    raise ValueError('房间运行期间不能切换连接方式。')
-                policy = data.get('policy')
-                if policy not in ('auto', 'relay'):
-                    raise ValueError('请选择有效的连接方式。')
-                self.patch(transportPolicy=policy)
             elif action == 'cancelInvite':
                 self.generation = uuid.uuid4().hex
                 self.patch(invitePrompt=False, joinRoomId='', joinRoomTitle='', error='', busy=False)
@@ -821,9 +841,13 @@ class MultiplayerController(RoomPreparation, QObject):
                                       request['account'], ref=request['id'], room=request['room'])
             elif action == 'refreshFriends':
                 self.refresh_friends()
-            elif action in ('reloginNode', 'replaceNodeCode'):
+            elif action in ('retryAccountLogin', 'reloginNode', 'replaceNodeCode'):
+                self.restore_node_login_origin()
                 self.navigate('nodes')
-                self.patch(notice='使用原节点的 HTTPS 地址，在浏览器重新登录并授权此设备。')
+            elif action == 'closeNodeLogin':
+                if self._state['deviceLoginBusy']:
+                    self.act('cancelDeviceLogin', {})
+                self.navigate('hall')
             elif action == 'editFriend':
                 index = int(data['index'])
                 contact = self.store.data['contacts'][index]
@@ -906,6 +930,8 @@ class MultiplayerController(RoomPreparation, QObject):
             page = 'hall'
         if page == 'connections' and not self._state['connections']:
             page = 'hall'
+        if page == 'nodes' and not self._state['deviceLoginBusy']:
+            self.patch(deviceLoginStage='idle', deviceLoginMessage='')
         self.generation = uuid.uuid4().hex
         self.pending = self.creation = None
         self.quick_creation_data = None
@@ -966,6 +992,28 @@ class MultiplayerController(RoomPreparation, QObject):
             self.patch(nodeAvailable=False)
             raise ValueError('节点配置不可用，请重新导入。') from None
 
+    def load_node_routes(self, *, automatic=False, refresh=False, index=None):
+        """Run discovery and echo measurements on the multiplayer worker loop."""
+        if self.closed or not self.node_path or self._state['connections']:
+            return
+        if self._state['nodeRoutesBusy'] and not automatic:
+            return
+        if self._state['nodeAccessExpired']:
+            self.node_auto_pending = automatic or self.node_auto_pending
+            return
+        if index is not None and (type(index) is not int or not 0 <= index < 6):
+            raise ValueError('无效的节点选项，请刷新节点列表。')
+        self.node_auto_pending = False
+        path = self.node_path
+        generation = self.node_routes_generation = uuid.uuid4().hex
+        self.patch(nodeRoutesBusy=True, nodeRouteError='')
+        async def select():
+            profile = await asyncio.to_thread(RelayProfile.load, path)
+            check_expiry(profile)
+            result = await native_bridge().routes(profile, automatic=automatic, refresh=refresh, index=index)
+            return dict(result, automatic=automatic, switched=index is not None)
+        self.job('node-routes:' + generation, select())
+
     def import_node(self, path):
         self.verify_node(RelayProfile.load(path))
 
@@ -1012,11 +1060,26 @@ class MultiplayerController(RoomPreparation, QObject):
         self.store.save()
         if reload:
             self.reload_store(self.node_path if self._state['connections'] else chosen, refresh_identity=True)
+            self.load_node_routes(automatic=True)
         notice = ('节点账号已更新，正在重新加载好友；现有房间保持连接，新身份用于后续联机。'
                   if profile.token.startswith('acct1.') else '匿名节点已保存；匿名接入不提供好友功能。')
         if self.node_path != chosen:
             notice = '节点已保存；当前房间结束后，切换到该节点即可使用新的接入身份。'
         self.patch(busy=False, error='', notice=notice)
+
+    def restore_node_login_origin(self):
+        if self._state['deviceLoginBusy'] or not self.node_path:
+            return
+        from hookup.device_login import validate_origin
+        metadata_path = Path(self.node_path + '.device.json')
+        if not metadata_path.is_file():
+            return
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+            origin = validate_origin(metadata['origin'])
+        except (OSError, ValueError, TypeError, KeyError):
+            origin = ''
+        self.patch(deviceOrigin=origin)
 
     @Slot()
     def login_official_device(self, remember=True, origin='https://node.bugg.icu'):
@@ -1293,7 +1356,7 @@ class MultiplayerController(RoomPreparation, QObject):
         endpoint = TunnelHost(self.profile(), game_port=self.creation['port'], room_settings=settings,
                               game_directory=directory, game_chat_enabled=game_chat_enabled,
                               game_chat_name=game_chat_name,
-                              transport_policy=data.get('transport', 'auto'))
+                              transport_policy='auto')
         name = self.start(endpoint, title, automatic=data.get('automatic') is True)
         self.creation = None
         if self.pending_friend_invites:
@@ -1329,7 +1392,7 @@ class MultiplayerController(RoomPreparation, QObject):
                     return
         # Room chat and metadata are available before game files are installed.
         endpoint = TunnelClient(profile, invite, listen_port=0,
-                                transport_policy=self._state['transportPolicy'])
+                                transport_policy='auto')
         if self.pending_room_info and self.pending_room_info.get('id') == invite.room_id:
             endpoint.room_info = dict(self.pending_room_info)
         self.start(endpoint, '好友的房间')
@@ -2103,6 +2166,33 @@ class MultiplayerController(RoomPreparation, QObject):
             preferred = next((path for path, (profile, _) in profiles.items()
                               if profile is not None and profile.token.startswith('acct1.')), None)
             self.reload_store(select=preferred, preloaded=profiles)
+            self.load_node_routes(automatic=True)
+            return
+        if key.startswith('node-routes:'):
+            if self.closed or key != 'node-routes:' + self.node_routes_generation:
+                return
+            self.patch(nodeRoutesBusy=False)
+            if error:
+                self.patch(nodeRouteError='节点测速或切换未完成：' + error)
+                return
+            routes = value.get('routes', [])
+            if not isinstance(routes, list):
+                self.patch(nodeRouteError='节点列表格式无效，请刷新后重试。')
+                return
+            selected = next((route for route in routes if route.get('selected') and route.get('reachable')), None)
+            self.patch(nodeRoutes=routes)
+            if selected:
+                name = str(selected.get('name', ''))[:80]
+                region = str(selected.get('region', ''))[:80]
+                latency = self.valid_latency(selected.get('rtt_ms'))
+                self.patch(activeNodeName=name, activeNodeRegion=region, nodeLatencyMs=latency)
+                if value.get('automatic') or value.get('switched'):
+                    self.patch(nodePickerOpen=False, notice=('已自动分配低延迟节点：' if value.get('automatic') else '已切换节点：') +
+                               (region or name) + (' · ' + str(round(latency)) + ' ms' if latency is not None else ''))
+                    self.refresh()
+                    self.refresh_friends()
+            elif value.get('automatic'):
+                self.patch(nodeRouteError='暂时没有可连接的节点，请检查网络后重新测速。')
             return
         if key.startswith('network-profile:'):
             self.player_network_profile_task = False
@@ -2146,6 +2236,8 @@ class MultiplayerController(RoomPreparation, QObject):
                 self.device_refresh_denied.discard(path)
                 self.device_refresh_successes[path] = time.monotonic()
                 self.reload_store(path, refresh_identity=True)
+                if self.node_auto_pending:
+                    self.load_node_routes(automatic=True)
                 self.patch(notice='账号登录已自动续期。', nodeCredentialRequired=False)
             return
         if key.startswith('device-login-start:'):
@@ -2213,6 +2305,7 @@ class MultiplayerController(RoomPreparation, QObject):
                 self.reload_store(self.node_path if self._state['connections'] else path, refresh_identity=True)
                 self.patch(page='hall', deviceLoginStage='complete', deviceLoginMessage='节点已连接，授权已保存。',
                            notice='已登录并连接节点，后续会自动保持登录。')
+                self.load_node_routes(automatic=True)
             except Exception as exc:
                 self.patch(deviceLoginStage='error', deviceLoginMessage='保存登录失败：' + str(exc),
                            error='保存登录失败：' + str(exc))
@@ -2393,6 +2486,8 @@ class MultiplayerController(RoomPreparation, QObject):
                         if room['id'] not in seen:
                             rooms.append(room)
                             seen.add(room['id'])
+                    if value.get('node_name'):
+                        self.patch(activeNodeName=value['node_name'], activeNodeRegion=value.get('node_region', ''))
                     self.patch(loading=False, loadingMore=False, nodeAvailable=True, rooms=rooms,
                                nodeLatencyMs=self.valid_latency(value.get('node_latency_ms'))
                                if value.get('node_latency_method') == 'application-echo' else None,

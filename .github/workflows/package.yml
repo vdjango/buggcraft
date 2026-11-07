@@ -165,12 +165,12 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x64
-            native_asset: ''
+            native_asset: 'buggcraft-native-0.3.11-windows-x64.zip'
             arch: x64
             python: '3.11'
           - os: ubuntu-24.04
             platform: linux-x86_64
-            native_asset: ''
+            native_asset: 'buggcraft-native-0.3.11-linux-x64.tar.gz'
             arch: x64
             python: '3.11'
           - os: ubuntu-24.04-arm
@@ -180,12 +180,12 @@ jobs:
             python: '3.12'
           - os: macos-15-intel
             platform: macos-x86_64
-            native_asset: ''
+            native_asset: 'buggcraft-native-0.3.11-macos-x64.tar.gz'
             arch: x64
             python: '3.11'
           - os: macos-15
             platform: macos-arm64
-            native_asset: ''
+            native_asset: 'buggcraft-native-0.3.11-macos-arm64.tar.gz'
             arch: arm64
             python: '3.11'
     runs-on: ${{ matrix.os }}
@@ -193,7 +193,7 @@ jobs:
       PYTHONIOENCODING: utf-8
       QT_QPA_PLATFORM: offscreen
       QT_QUICK_BACKEND: software
-    # Preflight passed in validate; build and cache the pinned native source.
+    # Reuse the published native runtime; build only platforms without an asset.
     timeout-minutes: 90
     defaults:
       run:
@@ -219,7 +219,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dist/native-runtime
-          key: native-runtime-v2-${{ matrix.platform }}-0b71cbdf879622415d1a4d3465ef4efb6194dcc9
+          key: native-runtime-v2-${{ matrix.platform }}-56127fbee8fd5bf0892f875adc2fe501d5225231
       - name: Download tested native release assets
         id: native_download
         if: steps.native-cache.outputs.cache-hit != 'true' && matrix.native_asset != ''
@@ -229,7 +229,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/native-archive dist/native-runtime
-          base=https://github.com/vdjango/minecraft-tunnel-native/releases/download/v0.3.5
+          base=https://github.com/vdjango/minecraft-tunnel-native/releases/download/v0.3.11
           curl -fL --retry 3 --retry-all-errors "$base/$NATIVE_ASSET" -o "dist/native-archive/$NATIVE_ASSET"
           curl -fL --retry 3 --retry-all-errors "$base/$NATIVE_ASSET.sha256" -o "dist/native-archive/$NATIVE_ASSET.sha256"
           python - "$NATIVE_ASSET" <<'PY'
@@ -252,7 +252,7 @@ jobs:
           import json
           from pathlib import Path
           metadata = json.loads(Path('dist/native-runtime/share/buggcraft-native/build-info.json').read_text())
-          if metadata.get('commit') != '0b71cbdf879622415d1a4d3465ef4efb6194dcc9':
+          if metadata.get('commit') != '56127fbee8fd5bf0892f875adc2fe501d5225231':
               raise SystemExit('Downloaded native runtime does not match the pinned source revision')
           PY
       - name: Check out pinned native multiplayer implementation
@@ -260,7 +260,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 0b71cbdf879622415d1a4d3465ef4efb6194dcc9
+          ref: 56127fbee8fd5bf0892f875adc2fe501d5225231
           path: native-source
       - uses: actions/setup-python@v5
         with:

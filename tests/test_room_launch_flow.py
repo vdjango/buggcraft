@@ -687,20 +687,19 @@ class RoomLaunchFlowTests(unittest.TestCase):
                  'room':{'id':invite.room_id, 'title':'Open world', 'require_invite':False}}, None)
             join.assert_called_once_with(invite.encode())
 
-    def test_selected_policy_reaches_host_and_public_or_invited_visitor(self):
+    def test_host_and_public_or_invited_visitor_always_prefer_p2p(self):
         self.service.endpoints.clear()
         self.controller.patch(connections=[])
         for policy in ('auto', 'relay'):
-            self.controller.act('transport', {'policy':policy})
-            self.assertEqual(self.controller.view['transportPolicy'], policy)
+            # Old UI payloads cannot force relay-only connections.
             with patch.object(self.controller, 'profile', return_value=Mock()), \
                     patch.object(self.controller, 'start') as start:
-                self.controller.join(RoomInvite.create().encode())
-                self.assertEqual(start.call_args.args[0].transport_policy, policy)
+                self.controller.act('join', {'invite':RoomInvite.create().encode(), 'transport':policy})
+                self.assertEqual(start.call_args.args[0].transport_policy, 'auto')
                 self.controller.creation = {'path':self.controller.node_path, 'game':{}, 'port':0}
                 self.controller.patch(step=1)
                 self.controller.create({'title':'Path choice', 'transport':policy})
-                self.assertEqual(start.call_args.args[0].transport_policy, policy)
+                self.assertEqual(start.call_args.args[0].transport_policy, 'auto')
 
 
 class BackgroundLanMonitorTests(unittest.TestCase):

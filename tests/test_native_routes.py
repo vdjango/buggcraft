@@ -4,6 +4,7 @@ import hashlib
 import json
 import secrets
 import os
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -140,6 +141,32 @@ class NativeRoutesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await manager.choose(self.a), [self.b, self.a])
         tip.assert_called_once_with('Node B')
         self.assertEqual(manager._request.await_count, 2)
+
+    async def test_route_startup_reuses_initial_probes_and_manual_selection_keeps_identity(self):
+        manager = NativeRoutes()
+        manager.route_selection_support = True
+        async def handle(profile):
+            self.assertIs(profile, self.a)
+            manager.handles[self.identity] = 'account-handle'
+            return 'account-handle'
+        manager.handle = AsyncMock(side_effect=handle)
+        manager._request = AsyncMock(return_value={'routes': []})
+        await manager.routes(self.a, automatic=True)
+        manager._request.assert_awaited_with('node.routes', {'node': 'account-handle', 'auto': True, 'refresh': False})
+        await manager.routes(self.a, automatic=True)
+        manager._request.assert_awaited_with('node.routes', {'node': 'account-handle', 'auto': True, 'refresh': True})
+        manager.cached[self.identity] = (time.monotonic(), [self.a])
+        await manager.routes(self.a, index=1)
+        manager._request.assert_awaited_with('node.select', {'node': 'account-handle', 'index': 1})
+        self.assertNotIn(self.identity, manager.cached)
+
+    async def test_old_bridge_explains_missing_route_selection_support(self):
+        manager = NativeRoutes()
+        manager.handle = AsyncMock(return_value='account-handle')
+        manager._request = AsyncMock()
+        with self.assertRaisesRegex(ConnectionError, '原生联机组件需要更新'):
+            await manager.routes(self.a, automatic=True)
+        manager._request.assert_not_awaited()
 
     async def test_failed_connection_invalidates_cache_and_notifies_native_selector(self):
         manager = NativeRoutes()

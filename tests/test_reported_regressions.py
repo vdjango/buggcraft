@@ -340,10 +340,12 @@ class ReportedUiTests(LauncherQmlCase):
             self.assertTrue(dialog.backend.view['friendEntryAvailable'])
             self.assertTrue(dialog.backend.friend_timer.isActive())
             self.assertTrue(any(key.startswith('socialstatus:') for key in jobs))
+            self.assertEqual(sum(key.startswith('node-routes:') for key in jobs), 1)
             self.assertFalse(dialog.isVisible())
             generation = dialog.backend.social_generation
             start._start_background_social()
             self.assertIs(start._multiplayer_dialog, dialog)
             self.assertEqual(dialog.backend.social_generation, generation)
+            self.assertEqual(sum(key.startswith('node-routes:') for key in jobs), 1)
             dialog.shutdown()
         self.assert_no_qml_errors()

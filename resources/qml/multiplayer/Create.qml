@@ -225,17 +225,10 @@ ColumnLayout {
                             create.requireInvite ? "大厅可见，玩家需填写房主提供的邀请码才能加入。" : "大厅可见，玩家可以直接加入，无需填写邀请码。"
                         font.pixelSize: 11
                     }
-                    CopyText { text: "玩家连接方式"; color: "#d5cfe3" }
-                    ChoiceBox {
-                        objectName: "create-transport"
-                        Layout.fillWidth: true
-                        model: ["优先 P2P，失败时自动中转", "仅通过节点中转"]
-                        currentIndex: vm.transportPolicy === "relay" ? 1 : 0
-                        onActivated: function(index) { lobby.act("transport", {policy:index === 1 ? "relay" : "auto"}) }
-                    }
                     CopyText {
+                        objectName: "create-connection-hint"
                         Layout.fillWidth: true; font.pixelSize: 11
-                        text: vm.transportPolicy === "relay" ? "房间内所有玩家使用节点中转。" : "每位玩家分别建立连接：能直连的走 P2P，失败后只让该玩家回落到中转。"
+                        text: "自动连接：每位玩家优先尝试 P2P，无法直连时自动通过节点中转。"
                     }
                     RoomVisibility {
                         objectName: "create-game-chat"; text: "同步大厅与游戏聊天"
@@ -302,7 +295,7 @@ ColumnLayout {
                 (!create.manual || port.acceptableInput) && (!create.scanning || (create.manual && port.acceptableInput)))) &&
                 (!create.gameChatEnabled || chatName.acceptableInput)
             onClicked: {
-                lobby.act("quickCreate", {port:!create.prepareOnly && (create.worldIndex >= 0 || create.manual) ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, allowModTransfer:create.fileSharingEnabled, transport:vm.transportPolicy})
+                lobby.act("quickCreate", {port:!create.prepareOnly && (create.worldIndex >= 0 || create.manual) ? port.text : 0, title:title.text, "public":publicRoom.checked, requireInvite:!publicRoom.checked || create.requireInvite, gameChatEnabled:create.gameChatEnabled, gameChatName:chatName.text, allowModTransfer:create.fileSharingEnabled})
                 if (typeof tutorial !== "undefined") tutorial.action("create-world")
             }
         }

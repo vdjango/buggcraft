@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../shared" as Shared
 
 ColumnLayout {
     id: hall
@@ -10,12 +11,12 @@ ColumnLayout {
     Surface {
         objectName: "lobby-loading-status"
         Layout.fillWidth: true; Layout.preferredHeight: 46
-        visible: !!vm.socialLoading || !!vm.loading
+        visible: !!vm.socialLoading || !!vm.loading || !!vm.nodeRoutesBusy
         color: "#272238"; border.color: "#5d4c79"
         RowLayout {
             anchors.fill: parent; anchors.margins: 9; spacing: 8
             BusyIndicator { implicitWidth: 18; implicitHeight: 18; running: parent.parent.visible }
-            CopyText { Layout.fillWidth: true; text: vm.socialLoading ? "正在登录好友服务…" : "正在连接联机节点并加载房间…"; color: "#ded3f3"; font.pixelSize: 12 }
+            CopyText { Layout.fillWidth: true; text: vm.nodeRoutesBusy ? "正在后台测量节点延迟…" : vm.socialLoading ? "正在登录好友服务…" : "正在连接联机节点并加载房间…"; color: "#ded3f3"; font.pixelSize: 12 }
         }
     }
     Surface {
@@ -39,7 +40,7 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: !!vm.socialError
         CopyText { objectName: "lobby-social-error"; Layout.fillWidth: true; text: vm.socialError || ""; color: "#e8b3b3"; font.pixelSize: 11; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
-        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "重新登录" : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act((vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "reloginNode" : "refreshFriends", {}) }
+        ActionButton { objectName: "retry-social-login"; text: (vm.nodeAccessExpired || vm.nodeCredentialRequired) ? "重新登录" : "重试账号验证"; quiet: true; implicitHeight: 28; onClicked: lobby.act("retryAccountLogin", {}) }
     }
     Rectangle {
         id: nodeBar
@@ -60,26 +61,36 @@ ColumnLayout {
                 Layout.preferredWidth: 64; Layout.alignment: Qt.AlignVCenter
                 color: "#b9adca"; font.pixelSize: 12
             }
-            ChoiceBox {
+            Item {
+                id: currentNode
                 objectName: "node-picker"
-                enabled: vm.connections.length === 0
                 Layout.preferredWidth: 250; Layout.preferredHeight: 32
-                tutorialHighlight: typeof tutorial !== "undefined" && tutorial.demoStep === "node"
-                tutorialLockedIndex: typeof tutorial !== "undefined" && tutorial.demoStep === "node" ? vm.nodes.length : -1
-                model: vm.nodes.map(function(node) { return node.title }).concat(["＋ 添加与管理节点"])
-                currentIndex: vm.nodeIndex
-                displayText: vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] ? vm.nodes[vm.nodeIndex].title : "＋ 添加联机节点"
-                Accessible.name: "切换节点或添加与管理节点"
-                onActivated: function(index) {
-                    if (typeof tutorial !== "undefined" && tutorial.demoStep === "node") {
-                        currentIndex = Qt.binding(function() { return vm.nodeIndex })
-                        return
+                property bool hasNode: vm.nodeIndex >= 0 && !!vm.nodes[vm.nodeIndex]
+                property var node: hasNode ? vm.nodes[vm.nodeIndex] : ({})
+                property bool teaching: typeof tutorial !== "undefined" && tutorial.demoStep === "node"
+                property bool tutorialHighlight: teaching
+                Shared.AttentionFrame { objectName: "choice-tutorial-glow"; active: currentNode.teaching }
+                RowLayout {
+                    anchors.fill: parent; spacing: 10
+                    ActionButton {
+                        objectName: "login-node"; text: "节点登录"; primary: true
+                        visible: !currentNode.hasNode; Layout.preferredWidth: 112; Layout.fillHeight: true
+                        onClicked: if (!currentNode.teaching) lobby.act("navigate", {page:"nodes"})
                     }
-                    if (index < vm.nodes.length) lobby.act("node", {index:index})
-                    else {
-                        currentIndex = Qt.binding(function() { return vm.nodeIndex })
-                        lobby.act("navigate", {page:"nodes"})
+                    CopyText {
+                        objectName: "current-node-name"; Layout.fillWidth: true
+                        visible: currentNode.hasNode
+                        text: currentNode.hasNode ? vm.activeNodeRegion || vm.activeNodeName || currentNode.node.region || (currentNode.node.title === "官方节点" ? "地区未知" : currentNode.node.title || "地区未知") : ""
+                        font.pixelSize: 13; font.bold: true; color: "#ede4fa"
+                        elide: Text.ElideRight; wrapMode: Text.NoWrap
                     }
+                    ActionButton {
+                        objectName: "change-node"; text: "切换节点"; quiet: true
+                        visible: currentNode.hasNode; Layout.preferredHeight: 28; Layout.preferredWidth: 76
+                        enabled: vm.connections.length === 0
+                        onClicked: if (!currentNode.teaching) lobby.act("openNodePicker", {})
+                    }
+                    Item { Layout.fillWidth: true; visible: !currentNode.hasNode }
                 }
             }
             RowLayout {
@@ -94,7 +105,7 @@ ColumnLayout {
                 CopyText {
                     objectName: "hall-node-latency"
                     property bool measured: !!vm.nodeAvailable && typeof vm.nodeLatencyMs === "number" && isFinite(vm.nodeLatencyMs) && vm.nodeLatencyMs >= 0
-                    text: "到大厅节点 " + (measured ? Math.round(vm.nodeLatencyMs) + " ms" : "—")
+                    text: vm.nodeIndex < 0 ? "登录后连接节点" : "到大厅节点 " + (measured ? Math.round(vm.nodeLatencyMs) + " ms" : "—")
                     font.pixelSize: 11; color: !measured ? "#aaa4b3" : vm.nodeLatencyMs < 100 ? "#a7c9b5" : vm.nodeLatencyMs < 250 ? "#d0b895" : "#e8b3b3"
                     ToolTip.visible: nodeLatencyHover.hovered
                     ToolTip.text: "你到当前大厅节点的小消息往返时间，不包含连接、登录和房间列表加载；不是到房主的延迟。"
@@ -105,7 +116,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignRight
                     text: vm.roomError ? (vm.nodeAvailable ? "列表异常" : "连接失败") :
-                        vm.nodeIndex < 0 ? "未添加" : vm.loading ? "检查中" :
+                        vm.nodeIndex < 0 ? "" : vm.loading ? "检查中" :
                         !vm.nodeAvailable ? "不可用" : vm.loadingMore ? "加载中" : "已连接"
                     color: nodeBar.statusColor; font.pixelSize: 11
                     elide: Text.ElideRight; wrapMode: Text.NoWrap
@@ -122,18 +133,16 @@ ColumnLayout {
                 text: "联机方式"; color: "#b9adca"; font.pixelSize: 12
                 Layout.preferredWidth: 64; Layout.alignment: Qt.AlignVCenter
             }
-            ChoiceBox {
-                objectName: "hall-transport"
+            CopyText {
+                objectName: "hall-connection-hint"
                 Layout.preferredWidth: 250; Layout.preferredHeight: 32
-                enabled: !vm.busy && vm.connections.length === 0
-                model: ["优先直连，自动中转", "仅通过节点中转"]
-                currentIndex: vm.transportPolicy === "relay" ? 1 : 0
-                Accessible.name: "加入房间的连接方式"
-                onActivated: function(index) { lobby.act("transport", {policy:index === 1 ? "relay" : "auto"}) }
+                text: "自动 · 优先 P2P，失败后中转"
+                color: "#c7bad8"; font.pixelSize: 12
+                verticalAlignment: Text.AlignVCenter
             }
             CopyText {
                 objectName: "lobby-identity"; Layout.fillWidth: true
-                text: vm.nodeAccessExpired ? "登录已失效" : vm.socialReady ? "已登录 · " + vm.socialName : vm.deviceManaged || (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode) ? "账号待验证" : "匿名接入"
+                text: vm.nodeIndex < 0 ? "尚未登录" : vm.nodeAccessExpired ? "登录已失效" : vm.socialReady ? "已登录 · " + vm.socialName : vm.deviceManaged || (vm.nodeIndex >= 0 && vm.nodes[vm.nodeIndex] && vm.nodes[vm.nodeIndex].personalCode) ? "账号待验证" : "匿名接入"
                 font.pixelSize: 11; color: vm.socialReady ? "#8edbb0" : "#c1b7ce"
                 wrapMode: Text.NoWrap; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight
             }
@@ -330,20 +339,9 @@ ColumnLayout {
             }
             CopyText {
                 Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                text: vm.roomError || (vm.nodeIndex < 0 ? "从可信节点网页复制添加码，即可与朋友一起玩。" :
+                text: vm.roomError || (vm.nodeIndex < 0 ? "登录节点后，即可发现房间，与朋友一起玩。" :
                     (vm.roomQuery || "").trim() ? "试试其他房间名称或游戏版本。" : "公开房间会出现在这里，私密房间通过邀请码加入。")
                 font.pixelSize: 12; color: "#aaa4b3"
-            }
-            ActionButton {
-                objectName: "empty-add-node"
-                Layout.alignment: Qt.AlignHCenter
-                visible: vm.nodeIndex < 0
-                text: "添加联机节点"; implicitHeight: 30; primary: true
-                enabled: !(typeof tutorial !== "undefined" && tutorial.demoStep === "node")
-                onClicked: {
-                    if (typeof tutorial !== "undefined" && tutorial.demoStep === "node") return
-                    lobby.act("navigate", {page:"nodes"})
-                }
             }
         }
     }

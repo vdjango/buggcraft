@@ -78,6 +78,29 @@ class FriendEntryRegressionTests(unittest.TestCase):
         self.backend.finish('socialstatus:' + self.backend.social_generation + ':' + self.backend.node_path,
                             None, message)
 
+    def test_account_retry_without_saved_web_address_requires_address_confirmation(self):
+        with patch.object(self.backend, 'login_official_device') as login:
+            self.backend.act('retryAccountLogin', {})
+            self.assertEqual(self.backend.view['page'], 'nodes')
+            self.assertEqual(self.backend.view['deviceOrigin'], 'https://node.bugg.icu')
+            save_json(str(self.path) + '.device.json', {'origin': 'http://invalid.example'})
+            self.backend.act('retryAccountLogin', {})
+            self.assertEqual(self.backend.view['deviceOrigin'], '')
+            login.assert_not_called()
+
+    def test_all_relogin_actions_share_form_and_restore_original_address(self):
+        save_json(str(self.path) + '.device.json', {'origin': 'https://community.example'})
+        with patch.object(self.backend, 'login_official_device') as login:
+            for action in ('retryAccountLogin', 'reloginNode', 'replaceNodeCode'):
+                self.backend.patch(deviceOrigin='https://edited.example')
+                self.backend.act(action, {})
+                self.assertEqual(self.backend.view['page'], 'nodes')
+                self.assertEqual(self.backend.view['deviceOrigin'], 'https://community.example')
+                self.assertFalse(self.backend.view['deviceLoginBusy'])
+                self.backend.act('closeNodeLogin', {})
+                self.assertEqual(self.backend.view['page'], 'hall')
+            login.assert_not_called()
+
     def test_stale_room_presence_retries_without_hiding_friends(self):
         self.backend._state['socialCapabilities'] = {'room_presence': True}
         self.backend.player_network_profile = {'type': 'unknown'}
@@ -144,7 +167,7 @@ class FriendEntryRegressionTests(unittest.TestCase):
         next(button for button in dialog.buttons() if button.text() == '前往重新登录').click()
         self.assertIsNone(self.backend.credential_prompt_dialog)
         self.assertEqual(self.backend.view['page'], 'nodes')
-        self.assertIn('浏览器重新登录', self.backend.view['notice'])
+        self.assertEqual(self.backend.view['deviceLoginStage'], 'idle')
 
     def test_expired_profile_retains_visible_popup_after_identity_reload(self):
         save_json(self.path, profile_data(personal_profile(expiry=1)))

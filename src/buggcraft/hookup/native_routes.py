@@ -113,12 +113,14 @@ class NativeRoutes:
         self.force_process = force_process
         self.runtime_path = None
         self.feedback_support = False
+        self.route_selection_support = False
         self.process = None
         self.library = None
         self.stderr = None
         self.handles = {}
         self.callbacks = {}
         self.cached = {}
+        self.route_auto_started = set()
         self.serial = 0
         self.diagnostic_support = False
         self.lock = asyncio.Lock()
@@ -140,10 +142,12 @@ class NativeRoutes:
     async def close(self):
         self.diagnostic_support = False
         self.feedback_support = False
+        self.route_selection_support = False
         library, self.library = self.library, None
         process, self.process = self.process, None
         self.handles.clear()
         self.cached.clear()
+        self.route_auto_started.clear()
         self.callbacks.clear()
         if library is not None:
             await asyncio.to_thread(library.close)
@@ -309,6 +313,7 @@ class NativeRoutes:
             methods = set(initialized.get('methods', []))
             self.diagnostic_support = 'bridge.diagnostics' in methods
             self.feedback_support = 'feedback.submit' in methods
+            self.route_selection_support = 'node.select' in methods
             required = {'node.add', 'node.selected', 'node.request', 'room.host',
                         'room.join', 'room.close', 'room.configure', 'room.retarget',
                         'game.status', 'game.discover', 'session.events', 'session.list',
@@ -331,10 +336,10 @@ class NativeRoutes:
             if key not in self.handles:
                 if len(self.handles) >= 16:
                     raise ConnectionError('Native bridge node limit reached; close an unused node')
-                params = {'code': encode_code(profile), 'alternatives': []}
+                params = {'code': encode_code(profile), 'alternatives': [], 'selection': 'latency'}
                 for item in candidates(profile)[1:6]:
                     alternatives = params['alternatives'] + [profile_data(item)]
-                    proposal = {'code': params['code'], 'alternatives': alternatives}
+                    proposal = {**params, 'alternatives': alternatives}
                     if len(json.dumps(proposal, separators=(',', ':')).encode()) > 7800:
                         break
                     params = proposal
@@ -347,6 +352,29 @@ class NativeRoutes:
     async def request(self, method, params):
         await self.ensure()
         return await self._request(method, params)
+
+    async def routes(self, profile, *, automatic=False, refresh=False, index=None):
+        """Use the pinned federation routes without changing the login identity."""
+        from .nodes import profile_data
+        key = hashlib.sha256(json.dumps(profile_data(profile), sort_keys=True).encode()).digest()
+        handle = await self.handle(profile)
+        if not self.route_selection_support:
+            raise ConnectionError('原生联机组件需要更新，才能自动分配或手动切换节点。')
+        params = {'node': handle}
+        method = 'node.routes'
+        if index is not None:
+            if type(index) is not int or not 0 <= index < 6:
+                raise ValueError('无效的节点选项，请刷新节点列表。')
+            method = 'node.select'
+            params['index'] = index
+        else:
+            params.update(auto=automatic, refresh=(refresh or (automatic and key in self.route_auto_started)))
+        result = await self._request(method, params)
+        if automatic:
+            self.route_auto_started.add(key)
+        if automatic or index is not None:
+            self.cached.pop(key, None)
+        return result
 
     async def operation(self, profile, request):
         return await self._request('node.request', {

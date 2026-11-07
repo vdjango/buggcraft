@@ -901,8 +901,8 @@ class ClientUiMultiplayerTests(ClientUiAcceptanceCase):
         })
         self.pause_ui()
         self.screenshot_ui("multiplayer-hall", dialog)
-        self.click_ui(dialog, "node-picker")
-        self.key_ui(dialog, Qt.Key_Escape, "node-picker-escape")
+        self.click_ui(dialog, "change-node")
+        self.key_ui(dialog, Qt.Key_Escape, "node-login-escape")
         self.click_ui(dialog, "open-friends-window")
         friends = dialog.friends_window
         self.wait_for(lambda: friends is not None and friends.isVisible(),

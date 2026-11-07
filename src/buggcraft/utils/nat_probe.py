@@ -10,7 +10,7 @@ import struct
 import time
 
 COOKIE = 0x2112A442
-DEFAULT_SERVERS = (('81.68.225.236', 3334), ('43.241.50.19', 13331))
+DEFAULT_SERVERS = (('81.68.225.236', 3333), ('43.241.50.19', 13331))
 
 
 def parse_binding(packet, transaction):

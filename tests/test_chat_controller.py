@@ -109,6 +109,43 @@ class ChatControllerTests(unittest.TestCase):
         self.assertEqual(controller.node_path, 'original')
         self.assertIn('不能切换', controller.view['error'])
 
+    def test_manual_route_keeps_account_identity_and_ignores_stale_probe(self):
+        controller = self.controller
+        path = str(Path(self.temporary.name) / 'account.json')
+        save_json(path, profile_data(RelayProfile('127.0.0.1', 3333, 'a' * 48, ssh_public_key())))
+        controller.store.add_node(path)
+        with patch.object(controller, 'job', side_effect=lambda key, task: task.close()):
+            controller.reload_store()
+            controller.load_node_routes(automatic=True)
+            old = controller.node_routes_generation
+            controller.patch(nodeRoutesBusy=False)
+            controller.load_node_routes(index=1)
+        identity = controller.social_identity
+        generation = controller.social_generation
+        routes = [dict(index=1, name='武汉节点', region='武汉', selected=True, reachable=True, rtt_ms=16)]
+        with patch.object(controller, 'refresh') as rooms, patch.object(controller, 'refresh_friends') as friends:
+            controller.finish('node-routes:' + old, {'routes': [], 'automatic': True}, None)
+            self.assertTrue(controller.view['nodeRoutesBusy'])
+            rooms.assert_not_called()
+            controller.finish('node-routes:' + controller.node_routes_generation,
+                              {'routes': routes, 'automatic': False, 'switched': True}, None)
+            rooms.assert_called_once()
+            friends.assert_called_once()
+        self.assertEqual(controller.node_path, path)
+        self.assertEqual(controller.social_identity, identity)
+        self.assertEqual(controller.social_generation, generation)
+        self.assertEqual(controller.view['activeNodeRegion'], '武汉')
+        self.assertFalse(controller.view['nodePickerOpen'])
+
+    def test_node_route_probe_error_does_not_invalidate_existing_login(self):
+        controller = self.controller
+        controller.patch(socialReady=True, nodeAvailable=True, nodeRoutesBusy=True)
+        controller.finish('node-routes:' + controller.node_routes_generation, None, 'timeout')
+        self.assertTrue(controller.view['socialReady'])
+        self.assertTrue(controller.view['nodeAvailable'])
+        self.assertFalse(controller.view['nodeRoutesBusy'])
+        self.assertIn('timeout', controller.view['nodeRouteError'])
+
     def test_room_refresh_updates_saved_node_name_without_changing_selection(self):
         controller = self.controller
         path = Path(self.temporary.name) / 'node.json'
