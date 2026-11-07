@@ -209,7 +209,7 @@ class OnboardingCoach(QObject):
         dict(target="tutorial-friends-target", title="好友通知会闪烁",
              body="收到好友请求或房间邀请时，好友按钮会像这样闪烁，并显示未读数量。这只是通知演示，无需添加好友；实际使用时，先填写节点地址并在浏览器登录，才会显示真实好友按钮。", window="launcher", action="friends", demo="friends", key_next=True),
         dict(target="node-picker", title="查看联机节点入口", demo="node",
-             body="点击发光的下拉框查看选项。教学期间‘添加与管理节点’会被锁定，不会进入添加页面；真实使用时再选择它，填写节点域名或 IP，在浏览器登录并连接节点。本次只查看入口，随后直接继续。", window="lobby", key_next=True),
+             body="首次使用时，点击这里的‘节点登录’，填写节点地址并在浏览器完成授权。登录后，这里会显示当前节点和延迟；需要更换时点击‘切换节点’。教学期间不会打开登录页面，按 Enter 继续。", window="lobby", key_next=True),
         dict(target="rooms-list", title="发现房间",
              body="添加节点并连接成功后，公开房间会显示在这里。没有节点时不会显示房间，这是正常状态。按 Enter 继续。", window="lobby", key_next=True),
         dict(target="create-mode-prepare", title="可以先开房再准备", demo="create",

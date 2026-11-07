@@ -288,10 +288,10 @@ class HomeChecklistUiTests(_HomeCase):
         dialog = home._multiplayer_dialog
         backend = dialog.backend
         self.check(not backend.view["nodes"] and backend.view["nodeIndex"] == -1
-                   and self.item(dialog, "empty-add-node").isVisible(),
+                   and self.item(dialog, "login-node").isVisible(),
                    "a launcher without nodes offers the explicit add-node entry")
         self.screenshot_ui("home-lobby-without-node", dialog)
-        self.click_ui(dialog, "empty-add-node")
+        self.click_ui(dialog, "login-node")
         profile = personal_profile()
         self.text_ui(dialog, "node-web-address", 'community.example')
         self.click_ui(dialog, "login-official-device")
@@ -303,25 +303,23 @@ class HomeChecklistUiTests(_HomeCase):
         self.pause_ui()
         self.check(len(backend.view["nodes"]) == 1 and not backend.view["error"],
                    "verified device profile is saved by the production node store")
-        self.click_ui(dialog, "back-hall")
+        self.click_ui(dialog, "close-node-login")
         second = self.directory / "second-home-node.json"
         save_json(second, profile_data(replace(profile, server_port=3334)))
         backend.store.add_node(str(second))
         backend.reload_store()
         backend.patch(nodeAvailable=True, loading=False)
         self.pause_ui()
-        self.click_ui(dialog, "node-picker")
-        self.check(self.item(dialog, "node-picker").property("tutorialPopupVisible"),
-                   "node selector opens before keyboard selection")
-        qt_mouse_move(dialog.quick, QPoint(3, 3))
-        self.pause_ui()
-        self.key_ui(dialog, Qt.Key_Home, "node-list-first")
-        self.key_ui(dialog, Qt.Key_Down, "node-list-second")
-        self.check(self.item(dialog, "node-picker").property("highlightedIndex") == 1,
-                   "node keyboard selection highlights the second profile")
-        self.key_ui(dialog, Qt.Key_Return, "node-list-confirm")
-        self.check(backend.node_path == str(second) and backend.view["nodeIndex"] == 1,
-                   "node selection changes the actual selected profile")
+        selected = backend.node_path
+        self.check(self.item(dialog, "current-node-name").property("text") ==
+                   backend.view['nodes'][backend.view['nodeIndex']]['title'],
+                   "the hall displays the current node without a selector")
+        self.click_ui(dialog, "change-node")
+        self.check(self.item(dialog, "node-web-address").isVisible(),
+                   "switching nodes uses the shared browser-login form")
+        self.click_ui(dialog, "close-node-login")
+        self.check(backend.node_path == selected,
+                   "closing node login keeps the existing selected node")
         backend.patch(nodeAvailable=True, loading=False, rooms=[], roomError="")
         self.pause_ui()
         self.check(self.item(dialog, "rooms-empty").property("text") == "暂时没有开放房间",

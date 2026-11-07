@@ -4,7 +4,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QMetaObject, QUrl
+from PySide6.QtCore import QMetaObject, QObject, QUrl
 from PySide6.QtQuick import QQuickView
 
 from _qml_test_support import LauncherQmlCase
@@ -74,6 +74,124 @@ class FriendEntryUiTests(LauncherQmlCase):
         self.backend.act('cancelDeviceLogin', {})
         self.assertFalse(self.backend.device_login_timer.isActive())
         self.assertFalse(self.backend.view['deviceLoginBusy'])
+
+    def test_hall_account_retry_uses_shared_login_form_and_original_node(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        origin = 'https://community.example:18443'
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': origin})
+        self.backend.reload_store(refresh_identity=True)
+        # Editing the add-node form must not redirect this node's recovery.
+        self.backend.patch(deviceOrigin='https://other.example', socialLoading=False,
+                           socialError='账号验证未完成')
+        self.dialog.show()
+        self.pump()
+        with patch('ui.multiplayer_controller.webbrowser.open', return_value=True) as opened:
+            self.click(self.dialog, 'retry-social-login')
+            popup = self.dialog.quick.rootObject().findChild(QObject, 'node-login-dialog')
+            self.assertTrue(popup.property('visible'))
+            self.assertFalse(self.backend.view['deviceLoginBusy'])
+            opened.assert_not_called()
+            self.assertEqual(self.backend.view['page'], 'nodes')
+            self.assertEqual(self.backend.view['deviceOrigin'], origin)
+            self.assertEqual(self.item(self.dialog, 'node-web-address').property('text'), origin)
+            self.click(self.dialog, 'login-official-device')
+            self.assertEqual(self.backend.view['deviceLoginStage'], 'preparing')
+            self.assertTrue(self.backend.view['deviceLoginBusy'])
+            self.assertIn('准备登录', self.item(self.dialog, 'node-login-status').property('text'))
+            result = {'verification_uri': origin + '/account/access?launcher=new-device'}
+            self.backend.finish('device-login-start:' + self.backend.device_login_generation,
+                                (result, ec.generate_private_key(ec.SECP256R1())), None)
+            self.pump()
+            opened.assert_called_once_with(result['verification_uri'])
+            self.assertEqual(self.backend.view['deviceLoginStage'], 'waiting')
+            self.assertTrue(self.item(self.dialog, 'copy-device-login-url').isVisible())
+            self.assertTrue(self.backend.device_login_timer.isActive())
+        self.backend.act('cancelDeviceLogin', {})
+        self.assertTrue(self.path.is_file())
+        self.assert_no_qml_errors()
+
+    def test_hall_expired_account_retry_can_be_canceled_without_starting_login(self):
+        save_json(str(self.path) + '.device.json', {'id': 'device', 'origin': 'https://community.example'})
+        self.backend.patch(nodeCredentialRequired=True, socialLoading=False,
+                           socialError='登录已失效')
+        self.dialog.show()
+        self.pump()
+        with patch.object(self.backend, 'login_official_device') as login, \
+             patch('ui.multiplayer_controller.webbrowser.open') as opened:
+            self.click(self.dialog, 'retry-social-login')
+            self.assertTrue(self.item(self.dialog, 'node-web-address').isVisible())
+            self.click(self.dialog, 'close-node-login')
+            self.pump()
+            self.assertEqual(self.backend.view['page'], 'hall')
+            self.assertFalse(self.backend.view['deviceLoginBusy'])
+            login.assert_not_called()
+            opened.assert_not_called()
+        self.assert_no_qml_errors()
+
+    def test_closing_shared_login_cancels_pending_authorization_and_ignores_late_result(self):
+        self.dialog.show()
+        self.backend.act('navigate', {'page': 'nodes'})
+        self.pump()
+        self.click(self.dialog, 'login-official-device')
+        generation = self.backend.device_login_generation
+        self.click(self.dialog, 'close-node-login')
+        self.assertEqual(self.backend.view['page'], 'hall')
+        self.assertFalse(self.backend.view['deviceLoginBusy'])
+        with patch('ui.multiplayer_controller.webbrowser.open') as opened:
+            self.backend.finish('device-login-start:' + generation,
+                                ({'verification_uri': 'https://node.example'}, None), None)
+            opened.assert_not_called()
+        self.assertFalse(self.backend.device_login_timer.isActive())
+        self.assert_no_qml_errors()
+
+    def test_first_login_success_closes_form_and_displays_node_and_latency(self):
+        import base64
+        from dataclasses import replace
+        import json
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        self.backend.store.data['nodes'] = []
+        self.backend.reload_store()
+        self.backend.patch(loading=False, socialLoading=False)
+        self.dialog.show()
+        self.pump()
+        self.assertTrue(self.item(self.dialog, 'login-node').isVisible())
+        self.assertFalse(self.item(self.dialog, 'current-node-name').isVisible())
+        self.click(self.dialog, 'login-node')
+        self.assertEqual(self.item(self.dialog, 'node-web-address').property('text'), 'https://node.bugg.icu')
+        self.click(self.dialog, 'login-official-device')
+        generation = self.backend.device_login_generation
+        result = {'id': 'approved-device', 'origin': 'https://node.bugg.icu',
+                  'verification_uri': 'https://node.bugg.icu/account/access?launcher=approved-device'}
+        profile = personal_profile()
+        claims = {'e': int(time.time()) + 3600, 'g': {'d': True, 'r': result['id'], 'o': result['origin']}}
+        payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+        profile = replace(profile, token='acct1.' + payload + '.signature~test-secret')
+        object.__setattr__(profile, '_name', '官方节点')
+        object.__setattr__(profile, '_region', '上海')
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        with patch('ui.multiplayer_controller.webbrowser.open', return_value=True) as opened, \
+             patch('hookup.device_login.save_private_key'):
+            self.backend.finish('device-login-start:' + generation, (result, private_key), None)
+            self.backend.finish('device-login-verified:' + generation, (profile, result, private_key), None)
+            opened.assert_called_once_with(result['verification_uri'])
+        self.pump()
+        self.assertEqual(self.backend.view['error'], '')
+        self.assertEqual(self.backend.view['page'], 'hall')
+        self.assertFalse(self.dialog.quick.rootObject().findChild(QObject, 'node-login-dialog').property('visible'))
+        self.assertFalse(self.item(self.dialog, 'login-node').isVisible())
+        self.assertEqual(self.item(self.dialog, 'current-node-name').property('text'), '上海')
+        self.backend.node_display_regions.clear()
+        self.backend.reload_store()
+        self.pump()
+        self.assertEqual(self.item(self.dialog, 'current-node-name').property('text'), '上海')
+        self.backend.finish('rooms:' + self.backend.room_generation + ':0',
+                            dict(rooms=[], next=None, total=0, node_latency_ms=18,
+                                 node_latency_method='application-echo'), None)
+        self.pump()
+        self.assertEqual(self.item(self.dialog, 'hall-node-latency').property('text'), '到大厅节点 18 ms')
+        self.assert_no_qml_errors()
 
     def test_login_browser_failure_keeps_copy_link_available(self):
         self.backend.device_login = ({}, None, 'generation')

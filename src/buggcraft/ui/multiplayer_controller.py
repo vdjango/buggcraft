@@ -412,7 +412,17 @@ class MultiplayerController(RoomPreparation, QObject):
                     type(exc).__name__, path == self.node_path, path in previous)
             device_managed = (preloaded[path][1] is not None if preloaded is not None
                               else Path(path + '.device.json').is_file())
-            nodes.append({'title': title, 'path': path, 'personalCode': personal_code,
+            region = self.node_display_regions.get(path, previous.get(path, {}).get('region', ''))
+            if device_managed:
+                try:
+                    metadata = (preloaded[path][1] if preloaded is not None else
+                                json.loads(Path(path + '.device.json').read_text(encoding='utf-8')))
+                    saved_region = metadata.get('region')
+                    if isinstance(saved_region, str) and saved_region.strip():
+                        region = saved_region.strip()[:80]
+                except (OSError, ValueError, TypeError, AttributeError):
+                    pass
+            nodes.append({'title': title, 'region': region, 'path': path, 'personalCode': personal_code,
                           'codeExpired': expired, 'deviceManaged': device_managed})
         paths = [node['path'] for node in nodes]
         target = select or self.node_path
@@ -821,9 +831,13 @@ class MultiplayerController(RoomPreparation, QObject):
                                       request['account'], ref=request['id'], room=request['room'])
             elif action == 'refreshFriends':
                 self.refresh_friends()
-            elif action in ('reloginNode', 'replaceNodeCode'):
+            elif action in ('retryAccountLogin', 'reloginNode', 'replaceNodeCode'):
+                self.restore_node_login_origin()
                 self.navigate('nodes')
-                self.patch(notice='使用原节点的 HTTPS 地址，在浏览器重新登录并授权此设备。')
+            elif action == 'closeNodeLogin':
+                if self._state['deviceLoginBusy']:
+                    self.act('cancelDeviceLogin', {})
+                self.navigate('hall')
             elif action == 'editFriend':
                 index = int(data['index'])
                 contact = self.store.data['contacts'][index]
@@ -906,6 +920,8 @@ class MultiplayerController(RoomPreparation, QObject):
             page = 'hall'
         if page == 'connections' and not self._state['connections']:
             page = 'hall'
+        if page == 'nodes' and not self._state['deviceLoginBusy']:
+            self.patch(deviceLoginStage='idle', deviceLoginMessage='')
         self.generation = uuid.uuid4().hex
         self.pending = self.creation = None
         self.quick_creation_data = None
@@ -1017,6 +1033,20 @@ class MultiplayerController(RoomPreparation, QObject):
         if self.node_path != chosen:
             notice = '节点已保存；当前房间结束后，切换到该节点即可使用新的接入身份。'
         self.patch(busy=False, error='', notice=notice)
+
+    def restore_node_login_origin(self):
+        if self._state['deviceLoginBusy'] or not self.node_path:
+            return
+        from hookup.device_login import validate_origin
+        metadata_path = Path(self.node_path + '.device.json')
+        if not metadata_path.is_file():
+            return
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+            origin = validate_origin(metadata['origin'])
+        except (OSError, ValueError, TypeError, KeyError):
+            origin = ''
+        self.patch(deviceOrigin=origin)
 
     @Slot()
     def login_official_device(self, remember=True, origin='https://node.bugg.icu'):

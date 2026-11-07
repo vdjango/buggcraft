@@ -63,6 +63,9 @@ class LobbyBackend(QObject):
         elif name == 'deviceOrigin':
             self._view = {**self._view, 'deviceOrigin': values['text']}
             self.viewChanged.emit()
+        elif name == 'closeNodeLogin':
+            self._view = {**self._view, 'page': 'hall', 'deviceLoginBusy': False}
+            self.viewChanged.emit()
         elif name == 'selectConnection':
             self._view = {**self._view, 'selected':values['id'], 'page':'connected'}
             self.viewChanged.emit()
@@ -154,9 +157,7 @@ class LobbyLayoutTests(unittest.TestCase):
             self.assertTrue(self.window.grabWindow().save(str(target / (name + '.png'))))
 
     def open_nodes(self):
-        self.click('node-picker')
-        QTest.keyClick(self.window, Qt.Key_End)
-        QTest.keyClick(self.window, Qt.Key_Return)
+        self.click('change-node' if self.backend.view['nodeIndex'] >= 0 else 'login-node')
         QTest.qWait(60)
         self.assertEqual(self.backend.view['page'], 'nodes')
 
@@ -169,32 +170,32 @@ class LobbyLayoutTests(unittest.TestCase):
         self.click('cancel-node-update')
         self.assertEqual(self.backend.actions[-1][0], 'cancelNodeUpdate')
 
-    def test_node_picker_replaces_tab_and_opens_a_secondary_management_page(self):
+    def test_current_node_opens_shared_login_without_saved_node_list(self):
         with self.assertRaises(AssertionError):
             find_item(self.window, 'nav-nodes')
         picker = find_item(self.window, 'node-picker')
-        self.assertIn('Local relay', picker.property('displayText'))
+        self.assertEqual(find_item(self.window, 'current-node-name').property('text'), 'Local relay')
         self.assertEqual(picker.height(), find_item(self.window, 'refresh-rooms').height())
         self.assertLessEqual(picker.mapToScene(QPointF(picker.width(), 0)).x(), 707)
         self.open_nodes()
         self.assert_absent_or_hidden('navigation-tabs')
-        self.assertTrue(find_item(self.window, 'back-hall').isVisible())
-        for name in ('node-advanced', 'node-code', 'add-node-code', 'import-node', 'export-node'):
+        self.assertTrue(self.window.rootObject().findChild(QObject, 'node-login-dialog').property('visible'))
+        for name in ('node-advanced', 'node-code', 'add-node-code', 'import-node', 'export-node', 'nodes-list', 'remove-node'):
             self.assert_absent_or_hidden(name)
-        for name in ('nodes-list', 'node-web-address', 'remember-device-login', 'login-official-device', 'nodes-done'):
+        for name in ('node-web-address', 'remember-device-login', 'login-official-device', 'close-node-login'):
             item = find_item(self.window, name)
             self.assertTrue(item.isVisible(), name)
             pos = item.mapToScene(QPointF(0, 0))
             self.assertGreaterEqual(pos.x(), 14, name)
             self.assertLessEqual(pos.x() + item.width(), 707, name)
-            self.assertGreaterEqual(pos.y(), 54, name)
+            self.assertGreaterEqual(pos.y(), 24, name)
             self.assertLessEqual(pos.y() + item.height(), 491, name)
-        self.click('back-hall')
+        self.click('close-node-login')
         self.assertEqual(self.backend.view['page'], 'hall')
-        self.assertEqual(find_item(self.window, 'node-picker').property('currentIndex'), 0)
+        self.assertEqual(find_item(self.window, 'current-node-name').property('text'), 'Local relay')
 
     def test_node_picker_disabled_while_a_room_exists(self):
-        picker = find_item(self.window, 'node-picker')
+        picker = find_item(self.window, 'change-node')
         self.assertTrue(picker.isEnabled())
         self.backend._view['connections'] = [{'id':'test', 'title':'Test', 'state':'online', 'role':'host'}]
         self.backend.viewChanged.emit()
@@ -205,20 +206,22 @@ class LobbyLayoutTests(unittest.TestCase):
         QTest.qWait(30)
         self.assertTrue(picker.isEnabled())
 
-    def test_node_picker_switches_without_opening_management_and_escape_keeps_hall(self):
+    def test_node_name_is_static_and_switch_opens_login_while_escape_keeps_hall(self):
         self.backend._view = {**self.backend._view, 'nodes':[{'title':'First'},{'title':'Second'}]}
         self.backend.viewChanged.emit(); QTest.qWait(30)
-        self.click('node-picker'); QTest.keyClick(self.window, Qt.Key_Down); QTest.keyClick(self.window, Qt.Key_Return)
+        self.click('node-picker'); QTest.keyClick(self.window, Qt.Key_Down)
         QTest.qWait(40)
-        self.assertEqual(self.backend.actions[-1], ('node', {'index':1}))
+        self.assertFalse(any(action == 'node' for action, _ in self.backend.actions))
         self.assertEqual(self.backend.view['page'], 'hall')
-        self.click('node-picker'); QTest.keyClick(self.window, Qt.Key_Escape); QTest.qWait(30)
+        self.open_nodes(); QTest.keyClick(self.window, Qt.Key_Escape); QTest.qWait(30)
         self.assertEqual(self.backend.view['page'], 'hall')
 
     def test_empty_node_entry_and_address_survive_secondary_page_navigation(self):
         self.backend._view = {**self.backend._view, 'nodes':[], 'nodeIndex':-1, 'rooms':[]}
         self.backend.viewChanged.emit(); QTest.qWait(30)
-        self.click('empty-add-node')
+        self.assertTrue(find_item(self.window, 'login-node').isVisible())
+        self.assertFalse(find_item(self.window, 'current-node-name').isVisible())
+        self.click('login-node')
         self.assertEqual(self.backend.view['page'], 'nodes')
         self.click('node-web-address')
         QTest.keyClick(self.window, Qt.Key_A, Qt.ControlModifier)
@@ -226,14 +229,8 @@ class LobbyLayoutTests(unittest.TestCase):
         QTest.keyClick(self.window, Qt.Key_V, Qt.ControlModifier); QTest.qWait(30)
         self.assertEqual(self.backend.view['deviceOrigin'], 'community.example:18443')
         self.assertTrue(find_item(self.window, 'login-official-device').isEnabled())
-        self.click('back-hall'); self.open_nodes()
+        self.click('close-node-login'); self.open_nodes()
         self.assertEqual(find_item(self.window, 'node-web-address').property('text'), 'community.example:18443')
-
-    def test_remove_node_requires_a_second_click(self):
-        self.open_nodes(); self.click('remove-node')
-        self.assertNotEqual(self.backend.actions[-1][0], 'removeNode')
-        self.click('remove-node')
-        self.assertEqual(self.backend.actions[-1], ('removeNode', {}))
 
     def test_node_management_keeps_actions_visible_with_busy_and_error_feedback(self):
         self.open_nodes()
@@ -250,7 +247,7 @@ class LobbyLayoutTests(unittest.TestCase):
         feedback = find_item(self.window, 'feedback')
         self.assertFalse(feedback.isVisible())
         self.assertTrue(find_item(self.window, 'node-login-status').isVisible())
-        for name in ('node-web-address', 'login-official-device', 'nodes-done'):
+        for name in ('node-web-address', 'login-official-device', 'close-node-login'):
             item = find_item(self.window, name)
             bottom = item.mapToScene(QPointF(0, item.height())).y()
             self.assertLessEqual(bottom, 491, name)
@@ -281,6 +278,11 @@ class LobbyLayoutTests(unittest.TestCase):
     def test_room_list_shows_assigned_node_and_region(self):
         location = find_item(self.window, 'room-node-location-0')
         self.assertEqual(location.property('text'), '宿迁节点 · 中国·江苏宿迁')
+        for region, expected in [('上海', '上海'), ('', '地区未知')]:
+            self.backend._view['nodes'] = [{'title': '官方节点', 'region': region}]
+            self.backend.viewChanged.emit()
+            QTest.qWait(30)
+            self.assertEqual(find_item(self.window, 'current-node-name').property('text'), expected)
 
     def test_room_latency_is_visible_and_distinguishes_unavailable_from_zero(self):
         for value, available, expected in [(57.4, True, '到大厅节点 57 ms'),
@@ -991,19 +993,19 @@ class LobbyLayoutTests(unittest.TestCase):
         self.assertTrue(card.property('expanded'))
 
     def test_top_level_title_bar_identifies_current_page_and_does_not_overlap_window_controls(self):
-        for page, expected in (('hall', '· 联机大厅'), ('nodes', '联机节点')):
+        for page, expected in (('hall', '· 联机大厅'), ('nodes', '· 联机大厅')):
             if page == 'nodes':
                 self.open_nodes()
             title = find_item(self.window, 'window-page-title')
             self.assertTrue(title.isVisible())
             self.assertEqual(title.property('text'), expected)
             logo = find_item(self.window, 'window-brand-logo')
-            self.assertEqual(logo.isVisible(), page == 'hall')
+            self.assertTrue(logo.isVisible())
             if page == 'hall':
                 self.assertGreater(logo.implicitWidth(), 0)
                 self.assertLessEqual(logo.mapToScene(QPointF(logo.width(), 0)).x(),
                                      title.mapToScene(QPointF()).x())
-            self.assertEqual(find_item(self.window, 'back-hall').isVisible(), page == 'nodes')
+            self.assertFalse(find_item(self.window, 'back-hall').isVisible())
             self.assertFalse(title.property('truncated'))
             self.assertLessEqual(title.mapToScene(QPointF(title.width(), 0)).x(),
                                  find_item(self.window, 'minimize-window').mapToScene(QPointF(0, 0)).x())

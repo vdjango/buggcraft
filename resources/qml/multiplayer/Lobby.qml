@@ -33,10 +33,10 @@ Rectangle {
     WindowHeader {
         objectName: "window-header"
         x: 2; y: 2; width: parent.width - 4
-        title: root.page === "connected" ? root.selectedRoom.title || "房间详情" : root.titles[root.page] || "BUGG·联机大厅"
-        brandSource: root.page === "hall" ? "../../images/bugg-logo.png" : ""
+        title: root.page === "connected" ? root.selectedRoom.title || "房间详情" : root.page === "nodes" ? "BUGG·联机大厅" : root.titles[root.page] || "BUGG·联机大厅"
+        brandSource: root.page === "hall" || root.page === "nodes" ? "../../images/bugg-logo.png" : ""
         brandTitle: "· 联机大厅"
-        navigationVisible: root.page !== "hall" && root.page !== "friends"
+        navigationVisible: root.page !== "hall" && root.page !== "friends" && root.page !== "nodes"
         navigationText: "‹"
         navigationName: root.page === "connected" ? "返回并断开连接" : "返回"
         closeName: "关闭窗口，保留联机"
@@ -71,7 +71,7 @@ Rectangle {
             objectName: "page-loader"; Layout.fillWidth: true; Layout.fillHeight: true
             source: ({hall:"Hall.qml",create:"Create.qml",join:"Join.qml",friends:"Friends.qml",
                 friendForm:"FriendForm.qml",connections:"ConnectionsPage.qml",connected:"Connected.qml",
-                nodes:"Nodes.qml",worldPicker:"WorldPicker.qml"})[root.page] || "Hall.qml"
+                nodes:"Hall.qml",worldPicker:"WorldPicker.qml"})[root.page] || "Hall.qml"
         }
     }
     Rectangle {
@@ -101,6 +101,33 @@ Rectangle {
     Timer {
         interval: 4000; running: vm.notice.length > 0 && !vm.error
         onTriggered: lobby.act("dismiss", {})
+    }
+    Popup {
+        id: nodeLoginPopup; objectName: "node-login-dialog"
+        parent: Overlay.overlay; anchors.centerIn: parent
+        width: Math.min(520, parent.width - 36)
+        height: Math.min(425, parent.height - 32)
+        padding: 0; modal: true; focus: true
+        visible: root.page === "nodes"
+        closePolicy: Popup.CloseOnEscape
+        background: Surface { color: "#211b2b"; border.color: "#9281d3"; border.width: 2 }
+        Overlay.modal: Rectangle { color: "#a0100d18" }
+        contentItem: ColumnLayout {
+            spacing: 0
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 48
+                color: "#2b2338"
+                RowLayout {
+                    anchors.fill: parent; anchors.leftMargin: 20; anchors.rightMargin: 12
+                    Rectangle { width: 3; height: 18; color: "#aa8bef" }
+                    CopyText { objectName: "node-login-title"; Layout.fillWidth: true; text: "节点登录"; font.pixelSize: 17; font.bold: true; color: "#f0e8ff"; leftPadding: 5 }
+                    HeaderAction { objectName: "close-node-login"; text: "×"; label: "关闭节点登录"; onClicked: lobby.act("closeNodeLogin", {}) }
+                }
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#574565" }
+            }
+            Nodes { Layout.fillWidth: true; Layout.fillHeight: true; Layout.margins: 20 }
+        }
+        onClosed: if (root.page === "nodes") lobby.act("closeNodeLogin", {})
     }
     Popup {
         id: leavePopup; objectName: "leave-room-dialog"
