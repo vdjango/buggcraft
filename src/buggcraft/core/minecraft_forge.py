@@ -13,21 +13,15 @@ from urllib.parse import urlparse
 from enum import Enum
 from core.optifine import OptiFineInstaller
 from utils.http_identity import USER_AGENT
+from utils.system_utils import get_os, OSPlatform
 
-
+# TODO This file delete
 class MirrorSource(Enum):
     """下载源枚举"""
     MOJANG = "mojang"
     BMCLAPI = "bmclapi"
     MODRINTH = "modrinth"
 
-
-class OSPlatform(Enum):
-    """操作系统平台枚举"""
-    WINDOWS = "windows"
-    LINUX = "linux"
-    OSX = "osx"
-    UNKNOWN = "unknown"
 
 
 class InstallerCallback:
@@ -93,7 +87,7 @@ class CrossPlatformMinecraftInstaller:
         self.mirror_config = self.MIRRORS[mirror]
         
         # 检测当前操作系统
-        self.current_os = self.detect_os()
+        self.current_os = get_os()
         
         # 创建必要的目录结构
         self.versions_dir = self.game_dir / "versions"
@@ -112,18 +106,6 @@ class CrossPlatformMinecraftInstaller:
             'User-Agent': USER_AGENT,
             'Accept': '*/*'
         })
-    
-    def detect_os(self) -> OSPlatform:
-        """检测当前操作系统"""
-        system = platform.system().lower()
-        if system == "windows":
-            return OSPlatform.WINDOWS
-        elif system == "linux":
-            return OSPlatform.LINUX
-        elif system == "darwin":
-            return OSPlatform.OSX
-        else:
-            return OSPlatform.UNKNOWN
     
     def get_default_minecraft_dir(self) -> Path:
         """Use the same portable download directory as the launcher UI."""
