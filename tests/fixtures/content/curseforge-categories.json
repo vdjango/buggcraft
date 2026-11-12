@@ -1,0 +1,639 @@
+[
+  {
+    "id": 434,
+    "classId": 6,
+    "slug": "armor-weapons-tools",
+    "name": "Armor, Tools, and Weapons",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 405,
+    "classId": 12,
+    "slug": "miscellaneous",
+    "name": "Miscellaneous",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 393,
+    "classId": 12,
+    "slug": "sixteen-x",
+    "name": "16x",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 4485,
+    "classId": 6,
+    "slug": "blood-magic",
+    "name": "Blood Magic",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 6553,
+    "classId": 6552,
+    "slug": "realistic",
+    "name": "Realistic",
+    "parentCategoryId": 6552
+  },
+  {
+    "id": 6484,
+    "classId": 6,
+    "slug": "create",
+    "name": "Create",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 6954,
+    "classId": 6,
+    "slug": "integrated-dynamics",
+    "name": "Integrated Dynamics",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 410,
+    "classId": 6,
+    "slug": "world-dimensions",
+    "name": "Dimensions",
+    "parentCategoryId": 406
+  },
+  {
+    "id": 435,
+    "classId": 6,
+    "slug": "server-utility",
+    "name": "Server Utility",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 394,
+    "classId": 12,
+    "slug": "thirty-two-x",
+    "name": "32x",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 4482,
+    "classId": 4471,
+    "slug": "extra-large",
+    "name": "Extra Large",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 400,
+    "classId": 12,
+    "slug": "photo-realistic",
+    "name": "Photo Realistic",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 423,
+    "classId": 6,
+    "slug": "map-information",
+    "name": "Map and Information",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 426,
+    "classId": 6,
+    "slug": "mc-addons",
+    "name": "Addons",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4481,
+    "classId": 4471,
+    "slug": "small-light",
+    "name": "Small / Light",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 4483,
+    "classId": 4471,
+    "slug": "combat-pvp",
+    "name": "Combat / PvP",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 4474,
+    "classId": 4471,
+    "slug": "sci-fi",
+    "name": "Sci-Fi",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 5232,
+    "classId": 6,
+    "slug": "galacticraft",
+    "name": "Galacticraft",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 4475,
+    "classId": 4471,
+    "slug": "adventure-and-rpg",
+    "name": "Adventure and RPG",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 6554,
+    "classId": 6552,
+    "slug": "fantasy",
+    "name": "Fantasy",
+    "parentCategoryId": 6552
+  },
+  {
+    "id": 6821,
+    "classId": 6,
+    "slug": "bug-fixes",
+    "name": "Bug Fixes",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4487,
+    "classId": 4471,
+    "slug": "ftb-official-pack",
+    "name": "FTB Official Pack",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 4478,
+    "classId": 4471,
+    "slug": "quests",
+    "name": "Quests",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 4472,
+    "classId": 4471,
+    "slug": "tech",
+    "name": "Tech",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 4545,
+    "classId": 6,
+    "slug": "applied-energistics-2",
+    "name": "Applied Energistics 2",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 4736,
+    "classId": 4471,
+    "slug": "skyblock",
+    "name": "Skyblock",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 5314,
+    "classId": 6,
+    "slug": "kubejs",
+    "name": "KubeJS",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 407,
+    "classId": 6,
+    "slug": "world-biomes",
+    "name": "Biomes",
+    "parentCategoryId": 406
+  },
+  {
+    "id": 421,
+    "classId": 6,
+    "slug": "library-api",
+    "name": "API and Library",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4480,
+    "classId": 4471,
+    "slug": "map-based",
+    "name": "Map Based",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 6555,
+    "classId": 6552,
+    "slug": "vanilla",
+    "name": "Vanilla",
+    "parentCategoryId": 6552
+  },
+  {
+    "id": 398,
+    "classId": 12,
+    "slug": "five-twelve-x-and-beyond",
+    "name": "512x and Higher",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 436,
+    "classId": 6,
+    "slug": "mc-food",
+    "name": "Food",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 428,
+    "classId": 6,
+    "slug": "addons-tinkers-construct",
+    "name": "Tinker's Construct",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 429,
+    "classId": 6,
+    "slug": "addons-industrialcraft",
+    "name": "Industrial Craft",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 416,
+    "classId": 6,
+    "slug": "technology-farming",
+    "name": "Farming",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 411,
+    "classId": 6,
+    "slug": "world-mobs",
+    "name": "Mobs",
+    "parentCategoryId": 406
+  },
+  {
+    "id": 5299,
+    "classId": 6,
+    "slug": "education",
+    "name": "Education",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 432,
+    "classId": 6,
+    "slug": "addons-buildcraft",
+    "name": "Buildcraft",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 403,
+    "classId": 12,
+    "slug": "traditional",
+    "name": "Traditional",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 412,
+    "classId": 6,
+    "slug": "technology",
+    "name": "Technology",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 420,
+    "classId": 6,
+    "slug": "storage",
+    "name": "Storage",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4843,
+    "classId": 6,
+    "slug": "technology-automation",
+    "name": "Automation",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 4773,
+    "classId": 6,
+    "slug": "crafttweaker",
+    "name": "CraftTweaker",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 5191,
+    "classId": 6,
+    "slug": "utility-qol",
+    "name": "Utility & QoL",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 7418,
+    "classId": 4471,
+    "slug": "horror",
+    "name": "Horror",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 409,
+    "classId": 6,
+    "slug": "world-structures",
+    "name": "Structures",
+    "parentCategoryId": 406
+  },
+  {
+    "id": 396,
+    "classId": 12,
+    "slug": "one-twenty-eight-x",
+    "name": "128x",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 397,
+    "classId": 12,
+    "slug": "two-fifty-six-x",
+    "name": "256x",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 4484,
+    "classId": 4471,
+    "slug": "multiplayer",
+    "name": "Multiplayer",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 4477,
+    "classId": 4471,
+    "slug": "mini-game",
+    "name": "Mini Game",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 427,
+    "classId": 6,
+    "slug": "addons-thermalexpansion",
+    "name": "Thermal Expansion",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 415,
+    "classId": 6,
+    "slug": "technology-item-fluid-energy-transport",
+    "name": "Energy, Fluid, and Item Transport",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 4558,
+    "classId": 6,
+    "slug": "redstone",
+    "name": "Redstone",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4473,
+    "classId": 4471,
+    "slug": "magic",
+    "name": "Magic",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 5244,
+    "classId": 12,
+    "slug": "font-packs",
+    "name": "Font Packs",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 395,
+    "classId": 12,
+    "slug": "sixty-four-x",
+    "name": "64x",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 5128,
+    "classId": 4471,
+    "slug": "vanilla",
+    "name": "Vanilla+",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 8937,
+    "classId": 6,
+    "slug": "modjam-2025",
+    "name": "ModJam 2025",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 433,
+    "classId": 6,
+    "slug": "addons-forestry",
+    "name": "Forestry",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 4465,
+    "classId": 12,
+    "slug": "mod-support",
+    "name": "Mod Support",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 4906,
+    "classId": 6,
+    "slug": "mc-creator",
+    "name": "MCreator",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 425,
+    "classId": 6,
+    "slug": "mc-miscellaneous",
+    "name": "Miscellaneous",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 418,
+    "classId": 6,
+    "slug": "technology-genetics",
+    "name": "Genetics",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 402,
+    "classId": 12,
+    "slug": "medieval",
+    "name": "Medieval",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 406,
+    "classId": 6,
+    "slug": "world-gen",
+    "name": "World Gen",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4479,
+    "classId": 4471,
+    "slug": "hardcore",
+    "name": "Hardcore",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 6814,
+    "classId": 6,
+    "slug": "performance",
+    "name": "Performance",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 7669,
+    "classId": 6,
+    "slug": "twilight-forest",
+    "name": "Twilight Forest",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 424,
+    "classId": 6,
+    "slug": "cosmetic",
+    "name": "Cosmetic",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 430,
+    "classId": 6,
+    "slug": "addons-thaumcraft",
+    "name": "Thaumcraft",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 4671,
+    "classId": 6,
+    "slug": "twitch-integration",
+    "name": "Twitch Integration",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 4476,
+    "classId": 4471,
+    "slug": "exploration",
+    "name": "Exploration",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 5193,
+    "classId": 12,
+    "slug": "data-packs",
+    "name": "Data Packs",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 408,
+    "classId": 6,
+    "slug": "world-ores-resources",
+    "name": "Ores and Resources",
+    "parentCategoryId": 406
+  },
+  {
+    "id": 414,
+    "classId": 6,
+    "slug": "technology-player-transport",
+    "name": "Player Transport",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 417,
+    "classId": 6,
+    "slug": "technology-energy",
+    "name": "Energy",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 422,
+    "classId": 6,
+    "slug": "adventure-rpg",
+    "name": "Adventure and RPG",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 404,
+    "classId": 12,
+    "slug": "animated",
+    "name": "Animated",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 401,
+    "classId": 12,
+    "slug": "modern",
+    "name": "Modern",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 399,
+    "classId": 12,
+    "slug": "steampunk",
+    "name": "Steampunk",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 413,
+    "classId": 6,
+    "slug": "technology-processing",
+    "name": "Processing",
+    "parentCategoryId": 412
+  },
+  {
+    "id": 419,
+    "classId": 6,
+    "slug": "magic",
+    "name": "Magic",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 6145,
+    "classId": 6,
+    "slug": "skyblock",
+    "name": "Skyblock",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 9026,
+    "classId": 6,
+    "slug": "creativemode",
+    "name": "CreativeMode",
+    "parentCategoryId": 6
+  },
+  {
+    "id": 9049,
+    "classId": 6,
+    "slug": "refined-storage",
+    "name": "Refined Storage",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 8939,
+    "classId": 12,
+    "slug": "modjam-2025",
+    "name": "ModJam 2025",
+    "parentCategoryId": 12
+  },
+  {
+    "id": 9243,
+    "classId": 4471,
+    "slug": "expert",
+    "name": "Expert",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 10683,
+    "classId": 4471,
+    "slug": "rlcraft",
+    "name": "RLCraft",
+    "parentCategoryId": 4471
+  },
+  {
+    "id": 10754,
+    "classId": 6,
+    "slug": "farmers-delight",
+    "name": "Farmer's Delight",
+    "parentCategoryId": 426
+  },
+  {
+    "id": 10775,
+    "classId": 6,
+    "slug": "horror",
+    "name": "Horror",
+    "parentCategoryId": 6
+  }
+]

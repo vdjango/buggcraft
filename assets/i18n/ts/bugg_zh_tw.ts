@@ -1,0 +1,2533 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TS version="2.1" language="zh_tw" sourcelanguage="zh_CN">
+<context>
+    <name>AccountPage</name>
+    <message>
+        <source>Bugg 账号</source>
+        <translation>Bugg 帳號</translation>
+    </message>
+    <message>
+        <source>联机、好友与邀请</source>
+        <translation>線上、好友與邀請</translation>
+    </message>
+    <message>
+        <source>Minecraft 游戏身份</source>
+        <translation>Minecraft 遊戲身份</translation>
+    </message>
+    <message>
+        <source>微软账号或离线玩家</source>
+        <translation>微軟帳號或離線玩家</translation>
+    </message>
+    <message>
+        <source>已保留微软账号</source>
+        <translation>已保留微軟帳號</translation>
+    </message>
+    <message>
+        <source>登出微软账号</source>
+        <translation>登出微軟帳號</translation>
+    </message>
+</context>
+<context>
+    <name>AddFriendPage</name>
+    <message>
+        <source>好友账号 ID</source>
+        <translation>好友帳號 ID</translation>
+    </message>
+    <message>
+        <source>输入好友的账号 ID</source>
+        <translation>輸入好友的帳號 ID</translation>
+    </message>
+    <message>
+        <source>发送好友申请</source>
+        <translation>發送朋友申請</translation>
+    </message>
+<message><source>我的好友码</source><translation>My friend code</translation></message></context>
+<context>
+    <name>AppearancePage</name>
+    <message>
+        <source>启动背景</source>
+        <translation>啟動背景</translation>
+    </message>
+    <message>
+        <source> 张 · 自动轮播</source>
+        <translation> 張 · 自動輪播</translation>
+    </message>
+    <message>
+        <source>默认轮播 · 更换图片</source>
+        <translation>預設輪播 · 更換圖片</translation>
+    </message>
+    <message>
+        <source>恢复默认背景</source>
+        <translation>恢復預設背景</translation>
+    </message>
+    <message>
+        <source>选择启动背景（可多选）</source>
+        <translation>選擇啟動背景（可多重選擇）</translation>
+    </message>
+    <message>
+        <source>图片 (*.png *.jpg *.jpeg *.webp)</source>
+        <translation>圖片 (*.png *.jpg *.jpeg *.webp)</translation>
+    </message>
+</context>
+<context>
+    <name>BrandButton</name>
+    <message>
+        <source>收起到屏幕边缘</source>
+        <translation>收起到螢幕邊緣</translation>
+    </message>
+</context>
+<context>
+    <name>Bugg</name>
+    <message>
+        <source>未知下载源</source>
+        <translation>未知下載來源</translation>
+    </message>
+    <message>
+        <source>所选源未提供此能力，且无可用补齐源</source>
+        <translation>所選源未提供此能力，且無可用補齊源</translation>
+    </message>
+    <message>
+        <source> 未提供此能力，使用</source>
+        <translation> 未提供此能力，使用</translation>
+    </message>
+    <message>
+        <source>下载源优先级为空</source>
+        <translation>下載來源優先權為空</translation>
+    </message>
+    <message>
+        <source>下载源优先级包含重复来源</source>
+        <translation>下載來源優先權包含重複來源</translation>
+    </message>
+    <message>
+        <source>授权已取消</source>
+        <translation>授權已取消</translation>
+    </message>
+    <message>
+        <source>身份恢复已取消</source>
+        <translation>身份恢復已取消</translation>
+    </message>
+    <message>
+        <source>离线名称无效</source>
+        <translation>離線名稱無效</translation>
+    </message>
+    <message>
+        <source>请重新登录微软账号</source>
+        <translation>請重新登入微軟帳號</translation>
+    </message>
+    <message>
+        <source>授权码已过期，请重试</source>
+        <translation>授權碼已過期，請重試</translation>
+    </message>
+    <message>
+        <source>登录请求失败，请重试</source>
+        <translation>登入請求失敗，請重試</translation>
+    </message>
+    <message>
+        <source>此微软账号没有 Minecraft Java 版游戏角色，请确认购买并创建角色</source>
+        <translation>此微軟帳號沒有 Minecraft Java 版遊戲角色，請確認購買並建立角色</translation>
+    </message>
+    <message>
+        <source>微软授权已过期，请重新登录</source>
+        <translation>微軟授權已過期，請重新登入</translation>
+    </message>
+    <message>
+        <source>Xbox 授权失败，请检查 Xbox 资料、年龄及家庭设置</source>
+        <translation>Xbox 授權失敗，請檢查 Xbox 資料、年齡及家庭設置</translation>
+    </message>
+    <message>
+        <source>你已拒绝此次授权</source>
+        <translation>你已拒絕此次授權</translation>
+    </message>
+    <message>
+        <source>无法连接登录服务，请检查网络后重试</source>
+        <translation>無法連線登入服務，請檢查網路後重試</translation>
+    </message>
+    <message>
+        <source>微软未返回有效授权码</source>
+        <translation>微軟未回傳有效授權碼</translation>
+    </message>
+    <message>
+        <source>微软未返回访问凭据</source>
+        <translation>微軟未傳回存取憑證</translation>
+    </message>
+    <message>
+        <source>Xbox 返回的身份无效</source>
+        <translation>Xbox 回傳的身份無效</translation>
+    </message>
+    <message>
+        <source>Xbox 安全令牌为空</source>
+        <translation>Xbox 安全令牌為空</translation>
+    </message>
+    <message>
+        <source>Minecraft 访问凭据为空</source>
+        <translation>Minecraft 存取憑證為空</translation>
+    </message>
+    <message>
+        <source>Minecraft 游戏角色无效</source>
+        <translation>Minecraft 遊戲角色無效</translation>
+    </message>
+    <message>
+        <source>无法读取安全凭据</source>
+        <translation>無法讀取安全憑證</translation>
+    </message>
+    <message>
+        <source>凭据无法在当前系统解密，请重新登录</source>
+        <translation>憑證無法在目前系統解密，請重新登入</translation>
+    </message>
+    <message>
+        <source>钥匙串读取失败</source>
+        <translation>鑰匙圈讀取失敗</translation>
+    </message>
+    <message>
+        <source>无法清除安全凭据</source>
+        <translation>無法清除安全憑證</translation>
+    </message>
+    <message>
+        <source>系统无法保护凭据，未写入明文</source>
+        <translation>系統無法保護憑證，未寫入明文</translation>
+    </message>
+    <message>
+        <source>安全凭据保存失败</source>
+        <translation>安全憑證保存失敗</translation>
+    </message>
+    <message>
+        <source>钥匙串保存失败</source>
+        <translation>鑰匙圈保存失敗</translation>
+    </message>
+    <message>
+        <source>本系统尚未接入安全凭据存储，本次登录仅在当前进程有效</source>
+        <translation>本系統尚未接入安全憑證存儲，本次登入僅在目前進程有效</translation>
+    </message>
+    <message>
+        <source>微软账号 · Java 版</source>
+        <translation>微軟帳號 · Java 版</translation>
+    </message>
+    <message>
+        <source>名称需要 3–16 位字母、数字或下划线</source>
+        <translation>名稱需要 3–16 位字母、數字或底線</translation>
+    </message>
+    <message>
+        <source>离线身份</source>
+        <translation>離線身分</translation>
+    </message>
+    <message>
+        <source>微软登录服务尚未接入</source>
+        <translation>微軟登入服務尚未接入</translation>
+    </message>
+    <message>
+        <source>版本目录获取失败，请重试。
+</source>
+        <translation>版本目錄取得失敗，請重試。 </translation>
+    </message>
+    <message>
+        <source>没有兼容版本</source>
+        <translation>沒有相容版本</translation>
+    </message>
+    <message>
+        <source>加载器目录不是有效的 Maven 元数据</source>
+        <translation>載入器目錄不是有效的 Maven 元數據</translation>
+    </message>
+    <message>
+        <source>目录数据格式错误</source>
+        <translation>目錄資料格式錯誤</translation>
+    </message>
+    <message>
+        <source>游戏目录缺少版本清单</source>
+        <translation>遊戲目錄缺少版本清單</translation>
+    </message>
+    <message>
+        <source>游戏目录缺少最新正式版</source>
+        <translation>遊戲目錄缺少最新正式版</translation>
+    </message>
+    <message>
+        <source>Quilt 镜像目录缺少加载器或游戏映射</source>
+        <translation>Quilt 鏡像目錄缺少載入器或遊戲映射</translation>
+    </message>
+    <message>
+        <source>Quilt 镜像目录未包含有效版本</source>
+        <translation>Quilt 鏡像目錄未包含有效版本</translation>
+    </message>
+    <message>
+        <source>加载器目录不是版本数组</source>
+        <translation>載入器目錄不是版本數組</translation>
+    </message>
+    <message>
+        <source>目录响应未包含匹配的加载器数据</source>
+        <translation>目錄響應未包含匹配的載入器數據</translation>
+    </message>
+    <message>
+        <source>加载器描述文件无效</source>
+        <translation>載入器描述檔無效</translation>
+    </message>
+    <message>
+        <source>获取 Minecraft 版本元数据</source>
+        <translation>取得 Minecraft 版本元數據</translation>
+    </message>
+    <message>
+        <source>找不到所选 Minecraft 版本</source>
+        <translation>找不到所選 Minecraft 版本</translation>
+    </message>
+    <message>
+        <source>版本继承出现循环或层数过多</source>
+        <translation>版本繼承出現循環或層數過多</translation>
+    </message>
+    <message>
+        <source>缺少当前平台 native 依赖</source>
+        <translation>缺少當前平台 native 依賴</translation>
+    </message>
+    <message>
+        <source>校验游戏核心与运行库</source>
+        <translation>校驗遊戲核心與運行庫</translation>
+    </message>
+    <message>
+        <source>校验游戏资源</source>
+        <translation>校驗遊戲資源</translation>
+    </message>
+    <message>
+        <source>资源摘要格式错误</source>
+        <translation>資源摘要格式錯誤</translation>
+    </message>
+    <message>
+        <source>无法创建旧版资源映射</source>
+        <translation>無法建立舊版資源映射</translation>
+    </message>
+    <message>
+        <source>准备本地运行库</source>
+        <translation>準備本地運行庫</translation>
+    </message>
+    <message>
+        <source>匹配 Java 运行环境</source>
+        <translation>匹配 Java 運行環境</translation>
+    </message>
+    <message>
+        <source>所选 Java 不兼容此游戏，请改为自动匹配</source>
+        <translation>所選 Java 不相容此遊戲，請改為自動匹配</translation>
+    </message>
+    <message>
+        <source>没有适合此平台的 Java，请在 Java 设置中指定已安装的兼容版本</source>
+        <translation>沒有適合此平台的 Java，請在 Java 設定中指定已安裝的相容版本</translation>
+    </message>
+    <message>
+        <source>无法创建 Java 运行库链接</source>
+        <translation>無法建立 Java 運行庫鏈接</translation>
+    </message>
+    <message>
+        <source>Java 下载后验证失败，未尝试系统 PATH 的 java</source>
+        <translation>Java 下載後驗證失敗，未嘗試系統 PATH 的 java</translation>
+    </message>
+    <message>
+        <source>执行加载器处理器 </source>
+        <translation>執行載入器處理器</translation>
+    </message>
+    <message>
+        <source>处理器缺少入口类</source>
+        <translation>處理器缺少入口類</translation>
+    </message>
+    <message>
+        <source>处理器未生成有效的目标文件</source>
+        <translation>處理器未產生有效的目標文件</translation>
+    </message>
+    <message>
+        <source>缺少必需的运行库：</source>
+        <translation>缺少必需的運行庫：</translation>
+    </message>
+    <message>
+        <source>，请重新安装对应加载器</source>
+        <translation>，請重新安裝對應載入器</translation>
+    </message>
+    <message>
+        <source>同名实例已经存在，请修改安装名称</source>
+        <translation>同名實例已經存在，請修改安裝名稱</translation>
+    </message>
+    <message>
+        <source>安装规格不完整</source>
+        <translation>安裝規格不完整</translation>
+    </message>
+    <message>
+        <source>无法创建安装工作目录</source>
+        <translation>無法建立安裝工作目錄</translation>
+    </message>
+    <message>
+        <source>无法提取 Forge 核心</source>
+        <translation>無法提取 Forge 核心</translation>
+    </message>
+    <message>
+        <source>未知加载器</source>
+        <translation>未知載入器</translation>
+    </message>
+    <message>
+        <source>安装完成</source>
+        <translation>安裝完成</translation>
+    </message>
+    <message>
+        <source>游戏已退出（%1），可查看实例目录 logs/launcher-game.log</source>
+        <translation>遊戲已退出（%1），可查看實例目錄 logs/launcher-game.log</translation>
+    </message>
+    <message>
+        <source>上次未完成，可重试</source>
+        <translation>上次未完成，可重試</translation>
+    </message>
+    <message>
+        <source>游戏目录正在初始化，请稍后重试</source>
+        <translation>遊戲目錄正在初始化，請稍後重試</translation>
+    </message>
+    <message>
+        <source>该任务已在队列中</source>
+        <translation>該任務已在隊列中</translation>
+    </message>
+    <message>
+        <source>排队中</source>
+        <translation>排隊中</translation>
+    </message>
+    <message>
+        <source>准备游戏文件与 Java</source>
+        <translation>準備遊戲檔案與 Java</translation>
+    </message>
+    <message>
+        <source>准备安装</source>
+        <translation>準備安裝</translation>
+    </message>
+    <message>
+        <source>已取消，已校验文件保留供重试</source>
+        <translation>已取消，已校驗文件保留重試</translation>
+    </message>
+    <message>
+        <source>游戏进程已启动</source>
+        <translation>遊戲進程已啟動</translation>
+    </message>
+    <message>
+        <source>游戏进程已启动，日志保存在实例目录</source>
+        <translation>遊戲進程已啟動，日誌保存在實例目錄</translation>
+    </message>
+    <message>
+        <source>正在启动游戏</source>
+        <translation>正在啟動遊戲</translation>
+    </message>
+    <message>
+        <source>游戏正在运行</source>
+        <translation>遊戲正在運行</translation>
+    </message>
+    <message>
+        <source>正在停止游戏</source>
+        <translation>正在停止遊戲</translation>
+    </message>
+    <message>
+        <source>启动未完成</source>
+        <translation>啟動未完成</translation>
+    </message>
+    <message>
+        <source>请先等待或取消当前安装任务</source>
+        <translation>請先等待或取消目前安裝任務</translation>
+    </message>
+    <message>
+        <source>找不到所选实例，请刷新游戏列表</source>
+        <translation>找不到所選實例，請重新整理遊戲列表</translation>
+    </message>
+    <message>
+        <source>正在确认游戏身份</source>
+        <translation>正在確認遊戲身份</translation>
+    </message>
+    <message>
+        <source>等待游戏进程退出</source>
+        <translation>等待遊戲進程退出</translation>
+    </message>
+    <message>
+        <source>已取消</source>
+        <translation>已取消</translation>
+    </message>
+    <message>
+        <source>正在取消</source>
+        <translation>正在取消</translation>
+    </message>
+    <message>
+        <source>请等待当前准备任务结束</source>
+        <translation>請等待目前準備任務結束</translation>
+    </message>
+    <message>
+        <source>请选择已有的 Minecraft 目录</source>
+        <translation>請選擇已有的 Minecraft 目錄</translation>
+    </message>
+    <message>
+        <source>整合包清单无效</source>
+        <translation>整合包清單無效</translation>
+    </message>
+    <message>
+        <source>整合包文件大小不匹配</source>
+        <translation>整合包檔案大小不匹配</translation>
+    </message>
+    <message>
+        <source>整合包文件摘要不匹配：</source>
+        <translation>整合包文件摘要不符：</translation>
+    </message>
+    <message>
+        <source>整合包文件路径重复或保留</source>
+        <translation>整合包檔案路徑重複或保留</translation>
+    </message>
+    <message>
+        <source>整合包文件缺少校验信息</source>
+        <translation>整合包文件缺少校驗信息</translation>
+    </message>
+    <message>
+        <source>整合包摘要格式无效</source>
+        <translation>整合包摘要格式無效</translation>
+    </message>
+    <message>
+        <source>整合包下载信息无效</source>
+        <translation>整合包下載資訊無效</translation>
+    </message>
+    <message>
+        <source>整合包下载地址不受支持</source>
+        <translation>整合包下載地址不受支持</translation>
+    </message>
+    <message>
+        <source>整合包包含多个清单</source>
+        <translation>整合包包含多個清單</translation>
+    </message>
+    <message>
+        <source>支持 CurseForge ZIP、Modrinth mrpack、Buggcraft buggpack；此归档缺少清单</source>
+        <translation>支援 CurseForge ZIP、Modrinth mrpack、Buggcraft buggpack；此檔案缺少清單</translation>
+    </message>
+    <message>
+        <source>整合包加载器冲突或版本无效</source>
+        <translation>整合包載入器衝突或版本無效</translation>
+    </message>
+    <message>
+        <source>不支持的 CurseForge 清单版本</source>
+        <translation>不支援的 CurseForge 清單版本</translation>
+    </message>
+    <message>
+        <source>不支持的整合包加载器</source>
+        <translation>不支援的整合包載入器</translation>
+    </message>
+    <message>
+        <source>CurseForge 文件编号无效</source>
+        <translation>CurseForge 檔案編號無效</translation>
+    </message>
+    <message>
+        <source>不支持的整合包清单版本</source>
+        <translation>不支援的整合包清單版本</translation>
+    </message>
+    <message>
+        <source>不支持的整合包依赖</source>
+        <translation>不支援的整合包依賴</translation>
+    </message>
+    <message>
+        <source>整合包缺少 SHA-256</source>
+        <translation>整合包缺少 SHA-256</translation>
+    </message>
+    <message>
+        <source>整合包文件总量超过限制</source>
+        <translation>整合包檔案總量超過限制</translation>
+    </message>
+    <message>
+        <source>整合包缺少内嵌文件</source>
+        <translation>整合包缺少內嵌文件</translation>
+    </message>
+    <message>
+        <source>整合包含有清单之外的文件</source>
+        <translation>整合包含有清單之外的文件</translation>
+    </message>
+    <message>
+        <source>整合包版本或文件数量无效</source>
+        <translation>整合包版本或檔案數量無效</translation>
+    </message>
+    <message>
+        <source>实例名称无效或已存在</source>
+        <translation>實例名稱無效或已存在</translation>
+    </message>
+    <message>
+        <source>CurseForge 文件不可用或不允许下载</source>
+        <translation>CurseForge 檔案不可用或不允許下載</translation>
+    </message>
+    <message>
+        <source>无法提交整合包实例</source>
+        <translation>無法提交整合包實例</translation>
+    </message>
+    <message>
+        <source>整合包安装完成</source>
+        <translation>整合包安裝完成</translation>
+    </message>
+    <message>
+        <source>导出位置不能位于当前实例内</source>
+        <translation>匯出位置不能位於目前實例內</translation>
+    </message>
+    <message>
+        <source>整理整合包：</source>
+        <translation>整理整合包：</translation>
+    </message>
+    <message>
+        <source>正在导出整合包</source>
+        <translation>正在匯出整合包</translation>
+    </message>
+    <message>
+        <source>请先停止此游戏</source>
+        <translation>請先停止此遊戲</translation>
+    </message>
+    <message>
+        <source>请等待当前任务结束</source>
+        <translation>請等待目前任務結束</translation>
+    </message>
+    <message>
+        <source>资源 URL 无效</source>
+        <translation>資源 URL 無效</translation>
+    </message>
+    <message>
+        <source>资源元数据格式错误</source>
+        <translation>資源元資料格式錯誤</translation>
+    </message>
+    <message>
+        <source>获取元数据失败：</source>
+        <translation>取得元資料失敗：</translation>
+    </message>
+    <message>
+        <source>同一路径存在冲突的依赖摘要</source>
+        <translation>同一路徑存在衝突的依賴摘要</translation>
+    </message>
+    <message>
+        <source>文件已校验</source>
+        <translation>文件已校驗</translation>
+    </message>
+    <message>
+        <source>文件 %1 / %2 · %3</source>
+        <translation>檔案 %1 / %2 · %3</translation>
+    </message>
+    <message>
+        <source>下载 %1 / %2 · %3</source>
+        <translation>下載 %1 / %2 · %3</translation>
+    </message>
+    <message>
+        <source>游戏目录服务尚未接入</source>
+        <translation>遊戲目錄服務尚未接入</translation>
+    </message>
+    <message>
+        <source>Maven 依赖坐标无效</source>
+        <translation>Maven 依賴座標無效</translation>
+    </message>
+    <message>
+        <source>依赖缺少合法 Maven 名称</source>
+        <translation>依賴缺少合法 Maven 名稱</translation>
+    </message>
+    <message>
+        <source>启动参数包含尚未支持的占位符</source>
+        <translation>啟動參數包含尚未支援的佔位符</translation>
+    </message>
+    <message>
+        <source>版本缺少入口类</source>
+        <translation>版本缺少入口類</translation>
+    </message>
+    <message>
+        <source>检查本次使用的游戏账号</source>
+        <translation>檢查本次使用的遊戲帳號</translation>
+    </message>
+    <message>
+        <source>正在准备运行环境</source>
+        <translation>正在準備運行環境</translation>
+    </message>
+    <message>
+        <source>匹配适合这个版本的 Java</source>
+        <translation>匹配適合這個版本的 Java</translation>
+    </message>
+    <message>
+        <source>正在检查游戏文件</source>
+        <translation>正在檢查遊戲文件</translation>
+    </message>
+    <message>
+        <source>确认核心、加载器和运行库已就绪</source>
+        <translation>確認核心、載入器和運行庫已就緒</translation>
+    </message>
+    <message>
+        <source>正在打开你的世界</source>
+        <translation>正在打開你的世界</translation>
+    </message>
+    <message>
+        <source>准备完成，正在等待游戏窗口</source>
+        <translation>準備完成，正在等待遊戲窗口</translation>
+    </message>
+    <message>
+        <source>请先选择游戏身份</source>
+        <translation>請先選擇遊戲身份</translation>
+    </message>
+    <message>
+        <source>无法找到所选游戏，请重新选择</source>
+        <translation>無法找到所選遊戲，請重新選擇</translation>
+    </message>
+    <message>
+        <source>游戏启动服务尚未接入，未创建游戏进程</source>
+        <translation>遊戲啟動服務尚未接入，未建立遊戲進程</translation>
+    </message>
+    <message>
+        <source>世界已就绪</source>
+        <translation>世界已就緒</translation>
+    </message>
+    <message>
+        <source>启动流程演示完成，未运行真实游戏</source>
+        <translation>啟動流程演示完成，未運行真實遊戲</translation>
+    </message>
+    <message>
+        <source>正在结束游戏</source>
+        <translation>正在結束遊戲</translation>
+    </message>
+    <message>
+        <source>等待游戏退出后恢复选择</source>
+        <translation>等待遊戲退出後恢復選擇</translation>
+    </message>
+    <message>
+        <source>启动暂未完成</source>
+        <translation>啟動暫未完成</translation>
+    </message>
+    <message>
+        <source>节点响应无效</source>
+        <translation>節點響應無效</translation>
+    </message>
+    <message>
+        <source>请输入可信节点的 HTTPS 网址</source>
+        <translation>請輸入可信任節點的 HTTPS 網址</translation>
+    </message>
+    <message>
+        <source>节点登录网址不匹配</source>
+        <translation>節點登入網址不符</translation>
+    </message>
+    <message>
+        <source>登录已过期，请重试</source>
+        <translation>登入已過期，請重試</translation>
+    </message>
+    <message>
+        <source>节点授权与此设备不匹配</source>
+        <translation>節點授權與此設備不匹配</translation>
+    </message>
+    <message>
+        <source>节点授权已失效，请重新登录</source>
+        <translation>節點授權已失效，請重新登入</translation>
+    </message>
+    <message>
+        <source>节点身份已变更，请重新登录</source>
+        <translation>節點身分已變更，請重新登入</translation>
+    </message>
+    <message>
+        <source>此房间需要邀请或暂不可加入</source>
+        <translation>此房間需要邀請或暫不可加入</translation>
+    </message>
+    <message>
+        <source>联机引擎无法启动</source>
+        <translation>線上引擎無法啟動</translation>
+    </message>
+    <message>
+        <source>联机连接已结束</source>
+        <translation>線上連線已結束</translation>
+    </message>
+    <message>
+        <source>联机节点响应超时</source>
+        <translation>聯機節點回應逾時</translation>
+    </message>
+    <message>
+        <source>联机引擎不可用</source>
+        <translation>線上引擎不可用</translation>
+    </message>
+    <message>
+        <source>联机引擎写入失败</source>
+        <translation>線上引擎寫入失敗</translation>
+    </message>
+    <message>
+        <source>联机响应超过限制</source>
+        <translation>線上響應超過限制</translation>
+    </message>
+    <message>
+        <source>无法读取游戏选项</source>
+        <translation>無法讀取遊戲選項</translation>
+    </message>
+    <message>
+        <source>无法保存游戏选项</source>
+        <translation>無法儲存遊戲選項</translation>
+    </message>
+    <message>
+        <source>来源设置读取失败，暂用 BUGG</source>
+        <translation>來源設定讀取失敗，暫用 BUGG</translation>
+    </message>
+    <message>
+        <source>来源设置无效，暂用 BUGG</source>
+        <translation>來源設定無效，暫用 BUGG</translation>
+    </message>
+    <message>
+        <source> 优先</source>
+        <translation> 優先</translation>
+    </message>
+    <message>
+        <source>无法创建来源设置目录</source>
+        <translation>無法建立來源設定目錄</translation>
+    </message>
+    <message>
+        <source>来源已切换，但保存失败，请重新选择后重试</source>
+        <translation>來源已切換，但儲存失敗，請重新選擇後重試</translation>
+    </message>
+    <message>
+        <source>无法打开压缩文件</source>
+        <translation>無法開啟壓縮文件</translation>
+    </message>
+    <message>
+        <source>压缩文件损坏</source>
+        <translation>壓縮檔案損壞</translation>
+    </message>
+    <message>
+        <source>资源包含不安全路径</source>
+        <translation>資源包含不安全路徑</translation>
+    </message>
+    <message>
+        <source>资源路径越界</source>
+        <translation>資源路徑越界</translation>
+    </message>
+    <message>
+        <source>资源路径包含符号链接</source>
+        <translation>資源路徑包含符號連結</translation>
+    </message>
+    <message>
+        <source>无法读取版本/配置文件：</source>
+        <translation>無法讀取版本/設定檔：</translation>
+    </message>
+    <message>
+        <source>版本/配置 JSON 无效</source>
+        <translation>版本/設定 JSON 無效</translation>
+    </message>
+    <message>
+        <source>无法保存版本/配置文件</source>
+        <translation>無法儲存版本/設定檔</translation>
+    </message>
+    <message>
+        <source>安装器缺少有效的 </source>
+        <translation>安裝器缺少有效的</translation>
+    </message>
+    <message>
+        <source>读取压缩内容失败</source>
+        <translation>讀取壓縮內容失敗</translation>
+    </message>
+    <message>
+        <source>压缩文件条目过多</source>
+        <translation>壓縮檔案條目過多</translation>
+    </message>
+    <message>
+        <source>压缩目录损坏</source>
+        <translation>壓縮目錄損壞</translation>
+    </message>
+    <message>
+        <source>压缩内容不允许符号链接</source>
+        <translation>壓縮內容不允許符號鏈接</translation>
+    </message>
+    <message>
+        <source>解压内容超过大小限制</source>
+        <translation>解壓縮內容超過大小限制</translation>
+    </message>
+    <message>
+        <source>无法创建解压文件</source>
+        <translation>無法建立解壓縮文件</translation>
+    </message>
+    <message>
+        <source>解压/校验 CRC 失败</source>
+        <translation>解壓縮/校驗 CRC 失敗</translation>
+    </message>
+    <message>
+        <source>不支持的摘要算法</source>
+        <translation>不支援的摘要演算法</translation>
+    </message>
+    <message>
+        <source>无法读取文件</source>
+        <translation>無法讀取文件</translation>
+    </message>
+    <message>
+        <source>归档包含重复、加密或链接文件</source>
+        <translation>歸檔包含重複、加密或連結文件</translation>
+    </message>
+    <message>
+        <source>导出文件已存在，请更换名称</source>
+        <translation>匯出檔案已存在，請更換名稱</translation>
+    </message>
+    <message>
+        <source>无法创建整合包</source>
+        <translation>無法建立整合包</translation>
+    </message>
+    <message>
+        <source>导出路径重复</source>
+        <translation>匯出路徑重複</translation>
+    </message>
+    <message>
+        <source>写入整合包失败</source>
+        <translation>寫入整合包失敗</translation>
+    </message>
+    <message>
+        <source>写入整合包清单失败</source>
+        <translation>寫入整合包清單失敗</translation>
+    </message>
+    <message>
+        <source>整合包提交失败</source>
+        <translation>整合包提交失敗</translation>
+    </message>
+    <message>
+        <source>无效的资源地址</source>
+        <translation>無效的資源地址</translation>
+    </message>
+    <message>
+        <source>无法写入下载目录</source>
+        <translation>無法寫入下載目錄</translation>
+    </message>
+    <message>
+        <source>所选来源重定向到不允许的地址，已阻止请求</source>
+        <translation>所選來源重定向到不允許的位址，已封鎖請求</translation>
+    </message>
+    <message>
+        <source>连接或接收数据超时，请重试</source>
+        <translation>連線或接收資料逾時，請重試</translation>
+    </message>
+    <message>
+        <source>响应超过大小限制</source>
+        <translation>響應超過大小限制</translation>
+    </message>
+    <message>
+        <source>写入下载文件失败</source>
+        <translation>寫入下載檔案失敗</translation>
+    </message>
+    <message>
+        <source>请求超过总时限，请重试</source>
+        <translation>請求超過總時限，請重試</translation>
+    </message>
+    <message>
+        <source>文件 SHA1 校验失败</source>
+        <translation>文件 SHA1 校驗失敗</translation>
+    </message>
+    <message>
+        <source>文件大小校验失败</source>
+        <translation>檔案大小校驗失敗</translation>
+    </message>
+    <message>
+        <source>无法提交下载文件</source>
+        <translation>無法提交下載文件</translation>
+    </message>
+    <message>
+        <source>无法创建游戏进程，请检查 Java 和游戏目录权限</source>
+        <translation>無法建立遊戲進程，請檢查 Java 和遊戲目錄權限</translation>
+    </message>
+    <message>
+        <source>加载器处理器超时，请查看安装日志</source>
+        <translation>載入器處理器逾時，請查看安裝日誌</translation>
+    </message>
+    <message>
+        <source>加载器处理器运行失败，请查看安装日志</source>
+        <translation>載入器處理器運作失敗，請查看安裝日誌</translation>
+    </message>
+    <message>
+        <source>可分配上限 %1 GiB</source>
+        <translation>可分配上限 %1 GiB</translation>
+    </message>
+</context>
+<context>
+    <name>CatalogPage</name>
+    <message>
+        <source>搜索</source>
+        <translation>搜尋</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>安裝遊戲</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>導入整合包</translation>
+    </message>
+    <message>
+        <source>内容预览</source>
+        <translation>內容預覽</translation>
+    </message>
+    <message>
+        <source>百日围城</source>
+        <translation>百日圍城</translation>
+    </message>
+    <message>
+        <source>整合包 · 生存挑战 · 1.21.1</source>
+        <translation>整合包 · 生存挑戰 · 1.21.1</translation>
+    </message>
+    <message>
+        <source>原版 Minecraft</source>
+        <translation>原版 Minecraft</translation>
+    </message>
+    <message>
+        <source>选择游戏版本与加载器</source>
+        <translation>選擇遊戲版本與載入器</translation>
+    </message>
+    <message>
+        <source>下载任务</source>
+        <translation>下載任務</translation>
+    </message>
+    <message>
+        <source>查看进度</source>
+        <translation>查看進度</translation>
+    </message>
+<message><source>任务</source><translation>任務</translation></message></context>
+<context>
+    <name>ClassicShell</name>
+    <message>
+        <source>返回</source>
+        <translation>返回</translation>
+    </message>
+</context>
+<context>
+    <name>ContentDetailsPage</name>
+    <message>
+        <source>和朋友一起建造防线，迎接越来越危险的夜晚。</source>
+        <translation>和朋友一起建造防線，迎接越來越危險的夜晚。</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>遊戲版本</translation>
+    </message>
+    <message>
+        <source>实例名称</source>
+        <translation>實例名稱</translation>
+    </message>
+    <message>
+        <source>百日围城</source>
+        <translation>百日圍城</translation>
+    </message>
+    <message>
+        <source>下载并安装</source>
+        <translation>下載並安裝</translation>
+    </message>
+</context>
+<context>
+    <name>DeleteInstancePage</name>
+    <message>
+        <source>请选择如何处理这个实例。</source>
+        <translation>請選擇如何處理這個實例。</translation>
+    </message>
+    <message>
+        <source>永久删除本地文件</source>
+        <translation>永久刪除本地文件</translation>
+    </message>
+    <message>
+        <source>删除实例文件夹，无法恢复</source>
+        <translation>刪除實例資料夾，無法恢復</translation>
+    </message>
+    <message>
+        <source>仅从列表移除</source>
+        <translation>僅從清單移除</translation>
+    </message>
+    <message>
+        <source>保留本地所有文件</source>
+        <translation>保留本地所有文件</translation>
+    </message>
+    <message>
+        <source>将永久删除该实例的本地文件，包括存档、模组和设置。</source>
+        <translation>將永久刪除該實例的本機文件，包括存檔、模組和設定。</translation>
+    </message>
+    <message>
+        <source>本地文件会保留，可重新添加。</source>
+        <translation>本機檔案會保留，可重新新增。</translation>
+    </message>
+    <message>
+        <source>确认永久删除</source>
+        <translation>確認永久刪除</translation>
+    </message>
+    <message>
+        <source>确认移除记录</source>
+        <translation>確認移除記錄</translation>
+    </message>
+</context>
+<context>
+    <name>DeviceAuthPage</name>
+    <message>
+        <source>连接微软账号</source>
+        <translation>連接微軟帳號</translation>
+    </message>
+    <message>
+        <source>等待完成授权</source>
+        <translation>等待完成授權</translation>
+    </message>
+    <message>
+        <source>测试授权流程</source>
+        <translation>測試授權流程</translation>
+    </message>
+    <message>
+        <source>在微软网页输入授权码，完成后自动返回</source>
+        <translation>在微軟網頁輸入授權碼，完成後自動返回</translation>
+    </message>
+    <message>
+        <source>演示授权码</source>
+        <translation>演示授權碼</translation>
+    </message>
+    <message>
+        <source>微软授权码</source>
+        <translation>微軟授權碼</translation>
+    </message>
+    <message>
+        <source>正在读取游戏身份</source>
+        <translation>正在讀取遊戲身份</translation>
+    </message>
+    <message>
+        <source>完成后自动返回</source>
+        <translation>完成後自動返回</translation>
+    </message>
+    <message>
+        <source>正在完成登录…</source>
+        <translation>正在完成登入…</translation>
+    </message>
+    <message>
+        <source>模拟完成授权</source>
+        <translation>模擬完成授權</translation>
+    </message>
+    <message>
+        <source>复制授权码并打开微软网页</source>
+        <translation>複製授權碼並開啟微軟網頁</translation>
+    </message>
+    <message>
+        <source>获取演示授权码</source>
+        <translation>取得演示授權碼</translation>
+    </message>
+    <message>
+        <source>登录微软账号</source>
+        <translation>登入微軟帳號</translation>
+    </message>
+    <message>
+        <source>取消登录</source>
+        <translation>取消登入</translation>
+    </message>
+</context>
+<context>
+    <name>DockHandle</name>
+    <message>
+        <source>展开 Bugg 工具面板</source>
+        <translation>展開 Bugg 工具面板</translation>
+    </message>
+</context>
+<context>
+    <name>DownloadsPage</name>
+    <message>
+        <source>同时下载数量</source>
+        <translation>同時下載數量</translation>
+    </message>
+    <message>
+        <source>来源优先级</source>
+        <translation>來源優先級</translation>
+    </message>
+</context>
+<context>
+    <name>FeedbackPage</name>
+    <message>
+        <source>发生了什么？你原本希望怎样？</source>
+        <translation>發生了什麼事？你原本希望怎樣？</translation>
+    </message>
+    <message>
+        <source>联系方式（选填）</source>
+        <translation>聯絡方式（選填）</translation>
+    </message>
+    <message>
+        <source>方便我们进一步了解问题</source>
+        <translation>方便我們進一步了解問題</translation>
+    </message>
+    <message>
+        <source>附加脱敏诊断信息</source>
+        <translation>附加脫敏診斷訊息</translation>
+    </message>
+    <message>
+        <source>提交问题</source>
+        <translation>提交問題</translation>
+    </message>
+    <message>
+        <source>交互预览 · 反馈服务尚未接入，未发送内容</source>
+        <translation>互動預覽 · 回饋服務尚未接入，未發送內容</translation>
+    </message>
+</context>
+<context>
+    <name>FormField</name>
+    <message>
+        <source>选择文件</source>
+        <translation>選擇文件</translation>
+    </message>
+</context>
+<context>
+    <name>FriendsPage</name>
+    <message>
+        <source>刷新好友</source>
+        <translation>重新整理好友</translation>
+    </message>
+    <message>
+        <source>添加好友</source>
+        <translation>新增好友</translation>
+    </message>
+    <message>
+        <source>在线</source>
+        <translation>網路</translation>
+    </message>
+    <message>
+        <source>离线</source>
+        <translation>離線</translation>
+    </message>
+    <message>
+        <source>暂无好友</source>
+        <translation>暫無好友</translation>
+    </message>
+    <message>
+        <source>接受申请</source>
+        <translation>接受申請</translation>
+    </message>
+<message><source>暂无通知</source><translation>暫無通知</translation></message><message><source>联机通知</source><translation>聯機通知</translation></message><message><source>好友申请</source><translation>好友申請</translation></message><message><source>我的好友码</source><translation>My friend code</translation></message><message><source>待实现</source><translation>待實現</translation></message></context>
+<context>
+    <name>GameIdentityPage</name>
+    <message>
+        <source>尚未选择身份</source>
+        <translation>尚未選擇身份</translation>
+    </message>
+    <message>
+        <source>选择一种方式，进入游戏</source>
+        <translation>選擇一種方式，進入遊戲</translation>
+    </message>
+    <message>
+        <source>微软账号</source>
+        <translation>微軟帳號</translation>
+    </message>
+    <message>
+        <source>使用已购买 Minecraft Java 版的账号</source>
+        <translation>使用已購買 Minecraft Java 版的帳號</translation>
+    </message>
+    <message>
+        <source>离线身份</source>
+        <translation>離線身分</translation>
+    </message>
+    <message>
+        <source>使用自己的玩家名称</source>
+        <translation>使用自己的玩家名稱</translation>
+    </message>
+    <message>
+        <source>第三方登录（待更新）</source>
+        <translation>第三方登入（待更新）</translation>
+    </message>
+    <message>
+        <source>更多账号登录方式</source>
+        <translation>更多帳號登入方式</translation>
+    </message>
+    <message>
+        <source>皮肤</source>
+        <translation>皮膚</translation>
+    </message>
+    <message>
+        <source>待更新</source>
+        <translation>待更新</translation>
+    </message>
+</context>
+<context>
+    <name>GameInstallPage</name>
+    <message>
+        <source>选好版本，即可安装</source>
+        <translation>選好版本，即可安裝</translation>
+    </message>
+    <message>
+        <source>刷新版本</source>
+        <translation>重新整理版本</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>遊戲版本</translation>
+    </message>
+    <message>
+        <source>加载器</source>
+        <translation>載入器</translation>
+    </message>
+    <message>
+        <source>原版</source>
+        <translation>原版</translation>
+    </message>
+    <message>
+        <source>加载器版本</source>
+        <translation>載入器版本</translation>
+    </message>
+    <message>
+        <source>获取失败，可重试</source>
+        <translation>取得失敗，可重試</translation>
+    </message>
+    <message>
+        <source>没有兼容版本</source>
+        <translation>沒有相容版本</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>重試</translation>
+    </message>
+    <message>
+        <source>游戏名称</source>
+        <translation>遊戲名稱</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>安裝遊戲</translation>
+    </message>
+    <message>
+        <source>收起名称</source>
+        <translation>收起名稱</translation>
+    </message>
+    <message>
+        <source>修改名称</source>
+        <translation>修改名稱</translation>
+    </message>
+</context>
+<context>
+    <name>GeneralPage</name>
+    <message>
+        <source>游戏启动后</source>
+        <translation>遊戲啟動後</translation>
+    </message>
+    <message>
+        <source>保持显示</source>
+        <translation>保持顯示</translation>
+    </message>
+    <message>
+        <source>收起启动器</source>
+        <translation>收起啟動器</translation>
+    </message>
+    <message>
+        <source>启动时贴边收起</source>
+        <translation>啟動時貼邊收起</translation>
+    </message>
+</context>
+<context>
+    <name>HomePage</name>
+    <message>
+        <source>正在加载游戏</source>
+        <translation>正在載入遊戲</translation>
+    </message>
+    <message>
+        <source>选择游戏</source>
+        <translation>選擇遊戲</translation>
+    </message>
+    <message>
+        <source>尚未安装游戏</source>
+        <translation>尚未安裝遊戲</translation>
+    </message>
+    <message>
+        <source>切换游戏</source>
+        <translation>切換遊戲</translation>
+    </message>
+    <message>
+        <source>选择账号</source>
+        <translation>選擇帳號</translation>
+    </message>
+    <message>
+        <source>微软 / 离线身份</source>
+        <translation>微軟 / 離線身份</translation>
+    </message>
+    <message>
+        <source>暂无已保存的角色</source>
+        <translation>暫無已保存的角色</translation>
+    </message>
+    <message>
+        <source>管理游戏身份</source>
+        <translation>管理遊戲身份</translation>
+    </message>
+    <message>
+        <source> · 交互预览</source>
+        <translation> · 互動預覽</translation>
+    </message>
+    <message>
+        <source>返回选择</source>
+        <translation>返回選擇</translation>
+    </message>
+    <message>
+        <source>查看日志</source>
+        <translation>查看日誌</translation>
+    </message>
+    <message>
+        <source>正在初始化…</source>
+        <translation>正在初始化…</translation>
+    </message>
+    <message>
+        <source>取消启动</source>
+        <translation>取消啟動</translation>
+    </message>
+    <message>
+        <source>停止游戏</source>
+        <translation>停止遊戲</translation>
+    </message>
+    <message>
+        <source>正在停止…</source>
+        <translation>正在停止…</translation>
+    </message>
+    <message>
+        <source>重新启动</source>
+        <translation>重新啟動</translation>
+    </message>
+    <message>
+        <source>启动游戏</source>
+        <translation>啟動遊戲</translation>
+    </message>
+    <message>
+        <source>正在加载…</source>
+        <translation>正在加載…</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>安裝遊戲</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceConflictPage</name>
+    <message>
+        <source>已存在同名实例：</source>
+        <translation>已存在同名實例：</translation>
+    </message>
+    <message>
+        <source>换个名称</source>
+        <translation>換個名稱</translation>
+    </message>
+    <message>
+        <source>保留已有实例</source>
+        <translation>保留已有實例</translation>
+    </message>
+    <message>
+        <source>新实例名称</source>
+        <translation>新實例名稱</translation>
+    </message>
+    <message>
+        <source>继续未完成的安装</source>
+        <translation>繼續未完成的安裝</translation>
+    </message>
+    <message>
+        <source>核对文件，只补齐缺失内容</source>
+        <translation>核對文件，只補齊缺失內容</translation>
+    </message>
+    <message>
+        <source>继续</source>
+        <translation>繼續</translation>
+    </message>
+    <message>
+        <source>交互预览 · 实例安装服务尚未接入，未修改本地文件</source>
+        <translation>互動預覽 · 實例安裝服務尚未接入，未修改本地文件</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceDetailsPage</name>
+    <message>
+        <source>模组与资源</source>
+        <translation>模組與資源</translation>
+    </message>
+    <message>
+        <source>管理</source>
+        <translation>管理</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選擇</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>匯出整合包</translation>
+    </message>
+    <message>
+        <source>实例设置</source>
+        <translation>實例設定</translation>
+    </message>
+    <message>
+        <source>内存</source>
+        <translation>記憶體</translation>
+    </message>
+    <message>
+        <source>移除或删除实例</source>
+        <translation>移除或刪除實例</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceFilesPage</name>
+    <message>
+        <source>类型</source>
+        <translation>類型</translation>
+    </message>
+    <message>
+        <source>模组</source>
+        <translation>模組</translation>
+    </message>
+    <message>
+        <source>资源包</source>
+        <translation>資源包</translation>
+    </message>
+    <message>
+        <source>光影</source>
+        <translation>光影</translation>
+    </message>
+    <message>
+        <source>搜索</source>
+        <translation>搜尋</translation>
+    </message>
+    <message>
+        <source>已启用</source>
+        <translation>已啟用</translation>
+    </message>
+    <message>
+        <source>已停用</source>
+        <translation>已停用</translation>
+    </message>
+    <message>
+        <source>停用</source>
+        <translation>停用</translation>
+    </message>
+    <message>
+        <source>启用</source>
+        <translation>啟用</translation>
+    </message>
+    <message>
+        <source>移至回收站</source>
+        <translation>移至回收站</translation>
+    </message>
+    <message>
+        <source>暂无文件</source>
+        <translation>暫無文件</translation>
+    </message>
+    <message>
+        <source>添加文件</source>
+        <translation>新增文件</translation>
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation>重新整理</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceSettingsPage</name>
+    <message>
+        <source>全屏启动</source>
+        <translation>全螢幕啟動</translation>
+    </message>
+    <message>
+        <source>窗口大小</source>
+        <translation>視窗大小</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選擇</translation>
+    </message>
+    <message>
+        <source>恢复全局设置</source>
+        <translation>恢復全域設定</translation>
+    </message>
+    <message>
+        <source>指定 Java</source>
+        <translation>指定 Java</translation>
+    </message>
+</context>
+<context>
+    <name>InstancesPage</name>
+    <message>
+        <source>搜索游戏</source>
+        <translation>搜尋遊戲</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>匯出</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>刪除</translation>
+    </message>
+    <message>
+        <source>没有匹配的游戏</source>
+        <translation>沒有符合的遊戲</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>安裝遊戲</translation>
+    </message>
+    <message>
+        <source>游戏目录</source>
+        <translation>遊戲目錄</translation>
+    </message>
+    <message>
+        <source>管理</source>
+        <translation>管理</translation>
+    </message>
+</context>
+<context>
+    <name>JavaPage</name>
+    <message>
+        <source>自动匹配</source>
+        <translation>自動匹配</translation>
+    </message>
+    <message>
+        <source>指定 Java</source>
+        <translation>指定 Java</translation>
+    </message>
+    <message>
+        <source>添加 Java</source>
+        <translation>新增 Java</translation>
+    </message>
+    <message>
+        <source>重新检测</source>
+        <translation>重新偵測</translation>
+    </message>
+    <message>
+        <source>选择 Java 可执行文件</source>
+        <translation>選擇 Java 執行檔</translation>
+    </message>
+</context>
+<context>
+    <name>LanguagePage</name>
+    <message>
+        <source>语言</source>
+        <translation>語言</translation>
+    </message>
+    <message>
+        <source>搜索语言</source>
+        <translation>搜尋語言</translation>
+    </message>
+<message><source>其他语言首次使用时下载，之后可离线使用。下载失败会保留当前语言。</source><translation type="unfinished" /></message><message><source>正在获取语言包…</source><translation type="unfinished" /></message></context>
+<context>
+    <name>LogsPage</name>
+    <message>
+        <source>游戏尚未启动</source>
+        <translation>遊戲尚未啟動</translation>
+    </message>
+    <message>
+        <source>启动后在这里查看运行日志。发生问题时，可导出诊断信息。</source>
+        <translation>啟動後在這裡查看運行日誌。發生問題時，可匯出診斷資訊。</translation>
+    </message>
+    <message>
+        <source>导出诊断信息</source>
+        <translation>匯出診斷訊息</translation>
+    </message>
+    <message>
+        <source>交互预览 · 诊断服务尚未接入</source>
+        <translation>互動預覽 · 診斷服務尚未接入</translation>
+    </message>
+</context>
+<context>
+    <name>Main</name>
+    <message>
+        <source>请拖入一个整合包</source>
+        <translation>請拖入一個整合包</translation>
+    </message>
+    <message>
+        <source>正在初始化</source>
+        <translation>正在初始化</translation>
+    </message>
+    <message>
+        <source>恢复游戏身份</source>
+        <translation>恢復遊戲身份</translation>
+    </message>
+    <message>
+        <source>读取配置与游戏环境</source>
+        <translation>讀取配置與遊戲環境</translation>
+    </message>
+    <message>
+        <source>游戏启动服务尚未接入</source>
+        <translation>遊戲啟動服務尚未接入</translation>
+    </message>
+</context>
+<context>
+    <name>MemoryControl</name>
+    <message>
+        <source>自动分配内存</source>
+        <translation>自動分配記憶體</translation>
+    </message>
+    <message>
+        <source>游戏内存</source>
+        <translation>遊戲記憶體</translation>
+    </message>
+    <message>
+        <source>可用 %1 GiB</source>
+        <translation>可用 %1 GiB</translation>
+    </message>
+    <message>
+        <source>可分配上限 %1 GiB</source>
+        <translation>可分配上限 %1 GiB</translation>
+    </message>
+</context>
+<context>
+    <name>NavigationBar</name>
+    <message>
+        <source>启动</source>
+        <translation>啟動</translation>
+    </message>
+    <message>
+        <source>广场</source>
+        <translation>廣場</translation>
+    </message>
+    <message>
+        <source>联机</source>
+        <translation>聯機</translation>
+    </message>
+    <message>
+        <source>好友</source>
+        <translation>好友</translation>
+    </message>
+</context>
+<context>
+    <name>NodeLogin</name>
+    <message>
+        <source>登录联机节点</source>
+        <translation>登入聯機節點</translation>
+    </message>
+    <message>
+        <source>节点网址</source>
+        <translation>節點網址</translation>
+    </message>
+    <message>
+        <source>等待浏览器授权…</source>
+        <translation>等待瀏覽器授權…</translation>
+    </message>
+    <message>
+        <source>正在连接节点…</source>
+        <translation>正在連接節點…</translation>
+    </message>
+    <message>
+        <source>浏览器登录</source>
+        <translation>瀏覽器登入</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>NodesPage</name>
+    <message>
+        <source>默认自动选择可用的低延迟节点。</source>
+        <translation>預設自動選擇可用的低延遲節點。</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選擇</translation>
+    </message>
+    <message>
+        <source>上海</source>
+        <translation>上海</translation>
+    </message>
+    <message>
+        <source>北京</source>
+        <translation>北京</translation>
+    </message>
+    <message>
+        <source>武汉</source>
+        <translation>武漢</translation>
+    </message>
+    <message>
+        <source>根据当前网络选择</source>
+        <translation>根據目前網路選擇</translation>
+    </message>
+    <message>
+        <source>节点列表效果预览</source>
+        <translation>節點清單效果預覽</translation>
+    </message>
+</context>
+<context>
+    <name>OfflineIdentityPage</name>
+    <message>
+        <source>玩家名称</source>
+        <translation>玩家名稱</translation>
+    </message>
+    <message>
+        <source>例如 BuggPlayer</source>
+        <translation>例如 BuggPlayer</translation>
+    </message>
+    <message>
+        <source>3–16 位字母、数字或下划线</source>
+        <translation>3–16 位字母、數字或底線</translation>
+    </message>
+    <message>
+        <source>使用这个名字</source>
+        <translation>使用這個名字</translation>
+    </message>
+</context>
+<context>
+    <name>PackExportPage</name>
+    <message>
+        <source>导出格式</source>
+        <translation>導出格式</translation>
+    </message>
+    <message>
+        <source>精简包</source>
+        <translation>精簡包</translation>
+    </message>
+    <message>
+        <source>完整包</source>
+        <translation>完整包</translation>
+    </message>
+    <message>
+        <source>可下载的资源保留链接，其余文件放入包内。</source>
+        <translation>可下載的資源保留鏈接，其餘文件放入包內。</translation>
+    </message>
+    <message>
+        <source>包含模组、资源和配置。</source>
+        <translation>包含模組、資源和配置。</translation>
+    </message>
+    <message>
+        <source>包含存档</source>
+        <translation>包含存檔</translation>
+    </message>
+    <message>
+        <source>选择位置并导出</source>
+        <translation>選擇位置並匯出</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>匯出整合包</translation>
+    </message>
+</context>
+<context>
+    <name>PackImportPage</name>
+    <message>
+        <source>游戏名称</source>
+        <translation>遊戲名稱</translation>
+    </message>
+    <message>
+        <source>正在检查整合包…</source>
+        <translation>正在檢查整合包…</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>導入整合包</translation>
+    </message>
+</context>
+<context>
+    <name>ProfileButton</name>
+    <message>
+        <source>快速切换游戏身份</source>
+        <translation>快速切換遊戲身份</translation>
+    </message>
+</context>
+<context>
+    <name>RoomLobbyPage</name>
+    <message>
+        <source>你</source>
+        <translation>你</translation>
+    </message>
+    <message>
+        <source>房主 · 已就绪</source>
+        <translation>房主 · 已就緒</translation>
+    </message>
+    <message>
+        <source>小刚</source>
+        <translation>小剛</translation>
+    </message>
+    <message>
+        <source>正在补齐客户端文件</source>
+        <translation>正在補齊客戶端文件</translation>
+    </message>
+    <message>
+        <source>复制邀请</source>
+        <translation>複製邀請</translation>
+    </message>
+    <message>
+        <source>交互预览 · 邀请服务尚未接入</source>
+        <translation>互動預覽 · 邀請服務尚未接入</translation>
+    </message>
+    <message>
+        <source>启动游戏</source>
+        <translation>啟動遊戲</translation>
+    </message>
+    <message>
+        <source>交互预览 · 游戏启动服务尚未接入</source>
+        <translation>互動預覽 · 遊戲啟動服務尚未接入</translation>
+    </message>
+</context>
+<context>
+    <name>RoomSyncPage</name>
+    <message>
+        <source>检查本地文件清单</source>
+        <translation>檢查本機文件清單</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完成</translation>
+    </message>
+    <message>
+        <source>229 个文件 · 模组、核心、库与资源</source>
+        <translation>229 個檔案 · 模組、核心、函式庫與資源</translation>
+    </message>
+    <message>
+        <source>源站确认与共享加速</source>
+        <translation>源站確認與共享加速</translation>
+    </message>
+    <message>
+        <source>等待补齐</source>
+        <translation>等待補齊</translation>
+    </message>
+    <message>
+        <source>已完成 216 / 229 · 仅处理需要的文件</source>
+        <translation>已完成 216 / 229 · 僅處理所需的文件</translation>
+    </message>
+    <message>
+        <source>必需文件齐全后才能启动游戏。共享文件可能被他人获取，请勿共享敏感内容。</source>
+        <translation>必需文件齊全後才能啟動遊戲。共享文件可能被他人獲取，請勿共享敏感內容。</translation>
+    </message>
+    <message>
+        <source>继续补齐</source>
+        <translation>繼續補齊</translation>
+    </message>
+    <message>
+        <source>交互预览 · 文件同步服务尚未接入</source>
+        <translation>互動預覽 · 檔案同步服務尚未接入</translation>
+    </message>
+</context>
+<context>
+    <name>RoomsPage</name>
+    <message>
+        <source>搜索房间</source>
+        <translation>搜尋房間</translation>
+    </message>
+    <message>
+        <source>刷新房间</source>
+        <translation>刷新房間</translation>
+    </message>
+    <message>
+        <source>创建房间</source>
+        <translation>創建房間</translation>
+    </message>
+    <message>
+        <source>需要邀请</source>
+        <translation>需要邀請</translation>
+    </message>
+    <message>
+        <source>加入</source>
+        <translation>加入</translation>
+    </message>
+    <message>
+        <source>等待开局</source>
+        <translation>等待開局</translation>
+    </message>
+    <message>
+        <source>正在获取房间…</source>
+        <translation>正在獲取房間…</translation>
+    </message>
+    <message>
+        <source>暂无公开房间</source>
+        <translation>暫無公開房間</translation>
+    </message>
+    <message>
+        <source>粘贴房间邀请</source>
+        <translation>貼上房間邀請</translation>
+    </message>
+    <message>
+        <source>联机节点</source>
+        <translation>聯機節點</translation>
+    </message>
+    <message>
+        <source>离开房间</source>
+        <translation>離開房間</translation>
+    </message>
+<message><source>正在加入…</source><translation>Joining…</translation></message></context>
+<context>
+    <name>SearchPage</name>
+    <message>
+        <source>想找什么？</source>
+        <translation>想找什麼？</translation>
+    </message>
+    <message>
+        <source>搜索结果</source>
+        <translation>搜尋結果</translation>
+    </message>
+    <message>
+        <source>搜索</source>
+        <translation>搜尋</translation>
+    </message>
+    <message>
+        <source>整合包</source>
+        <translation>整合包</translation>
+    </message>
+    <message>
+        <source>模组</source>
+        <translation>模組</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>遊戲版本</translation>
+    </message>
+    <message>
+        <source>资源包</source>
+        <translation>資源包</translation>
+    </message>
+</context>
+<context>
+    <name>SelectField</name>
+    <message>
+        <source>请选择</source>
+        <translation>請選擇</translation>
+    </message>
+    <message>
+        <source>搜索</source>
+        <translation>搜尋</translation>
+    </message>
+    <message>
+        <source>正在获取…</source>
+        <translation>正在獲取…</translation>
+    </message>
+</context>
+<context>
+    <name>SelectionMenu</name>
+    <message>
+        <source>暂无可选项</source>
+        <translation>暫無可選項</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsPage</name>
+    <message>
+        <source>BUGG 优先</source>
+        <translation>BUGG 優先</translation>
+    </message>
+    <message>
+        <source>简体中文</source>
+        <translation>簡體中文</translation>
+    </message>
+    <message>
+        <source>外观</source>
+        <translation>外觀</translation>
+    </message>
+    <message>
+        <source>悬浮面板</source>
+        <translation>懸浮面板</translation>
+    </message>
+    <message>
+        <source>常规页面</source>
+        <translation>常規頁面</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>語言</translation>
+    </message>
+    <message>
+        <source>游戏</source>
+        <translation>遊戲</translation>
+    </message>
+    <message>
+        <source>内存与窗口</source>
+        <translation>記憶體與視窗</translation>
+    </message>
+    <message>
+        <source>下载</source>
+        <translation>下載</translation>
+    </message>
+    <message>
+        <source>常规</source>
+        <translation>常規</translation>
+    </message>
+    <message>
+        <source>启动后行为</source>
+        <translation>啟動後行為</translation>
+    </message>
+    <message>
+        <source>账号</source>
+        <translation>帳號</translation>
+    </message>
+    <message>
+        <source>登录与管理</source>
+        <translation>登入與管理</translation>
+    </message>
+    <message>
+        <source>存储位置</source>
+        <translation>儲存位置</translation>
+    </message>
+    <message>
+        <source>配置与游戏目录</source>
+        <translation>配置與遊戲目錄</translation>
+    </message>
+    <message>
+        <source>问题反馈</source>
+        <translation>問題回饋</translation>
+    </message>
+    <message>
+        <source>诊断与帮助</source>
+        <translation>診斷與幫助</translation>
+    </message>
+    <message>
+        <source>关于与更新</source>
+        <translation>關於與更新</translation>
+    </message>
+</context>
+<context>
+    <name>SkinPage</name>
+    <message>
+        <source>选择你喜欢的样子</source>
+        <translation>選擇你喜歡的樣子</translation>
+    </message>
+    <message>
+        <source>选择皮肤文件</source>
+        <translation>選擇皮膚文件</translation>
+    </message>
+    <message>
+        <source>交互预览 · 皮肤服务尚未接入</source>
+        <translation>互動預覽 · 皮膚服務尚未接入</translation>
+    </message>
+    <message>
+        <source>支持 Minecraft PNG 皮肤；正版皮肤由微软账号管理。</source>
+        <translation>支援 Minecraft PNG 皮膚；正版皮膚由微軟帳號管理。</translation>
+    </message>
+</context>
+<context>
+    <name>SourcesPage</name>
+    <message>
+        <source>下载源优先级</source>
+        <translation>下載來源優先權</translation>
+    </message>
+    <message>
+        <source>从上到下依次尝试。源不提供的接口走官方，相同来源只尝试一次。</source>
+        <translation>從上到下依序嘗試。源不提供的介面走官方，相同來源只試一次。</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>上移</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>下移</translation>
+    </message>
+</context>
+<context>
+    <name>StoragePage</name>
+    <message>
+        <source>游戏目录</source>
+        <translation>遊戲目錄</translation>
+    </message>
+    <message>
+        <source>选择已有 Minecraft 目录</source>
+        <translation>選擇已有 Minecraft 目錄</translation>
+    </message>
+    <message>
+        <source>打开当前目录</source>
+        <translation>開啟目前目錄</translation>
+    </message>
+    <message>
+        <source>配置与缓存</source>
+        <translation>配置與快取</translation>
+    </message>
+    <message>
+        <source>选择空目录存放配置与缓存</source>
+        <translation>選擇空目錄存放配置與快取</translation>
+    </message>
+    <message>
+        <source>选择 .minecraft 目录</source>
+        <translation>選擇 .minecraft 目錄</translation>
+    </message>
+</context>
+<context>
+    <name>SubpageHeader</name>
+    <message>
+        <source>返回</source>
+        <translation>返回</translation>
+    </message>
+    <message>
+        <source>回到首页</source>
+        <translation>回到首頁</translation>
+    </message>
+</context>
+<context>
+    <name>TaskCard</name>
+    <message>
+        <source>安装游戏</source>
+        <translation>安裝遊戲</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>導入整合包</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>匯出整合包</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>刪除</translation>
+    </message>
+    <message>
+        <source>启动游戏</source>
+        <translation>啟動遊戲</translation>
+    </message>
+    <message>
+        <source>排队中</source>
+        <translation>排隊中</translation>
+    </message>
+    <message>
+        <source>正在取消</source>
+        <translation>正在取消</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完成</translation>
+    </message>
+    <message>
+        <source>上次未完成，可重试</source>
+        <translation>上次未完成，可重試</translation>
+    </message>
+    <message>
+        <source>已取消</source>
+        <translation>已取消</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>重試</translation>
+    </message>
+</context>
+<context>
+    <name>TaskFilesPage</name>
+    <message>
+        <source>客户端核心 · 示例文件</source>
+        <translation>客戶端核心 · 範例文件</translation>
+    </message>
+    <message>
+        <source>已完成</source>
+        <translation>已完成</translation>
+    </message>
+    <message>
+        <source>下载源：BMCLAPI · 哈希校验通过</source>
+        <translation>下載來源：BMCLAPI · 哈希校驗透過</translation>
+    </message>
+    <message>
+        <source>cataclysm.jar · 示例文件</source>
+        <translation>cataclysm.jar · 範例文件</translation>
+    </message>
+    <message>
+        <source>等待补齐</source>
+        <translation>等待補齊</translation>
+    </message>
+    <message>
+        <source>下载源：Bugg · 来源暂不可用，保留已下载进度</source>
+        <translation>下載來源：Bugg · 來源暫不可用，保留已下載進度</translation>
+    </message>
+    <message>
+        <source>只重试未完成文件</source>
+        <translation>只重試未完成文件</translation>
+    </message>
+    <message>
+        <source>交互预览 · 下载服务尚未接入</source>
+        <translation>互動預覽 · 下載服務尚未接入</translation>
+    </message>
+</context>
+<context>
+    <name>TasksPage</name>
+    <message>
+        <source>进行中 %1 · 排队 %2</source>
+        <translation>進行中 %1 · 排隊 %2</translation>
+    </message>
+    <message>
+        <source>暂无下载任务</source>
+        <translation>暫無下載任務</translation>
+    </message>
+<message><source>暂无任务</source><translation>暫無任務</translation></message><message><source>清空记录</source><translation>清空記錄</translation></message></context>
+<context>
+    <name>ThemePicker</name>
+    <message>
+        <source>窗口尺寸</source>
+        <translation>窗口尺寸</translation>
+    </message>
+    <message>
+        <source>悬浮面板</source>
+        <translation>懸浮面板</translation>
+    </message>
+    <message>
+        <source>紧凑窗口</source>
+        <translation>緊湊窗口</translation>
+    </message>
+    <message>
+        <source>标准窗口</source>
+        <translation>標準視窗</translation>
+    </message>
+    <message>
+        <source>宽屏窗口</source>
+        <translation>寬螢幕視窗</translation>
+    </message>
+</context>
+<context>
+    <name>ToolBar</name>
+    <message>
+        <source>启动</source>
+        <translation>啟動</translation>
+    </message>
+    <message>
+        <source>广场</source>
+        <translation>廣場</translation>
+    </message>
+    <message>
+        <source>联机</source>
+        <translation>聯機</translation>
+    </message>
+    <message>
+        <source>好友</source>
+        <translation>好友</translation>
+    </message>
+    <message>
+        <source>下载任务</source>
+        <translation>下載任務</translation>
+    </message>
+    <message>
+        <source>设置</source>
+        <translation>設定</translation>
+    </message>
+<message><source>任务</source><translation>任務</translation></message></context>
+<context>
+    <name>ToolDeck</name>
+    <message>
+        <source>整合包</source>
+        <translation>整合包</translation>
+    </message>
+    <message>
+        <source>未选择游戏</source>
+        <translation>未選擇遊戲</translation>
+    </message>
+    <message>
+        <source>暂无文件进度，下载服务尚未接入</source>
+        <translation>暫無檔案進度，下載服務尚未接入</translation>
+    </message>
+    <message>
+        <source>尚未加入房间，联机服务尚未接入</source>
+        <translation>尚未加入房間，線上服務尚未接入</translation>
+    </message>
+    <message>
+        <source>暂无同步任务，联机服务尚未接入</source>
+        <translation>暫無同步任務，線上服務尚未接入</translation>
+    </message>
+    <message>
+        <source>暂无可用节点，节点服务尚未接入</source>
+        <translation>暫無可用節點，節點服務尚未接入</translation>
+    </message>
+    <message>
+        <source>暂无搜索结果，内容服务尚未接入</source>
+        <translation>暫無搜尋結果，內容服務尚未接入</translation>
+    </message>
+    <message>
+        <source>内容服务尚未接入</source>
+        <translation>內容服務尚未接入</translation>
+    </message>
+    <message>
+        <source>暂无运行日志</source>
+        <translation>暫無運行日誌</translation>
+    </message>
+    <message>
+        <source>启动</source>
+        <translation>啟動</translation>
+    </message>
+    <message>
+        <source>广场</source>
+        <translation>廣場</translation>
+    </message>
+    <message>
+        <source>联机</source>
+        <translation>聯機</translation>
+    </message>
+    <message>
+        <source>好友</source>
+        <translation>好友</translation>
+    </message>
+    <message>
+        <source>设置</source>
+        <translation>設定</translation>
+    </message>
+    <message>
+        <source>请先选择完整的游戏和加载器版本</source>
+        <translation>請先選擇完整的遊戲和載入器版本</translation>
+    </message>
+    <message>
+        <source>安装服务尚未接入，未创建安装任务</source>
+        <translation>安裝服務尚未接入，未建立安裝任務</translation>
+    </message>
+    <message>
+        <source>交互预览 · 安装服务尚未接入，未创建真实任务</source>
+        <translation>互動預覽 · 安裝服務尚未接入，未建立真實任務</translation>
+    </message>
+    <message>
+        <source>选择游戏</source>
+        <translation>選擇遊戲</translation>
+    </message>
+    <message>
+        <source>游戏实例</source>
+        <translation>遊戲實例</translation>
+    </message>
+    <message>
+        <source>模组与资源</source>
+        <translation>模組與資源</translation>
+    </message>
+    <message>
+        <source>游戏设置</source>
+        <translation>遊戲設定</translation>
+    </message>
+    <message>
+        <source>游戏</source>
+        <translation>遊戲</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>語言</translation>
+    </message>
+    <message>
+        <source>下载</source>
+        <translation>下載</translation>
+    </message>
+    <message>
+        <source>常规</source>
+        <translation>常規</translation>
+    </message>
+    <message>
+        <source>移除或删除</source>
+        <translation>移除或刪除</translation>
+    </message>
+    <message>
+        <source>下载任务</source>
+        <translation>下載任務</translation>
+    </message>
+    <message>
+        <source>文件进度</source>
+        <translation>文件進度</translation>
+    </message>
+    <message>
+        <source>百日围城</source>
+        <translation>百日圍城</translation>
+    </message>
+    <message>
+        <source>整合包 · 生存挑战</source>
+        <translation>整合包 · 生存挑戰</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>安裝遊戲</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>導入整合包</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>匯出整合包</translation>
+    </message>
+    <message>
+        <source>处理同名实例</source>
+        <translation>處理同名實例</translation>
+    </message>
+    <message>
+        <source>周末一起玩</source>
+        <translation>週末一起玩</translation>
+    </message>
+    <message>
+        <source>房间预览 · 百日围城</source>
+        <translation>房間預覽 · 百日圍城</translation>
+    </message>
+    <message>
+        <source>文件同步</source>
+        <translation>文件同步</translation>
+    </message>
+    <message>
+        <source>联机节点</source>
+        <translation>聯機節點</translation>
+    </message>
+    <message>
+        <source>账号</source>
+        <translation>帳號</translation>
+    </message>
+    <message>
+        <source>Java 管理</source>
+        <translation>Java 管理</translation>
+    </message>
+    <message>
+        <source>下载来源</source>
+        <translation>下載來源</translation>
+    </message>
+    <message>
+        <source>存储位置</source>
+        <translation>儲存位置</translation>
+    </message>
+    <message>
+        <source>问题反馈</source>
+        <translation>問題回饋</translation>
+    </message>
+    <message>
+        <source>关于与更新</source>
+        <translation>關於與更新</translation>
+    </message>
+    <message>
+        <source>添加好友</source>
+        <translation>新增好友</translation>
+    </message>
+    <message>
+        <source>外观</source>
+        <translation>外觀</translation>
+    </message>
+    <message>
+        <source>游戏身份</source>
+        <translation>遊戲身份</translation>
+    </message>
+    <message>
+        <source>微软登录</source>
+        <translation>微軟登入</translation>
+    </message>
+    <message>
+        <source>皮肤</source>
+        <translation>皮膚</translation>
+    </message>
+    <message>
+        <source>运行日志</source>
+        <translation>運行日誌</translation>
+    </message>
+    <message>
+        <source>登录 Bugg</source>
+        <translation>登入 Bugg</translation>
+    </message>
+    <message>
+        <source>离线玩家</source>
+        <translation>離線玩家</translation>
+    </message>
+    <message>
+        <source>服务尚未接入</source>
+        <translation>服務尚未接入</translation>
+    </message>
+    <message>
+        <source>%1 优先</source>
+        <translation>%1 優先</translation>
+    </message>
+    <message>
+        <source>简体中文</source>
+        <translation>簡體中文</translation>
+    </message>
+    <message>
+        <source>内容安装服务尚未接入</source>
+        <translation>內容安裝服務尚未接入</translation>
+    </message>
+<message><source>任务</source><translation>任務</translation></message><message><source>请在游戏中对局域网开放</source><translation>請在遊戲中對區域網路開放</translation></message><message><source>通知</source><translation>通知</translation></message><message><source>打开多人游戏，选择“【BUGG联机】”房间即可加入。</source><translation>Open Multiplayer and select the “【BUGG联机】” room to join.</translation></message></context>
+<context>
+    <name>UpdatePage</name>
+    <message>
+        <source>和朋友一起开玩。</source>
+        <translation>和朋友一起開玩。</translation>
+    </message>
+    <message>
+        <source>检查更新</source>
+        <translation>檢查更新</translation>
+    </message>
+    <message>
+        <source>官方网站</source>
+        <translation>官方網站</translation>
+    </message>
+    <message>
+        <source>微信入群</source>
+        <translation>微信入群</translation>
+    </message>
+    <message>
+        <source>微信：junsi223</source>
+        <translation>微信：junsi223</translation>
+    </message>
+    <message>
+        <source>QQ 群</source>
+        <translation>QQ 群</translation>
+    </message>
+    <message>
+        <source>QQ 群：849362477</source>
+        <translation>QQ 群：849362477</translation>
+    </message>
+    <message>
+        <source>待更新</source>
+        <translation>待更新</translation>
+    </message>
+</context>
+<context>
+    <name>WindowControls</name>
+    <message>
+        <source>收起为工具条</source>
+        <translation>收起為工具條</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>關閉</translation>
+    </message>
+</context>
+<context><name>CreateRoomPage</name><message><source>请在游戏中对局域网开放</source><translation>請在遊戲中對區域網路開放</translation></message></context><context><name>Pagination</name><message><source>上一页</source><translation>上一頁</translation></message><message><source>下一页</source><translation>下一頁</translation></message></context><context><name>JoinRoomPage</name><message><source>正在加入…</source><translation>Joining…</translation></message></context><context><name>bugg::LanguageService</name><message><source>语言包无效，请重试</source><translation type="unfinished" /></message><message><source>语言包下载失败，请检查网络后重试</source><translation type="unfinished" /></message></context></TS>

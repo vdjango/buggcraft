@@ -1,1 +1,0 @@
-# The multiplayer bridge is built with CMake. No Python runtime dependencies.

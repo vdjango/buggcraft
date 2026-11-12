@@ -1,0 +1,178 @@
+{
+  "system": "Windows-10-10.0.26100-SP0",
+  "architecture": "AMD64",
+  "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+  "logicalProcessors": 20,
+  "pairs": 9,
+  "build": "MSVC 2022 Release /O2 /Ob2 /DNDEBUG, Qt 6.8.1",
+  "cache": "Warm OS file cache, one warm-up per process, alternating build order",
+  "timing": "GameRuntime.refresh_instances through instances_changed, including GUI delivery",
+  "binaries": {
+    "before": {
+      "path": "E:\\code\\bugg\\build\\instance-scan-before.exe",
+      "sha256": "a2838af3c21238bb14520821cb513adb3308f8c4a79bdc51e73a4d9fd9e05bf1"
+    },
+    "after": {
+      "path": "E:\\code\\bugg\\build\\instance_scan_test.exe",
+      "sha256": "adad9edbea440573dc44e72b0b7d1a8852ce29db10b1b929e80ebc6490223c09"
+    }
+  },
+  "scenarios": {
+    "distinct-8": {
+      "instances": 8,
+      "indexes": 8,
+      "indexBytes": 601306,
+      "beforeMs": [
+        48.4724,
+        65.5814,
+        61.5496,
+        58.0896,
+        87.1778,
+        61.7886,
+        85.0912,
+        59.2758,
+        78.4615
+      ],
+      "afterMs": [
+        56.7384,
+        53.4255,
+        67.3063,
+        66.1914,
+        58.5808,
+        68.9634,
+        52.531,
+        51.9457,
+        54.3152
+      ],
+      "outputHash": "a88b34c182779ee142acfb178b724872e7f7d6be897b18ebb6f3f3b3df13d51a",
+      "beforeMedianMs": 61.7886,
+      "beforeRangeMs": [
+        48.4724,
+        87.1778
+      ],
+      "afterMedianMs": 56.7384,
+      "afterRangeMs": [
+        51.9457,
+        68.9634
+      ],
+      "timeReductionPercent": 8.173352365970432
+    },
+    "shared-40-4-indexes": {
+      "instances": 40,
+      "indexes": 4,
+      "indexBytes": 601306,
+      "beforeMs": [
+        225.2512,
+        320.977,
+        326.7783,
+        313.9425,
+        298.4731,
+        323.0827,
+        309.5085,
+        307.9293,
+        336.668
+      ],
+      "afterMs": [
+        100.5815,
+        61.1967,
+        93.9038,
+        92.2605,
+        77.9349,
+        87.0511,
+        153.5424,
+        91.5753,
+        69.4972
+      ],
+      "outputHash": "d102dd4a37e5aade53b9fad1e910776d10cd2e0f04ebc1a7b200ea53dd71cb9a",
+      "beforeMedianMs": 313.9425,
+      "beforeRangeMs": [
+        225.2512,
+        336.668
+      ],
+      "afterMedianMs": 91.5753,
+      "afterRangeMs": [
+        61.1967,
+        153.5424
+      ],
+      "timeReductionPercent": 70.83055018036742
+    },
+    "shared-40": {
+      "instances": 40,
+      "indexes": 1,
+      "indexBytes": 601306,
+      "beforeMs": [
+        248.1413,
+        330.3208,
+        310.6287,
+        293.3947,
+        350.2456,
+        292.6293,
+        285.8072,
+        418.5181,
+        313.367
+      ],
+      "afterMs": [
+        66.0587,
+        51.0703,
+        200.698,
+        49.2631,
+        45.0089,
+        68.6606,
+        88.0322,
+        47.5274,
+        44.3139
+      ],
+      "outputHash": "d102dd4a37e5aade53b9fad1e910776d10cd2e0f04ebc1a7b200ea53dd71cb9a",
+      "beforeMedianMs": 310.6287,
+      "beforeRangeMs": [
+        248.1413,
+        418.5181
+      ],
+      "afterMedianMs": 51.0703,
+      "afterRangeMs": [
+        44.3139,
+        200.698
+      ],
+      "timeReductionPercent": 83.55905297868485
+    },
+    "single": {
+      "instances": 1,
+      "indexes": 1,
+      "indexBytes": 601306,
+      "beforeMs": [
+        7.6374,
+        8.0481,
+        9.0197,
+        8.9211,
+        7.9598,
+        13.4789,
+        9.9389,
+        7.9491,
+        9.9414
+      ],
+      "afterMs": [
+        9.0404,
+        9.2678,
+        10.405,
+        8.5205,
+        14.1514,
+        9.472,
+        11.7758,
+        8.0967,
+        9.6516
+      ],
+      "outputHash": "9cd68e31bab799b99eec3bb235ac5c7dfabe0c064adbf896b92559d2f3609edf",
+      "beforeMedianMs": 8.9211,
+      "beforeRangeMs": [
+        7.6374,
+        13.4789
+      ],
+      "afterMedianMs": 9.472,
+      "afterRangeMs": [
+        8.0967,
+        14.1514
+      ],
+      "timeReductionPercent": -6.175247447063703
+    }
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "architecture": "x86_64",
+  "build": "Release",
+  "cache": "warm OS file cache; alternating order; 9 paired samples",
+  "qt": "6.8.1",
+  "scenarios": [
+    {
+      "afterMs": [
+        870.5731,
+        846.7879,
+        840.5631,
+        810.6446,
+        818.9848,
+        815.4198,
+        839.3358,
+        828.4758,
+        811.0979
+      ],
+      "afterOpens": 1,
+      "afterReadBytes": 134217728,
+      "algorithms": [
+        "sha1",
+        "sha256"
+      ],
+      "beforeMs": [
+        907.1038,
+        916.3668,
+        903.8964,
+        931.7155,
+        911.4186,
+        903.4099,
+        919.6646,
+        908.7775,
+        905.5497
+      ],
+      "beforeOpens": 2,
+      "beforeReadBytes": 268435456,
+      "files": 1,
+      "inputBytes": 134217728,
+      "scenario": "export-large"
+    },
+    {
+      "afterMs": [
+        1259.851,
+        1273.2687,
+        1269.2473,
+        1262.0338,
+        1298.0918,
+        1301.6154,
+        1274.0663,
+        1264.4869,
+        1304.5099
+      ],
+      "afterOpens": 1,
+      "afterReadBytes": 134217728,
+      "algorithms": [
+        "sha1",
+        "sha256",
+        "sha512"
+      ],
+      "beforeMs": [
+        1395.6568,
+        1396.1027,
+        1419.0713,
+        1406.0142,
+        1396.4326,
+        1401.0084,
+        1425.1256,
+        1402.1583,
+        1426.9908
+      ],
+      "beforeOpens": 3,
+      "beforeReadBytes": 402653184,
+      "files": 1,
+      "inputBytes": 134217728,
+      "scenario": "verify-large"
+    },
+    {
+      "afterMs": [
+        312.4646,
+        278.29,
+        305.4869,
+        335.3412,
+        285.7464,
+        269.2112,
+        275.401,
+        277.4253,
+        274.0316
+      ],
+      "afterOpens": 400,
+      "afterReadBytes": 26214400,
+      "algorithms": [
+        "sha1",
+        "sha256"
+      ],
+      "beforeMs": [
+        439.4937,
+        407.8617,
+        468.7345,
+        501.3365,
+        465.441,
+        414.5608,
+        412.9523,
+        402.2024,
+        402.8389
+      ],
+      "beforeOpens": 800,
+      "beforeReadBytes": 52428800,
+      "files": 400,
+      "inputBytes": 26214400,
+      "scenario": "export-many"
+    }
+  ],
+  "system": "Windows 11 Version 24H2",
+  "cpu": "Intel Core i9-10850K @ 3.60GHz",
+  "logicalProcessors": 20,
+  "compiler": "MSVC 2022 x64",
+  "optimization": "/O2 /Ob2 /DNDEBUG; no global /arch override",
+  "samplesPerVariant": 9,
+  "background": "No test games, build or UI suite in parallel; ordinary user desktop and editor remain running",
+  "readCounts": "Logical application bytes/opens derived from benchmark operations, not physical storage counters"
+}

@@ -1,0 +1,2 @@
+#pragma once
+constexpr const char* kBuggRuntimeRules = R"BUGGRULES(@BUGG_RUNTIME_RULES@)BUGGRULES";

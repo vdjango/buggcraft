@@ -1,0 +1,21 @@
+Maven ComparableVersion C++ adaptation
+
+The nested version item comparison and tokenization in version.cpp are adapted
+from Apache Maven 3.9.9 ComparableVersion.java, licensed under Apache-2.0:
+https://github.com/apache/maven/blob/maven-3.9.9/maven-artifact/src/main/java/org/apache/maven/artifact/versioning/ComparableVersion.java
+
+Modifications (Bugg, 2026-11-12): C++20 translation, bounded input, unified
+arbitrary-precision decimal representation, optional error results and range
+membership. No Java code or JVM is required at runtime.
+
+The Maven project is developed by the Apache Software Foundation
+(https://www.apache.org/). This adaptation is not an Apache endorsement.
+
+Fabric predicate semantics follow Fabric Loader VersionPredicateParser,
+SemanticVersionImpl and VersionComparisonOperator (Copyright 2016 FabricMC,
+Apache-2.0). C++ implementation adds input budgets and unknown results:
+https://github.com/FabricMC/fabric-loader/tree/master/src/main/java/net/fabricmc/loader/impl/util/version
+
+Vendored dependencies (unmodified headers, excluded from product UI):
+nlohmann/json 3.11.3, MIT; third_party/LICENSE-json.txt
+toml++ 3.4.0, MIT; third_party/LICENSE-toml.txt

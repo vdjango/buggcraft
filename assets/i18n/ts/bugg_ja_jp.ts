@@ -1,0 +1,2533 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TS version="2.1" language="ja_jp" sourcelanguage="zh_CN">
+<context>
+    <name>AccountPage</name>
+    <message>
+        <source>Bugg 账号</source>
+        <translation>バグアカウント</translation>
+    </message>
+    <message>
+        <source>联机、好友与邀请</source>
+        <translation>つながり、友達、招待状</translation>
+    </message>
+    <message>
+        <source>Minecraft 游戏身份</source>
+        <translation>Minecraft ゲームのアイデンティティ</translation>
+    </message>
+    <message>
+        <source>微软账号或离线玩家</source>
+        <translation>Microsoft アカウントまたはオフライン プレーヤー</translation>
+    </message>
+    <message>
+        <source>已保留微软账号</source>
+        <translation>Microsoft アカウントが予約されています</translation>
+    </message>
+    <message>
+        <source>登出微软账号</source>
+        <translation>Microsoft アカウントからログアウトする</translation>
+    </message>
+</context>
+<context>
+    <name>AddFriendPage</name>
+    <message>
+        <source>好友账号 ID</source>
+        <translation>フレンドアカウントID</translation>
+    </message>
+    <message>
+        <source>输入好友的账号 ID</source>
+        <translation>友達のアカウントIDを入力してください</translation>
+    </message>
+    <message>
+        <source>发送好友申请</source>
+        <translation>友達リクエストを送る</translation>
+    </message>
+<message><source>我的好友码</source><translation>My friend code</translation></message></context>
+<context>
+    <name>AppearancePage</name>
+    <message>
+        <source>启动背景</source>
+        <translation>開始背景</translation>
+    </message>
+    <message>
+        <source> 张 · 自动轮播</source>
+        <translation> 張・自動カルーセル</translation>
+    </message>
+    <message>
+        <source>默认轮播 · 更换图片</source>
+        <translation>デフォルトのカルーセル · 画像の変更</translation>
+    </message>
+    <message>
+        <source>恢复默认背景</source>
+        <translation>デフォルトの背景を復元する</translation>
+    </message>
+    <message>
+        <source>选择启动背景（可多选）</source>
+        <translation>起動時の背景を選択します (複数の選択肢が利用可能)</translation>
+    </message>
+    <message>
+        <source>图片 (*.png *.jpg *.jpeg *.webp)</source>
+        <translation>画像 (*.png *.jpg *.jpeg *.webp)</translation>
+    </message>
+</context>
+<context>
+    <name>BrandButton</name>
+    <message>
+        <source>收起到屏幕边缘</source>
+        <translation>画面の端に押し込む</translation>
+    </message>
+</context>
+<context>
+    <name>Bugg</name>
+    <message>
+        <source>未知下载源</source>
+        <translation>不明なダウンロード元</translation>
+    </message>
+    <message>
+        <source>所选源未提供此能力，且无可用补齐源</source>
+        <translation>選択したソースはこの機能を提供しておらず、利用可能な補完ソースもありません</translation>
+    </message>
+    <message>
+        <source> 未提供此能力，使用</source>
+        <translation> この機能は提供されていません。使用してください</translation>
+    </message>
+    <message>
+        <source>下载源优先级为空</source>
+        <translation>ダウンロード元の優先度が空です</translation>
+    </message>
+    <message>
+        <source>下载源优先级包含重复来源</source>
+        <translation>ダウンロード ソースの優先順位には重複したソースが含まれています</translation>
+    </message>
+    <message>
+        <source>授权已取消</source>
+        <translation>認可が取り消されました</translation>
+    </message>
+    <message>
+        <source>身份恢复已取消</source>
+        <translation>ID の復元がキャンセルされました</translation>
+    </message>
+    <message>
+        <source>离线名称无效</source>
+        <translation>オフライン名が無効です</translation>
+    </message>
+    <message>
+        <source>请重新登录微软账号</source>
+        <translation>Microsoft アカウントに再度ログインしてください</translation>
+    </message>
+    <message>
+        <source>授权码已过期，请重试</source>
+        <translation>認証コードの有効期限が切れています。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>登录请求失败，请重试</source>
+        <translation>ログイン要求が失敗しました。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>此微软账号没有 Minecraft Java 版游戏角色，请确认购买并创建角色</source>
+        <translation>この Microsoft アカウントには Minecraft Java バージョンのゲーム キャラクターがありません。キャラクターを購入して作成するには確認してください。</translation>
+    </message>
+    <message>
+        <source>微软授权已过期，请重新登录</source>
+        <translation>Microsoft ライセンスの有効期限が切れています。再度ログインしてください</translation>
+    </message>
+    <message>
+        <source>Xbox 授权失败，请检查 Xbox 资料、年龄及家庭设置</source>
+        <translation>Xbox 認証に失敗しました。Xbox プロフィール、年齢、家族設定を確認してください。</translation>
+    </message>
+    <message>
+        <source>你已拒绝此次授权</source>
+        <translation>この承認を拒否しました</translation>
+    </message>
+    <message>
+        <source>无法连接登录服务，请检查网络后重试</source>
+        <translation>ログイン サービスに接続できません。ネットワークを確認してもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>微软未返回有效授权码</source>
+        <translation>Microsoft は有効な認証コードを返しませんでした</translation>
+    </message>
+    <message>
+        <source>微软未返回访问凭据</source>
+        <translation>Microsoft はアクセス資格情報を返さなかった</translation>
+    </message>
+    <message>
+        <source>Xbox 返回的身份无效</source>
+        <translation>Xbox から返された ID が無効です</translation>
+    </message>
+    <message>
+        <source>Xbox 安全令牌为空</source>
+        <translation>Xbox セキュリティ トークンが空です</translation>
+    </message>
+    <message>
+        <source>Minecraft 访问凭据为空</source>
+        <translation>Minecraft のアクセス認証情報が空です</translation>
+    </message>
+    <message>
+        <source>Minecraft 游戏角色无效</source>
+        <translation>Minecraft ゲームキャラクターが無効です</translation>
+    </message>
+    <message>
+        <source>无法读取安全凭据</source>
+        <translation>セキュリティ認証情報を読み取れません</translation>
+    </message>
+    <message>
+        <source>凭据无法在当前系统解密，请重新登录</source>
+        <translation>現在のシステムでは認証情報を復号化できません。再度ログインしてください。</translation>
+    </message>
+    <message>
+        <source>钥匙串读取失败</source>
+        <translation>キーチェーンの読み取りに失敗しました</translation>
+    </message>
+    <message>
+        <source>无法清除安全凭据</source>
+        <translation>セキュリティ資格情報をクリアできません</translation>
+    </message>
+    <message>
+        <source>系统无法保护凭据，未写入明文</source>
+        <translation>システムは認証情報の保護に失敗しました。平文が書き込まれませんでした</translation>
+    </message>
+    <message>
+        <source>安全凭据保存失败</source>
+        <translation>セキュリティ資格情報を保存できませんでした</translation>
+    </message>
+    <message>
+        <source>钥匙串保存失败</source>
+        <translation>キーチェーンの保存に失敗しました</translation>
+    </message>
+    <message>
+        <source>本系统尚未接入安全凭据存储，本次登录仅在当前进程有效</source>
+        <translation>このシステムはまだセキュリティ資格情報ストレージにアクセスしていません。このログインは現在のプロセスでのみ有効です。</translation>
+    </message>
+    <message>
+        <source>微软账号 · Java 版</source>
+        <translation>Microsoftアカウント・Java版</translation>
+    </message>
+    <message>
+        <source>名称需要 3–16 位字母、数字或下划线</source>
+        <translation>名前には 3 ～ 16 文字の文字、数字、またはアンダースコアが必要です</translation>
+    </message>
+    <message>
+        <source>离线身份</source>
+        <translation>オフラインアイデンティティ</translation>
+    </message>
+    <message>
+        <source>微软登录服务尚未接入</source>
+        <translation>Microsoft ログイン サービスがまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>版本目录获取失败，请重试。
+</source>
+        <translation>バージョン ディレクトリの取得に失敗しました。もう一度お試しください。 </translation>
+    </message>
+    <message>
+        <source>没有兼容版本</source>
+        <translation>互換性のあるバージョンがありません</translation>
+    </message>
+    <message>
+        <source>加载器目录不是有效的 Maven 元数据</source>
+        <translation>ローダー ディレクトリが有効な Maven メタデータではありません</translation>
+    </message>
+    <message>
+        <source>目录数据格式错误</source>
+        <translation>ディレクトリデータ形式エラー</translation>
+    </message>
+    <message>
+        <source>游戏目录缺少版本清单</source>
+        <translation>ゲームディレクトリにバージョンリストがありません</translation>
+    </message>
+    <message>
+        <source>游戏目录缺少最新正式版</source>
+        <translation>ゲームディレクトリに最新の正式バージョンがありません</translation>
+    </message>
+    <message>
+        <source>Quilt 镜像目录缺少加载器或游戏映射</source>
+        <translation>キルトミラーディレクトリにローダーまたはゲームマッピングがありません</translation>
+    </message>
+    <message>
+        <source>Quilt 镜像目录未包含有效版本</source>
+        <translation>キルトミラーディレクトリに有効なバージョンが含まれていません</translation>
+    </message>
+    <message>
+        <source>加载器目录不是版本数组</source>
+        <translation>ローダー ディレクトリはバージョン配列ではありません</translation>
+    </message>
+    <message>
+        <source>目录响应未包含匹配的加载器数据</source>
+        <translation>カタログ応答に一致するローダー データが含まれていませんでした</translation>
+    </message>
+    <message>
+        <source>加载器描述文件无效</source>
+        <translation>ローダー記述ファイルが無効です</translation>
+    </message>
+    <message>
+        <source>获取 Minecraft 版本元数据</source>
+        <translation>Minecraft のバージョンのメタデータを取得する</translation>
+    </message>
+    <message>
+        <source>找不到所选 Minecraft 版本</source>
+        <translation>選択した Minecraft のバージョンが見つかりません</translation>
+    </message>
+    <message>
+        <source>版本继承出现循环或层数过多</source>
+        <translation>バージョン継承にサイクルがあるか、レベルが多すぎます。</translation>
+    </message>
+    <message>
+        <source>缺少当前平台 native 依赖</source>
+        <translation>現在のプラットフォームのネイティブ依存関係がありません</translation>
+    </message>
+    <message>
+        <source>校验游戏核心与运行库</source>
+        <translation>ゲームコアとランタイムライブラリを確認する</translation>
+    </message>
+    <message>
+        <source>校验游戏资源</source>
+        <translation>ゲームリソースを確認する</translation>
+    </message>
+    <message>
+        <source>资源摘要格式错误</source>
+        <translation>リソース概要フォーマットエラー</translation>
+    </message>
+    <message>
+        <source>无法创建旧版资源映射</source>
+        <translation>レガシーリソースマップを作成できません</translation>
+    </message>
+    <message>
+        <source>准备本地运行库</source>
+        <translation>ローカルランタイムライブラリを準備する</translation>
+    </message>
+    <message>
+        <source>匹配 Java 运行环境</source>
+        <translation>Java ランタイム環境と一致する</translation>
+    </message>
+    <message>
+        <source>所选 Java 不兼容此游戏，请改为自动匹配</source>
+        <translation>選択した Java はこのゲームと互換性がありません。自動マッチングに切り替えてください。</translation>
+    </message>
+    <message>
+        <source>没有适合此平台的 Java，请在 Java 设置中指定已安装的兼容版本</source>
+        <translation>このプラットフォームに適した Java がありません。Java 設定でインストールされている互換性のあるバージョンを指定してください</translation>
+    </message>
+    <message>
+        <source>无法创建 Java 运行库链接</source>
+        <translation>Java ランタイム リンクを作成できません</translation>
+    </message>
+    <message>
+        <source>Java 下载后验证失败，未尝试系统 PATH 的 java</source>
+        <translation>Java のダウンロード後に検証が失敗し、システム PATH の Java が試行されませんでした。</translation>
+    </message>
+    <message>
+        <source>执行加载器处理器 </source>
+        <translation>ローダーハンドラーを実行する</translation>
+    </message>
+    <message>
+        <source>处理器缺少入口类</source>
+        <translation>プロセッサにエントリ クラスがありません</translation>
+    </message>
+    <message>
+        <source>处理器未生成有效的目标文件</source>
+        <translation>プロセッサは有効なオブジェクト ファイルを生成しませんでした</translation>
+    </message>
+    <message>
+        <source>缺少必需的运行库：</source>
+        <translation>必要なランタイム ライブラリがありません:</translation>
+    </message>
+    <message>
+        <source>，请重新安装对应加载器</source>
+        <translation>、対応するローダーを再インストールしてください</translation>
+    </message>
+    <message>
+        <source>同名实例已经存在，请修改安装名称</source>
+        <translation>同じ名前のインスタンスがすでに存在します。インストール名を変更してください。</translation>
+    </message>
+    <message>
+        <source>安装规格不完整</source>
+        <translation>不完全な設置仕様</translation>
+    </message>
+    <message>
+        <source>无法创建安装工作目录</source>
+        <translation>インストール作業ディレクトリを作成できません</translation>
+    </message>
+    <message>
+        <source>无法提取 Forge 核心</source>
+        <translation>Forge コアを抽出できません</translation>
+    </message>
+    <message>
+        <source>未知加载器</source>
+        <translation>不明なローダー</translation>
+    </message>
+    <message>
+        <source>安装完成</source>
+        <translation>インストール完了</translation>
+    </message>
+    <message>
+        <source>游戏已退出（%1），可查看实例目录 logs/launcher-game.log</source>
+        <translation>ゲームは終了しました (%1)。インスタンス ディレクトリの logs/launcher-game.log を参照してください。</translation>
+    </message>
+    <message>
+        <source>上次未完成，可重试</source>
+        <translation>前回は完了していませんでした。もう一度お試しください</translation>
+    </message>
+    <message>
+        <source>游戏目录正在初始化，请稍后重试</source>
+        <translation>ゲームディレクトリを初期化中です。後でもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>该任务已在队列中</source>
+        <translation>タスクはすでにキューに入っています</translation>
+    </message>
+    <message>
+        <source>排队中</source>
+        <translation>キューイング</translation>
+    </message>
+    <message>
+        <source>准备游戏文件与 Java</source>
+        <translation>Javaでゲームファイルを準備する</translation>
+    </message>
+    <message>
+        <source>准备安装</source>
+        <translation>インストールの準備ができました</translation>
+    </message>
+    <message>
+        <source>已取消，已校验文件保留供重试</source>
+        <translation>キャンセルされ、検証されたファイルは再試行のために保持されます</translation>
+    </message>
+    <message>
+        <source>游戏进程已启动</source>
+        <translation>ゲームプロセスが開始されました</translation>
+    </message>
+    <message>
+        <source>游戏进程已启动，日志保存在实例目录</source>
+        <translation>ゲームプロセスが開始され、ログがインスタンスディレクトリに保存されます。</translation>
+    </message>
+    <message>
+        <source>正在启动游戏</source>
+        <translation>ゲーム開始</translation>
+    </message>
+    <message>
+        <source>游戏正在运行</source>
+        <translation>ゲームが実行中です</translation>
+    </message>
+    <message>
+        <source>正在停止游戏</source>
+        <translation>ゲームを停止する</translation>
+    </message>
+    <message>
+        <source>启动未完成</source>
+        <translation>起動が完了していない</translation>
+    </message>
+    <message>
+        <source>请先等待或取消当前安装任务</source>
+        <translation>まず待つか、現在のインストールタスクをキャンセルしてください</translation>
+    </message>
+    <message>
+        <source>找不到所选实例，请刷新游戏列表</source>
+        <translation>選択したインスタンスが見つかりません。ゲームリストを更新してください。</translation>
+    </message>
+    <message>
+        <source>正在确认游戏身份</source>
+        <translation>ゲームのアイデンティティを確認する</translation>
+    </message>
+    <message>
+        <source>等待游戏进程退出</source>
+        <translation>ゲームプロセスが終了するまで待ちます</translation>
+    </message>
+    <message>
+        <source>已取消</source>
+        <translation>キャンセルされました</translation>
+    </message>
+    <message>
+        <source>正在取消</source>
+        <translation>キャンセルする</translation>
+    </message>
+    <message>
+        <source>请等待当前准备任务结束</source>
+        <translation>現在の準備タスクが終了するまでお待ちください</translation>
+    </message>
+    <message>
+        <source>请选择已有的 Minecraft 目录</source>
+        <translation>既存の Minecraft ディレクトリを選択してください</translation>
+    </message>
+    <message>
+        <source>整合包清单无效</source>
+        <translation>Modpack リストが無効です</translation>
+    </message>
+    <message>
+        <source>整合包文件大小不匹配</source>
+        <translation>Modpack ファイルサイズの不一致</translation>
+    </message>
+    <message>
+        <source>整合包文件摘要不匹配：</source>
+        <translation>Modpack ファイルの概要の不一致:</translation>
+    </message>
+    <message>
+        <source>整合包文件路径重复或保留</source>
+        <translation>統合パッケージのファイルパスが重複しているか予約されています</translation>
+    </message>
+    <message>
+        <source>整合包文件缺少校验信息</source>
+        <translation>統合パッケージ ファイルに検証情報がありません</translation>
+    </message>
+    <message>
+        <source>整合包摘要格式无效</source>
+        <translation>Modpack の概要形式が無効です</translation>
+    </message>
+    <message>
+        <source>整合包下载信息无效</source>
+        <translation>統合パッケージのダウンロード情報が無効です</translation>
+    </message>
+    <message>
+        <source>整合包下载地址不受支持</source>
+        <translation>統合パッケージのダウンロード アドレスはサポートされていません</translation>
+    </message>
+    <message>
+        <source>整合包包含多个清单</source>
+        <translation>パッケージには複数のマニフェストが含まれています</translation>
+    </message>
+    <message>
+        <source>支持 CurseForge ZIP、Modrinth mrpack、Buggcraft buggpack；此归档缺少清单</source>
+        <translation>CurseForge ZIP、Modrinth mrpack、Buggcraft buggpack をサポートします。このアーカイブにはマニフェストがありません</translation>
+    </message>
+    <message>
+        <source>整合包加载器冲突或版本无效</source>
+        <translation>Modpack ローダーの競合または無効なバージョン</translation>
+    </message>
+    <message>
+        <source>不支持的 CurseForge 清单版本</source>
+        <translation>サポートされていない CurseForge マニフェスト バージョン</translation>
+    </message>
+    <message>
+        <source>不支持的整合包加载器</source>
+        <translation>サポートされていない modpack ローダー</translation>
+    </message>
+    <message>
+        <source>CurseForge 文件编号无效</source>
+        <translation>CurseForge ファイル番号が無効です</translation>
+    </message>
+    <message>
+        <source>不支持的整合包清单版本</source>
+        <translation>サポートされていない modpack マニフェストのバージョン</translation>
+    </message>
+    <message>
+        <source>不支持的整合包依赖</source>
+        <translation>サポートされていない統合パッケージの依存関係</translation>
+    </message>
+    <message>
+        <source>整合包缺少 SHA-256</source>
+        <translation>Modpack に SHA-256 がありません</translation>
+    </message>
+    <message>
+        <source>整合包文件总量超过限制</source>
+        <translation>統合パッケージファイルの総数が制限を超えています</translation>
+    </message>
+    <message>
+        <source>整合包缺少内嵌文件</source>
+        <translation>統合パッケージに埋め込みファイルがありません</translation>
+    </message>
+    <message>
+        <source>整合包含有清单之外的文件</source>
+        <translation>リストに含まれていないファイルを統合する</translation>
+    </message>
+    <message>
+        <source>整合包版本或文件数量无效</source>
+        <translation>modpack のバージョンまたはファイル数が無効です</translation>
+    </message>
+    <message>
+        <source>实例名称无效或已存在</source>
+        <translation>インスタンス名が無効か、すでに存在します</translation>
+    </message>
+    <message>
+        <source>CurseForge 文件不可用或不允许下载</source>
+        <translation>CurseForge ファイルが利用できないか、ダウンロードが許可されていません</translation>
+    </message>
+    <message>
+        <source>无法提交整合包实例</source>
+        <translation>統合パッケージインスタンスを送信できません</translation>
+    </message>
+    <message>
+        <source>整合包安装完成</source>
+        <translation>統合パッケージのインストールが完了しました</translation>
+    </message>
+    <message>
+        <source>导出位置不能位于当前实例内</source>
+        <translation>エクスポート場所を現在のインスタンス内にすることはできません</translation>
+    </message>
+    <message>
+        <source>整理整合包：</source>
+        <translation>統合パッケージを整理します。</translation>
+    </message>
+    <message>
+        <source>正在导出整合包</source>
+        <translation>統合パッケージのエクスポート</translation>
+    </message>
+    <message>
+        <source>请先停止此游戏</source>
+        <translation>まずこのゲームを止めてください</translation>
+    </message>
+    <message>
+        <source>请等待当前任务结束</source>
+        <translation>現在のタスクが終了するまでお待ちください</translation>
+    </message>
+    <message>
+        <source>资源 URL 无效</source>
+        <translation>リソースの URL が無効です</translation>
+    </message>
+    <message>
+        <source>资源元数据格式错误</source>
+        <translation>リソースメタデータフォーマットエラー</translation>
+    </message>
+    <message>
+        <source>获取元数据失败：</source>
+        <translation>メタデータの取得に失敗しました:</translation>
+    </message>
+    <message>
+        <source>同一路径存在冲突的依赖摘要</source>
+        <translation>同じパスに対する競合する依存関係の概要</translation>
+    </message>
+    <message>
+        <source>文件已校验</source>
+        <translation>ファイルが検証されました</translation>
+    </message>
+    <message>
+        <source>文件 %1 / %2 · %3</source>
+        <translation>ファイル %1 / %2 ・ %3</translation>
+    </message>
+    <message>
+        <source>下载 %1 / %2 · %3</source>
+        <translation>ダウンロード %1 / %2 · %3</translation>
+    </message>
+    <message>
+        <source>游戏目录服务尚未接入</source>
+        <translation>ゲーム ディレクトリ サービスはまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>Maven 依赖坐标无效</source>
+        <translation>Maven 依存関係の座標が無効です</translation>
+    </message>
+    <message>
+        <source>依赖缺少合法 Maven 名称</source>
+        <translation>依存関係に有効な Maven 名がありません</translation>
+    </message>
+    <message>
+        <source>启动参数包含尚未支持的占位符</source>
+        <translation>起動パラメータにまだサポートされていないプレースホルダが含まれています</translation>
+    </message>
+    <message>
+        <source>版本缺少入口类</source>
+        <translation>バージョンにエントリ クラスがありません</translation>
+    </message>
+    <message>
+        <source>检查本次使用的游戏账号</source>
+        <translation>今回使用したゲームアカウントを確認する</translation>
+    </message>
+    <message>
+        <source>正在准备运行环境</source>
+        <translation>動作環境の準備</translation>
+    </message>
+    <message>
+        <source>匹配适合这个版本的 Java</source>
+        <translation>このバージョンに適した Java と一致します</translation>
+    </message>
+    <message>
+        <source>正在检查游戏文件</source>
+        <translation>ゲームファイルの確認</translation>
+    </message>
+    <message>
+        <source>确认核心、加载器和运行库已就绪</source>
+        <translation>コア、ローダー、ランタイムの準備ができていることを確認する</translation>
+    </message>
+    <message>
+        <source>正在打开你的世界</source>
+        <translation>自分の世界を開く</translation>
+    </message>
+    <message>
+        <source>准备完成，正在等待游戏窗口</source>
+        <translation>準備ができて、ゲームウィンドウを待っています</translation>
+    </message>
+    <message>
+        <source>请先选择游戏身份</source>
+        <translation>最初にゲーム ID を選択してください</translation>
+    </message>
+    <message>
+        <source>无法找到所选游戏，请重新选择</source>
+        <translation>選択したゲームが見つかりません。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>游戏启动服务尚未接入，未创建游戏进程</source>
+        <translation>ゲーム起動サービスに接続されておらず、ゲームプロセスが作成されていません。</translation>
+    </message>
+    <message>
+        <source>世界已就绪</source>
+        <translation>世界は準備ができています</translation>
+    </message>
+    <message>
+        <source>启动流程演示完成，未运行真实游戏</source>
+        <translation>起動プロセスのデモは完了しましたが、実際のゲームは実行されていません。</translation>
+    </message>
+    <message>
+        <source>正在结束游戏</source>
+        <translation>エンディングゲーム</translation>
+    </message>
+    <message>
+        <source>等待游戏退出后恢复选择</source>
+        <translation>選択を復元する前に、ゲームが終了するのを待ってください</translation>
+    </message>
+    <message>
+        <source>启动暂未完成</source>
+        <translation>起動がまだ完了していません</translation>
+    </message>
+    <message>
+        <source>节点响应无效</source>
+        <translation>ノードの応答が無効です</translation>
+    </message>
+    <message>
+        <source>请输入可信节点的 HTTPS 网址</source>
+        <translation>信頼できるノードの HTTPS URL を入力してください</translation>
+    </message>
+    <message>
+        <source>节点登录网址不匹配</source>
+        <translation>ノードのログイン URL が一致しません</translation>
+    </message>
+    <message>
+        <source>登录已过期，请重试</source>
+        <translation>ログイン期限が切れました。もう一度お試しください</translation>
+    </message>
+    <message>
+        <source>节点授权与此设备不匹配</source>
+        <translation>ノード認証がこのデバイスと一致しません</translation>
+    </message>
+    <message>
+        <source>节点授权已失效，请重新登录</source>
+        <translation>ノードの認証が期限切れになりました。再度ログインしてください。</translation>
+    </message>
+    <message>
+        <source>节点身份已变更，请重新登录</source>
+        <translation>ノード ID が変更されました。再度ログインしてください。</translation>
+    </message>
+    <message>
+        <source>此房间需要邀请或暂不可加入</source>
+        <translation>このルームには招待が必要か、一時的に参加できません</translation>
+    </message>
+    <message>
+        <source>联机引擎无法启动</source>
+        <translation>オンラインエンジンが起動できない</translation>
+    </message>
+    <message>
+        <source>联机连接已结束</source>
+        <translation>オンライン接続が終了しました</translation>
+    </message>
+    <message>
+        <source>联机节点响应超时</source>
+        <translation>オンラインノードの応答タイムアウト</translation>
+    </message>
+    <message>
+        <source>联机引擎不可用</source>
+        <translation>オンラインエンジンは利用できません</translation>
+    </message>
+    <message>
+        <source>联机引擎写入失败</source>
+        <translation>オンライン エンジンの書き込みに失敗しました</translation>
+    </message>
+    <message>
+        <source>联机响应超过限制</source>
+        <translation>オンライン応答が制限を超えている</translation>
+    </message>
+    <message>
+        <source>无法读取游戏选项</source>
+        <translation>ゲームオプションを読み取れません</translation>
+    </message>
+    <message>
+        <source>无法保存游戏选项</source>
+        <translation>ゲームオプションを保存できません</translation>
+    </message>
+    <message>
+        <source>来源设置读取失败，暂用 BUGG</source>
+        <translation>ソース設定の読み取りに失敗しました。一時的に BUGG を使用しました</translation>
+    </message>
+    <message>
+        <source>来源设置无效，暂用 BUGG</source>
+        <translation>ソース設定が無効です。一時的に BUGG を使用しています</translation>
+    </message>
+    <message>
+        <source> 优先</source>
+        <translation> 優先順位</translation>
+    </message>
+    <message>
+        <source>无法创建来源设置目录</source>
+        <translation>ソース設定ディレクトリを作成できません</translation>
+    </message>
+    <message>
+        <source>来源已切换，但保存失败，请重新选择后重试</source>
+        <translation>ソースを切り替えましたが、保存に失敗しました。もう一度選択してやり直してください。</translation>
+    </message>
+    <message>
+        <source>无法打开压缩文件</source>
+        <translation>圧縮ファイルを開けません</translation>
+    </message>
+    <message>
+        <source>压缩文件损坏</source>
+        <translation>圧縮ファイルが壊れています</translation>
+    </message>
+    <message>
+        <source>资源包含不安全路径</source>
+        <translation>リソースに安全でないパスが含まれています</translation>
+    </message>
+    <message>
+        <source>资源路径越界</source>
+        <translation>リソースパスが範囲外です</translation>
+    </message>
+    <message>
+        <source>资源路径包含符号链接</source>
+        <translation>リソース パスにシンボリック リンクが含まれている</translation>
+    </message>
+    <message>
+        <source>无法读取版本/配置文件：</source>
+        <translation>バージョン/構成ファイルを読み取ることができません:</translation>
+    </message>
+    <message>
+        <source>版本/配置 JSON 无效</source>
+        <translation>無効なバージョン/構成 JSON</translation>
+    </message>
+    <message>
+        <source>无法保存版本/配置文件</source>
+        <translation>バージョン/構成ファイルを保存できません</translation>
+    </message>
+    <message>
+        <source>安装器缺少有效的 </source>
+        <translation>インストーラーに有効なファイルがありません</translation>
+    </message>
+    <message>
+        <source>读取压缩内容失败</source>
+        <translation>圧縮コンテンツの読み込みに失敗しました</translation>
+    </message>
+    <message>
+        <source>压缩文件条目过多</source>
+        <translation>圧縮ファイルのエントリが多すぎます</translation>
+    </message>
+    <message>
+        <source>压缩目录损坏</source>
+        <translation>圧縮されたディレクトリが壊れています</translation>
+    </message>
+    <message>
+        <source>压缩内容不允许符号链接</source>
+        <translation>圧縮されたコンテンツではシンボリックリンクは使用できません</translation>
+    </message>
+    <message>
+        <source>解压内容超过大小限制</source>
+        <translation>解凍されたコンテンツがサイズ制限を超えています</translation>
+    </message>
+    <message>
+        <source>无法创建解压文件</source>
+        <translation>解凍されたファイルを作成できません</translation>
+    </message>
+    <message>
+        <source>解压/校验 CRC 失败</source>
+        <translation>解凍/CRCチェックに失敗しました</translation>
+    </message>
+    <message>
+        <source>不支持的摘要算法</source>
+        <translation>サポートされていないダイジェスト アルゴリズム</translation>
+    </message>
+    <message>
+        <source>无法读取文件</source>
+        <translation>ファイルを読み取れません</translation>
+    </message>
+    <message>
+        <source>归档包含重复、加密或链接文件</source>
+        <translation>アーカイブには重複したファイル、暗号化されたファイル、またはリンクされたファイルが含まれています</translation>
+    </message>
+    <message>
+        <source>导出文件已存在，请更换名称</source>
+        <translation>エクスポート ファイルは既に存在します。名前を変更してください</translation>
+    </message>
+    <message>
+        <source>无法创建整合包</source>
+        <translation>modpackを作成できません</translation>
+    </message>
+    <message>
+        <source>导出路径重复</source>
+        <translation>エクスポートパスが重複しています</translation>
+    </message>
+    <message>
+        <source>写入整合包失败</source>
+        <translation>統合パッケージの書き込みに失敗しました</translation>
+    </message>
+    <message>
+        <source>写入整合包清单失败</source>
+        <translation>modpackマニフェストの書き込みに失敗しました</translation>
+    </message>
+    <message>
+        <source>整合包提交失败</source>
+        <translation>統合パッケージの送信に失敗しました</translation>
+    </message>
+    <message>
+        <source>无效的资源地址</source>
+        <translation>無効なリソースアドレス</translation>
+    </message>
+    <message>
+        <source>无法写入下载目录</source>
+        <translation>ダウンロード ディレクトリに書き込めません</translation>
+    </message>
+    <message>
+        <source>所选来源重定向到不允许的地址，已阻止请求</source>
+        <translation>選択したソースは許可されていないアドレスにリダイレクトされ、リクエストはブロックされました</translation>
+    </message>
+    <message>
+        <source>连接或接收数据超时，请重试</source>
+        <translation>接続またはデータの受信がタイムアウトしました。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>响应超过大小限制</source>
+        <translation>応答がサイズ制限を超えています</translation>
+    </message>
+    <message>
+        <source>写入下载文件失败</source>
+        <translation>ダウンロードファイルの書き込みに失敗しました</translation>
+    </message>
+    <message>
+        <source>请求超过总时限，请重试</source>
+        <translation>リクエストは合計制限時間を超えています。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>文件 SHA1 校验失败</source>
+        <translation>ファイルのSHA1検証に失敗しました</translation>
+    </message>
+    <message>
+        <source>文件大小校验失败</source>
+        <translation>ファイルサイズの検証に失敗しました</translation>
+    </message>
+    <message>
+        <source>无法提交下载文件</source>
+        <translation>ダウンロード用にファイルを送信できません</translation>
+    </message>
+    <message>
+        <source>无法创建游戏进程，请检查 Java 和游戏目录权限</source>
+        <translation>ゲームプロセスを作成できません。Java とゲームディレクトリの権限を確認してください。</translation>
+    </message>
+    <message>
+        <source>加载器处理器超时，请查看安装日志</source>
+        <translation>ローダー プロセッサがタイムアウトしました。インストール ログを確認してください。</translation>
+    </message>
+    <message>
+        <source>加载器处理器运行失败，请查看安装日志</source>
+        <translation>ローダー プロセッサが失敗しました。インストール ログを確認してください。</translation>
+    </message>
+    <message>
+        <source>可分配上限 %1 GiB</source>
+        <translation>割り当て可能な制限: %1 GiB</translation>
+    </message>
+</context>
+<context>
+    <name>CatalogPage</name>
+    <message>
+        <source>搜索</source>
+        <translation>検索</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>ゲームをインストールする</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>統合パッケージをインポートする</translation>
+    </message>
+    <message>
+        <source>内容预览</source>
+        <translation>コンテンツのプレビュー</translation>
+    </message>
+    <message>
+        <source>百日围城</source>
+        <translation>百日包囲戦</translation>
+    </message>
+    <message>
+        <source>整合包 · 生存挑战 · 1.21.1</source>
+        <translation>Modpack · サバイバル チャレンジ · 1.21.1</translation>
+    </message>
+    <message>
+        <source>原版 Minecraft</source>
+        <translation>オリジナルのマインクラフト</translation>
+    </message>
+    <message>
+        <source>选择游戏版本与加载器</source>
+        <translation>ゲームのバージョンとローダーを選択します</translation>
+    </message>
+    <message>
+        <source>下载任务</source>
+        <translation>ダウンロードタスク</translation>
+    </message>
+    <message>
+        <source>查看进度</source>
+        <translation>進行状況を表示する</translation>
+    </message>
+<message><source>任务</source><translation>タスク</translation></message></context>
+<context>
+    <name>ClassicShell</name>
+    <message>
+        <source>返回</source>
+        <translation>戻る</translation>
+    </message>
+</context>
+<context>
+    <name>ContentDetailsPage</name>
+    <message>
+        <source>和朋友一起建造防线，迎接越来越危险的夜晚。</source>
+        <translation>友達と防御線を築き、ますます危険になる夜に立ち向かいましょう。</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>实例名称</source>
+        <translation>インスタンス名</translation>
+    </message>
+    <message>
+        <source>百日围城</source>
+        <translation>百日包囲戦</translation>
+    </message>
+    <message>
+        <source>下载并安装</source>
+        <translation>ダウンロードしてインストールする</translation>
+    </message>
+</context>
+<context>
+    <name>DeleteInstancePage</name>
+    <message>
+        <source>请选择如何处理这个实例。</source>
+        <translation>このインスタンスの処理方法を選択してください。</translation>
+    </message>
+    <message>
+        <source>永久删除本地文件</source>
+        <translation>ローカルファイルを完全に削除する</translation>
+    </message>
+    <message>
+        <source>删除实例文件夹，无法恢复</source>
+        <translation>削除されたインスタンスフォルダーは復元できません</translation>
+    </message>
+    <message>
+        <source>仅从列表移除</source>
+        <translation>リストからのみ削除</translation>
+    </message>
+    <message>
+        <source>保留本地所有文件</source>
+        <translation>すべてのローカル ファイルを保持する</translation>
+    </message>
+    <message>
+        <source>将永久删除该实例的本地文件，包括存档、模组和设置。</source>
+        <translation>インスタンスのローカル ファイル (セーブ、MOD、設定を含む) は完全に削除されます。</translation>
+    </message>
+    <message>
+        <source>本地文件会保留，可重新添加。</source>
+        <translation>ローカル ファイルは保持され、再度追加できます。</translation>
+    </message>
+    <message>
+        <source>确认永久删除</source>
+        <translation>永久削除の確認</translation>
+    </message>
+    <message>
+        <source>确认移除记录</source>
+        <translation>削除記録を確認する</translation>
+    </message>
+</context>
+<context>
+    <name>DeviceAuthPage</name>
+    <message>
+        <source>连接微软账号</source>
+        <translation>Microsoft アカウントを接続する</translation>
+    </message>
+    <message>
+        <source>等待完成授权</source>
+        <translation>承認が完了するのを待っています</translation>
+    </message>
+    <message>
+        <source>测试授权流程</source>
+        <translation>テスト認可プロセス</translation>
+    </message>
+    <message>
+        <source>在微软网页输入授权码，完成后自动返回</source>
+        <translation>Microsoft Web ページで認証コードを入力し、完了後に自動的に戻ります。</translation>
+    </message>
+    <message>
+        <source>演示授权码</source>
+        <translation>デモ認証コード</translation>
+    </message>
+    <message>
+        <source>微软授权码</source>
+        <translation>Microsoft 認証コード</translation>
+    </message>
+    <message>
+        <source>正在读取游戏身份</source>
+        <translation>ゲームのアイデンティティを読み取る</translation>
+    </message>
+    <message>
+        <source>完成后自动返回</source>
+        <translation>完了後自動的に戻る</translation>
+    </message>
+    <message>
+        <source>正在完成登录…</source>
+        <translation>ログインを完了しています...</translation>
+    </message>
+    <message>
+        <source>模拟完成授权</source>
+        <translation>認可完了のシミュレーション</translation>
+    </message>
+    <message>
+        <source>复制授权码并打开微软网页</source>
+        <translation>認証コードをコピーし、Microsoft Web ページを開きます。</translation>
+    </message>
+    <message>
+        <source>获取演示授权码</source>
+        <translation>デモ認証コードを取得する</translation>
+    </message>
+    <message>
+        <source>登录微软账号</source>
+        <translation>Microsoftアカウントでログイン</translation>
+    </message>
+    <message>
+        <source>取消登录</source>
+        <translation>ログインをキャンセルする</translation>
+    </message>
+</context>
+<context>
+    <name>DockHandle</name>
+    <message>
+        <source>展开 Bugg 工具面板</source>
+        <translation>バグツールパネルを展開します</translation>
+    </message>
+</context>
+<context>
+    <name>DownloadsPage</name>
+    <message>
+        <source>同时下载数量</source>
+        <translation>同時ダウンロード数</translation>
+    </message>
+    <message>
+        <source>来源优先级</source>
+        <translation>ソースの優先度</translation>
+    </message>
+</context>
+<context>
+    <name>FeedbackPage</name>
+    <message>
+        <source>发生了什么？你原本希望怎样？</source>
+        <translation>何が起こったのでしょうか？何を期待していたのですか？</translation>
+    </message>
+    <message>
+        <source>联系方式（选填）</source>
+        <translation>連絡先情報 (オプション)</translation>
+    </message>
+    <message>
+        <source>方便我们进一步了解问题</source>
+        <translation>問題をさらに理解するために協力してください</translation>
+    </message>
+    <message>
+        <source>附加脱敏诊断信息</source>
+        <translation>追加の減感作診断情報</translation>
+    </message>
+    <message>
+        <source>提交问题</source>
+        <translation>質問を送信する</translation>
+    </message>
+    <message>
+        <source>交互预览 · 反馈服务尚未接入，未发送内容</source>
+        <translation>インタラクティブ プレビュー · フィードバック サービスはまだ接続されておらず、コンテンツは送信されていません。</translation>
+    </message>
+</context>
+<context>
+    <name>FormField</name>
+    <message>
+        <source>选择文件</source>
+        <translation>ファイルを選択</translation>
+    </message>
+</context>
+<context>
+    <name>FriendsPage</name>
+    <message>
+        <source>刷新好友</source>
+        <translation>友達をリフレッシュする</translation>
+    </message>
+    <message>
+        <source>添加好友</source>
+        <translation>友達を追加</translation>
+    </message>
+    <message>
+        <source>在线</source>
+        <translation>オンライン</translation>
+    </message>
+    <message>
+        <source>离线</source>
+        <translation>オフライン</translation>
+    </message>
+    <message>
+        <source>暂无好友</source>
+        <translation>まだ友達がいません</translation>
+    </message>
+    <message>
+        <source>接受申请</source>
+        <translation>申請を受け付けます</translation>
+    </message>
+<message><source>暂无通知</source><translation>通知はありません</translation></message><message><source>联机通知</source><translation>Bugg 通知</translation></message><message><source>好友申请</source><translation>フレンド申請</translation></message><message><source>我的好友码</source><translation>My friend code</translation></message><message><source>待实现</source><translation>未実装</translation></message></context>
+<context>
+    <name>GameIdentityPage</name>
+    <message>
+        <source>尚未选择身份</source>
+        <translation>ID がまだ選択されていません</translation>
+    </message>
+    <message>
+        <source>选择一种方式，进入游戏</source>
+        <translation>ゲームに参加する方法を選択してください</translation>
+    </message>
+    <message>
+        <source>微软账号</source>
+        <translation>マイクロソフトアカウント</translation>
+    </message>
+    <message>
+        <source>使用已购买 Minecraft Java 版的账号</source>
+        <translation>Minecraft Java Edition を購入したアカウントを使用する</translation>
+    </message>
+    <message>
+        <source>离线身份</source>
+        <translation>オフラインアイデンティティ</translation>
+    </message>
+    <message>
+        <source>使用自己的玩家名称</source>
+        <translation>自分のプレイヤー名を使用する</translation>
+    </message>
+    <message>
+        <source>第三方登录（待更新）</source>
+        <translation>サードパーティのログイン (更新予定)</translation>
+    </message>
+    <message>
+        <source>更多账号登录方式</source>
+        <translation>その他のアカウントのログイン方法</translation>
+    </message>
+    <message>
+        <source>皮肤</source>
+        <translation>皮膚</translation>
+    </message>
+    <message>
+        <source>待更新</source>
+        <translation>更新予定</translation>
+    </message>
+</context>
+<context>
+    <name>GameInstallPage</name>
+    <message>
+        <source>选好版本，即可安装</source>
+        <translation>バージョンを選択してインストールします</translation>
+    </message>
+    <message>
+        <source>刷新版本</source>
+        <translation>リフレッシュバージョン</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>加载器</source>
+        <translation>ローダー</translation>
+    </message>
+    <message>
+        <source>原版</source>
+        <translation>オリジナル</translation>
+    </message>
+    <message>
+        <source>加载器版本</source>
+        <translation>ローダーのバージョン</translation>
+    </message>
+    <message>
+        <source>获取失败，可重试</source>
+        <translation>取得に失敗しました。もう一度お試しください</translation>
+    </message>
+    <message>
+        <source>没有兼容版本</source>
+        <translation>互換性のあるバージョンがありません</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>もう一度試してください</translation>
+    </message>
+    <message>
+        <source>游戏名称</source>
+        <translation>ゲーム名</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>ゲームをインストールする</translation>
+    </message>
+    <message>
+        <source>收起名称</source>
+        <translation>名前を隠す</translation>
+    </message>
+    <message>
+        <source>修改名称</source>
+        <translation>名前の変更</translation>
+    </message>
+</context>
+<context>
+    <name>GeneralPage</name>
+    <message>
+        <source>游戏启动后</source>
+        <translation>ゲーム開始後</translation>
+    </message>
+    <message>
+        <source>保持显示</source>
+        <translation>見せ続ける</translation>
+    </message>
+    <message>
+        <source>收起启动器</source>
+        <translation>ランチャーを折りたたむ</translation>
+    </message>
+    <message>
+        <source>启动时贴边收起</source>
+        <translation>開始時にウェルトを押し込みます</translation>
+    </message>
+</context>
+<context>
+    <name>HomePage</name>
+    <message>
+        <source>正在加载游戏</source>
+        <translation>ゲームをロード中</translation>
+    </message>
+    <message>
+        <source>选择游戏</source>
+        <translation>ゲームを選択</translation>
+    </message>
+    <message>
+        <source>尚未安装游戏</source>
+        <translation>ゲームはまだインストールされていません</translation>
+    </message>
+    <message>
+        <source>切换游戏</source>
+        <translation>ゲームを切り替える</translation>
+    </message>
+    <message>
+        <source>选择账号</source>
+        <translation>アカウントの選択</translation>
+    </message>
+    <message>
+        <source>微软 / 离线身份</source>
+        <translation>Microsoft / オフライン ID</translation>
+    </message>
+    <message>
+        <source>暂无已保存的角色</source>
+        <translation>まだ保存されたキャラクターがありません</translation>
+    </message>
+    <message>
+        <source>管理游戏身份</source>
+        <translation>ゲームのアイデンティティを管理する</translation>
+    </message>
+    <message>
+        <source> · 交互预览</source>
+        <translation> · インタラクティブなプレビュー</translation>
+    </message>
+    <message>
+        <source>返回选择</source>
+        <translation>選択項目に戻る</translation>
+    </message>
+    <message>
+        <source>查看日志</source>
+        <translation>ログを表示する</translation>
+    </message>
+    <message>
+        <source>正在初始化…</source>
+        <translation>初期化中…</translation>
+    </message>
+    <message>
+        <source>取消启动</source>
+        <translation>起動をキャンセルする</translation>
+    </message>
+    <message>
+        <source>停止游戏</source>
+        <translation>ゲームをやめる</translation>
+    </message>
+    <message>
+        <source>正在停止…</source>
+        <translation>停止中…</translation>
+    </message>
+    <message>
+        <source>重新启动</source>
+        <translation>再起動</translation>
+    </message>
+    <message>
+        <source>启动游戏</source>
+        <translation>ゲームを開始する</translation>
+    </message>
+    <message>
+        <source>正在加载…</source>
+        <translation>読み込み中…</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>ゲームをインストールする</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceConflictPage</name>
+    <message>
+        <source>已存在同名实例：</source>
+        <translation>同じ名前のインスタンスがすでに存在します:</translation>
+    </message>
+    <message>
+        <source>换个名称</source>
+        <translation>名前を変更する</translation>
+    </message>
+    <message>
+        <source>保留已有实例</source>
+        <translation>既存のインスタンスを保持する</translation>
+    </message>
+    <message>
+        <source>新实例名称</source>
+        <translation>新しいインスタンス名</translation>
+    </message>
+    <message>
+        <source>继续未完成的安装</source>
+        <translation>未完了のインストールを続行する</translation>
+    </message>
+    <message>
+        <source>核对文件，只补齐缺失内容</source>
+        <translation>書類を確認し、不足している内容のみを記入してください</translation>
+    </message>
+    <message>
+        <source>继续</source>
+        <translation>続ける</translation>
+    </message>
+    <message>
+        <source>交互预览 · 实例安装服务尚未接入，未修改本地文件</source>
+        <translation>インタラクティブ プレビュー · インスタンス インストール サービスはまだ接続されておらず、ローカル ファイルは変更されていません。</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceDetailsPage</name>
+    <message>
+        <source>模组与资源</source>
+        <translation>Mod とリソース</translation>
+    </message>
+    <message>
+        <source>管理</source>
+        <translation>管理</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選択</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>統合パッケージのエクスポート</translation>
+    </message>
+    <message>
+        <source>实例设置</source>
+        <translation>インスタンスの設定</translation>
+    </message>
+    <message>
+        <source>内存</source>
+        <translation>記憶</translation>
+    </message>
+    <message>
+        <source>移除或删除实例</source>
+        <translation>インスタンスを削除または削除する</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceFilesPage</name>
+    <message>
+        <source>类型</source>
+        <translation>種類</translation>
+    </message>
+    <message>
+        <source>模组</source>
+        <translation>モジュール</translation>
+    </message>
+    <message>
+        <source>资源包</source>
+        <translation>リソースパック</translation>
+    </message>
+    <message>
+        <source>光影</source>
+        <translation>光と影</translation>
+    </message>
+    <message>
+        <source>搜索</source>
+        <translation>検索</translation>
+    </message>
+    <message>
+        <source>已启用</source>
+        <translation>有効</translation>
+    </message>
+    <message>
+        <source>已停用</source>
+        <translation>無効化されました</translation>
+    </message>
+    <message>
+        <source>停用</source>
+        <translation>非アクティブ化する</translation>
+    </message>
+    <message>
+        <source>启用</source>
+        <translation>有効にする</translation>
+    </message>
+    <message>
+        <source>移至回收站</source>
+        <translation>ゴミ箱に移動</translation>
+    </message>
+    <message>
+        <source>暂无文件</source>
+        <translation>まだファイルがありません</translation>
+    </message>
+    <message>
+        <source>添加文件</source>
+        <translation>ファイルを追加する</translation>
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation>リフレッシュ</translation>
+    </message>
+</context>
+<context>
+    <name>InstanceSettingsPage</name>
+    <message>
+        <source>全屏启动</source>
+        <translation>全画面で起動する</translation>
+    </message>
+    <message>
+        <source>窗口大小</source>
+        <translation>ウィンドウサイズ</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選択</translation>
+    </message>
+    <message>
+        <source>恢复全局设置</source>
+        <translation>グローバル設定を復元する</translation>
+    </message>
+    <message>
+        <source>指定 Java</source>
+        <translation>Javaを指定する</translation>
+    </message>
+</context>
+<context>
+    <name>InstancesPage</name>
+    <message>
+        <source>搜索游戏</source>
+        <translation>ゲームを検索する</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>エクスポート</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>削除</translation>
+    </message>
+    <message>
+        <source>没有匹配的游戏</source>
+        <translation>一致するゲームがありません</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>ゲームをインストールする</translation>
+    </message>
+    <message>
+        <source>游戏目录</source>
+        <translation>ゲームディレクトリ</translation>
+    </message>
+    <message>
+        <source>管理</source>
+        <translation>管理</translation>
+    </message>
+</context>
+<context>
+    <name>JavaPage</name>
+    <message>
+        <source>自动匹配</source>
+        <translation>自動マッチング</translation>
+    </message>
+    <message>
+        <source>指定 Java</source>
+        <translation>Javaを指定する</translation>
+    </message>
+    <message>
+        <source>添加 Java</source>
+        <translation>Javaの追加</translation>
+    </message>
+    <message>
+        <source>重新检测</source>
+        <translation>再テスト</translation>
+    </message>
+    <message>
+        <source>选择 Java 可执行文件</source>
+        <translation>Java実行可能ファイルを選択します</translation>
+    </message>
+</context>
+<context>
+    <name>LanguagePage</name>
+    <message>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <source>搜索语言</source>
+        <translation>検索言語</translation>
+    </message>
+<message><source>其他语言首次使用时下载，之后可离线使用。下载失败会保留当前语言。</source><translation type="unfinished" /></message><message><source>正在获取语言包…</source><translation type="unfinished" /></message></context>
+<context>
+    <name>LogsPage</name>
+    <message>
+        <source>游戏尚未启动</source>
+        <translation>ゲームはまだ始まっていません</translation>
+    </message>
+    <message>
+        <source>启动后在这里查看运行日志。发生问题时，可导出诊断信息。</source>
+        <translation>起動後、ここで実行ログを確認してください。問題が発生した場合は、診断情報をエクスポートできます。</translation>
+    </message>
+    <message>
+        <source>导出诊断信息</source>
+        <translation>診断情報をエクスポートする</translation>
+    </message>
+    <message>
+        <source>交互预览 · 诊断服务尚未接入</source>
+        <translation>インタラクティブ プレビュー · 診断サービスはまだ接続されていません</translation>
+    </message>
+</context>
+<context>
+    <name>Main</name>
+    <message>
+        <source>请拖入一个整合包</source>
+        <translation>統合パッケージにドラッグしてください</translation>
+    </message>
+    <message>
+        <source>正在初始化</source>
+        <translation>初期化中</translation>
+    </message>
+    <message>
+        <source>恢复游戏身份</source>
+        <translation>ゲームのアイデンティティを復元する</translation>
+    </message>
+    <message>
+        <source>读取配置与游戏环境</source>
+        <translation>設定とゲーム環境を読み取る</translation>
+    </message>
+    <message>
+        <source>游戏启动服务尚未接入</source>
+        <translation>ゲーム起動サービスがまだ接続されていません</translation>
+    </message>
+</context>
+<context>
+    <name>MemoryControl</name>
+    <message>
+        <source>自动分配内存</source>
+        <translation>メモリを自動的に割り当てる</translation>
+    </message>
+    <message>
+        <source>游戏内存</source>
+        <translation>ゲームの記憶</translation>
+    </message>
+    <message>
+        <source>可用 %1 GiB</source>
+        <translation>利用可能 %1 GiB</translation>
+    </message>
+    <message>
+        <source>可分配上限 %1 GiB</source>
+        <translation>割り当て可能な制限: %1 GiB</translation>
+    </message>
+</context>
+<context>
+    <name>NavigationBar</name>
+    <message>
+        <source>启动</source>
+        <translation>始める</translation>
+    </message>
+    <message>
+        <source>广场</source>
+        <translation>正方形</translation>
+    </message>
+    <message>
+        <source>联机</source>
+        <translation>オンライン</translation>
+    </message>
+    <message>
+        <source>好友</source>
+        <translation>友達</translation>
+    </message>
+</context>
+<context>
+    <name>NodeLogin</name>
+    <message>
+        <source>登录联机节点</source>
+        <translation>オンラインノードにログインします</translation>
+    </message>
+    <message>
+        <source>节点网址</source>
+        <translation>ノードURL</translation>
+    </message>
+    <message>
+        <source>等待浏览器授权…</source>
+        <translation>ブラウザの認証を待っています…</translation>
+    </message>
+    <message>
+        <source>正在连接节点…</source>
+        <translation>ノードを接続中...</translation>
+    </message>
+    <message>
+        <source>浏览器登录</source>
+        <translation>ブラウザログイン</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>キャンセル</translation>
+    </message>
+</context>
+<context>
+    <name>NodesPage</name>
+    <message>
+        <source>默认自动选择可用的低延迟节点。</source>
+        <translation>使用可能な低遅延ノードはデフォルトで自動的に選択されます。</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選択</translation>
+    </message>
+    <message>
+        <source>上海</source>
+        <translation>上海</translation>
+    </message>
+    <message>
+        <source>北京</source>
+        <translation>北京</translation>
+    </message>
+    <message>
+        <source>武汉</source>
+        <translation>武漢</translation>
+    </message>
+    <message>
+        <source>根据当前网络选择</source>
+        <translation>現在のネットワークに基づいて選択します</translation>
+    </message>
+    <message>
+        <source>节点列表效果预览</source>
+        <translation>ノードリスト効果のプレビュー</translation>
+    </message>
+</context>
+<context>
+    <name>OfflineIdentityPage</name>
+    <message>
+        <source>玩家名称</source>
+        <translation>プレイヤー名</translation>
+    </message>
+    <message>
+        <source>例如 BuggPlayer</source>
+        <translation>たとえばBuggPlayer</translation>
+    </message>
+    <message>
+        <source>3–16 位字母、数字或下划线</source>
+        <translation>3 ～ 16 文字の文字、数字、またはアンダースコア</translation>
+    </message>
+    <message>
+        <source>使用这个名字</source>
+        <translation>この名前を使用してください</translation>
+    </message>
+</context>
+<context>
+    <name>PackExportPage</name>
+    <message>
+        <source>导出格式</source>
+        <translation>エクスポート形式</translation>
+    </message>
+    <message>
+        <source>精简包</source>
+        <translation>ライトパッケージ</translation>
+    </message>
+    <message>
+        <source>完整包</source>
+        <translation>完全なパッケージ</translation>
+    </message>
+    <message>
+        <source>可下载的资源保留链接，其余文件放入包内。</source>
+        <translation>ダウンロード可能なリソースはリンクされたままで、残りのファイルはパッケージに配置されます。</translation>
+    </message>
+    <message>
+        <source>包含模组、资源和配置。</source>
+        <translation>MOD、リソース、設定が含まれています。</translation>
+    </message>
+    <message>
+        <source>包含存档</source>
+        <translation>アーカイブが含まれています</translation>
+    </message>
+    <message>
+        <source>选择位置并导出</source>
+        <translation>場所を選択してエクスポートする</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>統合パッケージのエクスポート</translation>
+    </message>
+</context>
+<context>
+    <name>PackImportPage</name>
+    <message>
+        <source>游戏名称</source>
+        <translation>ゲーム名</translation>
+    </message>
+    <message>
+        <source>正在检查整合包…</source>
+        <translation>MODパックを確認しています...</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>統合パッケージをインポートする</translation>
+    </message>
+</context>
+<context>
+    <name>ProfileButton</name>
+    <message>
+        <source>快速切换游戏身份</source>
+        <translation>ゲーム ID をすばやく切り替える</translation>
+    </message>
+</context>
+<context>
+    <name>RoomLobbyPage</name>
+    <message>
+        <source>你</source>
+        <translation>あなた</translation>
+    </message>
+    <message>
+        <source>房主 · 已就绪</source>
+        <translation>住宅所有者 · 準備完了</translation>
+    </message>
+    <message>
+        <source>小刚</source>
+        <translation>小港</translation>
+    </message>
+    <message>
+        <source>正在补齐客户端文件</source>
+        <translation>クライアントファイルの完成</translation>
+    </message>
+    <message>
+        <source>复制邀请</source>
+        <translation>招待状をコピーする</translation>
+    </message>
+    <message>
+        <source>交互预览 · 邀请服务尚未接入</source>
+        <translation>インタラクティブプレビュー・招待サービスはまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>启动游戏</source>
+        <translation>ゲームを開始する</translation>
+    </message>
+    <message>
+        <source>交互预览 · 游戏启动服务尚未接入</source>
+        <translation>インタラクティブ プレビュー · ゲーム スタートアップ サービスはまだ接続されていません</translation>
+    </message>
+</context>
+<context>
+    <name>RoomSyncPage</name>
+    <message>
+        <source>检查本地文件清单</source>
+        <translation>ローカルファイルリストを確認する</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
+    </message>
+    <message>
+        <source>229 个文件 · 模组、核心、库与资源</source>
+        <translation>229 ファイル · Mod、コア、ライブラリ、リソース</translation>
+    </message>
+    <message>
+        <source>源站确认与共享加速</source>
+        <translation>オリジンサイトの確認と共有の高速化</translation>
+    </message>
+    <message>
+        <source>等待补齐</source>
+        <translation>完了を待っています</translation>
+    </message>
+    <message>
+        <source>已完成 216 / 229 · 仅处理需要的文件</source>
+        <translation>完了 216 / 229 · 必要なファイルのみを処理する</translation>
+    </message>
+    <message>
+        <source>必需文件齐全后才能启动游戏。共享文件可能被他人获取，请勿共享敏感内容。</source>
+        <translation>ゲームは、必要なファイルがすべて完了した後にのみ起動できます。共有ファイルは他の人によって取得される可能性があるため、機密コンテンツは共有しないでください。</translation>
+    </message>
+    <message>
+        <source>继续补齐</source>
+        <translation>続けて完了する</translation>
+    </message>
+    <message>
+        <source>交互预览 · 文件同步服务尚未接入</source>
+        <translation>インタラクティブプレビュー・ファイル同期サービスはまだ接続されていません</translation>
+    </message>
+</context>
+<context>
+    <name>RoomsPage</name>
+    <message>
+        <source>搜索房间</source>
+        <translation>部屋を検索する</translation>
+    </message>
+    <message>
+        <source>刷新房间</source>
+        <translation>リフレッシュルーム</translation>
+    </message>
+    <message>
+        <source>创建房间</source>
+        <translation>ルームを作成する</translation>
+    </message>
+    <message>
+        <source>需要邀请</source>
+        <translation>招待状が必要です</translation>
+    </message>
+    <message>
+        <source>加入</source>
+        <translation>参加する</translation>
+    </message>
+    <message>
+        <source>等待开局</source>
+        <translation>開始を待っています</translation>
+    </message>
+    <message>
+        <source>正在获取房间…</source>
+        <translation>部屋を取得中…</translation>
+    </message>
+    <message>
+        <source>暂无公开房间</source>
+        <translation>まだパブリックルームはありません</translation>
+    </message>
+    <message>
+        <source>粘贴房间邀请</source>
+        <translation>部屋への招待状を貼り付けます</translation>
+    </message>
+    <message>
+        <source>联机节点</source>
+        <translation>オンラインノード</translation>
+    </message>
+    <message>
+        <source>离开房间</source>
+        <translation>部屋を出る</translation>
+    </message>
+<message><source>正在加入…</source><translation>Joining…</translation></message></context>
+<context>
+    <name>SearchPage</name>
+    <message>
+        <source>想找什么？</source>
+        <translation>何を探していますか?</translation>
+    </message>
+    <message>
+        <source>搜索结果</source>
+        <translation>検索結果</translation>
+    </message>
+    <message>
+        <source>搜索</source>
+        <translation>検索</translation>
+    </message>
+    <message>
+        <source>整合包</source>
+        <translation>統合パッケージ</translation>
+    </message>
+    <message>
+        <source>模组</source>
+        <translation>モジュール</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>资源包</source>
+        <translation>リソースパック</translation>
+    </message>
+</context>
+<context>
+    <name>SelectField</name>
+    <message>
+        <source>请选择</source>
+        <translation>選択してください</translation>
+    </message>
+    <message>
+        <source>搜索</source>
+        <translation>検索</translation>
+    </message>
+    <message>
+        <source>正在获取…</source>
+        <translation>入手中…</translation>
+    </message>
+</context>
+<context>
+    <name>SelectionMenu</name>
+    <message>
+        <source>暂无可选项</source>
+        <translation>利用可能なオプションはまだありません</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsPage</name>
+    <message>
+        <source>BUGG 优先</source>
+        <translation>バグの優先度</translation>
+    </message>
+    <message>
+        <source>简体中文</source>
+        <translation>簡体字中国語</translation>
+    </message>
+    <message>
+        <source>外观</source>
+        <translation>外観</translation>
+    </message>
+    <message>
+        <source>悬浮面板</source>
+        <translation>フローティングパネル</translation>
+    </message>
+    <message>
+        <source>常规页面</source>
+        <translation>総合ページ</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <source>游戏</source>
+        <translation>ゲーム</translation>
+    </message>
+    <message>
+        <source>内存与窗口</source>
+        <translation>メモリとウィンドウ</translation>
+    </message>
+    <message>
+        <source>下载</source>
+        <translation>ダウンロード</translation>
+    </message>
+    <message>
+        <source>常规</source>
+        <translation>定期的な</translation>
+    </message>
+    <message>
+        <source>启动后行为</source>
+        <translation>発射後の動作</translation>
+    </message>
+    <message>
+        <source>账号</source>
+        <translation>口座番号</translation>
+    </message>
+    <message>
+        <source>登录与管理</source>
+        <translation>ログインと管理</translation>
+    </message>
+    <message>
+        <source>存储位置</source>
+        <translation>保管場所</translation>
+    </message>
+    <message>
+        <source>配置与游戏目录</source>
+        <translation>設定とゲームディレクトリ</translation>
+    </message>
+    <message>
+        <source>问题反馈</source>
+        <translation>問題のフィードバック</translation>
+    </message>
+    <message>
+        <source>诊断与帮助</source>
+        <translation>診断とヘルプ</translation>
+    </message>
+    <message>
+        <source>关于与更新</source>
+        <translation>概要と最新情報</translation>
+    </message>
+</context>
+<context>
+    <name>SkinPage</name>
+    <message>
+        <source>选择你喜欢的样子</source>
+        <translation>好みの外観を選択してください</translation>
+    </message>
+    <message>
+        <source>选择皮肤文件</source>
+        <translation>スキンファイルを選択</translation>
+    </message>
+    <message>
+        <source>交互预览 · 皮肤服务尚未接入</source>
+        <translation>インタラクティブ プレビュー · スキン サービスはまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>支持 Minecraft PNG 皮肤；正版皮肤由微软账号管理。</source>
+        <translation>Minecraft PNG スキンをサポートします。正規スキンは Microsoft アカウントによって管理されます。</translation>
+    </message>
+</context>
+<context>
+    <name>SourcesPage</name>
+    <message>
+        <source>下载源优先级</source>
+        <translation>ダウンロードソースの優先順位</translation>
+    </message>
+    <message>
+        <source>从上到下依次尝试。源不提供的接口走官方，相同来源只尝试一次。</source>
+        <translation>上から下まで試してみてください。ソースがインターフェースを提供していない場合は、公式インターフェースを使用してください。同じソースは 1 回だけ試行されます。</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>上に移動</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>下に移動</translation>
+    </message>
+</context>
+<context>
+    <name>StoragePage</name>
+    <message>
+        <source>游戏目录</source>
+        <translation>ゲームディレクトリ</translation>
+    </message>
+    <message>
+        <source>选择已有 Minecraft 目录</source>
+        <translation>既存の Minecraft ディレクトリを選択します</translation>
+    </message>
+    <message>
+        <source>打开当前目录</source>
+        <translation>現在のディレクトリを開く</translation>
+    </message>
+    <message>
+        <source>配置与缓存</source>
+        <translation>構成とキャッシュ</translation>
+    </message>
+    <message>
+        <source>选择空目录存放配置与缓存</source>
+        <translation>構成とキャッシュを保存する空のディレクトリを選択します</translation>
+    </message>
+    <message>
+        <source>选择 .minecraft 目录</source>
+        <translation>.minecraft ディレクトリを選択します</translation>
+    </message>
+</context>
+<context>
+    <name>SubpageHeader</name>
+    <message>
+        <source>返回</source>
+        <translation>戻る</translation>
+    </message>
+    <message>
+        <source>回到首页</source>
+        <translation>ホームページに戻る</translation>
+    </message>
+</context>
+<context>
+    <name>TaskCard</name>
+    <message>
+        <source>安装游戏</source>
+        <translation>ゲームをインストールする</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>統合パッケージをインポートする</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>統合パッケージのエクスポート</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>削除</translation>
+    </message>
+    <message>
+        <source>启动游戏</source>
+        <translation>ゲームを開始する</translation>
+    </message>
+    <message>
+        <source>排队中</source>
+        <translation>キューイング</translation>
+    </message>
+    <message>
+        <source>正在取消</source>
+        <translation>キャンセルする</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
+    </message>
+    <message>
+        <source>上次未完成，可重试</source>
+        <translation>前回は完了していませんでした。もう一度お試しください</translation>
+    </message>
+    <message>
+        <source>已取消</source>
+        <translation>キャンセルされました</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>もう一度試してください</translation>
+    </message>
+</context>
+<context>
+    <name>TaskFilesPage</name>
+    <message>
+        <source>客户端核心 · 示例文件</source>
+        <translation>クライアントコア・サンプルファイル</translation>
+    </message>
+    <message>
+        <source>已完成</source>
+        <translation>完了</translation>
+    </message>
+    <message>
+        <source>下载源：BMCLAPI · 哈希校验通过</source>
+        <translation>ダウンロード元：BMCLAPI ・ハッシュ検証合格</translation>
+    </message>
+    <message>
+        <source>cataclysm.jar · 示例文件</source>
+        <translation>cataclysm.jar · サンプルファイル</translation>
+    </message>
+    <message>
+        <source>等待补齐</source>
+        <translation>完了を待っています</translation>
+    </message>
+    <message>
+        <source>下载源：Bugg · 来源暂不可用，保留已下载进度</source>
+        <translation>ダウンロード ソース: バグ · ソースは一時的に利用できなくなり、ダウンロードの進行状況は保持されます。</translation>
+    </message>
+    <message>
+        <source>只重试未完成文件</source>
+        <translation>未完了のファイルのみを再試行します</translation>
+    </message>
+    <message>
+        <source>交互预览 · 下载服务尚未接入</source>
+        <translation>インタラクティブ プレビュー · ダウンロード サービスはまだ接続されていません</translation>
+    </message>
+</context>
+<context>
+    <name>TasksPage</name>
+    <message>
+        <source>进行中 %1 · 排队 %2</source>
+        <translation>進行中 %1 · キューに入れられています %2</translation>
+    </message>
+    <message>
+        <source>暂无下载任务</source>
+        <translation>ダウンロードタスクはまだありません</translation>
+    </message>
+<message><source>暂无任务</source><translation>タスクはありません</translation></message><message><source>清空记录</source><translation>履歴を消去</translation></message></context>
+<context>
+    <name>ThemePicker</name>
+    <message>
+        <source>窗口尺寸</source>
+        <translation>ウィンドウサイズ</translation>
+    </message>
+    <message>
+        <source>悬浮面板</source>
+        <translation>フローティングパネル</translation>
+    </message>
+    <message>
+        <source>紧凑窗口</source>
+        <translation>コンパクトウィンドウ</translation>
+    </message>
+    <message>
+        <source>标准窗口</source>
+        <translation>標準ウィンドウ</translation>
+    </message>
+    <message>
+        <source>宽屏窗口</source>
+        <translation>ワイドスクリーンウィンドウ</translation>
+    </message>
+</context>
+<context>
+    <name>ToolBar</name>
+    <message>
+        <source>启动</source>
+        <translation>始める</translation>
+    </message>
+    <message>
+        <source>广场</source>
+        <translation>正方形</translation>
+    </message>
+    <message>
+        <source>联机</source>
+        <translation>オンライン</translation>
+    </message>
+    <message>
+        <source>好友</source>
+        <translation>友達</translation>
+    </message>
+    <message>
+        <source>下载任务</source>
+        <translation>ダウンロードタスク</translation>
+    </message>
+    <message>
+        <source>设置</source>
+        <translation>設定</translation>
+    </message>
+<message><source>任务</source><translation>タスク</translation></message></context>
+<context>
+    <name>ToolDeck</name>
+    <message>
+        <source>整合包</source>
+        <translation>統合パッケージ</translation>
+    </message>
+    <message>
+        <source>未选择游戏</source>
+        <translation>ゲームが選択されていません</translation>
+    </message>
+    <message>
+        <source>暂无文件进度，下载服务尚未接入</source>
+        <translation>ファイルの進行状況はまだなく、ダウンロード サービスにもまだ接続されていません。</translation>
+    </message>
+    <message>
+        <source>尚未加入房间，联机服务尚未接入</source>
+        <translation>まだルームに参加しておらず、オンラインサービスにもまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>暂无同步任务，联机服务尚未接入</source>
+        <translation>同期タスクはまだなく、オンライン サービスはまだ接続されていません。</translation>
+    </message>
+    <message>
+        <source>暂无可用节点，节点服务尚未接入</source>
+        <translation>現在利用可能なノードはなく、ノード サービスはまだ接続されていません。</translation>
+    </message>
+    <message>
+        <source>暂无搜索结果，内容服务尚未接入</source>
+        <translation>まだ検索結果はなく、コンテンツ サービスにもまだ接続されていません。</translation>
+    </message>
+    <message>
+        <source>内容服务尚未接入</source>
+        <translation>コンテンツ サービスはまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>暂无运行日志</source>
+        <translation>実行ログはまだありません</translation>
+    </message>
+    <message>
+        <source>启动</source>
+        <translation>始める</translation>
+    </message>
+    <message>
+        <source>广场</source>
+        <translation>正方形</translation>
+    </message>
+    <message>
+        <source>联机</source>
+        <translation>オンライン</translation>
+    </message>
+    <message>
+        <source>好友</source>
+        <translation>友達</translation>
+    </message>
+    <message>
+        <source>设置</source>
+        <translation>設定</translation>
+    </message>
+    <message>
+        <source>请先选择完整的游戏和加载器版本</source>
+        <translation>最初に完全なゲームとローダーのバージョンを選択してください</translation>
+    </message>
+    <message>
+        <source>安装服务尚未接入，未创建安装任务</source>
+        <translation>インストール サービスが接続されておらず、インストール タスクも作成されていません。</translation>
+    </message>
+    <message>
+        <source>交互预览 · 安装服务尚未接入，未创建真实任务</source>
+        <translation>インタラクティブ プレビュー · インストール サービスが接続されておらず、実際のタスクも作成されていません。</translation>
+    </message>
+    <message>
+        <source>选择游戏</source>
+        <translation>ゲームを選択</translation>
+    </message>
+    <message>
+        <source>游戏实例</source>
+        <translation>ゲーム例</translation>
+    </message>
+    <message>
+        <source>模组与资源</source>
+        <translation>Mod とリソース</translation>
+    </message>
+    <message>
+        <source>游戏设置</source>
+        <translation>ゲーム設定</translation>
+    </message>
+    <message>
+        <source>游戏</source>
+        <translation>ゲーム</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <source>下载</source>
+        <translation>ダウンロード</translation>
+    </message>
+    <message>
+        <source>常规</source>
+        <translation>定期的な</translation>
+    </message>
+    <message>
+        <source>移除或删除</source>
+        <translation>削除または削除</translation>
+    </message>
+    <message>
+        <source>下载任务</source>
+        <translation>ダウンロードタスク</translation>
+    </message>
+    <message>
+        <source>文件进度</source>
+        <translation>ファイルの進行状況</translation>
+    </message>
+    <message>
+        <source>百日围城</source>
+        <translation>百日包囲戦</translation>
+    </message>
+    <message>
+        <source>整合包 · 生存挑战</source>
+        <translation>統合パック・サバイバルチャレンジ</translation>
+    </message>
+    <message>
+        <source>安装游戏</source>
+        <translation>ゲームをインストールする</translation>
+    </message>
+    <message>
+        <source>导入整合包</source>
+        <translation>統合パッケージをインポートする</translation>
+    </message>
+    <message>
+        <source>导出整合包</source>
+        <translation>統合パッケージのエクスポート</translation>
+    </message>
+    <message>
+        <source>处理同名实例</source>
+        <translation>同じ名前のインスタンスを処理する</translation>
+    </message>
+    <message>
+        <source>周末一起玩</source>
+        <translation>週末は一緒に遊ぶ</translation>
+    </message>
+    <message>
+        <source>房间预览 · 百日围城</source>
+        <translation>部屋内見・百日籠城</translation>
+    </message>
+    <message>
+        <source>文件同步</source>
+        <translation>ファイルの同期</translation>
+    </message>
+    <message>
+        <source>联机节点</source>
+        <translation>オンラインノード</translation>
+    </message>
+    <message>
+        <source>账号</source>
+        <translation>口座番号</translation>
+    </message>
+    <message>
+        <source>Java 管理</source>
+        <translation>Java管理</translation>
+    </message>
+    <message>
+        <source>下载来源</source>
+        <translation>ダウンロードソース</translation>
+    </message>
+    <message>
+        <source>存储位置</source>
+        <translation>保管場所</translation>
+    </message>
+    <message>
+        <source>问题反馈</source>
+        <translation>問題のフィードバック</translation>
+    </message>
+    <message>
+        <source>关于与更新</source>
+        <translation>概要と最新情報</translation>
+    </message>
+    <message>
+        <source>添加好友</source>
+        <translation>友達を追加</translation>
+    </message>
+    <message>
+        <source>外观</source>
+        <translation>外観</translation>
+    </message>
+    <message>
+        <source>游戏身份</source>
+        <translation>ゲームのアイデンティティ</translation>
+    </message>
+    <message>
+        <source>微软登录</source>
+        <translation>マイクロソフトログイン</translation>
+    </message>
+    <message>
+        <source>皮肤</source>
+        <translation>皮膚</translation>
+    </message>
+    <message>
+        <source>运行日志</source>
+        <translation>実行ログ</translation>
+    </message>
+    <message>
+        <source>登录 Bugg</source>
+        <translation>ログインバグ</translation>
+    </message>
+    <message>
+        <source>离线玩家</source>
+        <translation>オフラインプレーヤー</translation>
+    </message>
+    <message>
+        <source>服务尚未接入</source>
+        <translation>サービスはまだ接続されていません</translation>
+    </message>
+    <message>
+        <source>%1 优先</source>
+        <translation>%1 優先度</translation>
+    </message>
+    <message>
+        <source>简体中文</source>
+        <translation>簡体字中国語</translation>
+    </message>
+    <message>
+        <source>内容安装服务尚未接入</source>
+        <translation>コンテンツインストールサービスはまだ接続されていません</translation>
+    </message>
+<message><source>任务</source><translation>タスク</translation></message><message><source>请在游戏中对局域网开放</source><translation>ゲームをLANに公開してください</translation></message><message><source>通知</source><translation>通知</translation></message><message><source>打开多人游戏，选择“【BUGG联机】”房间即可加入。</source><translation>Open Multiplayer and select the “【BUGG联机】” room to join.</translation></message></context>
+<context>
+    <name>UpdatePage</name>
+    <message>
+        <source>和朋友一起开玩。</source>
+        <translation>友達と一緒に楽しんでください。</translation>
+    </message>
+    <message>
+        <source>检查更新</source>
+        <translation>アップデートをチェックする</translation>
+    </message>
+    <message>
+        <source>官方网站</source>
+        <translation>公式サイト</translation>
+    </message>
+    <message>
+        <source>微信入群</source>
+        <translation>WeChatグループに参加する</translation>
+    </message>
+    <message>
+        <source>微信：junsi223</source>
+        <translation>WeChat: junsi223</translation>
+    </message>
+    <message>
+        <source>QQ 群</source>
+        <translation>QQグループ</translation>
+    </message>
+    <message>
+        <source>QQ 群：849362477</source>
+        <translation>QQグループ: 849362477</translation>
+    </message>
+    <message>
+        <source>待更新</source>
+        <translation>更新予定</translation>
+    </message>
+</context>
+<context>
+    <name>WindowControls</name>
+    <message>
+        <source>收起为工具条</source>
+        <translation>ツールバーとして折りたたむ</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>閉じる</translation>
+    </message>
+</context>
+<context><name>CreateRoomPage</name><message><source>请在游戏中对局域网开放</source><translation>ゲームをLANに公開してください</translation></message></context><context><name>Pagination</name><message><source>上一页</source><translation>前のページ</translation></message><message><source>下一页</source><translation>次のページ</translation></message></context><context><name>JoinRoomPage</name><message><source>正在加入…</source><translation>Joining…</translation></message></context><context><name>bugg::LanguageService</name><message><source>语言包无效，请重试</source><translation type="unfinished" /></message><message><source>语言包下载失败，请检查网络后重试</source><translation type="unfinished" /></message></context></TS>

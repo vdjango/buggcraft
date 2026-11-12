@@ -1,0 +1,259 @@
+{
+  "system": "Windows-10-10.0.26100-SP0",
+  "logicalProcessors": 20,
+  "binarySha256": "d5537801e158b8def61eb93a87334669f2ffd212c15d6183314255353a70b726",
+  "method": "Fresh portable profiles, no accounts/instances/backgrounds; 10 s settling, 8 x 1 s samples; default Qt renderer; CPU 100% means one logical core; screenshots outside sampling",
+  "renderEnvironment": {
+    "QT_QUICK_BACKEND": null,
+    "QSG_RHI_BACKEND": null,
+    "QML_DISABLE_DISK_CACHE": null
+  },
+  "states": [
+    {
+      "state": "panel-home",
+      "samples": [
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 114991104,
+          "privateBytes": 132628480
+        }
+      ],
+      "medianCpuPercentOneCore": 0.0,
+      "peakWorkingSetBytes": 114991104
+    },
+    {
+      "state": "classic-home",
+      "samples": [
+        {
+          "cpuPercentOneCore": 1.6,
+          "workingSetBytes": 105750528,
+          "privateBytes": 136126464
+        },
+        {
+          "cpuPercentOneCore": 1.6,
+          "workingSetBytes": 105750528,
+          "privateBytes": 136126464
+        },
+        {
+          "cpuPercentOneCore": 3.1,
+          "workingSetBytes": 115986432,
+          "privateBytes": 151683072
+        },
+        {
+          "cpuPercentOneCore": 3.1,
+          "workingSetBytes": 116051968,
+          "privateBytes": 151883776
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 116051968,
+          "privateBytes": 151883776
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 116051968,
+          "privateBytes": 151867392
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 116051968,
+          "privateBytes": 151867392
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 116051968,
+          "privateBytes": 151867392
+        }
+      ],
+      "medianCpuPercentOneCore": 0.8,
+      "peakWorkingSetBytes": 116051968
+    },
+    {
+      "state": "panel-tasks",
+      "samples": [
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 111738880,
+          "privateBytes": 134664192
+        }
+      ],
+      "medianCpuPercentOneCore": 0.0,
+      "peakWorkingSetBytes": 111738880
+    },
+    {
+      "state": "classic-tasks",
+      "samples": [
+        {
+          "cpuPercentOneCore": 1.6,
+          "workingSetBytes": 108584960,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 108584960,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 108679168,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 1.6,
+          "workingSetBytes": 108679168,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 108687360,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 108687360,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 0.0,
+          "workingSetBytes": 108687360,
+          "privateBytes": 141418496
+        },
+        {
+          "cpuPercentOneCore": 1.6,
+          "workingSetBytes": 108687360,
+          "privateBytes": 141418496
+        }
+      ],
+      "medianCpuPercentOneCore": 0.0,
+      "peakWorkingSetBytes": 108687360
+    }
+  ],
+  "invalidatedSamples": [
+    {
+      "reason": "Screenshot showed multiplayer login instead of home; excluded from valid states",
+      "sample": {
+        "state": "classic-home",
+        "samples": [
+          {
+            "cpuPercentOneCore": 0.0,
+            "workingSetBytes": 113573888,
+            "privateBytes": 137531392
+          },
+          {
+            "cpuPercentOneCore": 0.0,
+            "workingSetBytes": 113573888,
+            "privateBytes": 137531392
+          },
+          {
+            "cpuPercentOneCore": 1.6,
+            "workingSetBytes": 123326464,
+            "privateBytes": 153530368
+          },
+          {
+            "cpuPercentOneCore": 0.0,
+            "workingSetBytes": 122982400,
+            "privateBytes": 153530368
+          },
+          {
+            "cpuPercentOneCore": 0.0,
+            "workingSetBytes": 122630144,
+            "privateBytes": 153530368
+          },
+          {
+            "cpuPercentOneCore": 1.6,
+            "workingSetBytes": 122261504,
+            "privateBytes": 153513984
+          },
+          {
+            "cpuPercentOneCore": 6.2,
+            "workingSetBytes": 129847296,
+            "privateBytes": 156540928
+          },
+          {
+            "cpuPercentOneCore": 0.0,
+            "workingSetBytes": 129466368,
+            "privateBytes": 156540928
+          }
+        ],
+        "medianCpuPercentOneCore": 0.0,
+        "peakWorkingSetBytes": 129847296
+      },
+      "screenshot": "build/performance-idle/classic-home/page.png"
+    }
+  ],
+  "correctedClassicHome": {
+    "method": "Fresh portable profiles, no accounts/instances/custom backgrounds; input disabled only on the owned window; 10 s settling, 8 x 1 s samples; default Qt renderer; CPU 100% means one logical core; screenshots outside sampling; inspect screenshots to verify actual page",
+    "binarySha256": "d5537801e158b8def61eb93a87334669f2ffd212c15d6183314255353a70b726",
+    "screenshot": "build/performance-idle-verified/classic-home/page.png"
+  }
+}

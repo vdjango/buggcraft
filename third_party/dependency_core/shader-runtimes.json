@@ -1,0 +1,11 @@
+{
+  "schema": "bugg-shader-support-v1",
+  "compatibilityRules": [
+    {"publisher": "Modrinth", "projectId": "AANobbMI", "versionId": "VHtnT9Q4", "gameVersion": "26.3", "loader": "neoforge", "minLoaderVersion": "26.3.0.65", "reason": "Sodium 0.9.2 不兼容此 NeoForge 构建的渲染接口，请选择依赖及加载器均兼容的其他发布。", "reference": "https://github.com/CaffeineMC/sodium/pull/3948"},
+    {"publisher": "Modrinth", "projectId": "YL57xq9U", "versionId": "Ag5S66CF", "gameVersion": "26.3", "loader": "neoforge", "minLoaderVersion": "26.3.0.65", "reason": "此 Iris 发布固定依赖的 Sodium 0.9.2 与当前 NeoForge 构建冲突，请选择完整依赖可满足的其他核心发布。", "reference": "https://github.com/CaffeineMC/sodium/pull/3948"}
+  ],
+  "runtimes": [
+    {"id": "iris", "name": "Iris Shaders", "publisher": "Modrinth", "projectId": "YL57xq9U", "curseforgeProjectId": "455508", "loaders": ["fabric", "neoforge", "quilt"], "markers": ["net/irisshaders/iris/Iris.class", "net/coderbot/iris/Iris.class"]},
+    {"id": "oculus", "name": "Oculus", "publisher": "Modrinth", "projectId": "GchcoXML", "curseforgeProjectId": "581495", "loaders": ["forge", "neoforge"], "markers": ["net/coderbot/iris/Iris.class", "net/irisshaders/iris/Iris.class"]}
+  ]
+}

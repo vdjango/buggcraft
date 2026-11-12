@@ -1,0 +1,13 @@
+{
+  "schema": "bugg-runtime-rules-v1",
+  "revision": "2026-11-12.1",
+  "rules": [
+    {
+      "id": "sodium-092-neoforge-2630101-render-api",
+      "sha256": "5514d68728f7d332da26a0809acf633fd2f9bbfe956891c85d3194dcb2aaf590",
+      "environment": {"minecraft": "26.3", "loader": "neoforge", "loader_version": "26.3.0.101"},
+      "reason": "Sodium 0.9.2 的渲染接口在此 NeoForge 构建中已验证无法启动。作者包可明确保留；自动处理会另外核验整个组合。",
+      "reference": "https://github.com/CaffeineMC/sodium/issues/3975"
+    }
+  ]
+}

@@ -1,0 +1,412 @@
+{
+  "system": "Windows-10-10.0.26100-SP0",
+  "architecture": "AMD64",
+  "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+  "logicalProcessors": 20,
+  "pairs": 9,
+  "build": "MSVC 2022 Release /O2 /Ob2 /DNDEBUG, Qt 6.8.1",
+  "cache": "Warm OS file cache, one warm-up per process, alternating build order",
+  "timing": "Export: actual GameRuntime queue through terminal task; HTTP: request through actual response; verification outside timing",
+  "binaries": {
+    "before": {
+      "path": "E:\\code\\bugg\\build\\workload-before.exe",
+      "sha256": "5f1b7d2a0e26ecef26050ad306eb1c1b93b4c3b1eafe815037bd2b35248d233a"
+    },
+    "after": {
+      "path": "E:\\code\\bugg\\build\\workload_test.exe",
+      "sha256": "2db72988765927b69244c2a76d6e3697d215ca8d327f43676b2e136e71cdfd7b"
+    }
+  },
+  "scenarios": {
+    "export-excluded": {
+      "files": 20,
+      "bytes": 20480,
+      "excluded": 12288,
+      "beforeMs": [
+        172.8975,
+        160.7721,
+        159.7833,
+        180.7444,
+        187.409,
+        181.091,
+        185.6715,
+        179.3289,
+        239.0392
+      ],
+      "afterMs": [
+        39.0543,
+        49.8307,
+        32.6997,
+        37.3307,
+        25.9123,
+        27.0025,
+        22.5906,
+        22.2581,
+        47.5968
+      ],
+      "metrics": {
+        "progressEvents": {
+          "before": [
+            43,
+            43,
+            43,
+            43,
+            43,
+            43,
+            43,
+            43,
+            43
+          ],
+          "after": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6
+          ]
+        }
+      },
+      "outputHash": "954f50c48a026eb84ccaa959c29e0d7abaf2c01e50f0f962f565810b0ccc7ff8",
+      "beforeMedianMs": 180.7444,
+      "beforeRangeMs": [
+        159.7833,
+        239.0392
+      ],
+      "afterMedianMs": 32.6997,
+      "afterRangeMs": [
+        22.2581,
+        49.8307
+      ],
+      "timeReductionPercent": 81.90831915124342
+    },
+    "export-many": {
+      "files": 1000,
+      "bytes": 1024000,
+      "excluded": 0,
+      "beforeMs": [
+        929.0947,
+        952.9751,
+        1271.628,
+        2466.8553,
+        915.5919,
+        1223.9181,
+        973.0181,
+        975.0577,
+        2282.1119
+      ],
+      "afterMs": [
+        920.2259,
+        955.4733,
+        2594.084,
+        1248.8205,
+        1215.638,
+        946.1171,
+        1050.9961,
+        1523.2325,
+        1632.6157
+      ],
+      "metrics": {
+        "progressEvents": {
+          "before": [
+            2003,
+            2003,
+            2003,
+            2003,
+            2003,
+            2003,
+            2003,
+            2003,
+            2003
+          ],
+          "after": [
+            14,
+            14,
+            31,
+            18,
+            17,
+            14,
+            15,
+            20,
+            21
+          ]
+        }
+      },
+      "outputHash": "a0c66c8c607e9ae6539b0ef5c18b6a535759b540174a1a9128e009b845a9cf92",
+      "beforeMedianMs": 975.0577,
+      "beforeRangeMs": [
+        915.5919,
+        2466.8553
+      ],
+      "afterMedianMs": 1215.638,
+      "afterRangeMs": [
+        920.2259,
+        2594.084
+      ],
+      "timeReductionPercent": -24.673442402434233
+    },
+    "export-small": {
+      "files": 20,
+      "bytes": 20480,
+      "excluded": 0,
+      "beforeMs": [
+        22.1377,
+        22.5688,
+        22.154,
+        64.6373,
+        55.7507,
+        28.8531,
+        44.7492,
+        35.5005,
+        35.1087
+      ],
+      "afterMs": [
+        31.647,
+        30.6675,
+        29.9289,
+        45.7586,
+        22.1773,
+        36.7525,
+        25.1573,
+        27.008,
+        72.3223
+      ],
+      "metrics": {
+        "progressEvents": {
+          "before": [
+            43,
+            43,
+            43,
+            43,
+            43,
+            43,
+            43,
+            43,
+            43
+          ],
+          "after": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6
+          ]
+        }
+      },
+      "outputHash": "954f50c48a026eb84ccaa959c29e0d7abaf2c01e50f0f962f565810b0ccc7ff8",
+      "beforeMedianMs": 35.1087,
+      "beforeRangeMs": [
+        22.1377,
+        64.6373
+      ],
+      "afterMedianMs": 30.6675,
+      "afterRangeMs": [
+        22.1773,
+        72.3223
+      ],
+      "timeReductionPercent": 12.649856018593674
+    },
+    "http-body-8MiB": {
+      "files": 1,
+      "bytes": 8388608,
+      "excluded": 0,
+      "beforeMs": [
+        33.3233,
+        31.8707,
+        32.1039,
+        33.7012,
+        48.775,
+        38.5447,
+        41.6847,
+        33.6641,
+        36.6459
+      ],
+      "afterMs": [
+        19.2706,
+        21.4239,
+        23.1027,
+        27.3861,
+        20.6411,
+        20.8068,
+        21.7062,
+        24.1683,
+        22.7787
+      ],
+      "metrics": {
+        "progressEvents": {
+          "before": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "after": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "outputHash": "1e0d523a7b808c938cdb364a98ac4fa0a1ac05ce07102b6f3c56d8e5be441d11",
+      "beforeMedianMs": 33.7012,
+      "beforeRangeMs": [
+        31.8707,
+        48.775
+      ],
+      "afterMedianMs": 21.7062,
+      "afterRangeMs": [
+        19.2706,
+        27.3861
+      ],
+      "timeReductionPercent": 35.59220443188968
+    },
+    "http-file-64MiB": {
+      "files": 1,
+      "bytes": 67108864,
+      "excluded": 0,
+      "beforeMs": [
+        256.2511,
+        250.7342,
+        263.3769,
+        277.2779,
+        304.9958,
+        337.8825,
+        373.1839,
+        283.973,
+        308.1909
+      ],
+      "afterMs": [
+        149.3493,
+        152.9241,
+        204.194,
+        211.7669,
+        159.9004,
+        162.9353,
+        181.2388,
+        170.6502,
+        189.1658
+      ],
+      "metrics": {
+        "progressEvents": {
+          "before": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "after": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "outputHash": "c5e252a23752e5e5463e038d7c58083fe46925aefce2750cc1a4b734ea640f62",
+      "beforeMedianMs": 283.973,
+      "beforeRangeMs": [
+        250.7342,
+        373.1839
+      ],
+      "afterMedianMs": 170.6502,
+      "afterRangeMs": [
+        149.3493,
+        211.7669
+      ],
+      "timeReductionPercent": 39.90618826437724
+    },
+    "http-sha1-64MiB": {
+      "files": 1,
+      "bytes": 67108864,
+      "excluded": 0,
+      "beforeMs": [
+        243.8267,
+        231.1461,
+        250.1355,
+        262.862,
+        259.4673,
+        286.4278,
+        297.5152,
+        389.9681,
+        302.6772
+      ],
+      "afterMs": [
+        271.12,
+        278.8519,
+        310.8532,
+        353.7628,
+        248.6781,
+        254.6003,
+        323.6565,
+        253.1608,
+        278.5712
+      ],
+      "metrics": {
+        "progressEvents": {
+          "before": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "after": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "outputHash": "c5e252a23752e5e5463e038d7c58083fe46925aefce2750cc1a4b734ea640f62",
+      "beforeMedianMs": 262.862,
+      "beforeRangeMs": [
+        231.1461,
+        389.9681
+      ],
+      "afterMedianMs": 278.5712,
+      "afterRangeMs": [
+        248.6781,
+        353.7628
+      ],
+      "timeReductionPercent": -5.976215656884576
+    }
+  }
+}

@@ -1,0 +1,120 @@
+﻿{
+    "measuredUtc":  "2026-11-10T04:35:48.1225896Z",
+    "platform":  "Windows 11 x64",
+    "build":  "MSVC Release / Qt 6.8.1",
+    "cacheFixture":  {
+                         "coldMs":  [
+                                        19.1156,
+                                        20.7838,
+                                        18.9893,
+                                        18.774,
+                                        18.5522,
+                                        19.0826,
+                                        19.6495
+                                    ],
+                         "fixtureDelayMs":  15,
+                         "httpRequests":  7,
+                         "queries":  14,
+                         "warmMs":  [
+                                        0.0217,
+                                        0.0234,
+                                        0.0212,
+                                        0.0196,
+                                        0.0206,
+                                        0.0197,
+                                        0.0231
+                                    ]
+                     },
+    "cacheSummary":  {
+                         "coldMaxMs":  20.7838,
+                         "warmMedianMs":  0.0212,
+                         "coldMinMs":  18.5522,
+                         "warmMaxMs":  0.0234,
+                         "warmMinMs":  0.0196,
+                         "coldMedianMs":  19.0826,
+                         "scope":  "Same process; synthetic 15 ms server delay; existing IDE and launcher left running; no whole-app speed claim"
+                     },
+    "liveDownloads":  [
+                          {
+                              "bytes":  1210614,
+                              "downloadAndInstallMs":  993,
+                              "files":  1,
+                              "kind":  "mod",
+                              "metadataMs":  5279,
+                              "project":  "Sodium",
+                              "publisher":  "Modrinth"
+                          },
+                          {
+                              "bytes":  173981,
+                              "downloadAndInstallMs":  25672,
+                              "files":  1,
+                              "kind":  "modpack",
+                              "metadataMs":  4051,
+                              "project":  "Fabulously Optimized",
+                              "publisher":  "Modrinth"
+                          },
+                          {
+                              "bytes":  435682,
+                              "downloadAndInstallMs":  435,
+                              "files":  1,
+                              "kind":  "resourcepack",
+                              "metadataMs":  4602,
+                              "project":  "Round Trees",
+                              "publisher":  "Modrinth"
+                          },
+                          {
+                              "bytes":  406830,
+                              "downloadAndInstallMs":  431,
+                              "files":  1,
+                              "kind":  "shader",
+                              "metadataMs":  2995,
+                              "project":  "MakeUp - Ultra Fast",
+                              "publisher":  "Modrinth"
+                          },
+                          {
+                              "bytes":  1913034,
+                              "downloadAndInstallMs":  11335,
+                              "files":  1,
+                              "kind":  "mod",
+                              "metadataMs":  3491,
+                              "project":  "Sodium",
+                              "publisher":  "CurseForge"
+                          },
+                          {
+                              "bytes":  167447,
+                              "downloadAndInstallMs":  4042,
+                              "files":  1,
+                              "kind":  "modpack",
+                              "metadataMs":  2552,
+                              "project":  "Fabulously Optimized",
+                              "publisher":  "CurseForge"
+                          },
+                          {
+                              "bytes":  435682,
+                              "downloadAndInstallMs":  4177,
+                              "files":  1,
+                              "kind":  "resourcepack",
+                              "metadataMs":  2426,
+                              "project":  "Round Trees",
+                              "publisher":  "CurseForge"
+                          },
+                          {
+                              "bytes":  406830,
+                              "downloadAndInstallMs":  3359,
+                              "files":  1,
+                              "kind":  "shader",
+                              "metadataMs":  2867,
+                              "project":  "MakeUp - Ultra Fast | Shaders",
+                              "publisher":  "CurseForge"
+                          }
+                      ],
+    "liveScope":  "Mods/resourcepacks/shaders installed into temporary instances; pack archive downloaded and parsed, full Minecraft/Java/dependency installation not repeated",
+    "executable":  {
+                       "sha256":  "35347F37AAB01B9F675CF7C3ED0A4453C40627B6E95E17933BF9BECDF8E5A824",
+                       "path":  "build/bugg.exe"
+                   },
+    "entry":  {
+                  "sha256":  "83A46BE27713CDB50F62AAEA07ACD31CABFDE39102D1FECF3EB205F6D0FAAB51",
+                  "path":  "预览首页.cmd"
+              }
+}

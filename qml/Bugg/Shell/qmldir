@@ -1,0 +1,5 @@
+module Bugg.Shell
+FloatingShell 1.0 FloatingShell.qml
+ClassicShell 1.0 ClassicShell.qml
+WindowController 1.0 WindowController.qml
+ToolBar 1.0 ToolBar.qml

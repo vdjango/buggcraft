@@ -1,2 +1,0 @@
-pytest==9.2.0
-pytest-subtests==0.15.0

@@ -1,0 +1,53 @@
+qt_add_qml_module(bugg_pages STATIC
+  URI Bugg.Pages
+  VERSION 1.0
+  QML_FILES
+    AccountPage.qml
+    AddFriendPage.qml
+    AppearancePage.qml
+    BuggLoginPage.qml
+    CatalogPage.qml
+    ContentDetailsPage.qml
+    ContentInstallOptions.qml
+    CreateRoomPage.qml
+    DeleteInstancePage.qml
+    DeviceAuthPage.qml
+    DownloadsPage.qml
+    FeedbackPage.qml
+    FriendActions.qml
+    FriendsPage.qml
+    GameIdentityPage.qml
+    GameInstallPage.qml
+    GeneralPage.qml
+    MultiplayerSettingsPage.qml
+    HomePage.qml
+    InstanceConflictPage.qml
+    InstanceDetailsPage.qml
+    InstanceFilesPage.qml
+    InstanceSettingsPage.qml
+    InstancesPage.qml
+    JavaPage.qml
+    JoinRoomPage.qml
+    JoiningRoomPage.qml
+    LanguagePage.qml
+    LogsPage.qml
+    NodesPage.qml
+    OfflineIdentityPage.qml
+    PackExportPage.qml
+    PackImportPage.qml
+    RoomLobbyPage.qml
+    RoomChat.qml
+    RoomSettingsPage.qml
+    RoomSyncPage.qml
+    RoomsPage.qml
+    SettingsPage.qml
+    SkinPage.qml
+    SourcesPage.qml
+    StoragePage.qml
+    TaskFilesPage.qml
+    TasksPage.qml
+    ThemePicker.qml
+    ToolDeck.qml
+    UpdatePage.qml
+)
+target_link_libraries(bugg_pages PRIVATE Qt6::Quick Qt6::QuickControls2 bugg_designsystemplugin)

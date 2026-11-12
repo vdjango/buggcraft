@@ -1,0 +1,82 @@
+[
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 1920,
+        "iteration": 0,
+        "peakConnections": 1,
+        "referenceSerialLoop": true,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 598,
+        "iteration": 0,
+        "peakConnections": 6,
+        "referenceSerialLoop": false,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 553,
+        "iteration": 1,
+        "peakConnections": 6,
+        "referenceSerialLoop": false,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 1822,
+        "iteration": 1,
+        "peakConnections": 1,
+        "referenceSerialLoop": true,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 1886,
+        "iteration": 2,
+        "peakConnections": 1,
+        "referenceSerialLoop": true,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 436,
+        "iteration": 2,
+        "peakConnections": 6,
+        "referenceSerialLoop": false,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 523,
+        "iteration": 3,
+        "peakConnections": 6,
+        "referenceSerialLoop": false,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 2067,
+        "iteration": 3,
+        "peakConnections": 1,
+        "referenceSerialLoop": true,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 1901,
+        "iteration": 4,
+        "peakConnections": 1,
+        "referenceSerialLoop": true,
+        "requests": 6
+    },
+    {
+        "downloadBytes": 1572864,
+        "elapsedMs": 401,
+        "iteration": 4,
+        "peakConnections": 6,
+        "referenceSerialLoop": false,
+        "requests": 6
+    }
+]
