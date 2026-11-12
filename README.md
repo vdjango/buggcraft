@@ -4,7 +4,7 @@
 
 **挑一个整合包，约几个朋友，进入你们的 Minecraft 世界。**
 
-游戏安装 · 资源广场 · 实例管理 · 好友联机
+游戏安装 · 资源广场 · 实例管理 · 跨平台好友联机
 
 [![Release](https://img.shields.io/github/v/release/vdjango/buggcraft?style=flat-square&label=release)](https://github.com/vdjango/buggcraft/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/vdjango/buggcraft/total?style=flat-square)](https://github.com/vdjango/buggcraft/releases)
@@ -45,7 +45,9 @@ Bugg 是一款使用 **C++、Qt 与 QML** 构建的多平台 Minecraft Java 版�
 
 首次使用可以查看 [安装游戏](https://bugg.icu/docs/help/download-game)、[导入整合包](https://bugg.icu/docs/help/import-modpack) 和 [联机教程](https://bugg.icu/docs/help/create-room)。
 
-## 联机，留在同一个启动器里
+## 跨平台联机，电脑与手机一起玩
+
+Bugg 的多平台定位也包括联机：连接使用不同系统、不同设备的朋友，让电脑与手机能够进入同一个世界。互通需要双方使用兼容的游戏协议、版本、加载器和模组环境；Bugg 自有 Android 客户端仍在后续规划中。
 
 房主运行自己的世界、保管存档，朋友通过邀请加入。网络允许时尝试 P2P，无法直连时使用联机节点中继。
 
