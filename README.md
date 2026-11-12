@@ -10,7 +10,8 @@
 [![Downloads](https://img.shields.io/github/downloads/vdjango/buggcraft/total?style=flat-square)](https://github.com/vdjango/buggcraft/releases)
 [![C++20](https://img.shields.io/badge/Native-C%2B%2B20-00599C?style=flat-square)](CMakeLists.txt)
 [![Qt QML](https://img.shields.io/badge/UI-Qt%20%2B%20QML-41CD52?style=flat-square)](qml)
-[![Windows](https://img.shields.io/badge/Desktop-Windows-5478B9?style=flat-square)](https://download.bugg.icu/)
+[![Desktop platforms](https://img.shields.io/badge/Desktop-Windows%20%7C%20macOS%20%7C%20Linux-5478B9?style=flat-square)](https://download.bugg.icu/)
+[![Android roadmap](https://img.shields.io/badge/Android-Planned-6B7280?style=flat-square)](#下载与系统)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-2F7D5C?style=flat-square)](LICENSE)
 
 [**下载 Bugg**](https://download.bugg.icu/) · [**官网**](https://bugg.icu/) · [**玩家教程**](https://bugg.icu/docs) · [**报告问题**](https://github.com/vdjango/buggcraft/issues)
@@ -21,7 +22,7 @@
 
 ![Bugg 启动器界面](docs/images/launcher-preview.webp)
 
-Bugg 是一款使用 **C++、Qt 与 QML** 构建的 Minecraft Java 版启动器。安装游戏、挑选模组和整合包、管理不同玩法，再通过房间邀请和朋友一起玩，日常操作集中在一个桌面应用里。
+Bugg 是一款使用 **C++、Qt 与 QML** 构建的多平台 Minecraft Java 版启动器，面向 **Windows、macOS 和 Linux**。安装游戏、挑选模组和整合包、管理不同玩法，再通过房间邀请和朋友一起玩，日常操作集中在一个应用里。
 
 ## 从想玩，到开玩
 
@@ -65,7 +66,9 @@ C++ 和指令集优化是实现方式，不能直接换算成游戏 FPS。实测
 
 ## 下载与系统
 
-当前开发与主要验收环境为 Windows。macOS、Linux 的发布情况，以 [下载页](https://download.bugg.icu/) 实际提供的系统和架构为准。
+Bugg 面向 **Windows、macOS 和 Linux**，各平台可下载的版本与 CPU 架构以 [下载页](https://download.bugg.icu/) 为准。
+
+**Android 纳入后续规划**，具体功能与发布安排会在方案明确后公布。
 
 本仓库主分支已切换到新版 C++/Qt 架构。旧版发布记录保留，旧架构源码保存在 `legacy-python-20261112` 分支；发行徽章可能仍对应旧架构版本，请按下载说明选择。
 
