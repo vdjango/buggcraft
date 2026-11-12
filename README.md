@@ -11,6 +11,7 @@
 [![C++20](https://img.shields.io/badge/Native-C%2B%2B20-00599C?style=flat-square)](CMakeLists.txt)
 [![Qt QML](https://img.shields.io/badge/UI-Qt%20%2B%20QML-41CD52?style=flat-square)](qml)
 [![Windows](https://img.shields.io/badge/Desktop-Windows-5478B9?style=flat-square)](https://download.bugg.icu/)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-2F7D5C?style=flat-square)](LICENSE)
 
 [**下载 Bugg**](https://download.bugg.icu/) · [**官网**](https://bugg.icu/) · [**玩家教程**](https://bugg.icu/docs) · [**报告问题**](https://github.com/vdjango/buggcraft/issues)
 
@@ -75,5 +76,9 @@ C++ 和指令集优化是实现方式，不能直接换算成游戏 FPS。实测
 欢迎改善教程、译文、界面和代码。开发前先阅读 [协作约束](AGENTS.md)；构建方式见 [构建与发布](文档/10-构建体积与发布.md)，工程与依赖边界见 [架构文档](文档/03-工程结构与依赖边界.md)。
 
 源码包含共享依赖内核的带许可快照；原生联机桥由独立节点仓库提供。单文件构建需要按构建文档准备对应的 Qt 与原生桥源码，不包含第三方预编译运行库。
+
+## 许可与社区
+
+项目许可证见 [LICENSE](LICENSE)，社区补充说明见 [COMMUNITY_LICENSE.md](COMMUNITY_LICENSE.md)。参与交流与贡献时，请遵守 [社区行为准则](CODE_OF_CONDUCT.md)；第三方源码保留各自许可。
 
 Bugg 不包含 Minecraft 游戏本体，与 Mojang、Microsoft 无隶属关系。Minecraft 是 Mojang Studios 的商标。
