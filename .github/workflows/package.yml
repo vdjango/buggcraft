@@ -115,11 +115,29 @@ jobs:
             if (!$nodeReady) { Start-Sleep -Seconds 20 }
           } while (!$nodeReady -and (Get-Date) -lt $nodeDeadline)
           if (!$nodeReady) { throw 'Matching node release v0.3.12 is not published; launcher remains staged' }
-          $body = @{tag_name=$env:GITHUB_REF_NAME;name='Bugg v${{ steps.version.outputs.value }}';body=(Get-Content -Encoding UTF8 bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md -Raw);draft=$true;prerelease=$false} | ConvertTo-Json
-          $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+          $notes = [System.IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md'), [System.Text.Encoding]::UTF8)
+          $body = @{tag_name=$env:GITHUB_REF_NAME;name='Bugg v${{ steps.version.outputs.value }}';body=$notes;draft=$true;prerelease=$false} | ConvertTo-Json
+          $release = $null
+          try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
+          } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          if ($release) {
+            if (!$release.draft) { throw 'This tag already has a published release' }
+            $release = Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+          } else {
+            $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+          }
           $upload = $release.upload_url -replace '\{.*$', ''
           Get-ChildItem D:/bugg-release -File | ForEach-Object {
-            Invoke-RestMethod -Method Post -Uri ($upload + '?name=' + [uri]::EscapeDataString($_.Name)) -Headers $headers -ContentType 'application/octet-stream' -InFile $_.FullName | Out-Null
+            $file = $_
+            $existing = @($release.assets | Where-Object { $_.name -eq $file.Name })
+            $digest = 'sha256:' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if (!$existing.Count -or $existing[0].digest -ne $digest) {
+              if ($existing.Count) { Invoke-RestMethod -Method Delete -Uri $existing[0].url -Headers $headers | Out-Null }
+              Invoke-RestMethod -Method Post -Uri ($upload + '?name=' + [uri]::EscapeDataString($file.Name)) -Headers $headers -ContentType 'application/octet-stream' -InFile $file.FullName | Out-Null
+            }
           }
           Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json' -Body '{"draft":false}' | Out-Null
       - name: Notify download website with Actions identity
