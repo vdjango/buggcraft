@@ -2775,6 +2775,9 @@ Window { width:410; height:620; visible:true; color:"white"
       QVERIFY(page_veil);
       const auto veil_color = page_veil->property("color").value<QColor>();
       QVERIFY(qAbs(veil_color.alphaF() - 0.10) < 0.005);
+      auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+      QVERIFY(tokens);
+      QVERIFY(qAbs(tokens->property("canvas").value<QColor>().alphaF() - 0.10) < 0.005);
       QTest::qWait(500);
       QVERIFY(window->grabWindow().save(shots + "/appearance-" + theme + ".png"));
       auto* top = window->findChild<QQuickItem*>("topActivity");
@@ -2807,6 +2810,7 @@ Window { width:410; height:620; visible:true; color:"white"
       QVERIFY(window->grabWindow().save(shots + "/downloads-" + theme + ".png"));
       QMetaObject::invokeMethod(deck, "goHome");
       QVERIFY(runtime.set_preference("backgroundOnPages", false));
+      QTRY_COMPARE(tokens->property("canvas").value<QColor>().alphaF(), 1.0);
     }
     window->close();
     runtime.shutdown();

@@ -20,7 +20,7 @@ QtObject {
     readonly property url homeBackdrop: Qt.resolvedUrl("assets/home-siege-1.webp")
     readonly property var homeBackdrops: [homeBackdrop]
     readonly property color sceneBase: "#102338"
-    readonly property color canvas: "#F7F8FA"
+    readonly property color canvas: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : "#F7F8FA"
     readonly property color background: "#FDFCF9"
     readonly property color surface: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : scenic ? Qt.rgba(1, 1, 1, sceneSurfaceOpacity) : comfortable ? "#F0F2F5" : "#F3F1EC"
     readonly property color surfaceHover: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : scenic ? "#33FFFFFF" : comfortable ? "#E8EBF0" : "#EBE8E2"
