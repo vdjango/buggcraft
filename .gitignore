@@ -5,6 +5,7 @@ __pycache__/
 /research/
 *.log
 *.pem
+!/assets/control/beijing-test-ca.pem
 *.key
 .env
 /.venv/
