@@ -194,10 +194,22 @@ void LauncherUpdateService::download() {
               update_failure(QObject::tr("更新包包含用户数据或启动入口"));
             files.append(name);
           }
-          if (!files.contains(executable) || files.size() > 20000)
+          bool renamed = false;
+#ifdef Q_OS_WIN
+          // Portable users may rename the EXE. Keep their existing entry while
+          // sourcing its replacement from the verified canonical program.
+          renamed = !files.contains(executable) && files.contains("bugg.exe") &&
+                    QFileInfo(executable).fileName() == executable &&
+                    executable.endsWith(".exe", Qt::CaseInsensitive);
+#endif
+          if ((!files.contains(executable) && !renamed) || files.size() > 20000)
             update_failure(QObject::tr("更新包缺少启动程序"));
           const auto stage = folder + "/payload";
           archive_extract(archive, stage, "", {}, cancelled, true);
+          if (renamed) {
+            copy_file(safe_path(stage, "bugg.exe"), safe_path(stage, executable), cancelled);
+            files.append(executable);
+          }
           // A separate copy runs the helper while payload files are moved into place.
           const auto helper_root = folder + "/helper";
           for (const auto& name : files) {

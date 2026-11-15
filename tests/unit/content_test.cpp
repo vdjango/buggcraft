@@ -823,6 +823,11 @@ class ContentTest : public QObject {
     const auto endpoint =
         QUrl("http://127.0.0.1:" + QString::number(server.serverPort()) + "/api/launcher/update");
     const auto executable = QFileInfo(QCoreApplication::applicationFilePath()).fileName();
+#ifdef Q_OS_WIN
+    const auto packaged_executable = QStringLiteral("bugg.exe");
+#else
+    const auto packaged_executable = executable;
+#endif
     const auto archive = root.filePath("fixture.zip");
     const auto cancelled = std::make_shared<std::atomic_bool>(false);
     archive_write(archive, {},
@@ -831,7 +836,7 @@ class ContentTest : public QObject {
                                               {"version", "2.0.2"},
                                               {"platform", LauncherUpdateService::platform_id()}})
                         .toJson()},
-                   {executable, "replacement"}},
+                   {packaged_executable, "replacement"}},
                   cancelled, {});
     QFile file(archive);
     QVERIFY(file.open(QIODevice::ReadOnly));

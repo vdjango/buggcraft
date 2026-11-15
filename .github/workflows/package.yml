@@ -28,15 +28,34 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+      - name: Read application version
+        id: version
+        shell: pwsh
+        run: |
+          $match = [regex]::Match((Get-Content bugg/CMakeLists.txt -Raw), 'set\(BUGG_BUILD_VERSION "([^"]+)"')
+          if (!$match.Success) { throw 'Missing application version' }
+          $version = $match.Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and application versions differ' }
+          "value=$version" >> $env:GITHUB_OUTPUT
       - name: Restore static Qt kit
         id: qt-cache
         uses: actions/cache@v4
         with:
-          path: D:/bugg-qt
+          path: |
+            D:/bugg-qt/static
+            D:/bugg-qt/src
           key: qt-6.8.1-static-mt-windows2022-${{ hashFiles('bugg/tools/build_size_qt.cmake', 'bugg/tools/patch_qtmultimedia_windows_vulkan.cmake') }}
       - name: Build pinned static Qt and translation tools
         if: steps.qt-cache.outputs.cache-hit != 'true'
         run: cmake -DWORK_ROOT=D:/bugg-qt -DSTATIC_RUNTIME=ON -DPARALLEL=4 -P bugg/tools/build_size_qt.cmake
+      - name: Save completed Qt kit before application build
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            D:/bugg-qt/static
+            D:/bugg-qt/src
+          key: ${{ steps.qt-cache.outputs.cache-primary-key }}
       - name: Install static OpenSSL
         run: vcpkg install openssl:x64-windows-static
       - name: Fetch pinned native dependencies
@@ -46,19 +65,19 @@ jobs:
           cmake -DQT_ROOT=D:/bugg-qt/static -DQT_SOURCE_ROOT=D:/bugg-qt/src
           -DOPENSSL_ROOT="$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static"
           -DWORK_ROOT=D:/bugg-build -DOUTPUT_ROOT=D:/bugg-package -DPARALLEL=4
-          -DBUGG_BUILD_VERSION=2.0.1 -DBUGG_LANGUAGE_ASSET_VERSION=2.0.1
+          -DBUGG_BUILD_VERSION=${{ steps.version.outputs.value }} -DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }}
           -P bugg/tools/build_single_file.cmake
       - name: Verify version and bridge entry
         shell: pwsh
         run: |
-          if ((Get-Item D:/bugg-package/bugg.exe).VersionInfo.FileVersion -ne '2.0.1') { throw 'Wrong executable version' }
+          if ((Get-Item D:/bugg-package/bugg.exe).VersionInfo.FileVersion -ne '${{ steps.version.outputs.value }}') { throw 'Wrong executable version' }
           & D:/bugg-package/bugg.exe --native-bridge --version
           if ($LASTEXITCODE -ne 0) { throw 'Bridge entry failed' }
       - name: Package update and language assets
-        run: python bugg/tools/package_release.py --version 2.0.1 --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release
+        run: python bugg/tools/package_release.py --version ${{ steps.version.outputs.value }} --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release --migration-entry Bugg-v1.1.0.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: Bugg-v2.0.1-windows-x64
+          name: Bugg-v${{ steps.version.outputs.value }}-windows-x64
           path: D:/bugg-release/*
           if-no-files-found: error
       - name: Publish GitHub release
@@ -68,7 +87,7 @@ jobs:
           GH_REPO: vdjango/buggcraft
         shell: pwsh
         run: |
-          gh release create $env:GITHUB_REF_NAME D:/bugg-release/* --title 'Bugg v2.0.1' --notes-file bugg/.github/release-notes-v2.0.1.md --verify-tag
+          gh release create $env:GITHUB_REF_NAME D:/bugg-release/* --title 'Bugg v${{ steps.version.outputs.value }}' --notes-file bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md --verify-tag
           if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
       - name: Notify download website with Actions identity
         if: startsWith(github.ref, 'refs/tags/')
