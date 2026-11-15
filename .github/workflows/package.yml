@@ -86,8 +86,8 @@ jobs:
         shell: powershell
         run: |
           if ((Get-Item D:/bugg-package/bugg.exe).VersionInfo.FileVersion -ne '${{ steps.version.outputs.value }}') { throw 'Wrong executable version' }
-          & D:/bugg-package/bugg.exe --native-bridge --version
-          if ($LASTEXITCODE -ne 0) { throw 'Bridge entry failed' }
+          $bridge = Start-Process -FilePath 'D:/bugg-package/bugg.exe' -ArgumentList @('--native-bridge', '--version') -WindowStyle Hidden -Wait -PassThru
+          if ($bridge.ExitCode -ne 0) { throw 'Bridge entry failed' }
       - name: Package update and language assets
         run: python bugg/tools/package_release.py --version '${{ steps.version.outputs.value }}' --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release --migration-entry Bugg-v1.1.0.exe
       - uses: actions/upload-artifact@v4
