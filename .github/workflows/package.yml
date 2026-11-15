@@ -123,6 +123,15 @@ jobs:
           } catch {
             if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
           }
+          # The tag endpoint can hide drafts; list drafts before creating one.
+          if (!$release) {
+            $page = 1
+            do {
+              $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases?per_page=100&page=$page" -Headers $headers)
+              $release = $releases | Where-Object { $_.tag_name -eq $env:GITHUB_REF_NAME } | Select-Object -First 1
+              $page++
+            } while (!$release -and $releases.Count -eq 100)
+          }
           if ($release) {
             if (!$release.draft) { throw 'This tag already has a published release' }
             $release = Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
@@ -151,7 +160,7 @@ jobs:
           $payload = @{tag=$env:GITHUB_REF_NAME;github_token=$env:GH_TOKEN} | ConvertTo-Json -Compress
           $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $payload
           $statusPayload = @{tag=$env:GITHUB_REF_NAME;action='status'} | ConvertTo-Json -Compress
-          $deadline = (Get-Date).AddMinutes(5)
+          $deadline = (Get-Date).AddMinutes(20)
           do {
             Start-Sleep -Seconds 5
             $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $statusPayload

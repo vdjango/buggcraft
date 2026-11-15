@@ -1,0 +1,30 @@
+name: Verify published launcher
+on:
+  workflow_run:
+    workflows: ['Build and release native launcher']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published launcher tag
+        required: true
+        default: v2.0.1
+permissions:
+  contents: read
+jobs:
+  public-download:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify official assets and legacy/native update feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+        run: python tools/verify_published_release.py --tag "$RELEASE_TAG" --output public-release-verification.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: published-launcher-verification
+          path: public-release-verification.json
+          if-no-files-found: error
