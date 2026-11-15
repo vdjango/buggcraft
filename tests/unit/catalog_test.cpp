@@ -210,6 +210,14 @@ class CatalogTest : public QObject {
       {"loader":{"version":"9.0.0"},"intermediary":{"version":"1.21"}}])");
     QCOMPARE(fabric.preferred, "0.17.10");
     QCOMPARE(fabric.entries.size(), 2);
+    for (const auto& source : sources) {
+      const auto modern = source->parse({"fabric", "26.3"}, R"([
+        {"loader":{"version":"0.20.1","stable":true},"intermediary":{"version":"0.0.0"}},
+        {"loader":{"version":"0.20.0","stable":true},"intermediary":{"version":"0.0.0"}},
+        {"loader":{"version":"9.0.0"},"intermediary":{"version":"1.21.1"}}])");
+      QCOMPARE(modern.entries.size(), 2);
+      QCOMPARE(modern.preferred, "0.20.1");
+    }
     const auto quilt = sources[1]->parse({"quilt", "1.21.1"}, R"([
       {"loader":{"version":"0.30.0-beta.9"},"hashed":{"version":"1.21.1"}},
       {"loader":{"version":"0.30.0-beta.10"},"hashed":{"version":"1.21.1"}}])");

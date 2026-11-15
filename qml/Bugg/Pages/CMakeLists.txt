@@ -13,9 +13,10 @@ qt_add_qml_module(bugg_pages STATIC
     DeleteInstancePage.qml
     DeviceAuthPage.qml
     DownloadsPage.qml
-    FeedbackPage.qml
+    FeedbackDialog.qml
     FriendActions.qml
     FriendsPage.qml
+    NetworkReference.qml
     GameIdentityPage.qml
     GameInstallPage.qml
     GeneralPage.qml

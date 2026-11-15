@@ -1,4 +1,7 @@
 module Bugg.DesignSystem
+RoundedMask 1.0 RoundedMask.qml
+ChoiceDialog 1.0 ChoiceDialog.qml
+ModalSurface 1.0 ModalSurface.qml
 LogRow 1.0 LogRow.qml
 ContentImage 1.0 ContentImage.qml
 LoadingIndicator 1.0 LoadingIndicator.qml
@@ -7,6 +10,7 @@ ActionButton 1.0 ActionButton.qml
 AppIcon 1.0 AppIcon.qml
 Avatar 1.0 Avatar.qml
 BackdropCarousel 1.0 BackdropCarousel.qml
+BackdropMedia 1.0 BackdropMedia.qml
 BrandButton 1.0 BrandButton.qml
 CheckOption 1.0 CheckOption.qml
 ChoiceCard 1.0 ChoiceCard.qml

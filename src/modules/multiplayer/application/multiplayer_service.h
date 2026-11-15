@@ -19,9 +19,11 @@ class MultiplayerService : public QObject {
   QVariantMap feedback() const { return feedback_; }
   /// 官方入口唯一默认值；空登录参数使用此地址，QML 不保存或展示默认域名。
   static QString default_origin() { return QStringLiteral("https://node.bugg.icu"); }
-  /// GUI 异步匿名反馈；基础诊断可选，无日志/凭据。重复提交锁定，关闭取消请求。
-  Q_INVOKABLE void submit_feedback(const QString& message, const QString& contact,
-                                   bool diagnostics);
+  /// GUI, called by GameRuntime after explicit consent and archive collection.
+  /// Requires a managed official identity; bridge renews/verifies authentication,
+  /// validates the receipt. Completion releases the runtime-owned temporary ZIP.
+  void submit_feedback(const QString& message, const QString& expected, const QString& contact,
+                       const QString& archive);
   /// 首帧后恢复加密授权；成功后每次启动由原生 RouteSelector 重新测延迟。
   void restore();
   void shutdown();
@@ -34,6 +36,8 @@ class MultiplayerService : public QObject {
   Q_INVOKABLE void refresh(const QString& query = {}, bool background = false);
   /// Real bridge routes; -1 restores automatic placement. Only new hosted rooms change node.
   Q_INVOKABLE void refresh_nodes();
+  /// GUI 异步读取桥的网络参考；不修改连接策略，离线/切换节点丢弃迟到结果。
+  Q_INVOKABLE void inspect_network(bool refresh = false);
   Q_INVOKABLE void select_node(int index);
   /// GUI 标记 rooms/requests 服务通知已读；空类别为全部。无 I/O，重复调用不发 changed。
   Q_INVOKABLE void mark_notifications_read(const QString& category = {});
@@ -83,6 +87,7 @@ class MultiplayerService : public QObject {
                               const Cancellation& cancelled);
  signals:
   void changed();
+  void feedback_finished(const QString& archive);
   void restored(const QString& error);
   void drained();
   void room_joined();
@@ -129,9 +134,6 @@ class MultiplayerService : public QObject {
       {"state", "signedOut"}, {"rooms", QVariantList{}}, {"friends", QVariantList{}}};
   QString cache_, origin_ = default_origin(), device_id_, nonce_, node_, session_;
   QVariantMap feedback_;
-  quint64 feedback_request_ = 0;
-  QString feedback_id_, feedback_message_, feedback_contact_;
-  bool feedback_diagnostics_ = false;
   QString room_query_;
   QVariantMap pending_room_;
   QVariantMap launch_status_;

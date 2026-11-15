@@ -11,6 +11,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "modules/account/infrastructure/credential_store.h"
+#include "platform/diagnostics/diagnostic_log.h"
 
 namespace bugg {
 namespace {
@@ -137,6 +138,7 @@ void MicrosoftAccount::acquire(quint64 operation, const QString& profile_id) {
 }
 void MicrosoftAccount::send(Step step, const QUrl& url, const QJsonObject& json, bool form) {
   step_ = step;
+  record_diagnostic("account.request", {{"step", int(step)}, {"endpoint", diagnostic_url(url)}});
   HttpRequest request;
   request.url = url;
   if (step == Step::Profile)
@@ -281,6 +283,7 @@ void MicrosoftAccount::received(const QByteArray& body, const QString& error, in
   }
 }
 void MicrosoftAccount::fail(const QString& error) {
+  record_diagnostic("account.failed", {{"step", int(step_)}, {"error", error}});
   polling_.stop();
   device_code_.clear();
   identity_.access_token.clear();
@@ -322,5 +325,8 @@ void MicrosoftAccount::persist() {
     }
   }));
 }
-void MicrosoftAccount::relocate_storage(const QString& path) { path_ = path; persist(); }
+void MicrosoftAccount::relocate_storage(const QString& path) {
+  path_ = path;
+  persist();
+}
 }  // namespace bugg

@@ -7,7 +7,11 @@
 #include "modules/settings/application/language_service.h"
 #include "modules/settings/ui/source_settings.h"
 #include "modules/update/application/launcher_update_service.h"
+#include "platform/diagnostics/diagnostic_log.h"
 namespace bugg {
+namespace {
+constexpr auto agreement_revision = "2026-11-14";
+}
 ApplicationLifecycle::ApplicationLifecycle(GameRuntime* runtime, MicrosoftAccount* account,
                                            SourceSettings* sources, QObject* parent)
     : QObject(parent), runtime_(runtime), account_(account), sources_(sources) {
@@ -45,6 +49,7 @@ QVariantMap ApplicationLifecycle::status() const {
   return {{"phase", phase_}, {"pending", pending_}, {"errors", errors_}, {"view", view_}};
 }
 void ApplicationLifecycle::notify(const QString& name, const QVariantMap& context) {
+  record_diagnostic("application." + name, QJsonObject::fromVariantMap(context));
   emit hook(name, context);
   emit changed();
 }
@@ -59,10 +64,21 @@ void ApplicationLifecycle::mounted() {
   mounted_ = true;
   notify("mounted");
   phase_ = "initializing";
-  pending_ = {"runtime", "identity"};
-  if (multiplayer_) pending_.append("multiplayer");
+  pending_ = {"runtime"};
   notify("initializing");
   runtime_->initialize();
+}
+void ApplicationLifecycle::accept_agreement() {
+  if (phase_ != "awaiting_consent") return;
+  if (!runtime_->set_preference("agreementRevision", QString::fromLatin1(agreement_revision)))
+    return;
+  initialize_services();
+}
+void ApplicationLifecycle::initialize_services() {
+  phase_ = "initializing";
+  pending_ = {"identity"};
+  if (multiplayer_) pending_.append("multiplayer");
+  notify("initializing_services");
   account_->restore();
   if (multiplayer_) multiplayer_->restore();
   if (updates_) updates_->check();
@@ -71,6 +87,15 @@ void ApplicationLifecycle::complete(const QString& owner, const QString& error) 
   if (phase_ != "initializing") return;
   pending_.removeAll(owner);
   if (!error.isEmpty()) capture_error(owner, error);
+  if (owner == "runtime") {
+    if (runtime_->preferences().value("agreementRevision").toString() != agreement_revision) {
+      phase_ = "awaiting_consent";
+      notify("awaiting_consent");
+    } else {
+      initialize_services();
+    }
+    return;
+  }
   if (pending_.isEmpty()) {
     phase_ = "ready";
     notify("ready");

@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Effects
 import Bugg.Presentation
 
-// 输入本地 URL 列表和活动状态；只管理两层图片与呈现计时，不拥有设置或业务任务。
+// 两层媒体交叉淡入；图片和视频由 BackdropMedia 统一管理，切页/收起时暂停视频。
 Item {
     id: root
     property var sources: []
@@ -11,12 +11,17 @@ Item {
     property real radius: 12
     property bool shade: false
     property bool active: true
+    property bool soundEnabled: false
+    property string blurStyle: "edges"
+    property real blurAmount: 0.35
+    property real vignette: 0.35
     property int interval: 12000
-    readonly property url currentSource: currentIndex < 0 ? fallbackSource : front.source
+    readonly property url currentSource: currentIndex < 0 ? fallbackSource : playlist[currentIndex]
     readonly property color averageColor: palette.averageColor
+    readonly property bool videoPlaying: front.playing
     readonly property var playlist: sources
-    readonly property Image front: firstOnTop ? first : second
-    readonly property Image back: firstOnTop ? second : first
+    readonly property var front: firstOnTop ? first : second
+    readonly property var back: firstOnTop ? second : first
     property bool firstOnTop: true
     property bool initialized: false
     property int currentIndex: -1
@@ -24,31 +29,31 @@ Item {
     property int attemptsLeft: 0
     property real blend: 0
     clip: true
+
     BackdropPalette {
         id: palette
-        source: root.currentSource
+        source: root.front.video ? "" : root.currentSource
     }
-
-    // 下一张就绪前保留当前图；失败仅尝试本轮剩余候选，避免损坏列表无限重试。
     function request(index, attempts) {
         if (attempts <= 0 || !playlist.length) {
             pendingIndex = -1;
             return;
         }
+        pendingIndex = ((index % playlist.length) + playlist.length) % playlist.length;
         attemptsLeft = attempts - 1;
-        pendingIndex = index % playlist.length;
         back.source = playlist[pendingIndex];
-        if (back.status === Image.Ready || back.status === Image.Error)
-            imageSettled(back);
-    }
-    function imageSettled(image) {
-        if (pendingIndex < 0 || image !== back)
-            return;
-        if (image.status === Image.Error) {
+        if (back.status === Image.Ready)
+            mediaSettled(back);
+        else if (back.status === Image.Error)
             request(pendingIndex + 1, attemptsLeft);
-        } else if (image.status === Image.Ready && !fade.running) {
+    }
+    function mediaSettled(media) {
+        if (pendingIndex < 0 || media !== back)
+            return;
+        if (media.status === Image.Error)
+            request(pendingIndex + 1, attemptsLeft);
+        else if (media.status === Image.Ready && !fade.running)
             fade.start();
-        }
     }
     function reload() {
         if (!initialized)
@@ -56,33 +61,28 @@ Item {
         fade.stop();
         blend = 0;
         pendingIndex = -1;
-        back.source = "";
-        if (!playlist.length) {
-            front.source = "";
-            currentIndex = -1;
-            return;
-        }
-        request(0, playlist.length);
+        first.source = "";
+        second.source = "";
+        currentIndex = -1;
+        if (playlist.length)
+            request(0, playlist.length);
     }
     onPlaylistChanged: reload()
     Component.onCompleted: {
         initialized = true;
         reload();
     }
-    // 默认资源已做圆角；自选图在原生图形后端统一遮罩，不复制到页面。
+
     layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
     layer.effect: MultiEffect {
         maskEnabled: true
         maskSource: roundedMask
     }
-    Rectangle {
+    RoundedMask {
         id: roundedMask
         width: root.width
         height: root.height
         radius: root.radius
-        color: "white"
-        layer.enabled: true
-        visible: false
     }
     BorderImage {
         anchors.fill: parent
@@ -94,42 +94,97 @@ Item {
         border.right: 20
         border.bottom: 20
     }
-    Image {
-        id: first
+    Item {
+        id: mediaStack
         anchors.fill: parent
-        asynchronous: true
-        sourceSize: Qt.size(1280, 800)
-        fillMode: Image.PreserveAspectCrop
-        opacity: root.firstOnTop ? 1 : root.blend
-        z: root.firstOnTop ? 0 : 1
-        onStatusChanged: root.imageSettled(first)
+        BackdropMedia {
+            id: first
+            anchors.fill: parent
+            active: root.active && root.visible && (root.firstOnTop || root.pendingIndex >= 0)
+            muted: !root.soundEnabled || !root.firstOnTop
+            opacity: root.firstOnTop ? 1 : root.blend
+            z: root.firstOnTop ? 0 : 1
+            onStatusChanged: root.mediaSettled(first)
+        }
+        BackdropMedia {
+            id: second
+            anchors.fill: parent
+            active: root.active && root.visible && (!root.firstOnTop || root.pendingIndex >= 0)
+            muted: !root.soundEnabled || root.firstOnTop
+            opacity: root.firstOnTop ? root.blend : 1
+            z: root.firstOnTop ? 1 : 0
+            onStatusChanged: root.mediaSettled(second)
+        }
     }
-    Image {
-        id: second
+    ShaderEffectSource {
+        id: blurSource
         anchors.fill: parent
-        asynchronous: true
-        sourceSize: Qt.size(1280, 800)
-        fillMode: Image.PreserveAspectCrop
-        opacity: root.firstOnTop ? root.blend : 1
-        z: root.firstOnTop ? 1 : 0
-        onStatusChanged: root.imageSettled(second)
+        sourceItem: mediaStack
+        hideSource: false
+        visible: false
+        live: root.active
     }
     Rectangle {
-        anchors.fill: parent
-        z: 2
-        visible: root.shade
+        id: blurMask
+        width: root.width
+        height: root.height
+        visible: true
         gradient: Gradient {
             GradientStop {
                 position: 0
-                color: "#48000000"
+                color: "white"
             }
             GradientStop {
-                position: 0.45
-                color: "#10000000"
+                position: 0.28
+                color: root.blurStyle === "full" ? "white" : "transparent"
+            }
+            GradientStop {
+                position: 0.68
+                color: root.blurStyle === "full" ? "white" : "transparent"
             }
             GradientStop {
                 position: 1
-                color: "#A0000000"
+                color: root.blurStyle === "top" ? "transparent" : "white"
+            }
+        }
+    }
+    ShaderEffectSource {
+        id: blurMaskTexture
+        sourceItem: blurMask
+        hideSource: true
+        visible: false
+        live: root.blurStyle !== "none" && root.blurAmount > 0
+    }
+    MultiEffect {
+        anchors.fill: parent
+        z: 2
+        source: blurSource
+        visible: root.blurStyle !== "none" && root.blurAmount > 0 && GraphicsInfo.api !== GraphicsInfo.Software
+        blurEnabled: true
+        blur: Math.min(1, root.blurAmount)
+        blurMax: 40
+        maskEnabled: true
+        maskSource: blurMaskTexture
+        maskThresholdMin: 0.5
+        maskSpreadAtMin: 1
+        autoPaddingEnabled: false
+    }
+    Rectangle {
+        anchors.fill: parent
+        z: 3
+        visible: root.shade || root.vignette > 0
+        gradient: Gradient {
+            GradientStop {
+                position: 0
+                color: Qt.rgba(0.02, 0.04, 0.08, root.vignette * 0.8)
+            }
+            GradientStop {
+                position: 0.45
+                color: Qt.rgba(0, 0, 0, root.vignette * 0.03)
+            }
+            GradientStop {
+                position: 1
+                color: Qt.rgba(0.02, 0.04, 0.08, root.vignette)
             }
         }
     }
@@ -146,6 +201,7 @@ Item {
             root.currentIndex = root.pendingIndex;
             root.pendingIndex = -1;
             root.blend = 0;
+            root.back.source = "";
         }
     }
     Timer {

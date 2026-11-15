@@ -3,11 +3,13 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QUrl>
+#include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "modules/game_install/application/game_operations.h"
 #include "modules/game_install/application/game_runtime.h"
 #include "modules/game_install/application/modpack_plan.h"
+#include "platform/diagnostics/diagnostic_log.h"
 #include "platform/runtime/runtime_environment.h"
 
 namespace bugg {
@@ -45,6 +47,7 @@ void GameRuntime::run_file_work(std::function<QVariantMap(const Cancellation&)> 
           check_cancelled(cancelled);
           return work(cancelled);
         } catch (const std::exception& error) {
+          record_diagnostic("files.failed", {{"error", QString::fromUtf8(error.what())}});
           return QVariantMap{{"error", QString::fromUtf8(error.what())}};
         }
       }));
@@ -78,6 +81,7 @@ void GameRuntime::cancel_room(const QString& session) {
 void GameRuntime::inspect_pack(const QString& url) {
   if (closing_ || initializing_) return;
   const auto path = local_path(url);
+  record_diagnostic("modpack.inspect", {{"file", QFileInfo(path).fileName()}});
   const auto generation = ++pack_generation_;
   pack_preview_ = {{"loading", true}, {"path", path}};
   emit pack_preview_changed();
@@ -250,9 +254,11 @@ void GameRuntime::inspect_content_install(const QString& id, const QVariantMap& 
   emit content_installation_changed();
   run_file_work(
       [root = game_root_, portable = portable_, order = source_order_, bugg_base = bugg_base_, id,
-       plan, request = content_request_](const Cancellation& cancelled) {
+       plan, automatic = preferences().value("autoDependencies", true),
+       request = content_request_](const Cancellation& cancelled) {
         GameOperations operation(
             root, portable, order, cancelled, [](double, const QString&) {}, 6, nullptr, bugg_base);
+        operation.set_dependency_context({{"autoDependencies", automatic}}, request);
         const auto effective_plan = operation.prepare_content_install(id, plan, request);
         auto result = operation.check_content_install(id, effective_plan);
         result["shaderSupport"] = effective_plan.value("shaderSupport");
@@ -268,6 +274,59 @@ void GameRuntime::inspect_content_install(const QString& id, const QVariantMap& 
         content_installation_["instance"] = id;
         content_installation_["requestedPlan"] = plan;
         emit content_installation_changed();
+      });
+}
+void GameRuntime::answer_shader_feedback(const QString& token, const QString& outcome) {
+  if (closing_ || token.isEmpty() || shader_feedback_.value("token") != token ||
+      shader_feedback_.value("busy").toBool())
+    return;
+  if (outcome.isEmpty()) {
+    shader_feedback_.clear();
+    emit shader_feedback_changed();
+    return;
+  }
+  if (!QStringList{"working", "startup_failed", "shader_failed"}.contains(outcome)) return;
+  if (!content_request_) return;
+  auto installation = settings_.value("shaderFeedbackInstallationId").toString();
+  if (installation.isEmpty()) {
+    installation = QUuid::createUuid().toString(QUuid::Id128);
+    settings_["shaderFeedbackInstallationId"] = installation;
+    save_settings();
+  }
+  const auto target = shader_feedback_.value("target");
+  const auto sha1_target = shader_feedback_.value("sha1_target");
+  shader_feedback_["busy"] = true;
+  shader_feedback_.remove("error");
+  emit shader_feedback_changed();
+  run_file_work(
+      [request = content_request_, target, sha1_target, installation,
+       outcome](const Cancellation& cancelled) {
+        return request({{"operation", "shaderFeedback"},
+                        {"kind", "shader"},
+                        {"target", target},
+                        {"sha1_target", sha1_target},
+                        {"installation_id", installation},
+                        {"outcome", outcome}},
+                       cancelled);
+      },
+      [this, token](const QVariantMap& result) {
+        if (shader_feedback_.value("token") != token) return;
+        if (!result.value("error").toString().isEmpty() ||
+            result.value("schema") != "bugg-shader-feedback-v1") {
+          shader_feedback_["busy"] = false;
+          shader_feedback_["error"] = QCoreApplication::translate("Bugg", "反馈未提交，请稍后重试");
+        } else {
+          auto answered = settings_.value("shaderFeedbackAnswered").toStringList();
+          answered.removeAll(token);
+          answered.append(token);
+          while (answered.size() > 128) answered.removeFirst();
+          settings_["shaderFeedbackAnswered"] = answered;
+          save_settings();
+          shader_feedback_.clear();
+          emit shader_feedback_submitted();
+          emit notice(QCoreApplication::translate("Bugg", "感谢反馈，其他用户将看到这份结果"));
+        }
+        emit shader_feedback_changed();
       });
 }
 void GameRuntime::refresh_environment() {

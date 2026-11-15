@@ -1,6 +1,7 @@
 #include "modules/game_install/application/game_operations.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -8,7 +9,10 @@
 #include <QTemporaryDir>
 #include <stdexcept>
 
+#include "bugg/dependency_check.h"
+#include "modules/game_install/infrastructure/dependency_facts.h"
 #include "modules/settings/application/language_service.h"
+#include "platform/diagnostics/diagnostic_log.h"
 #include "platform/runtime/runtime_environment.h"
 
 namespace bugg {
@@ -47,7 +51,7 @@ GameOperations::GameOperations(QString game_root, QString portable_root, QString
     if (!content_transfers_.contains(path)) return;
     auto file = content_transfers_.value(path);
     for (const auto& key : {"speedText", "transferText", "aggregateSpeedText", "activeTransfers",
-                            "received", "total"})
+                            "received", "total", "source"})
       file[key] = transfer.value(key);
     content_update(file, transfer.value("state").toString(), transfer.value("progress").toDouble(),
                    transfer.value("detail").toString());
@@ -75,9 +79,9 @@ void GameOperations::content_update(const QVariantMap& file, const QString& stat
                                     const QString& detail) {
   check_cancelled(cancelled_);
   content_item_.clear();
-  for (const auto& key :
-       {"title", "versionName", "filename", "publisher", "projectId", "versionId", "dependency",
-        "speedText", "transferText", "aggregateSpeedText", "activeTransfers", "received", "total"})
+  for (const auto& key : {"title", "versionName", "filename", "publisher", "projectId", "versionId",
+                          "dependency", "speedText", "transferText", "aggregateSpeedText",
+                          "activeTransfers", "received", "total", "source"})
     content_item_[key] = file.value(key);
   content_item_["key"] =
       file.value("publisher").toString() + ':' +
@@ -113,18 +117,28 @@ QJsonObject GameOperations::base_version(const QString& version) {
   throw std::runtime_error(
       QCoreApplication::translate("Bugg", "找不到所选 Minecraft 版本").toStdString());
 }
-QJsonObject GameOperations::load_version(const QString& id) {
+QJsonObject GameOperations::load_version(const QString& id, bool allow_download) {
   check_cancelled(cancelled_);
   if (resolving_.contains(id) || resolving_.size() > 16)
     throw std::runtime_error(
         QCoreApplication::translate("Bugg", "版本继承出现循环或层数过多").toStdString());
   resolving_.insert(id);
   const auto path = safe_path(root_, "versions/" + id + '/' + id + ".json");
-  auto data = QFileInfo::exists(path) ? read_json(path) : base_version(id);
-  const auto parent = data["inheritsFrom"].toString();
-  if (!parent.isEmpty()) data = merge_metadata(load_version(parent), data);
-  resolving_.remove(id);
-  return data;
+  try {
+    if (!allow_download && !QFileInfo::exists(path))
+      throw std::runtime_error("Missing local parent profile");
+    auto data = QFileInfo::exists(path) ? read_json(path) : base_version(id);
+    const auto parent = data["inheritsFrom"].toString();
+    if (!parent.isEmpty() &&
+        (allow_download ||
+         QFileInfo::exists(safe_path(root_, "versions/" + parent + '/' + parent + ".json"))))
+      data = merge_metadata(load_version(parent, allow_download), data);
+    resolving_.remove(id);
+    return data;
+  } catch (...) {
+    resolving_.remove(id);
+    throw;
+  }
 }
 QList<GameResource> GameOperations::library_resources(const QJsonArray& libraries) {
   QList<GameResource> resources;
@@ -180,23 +194,27 @@ void GameOperations::prepare_files(const QJsonObject& metadata, const QString& i
     report(-1, QCoreApplication::translate("Bugg", "校验游戏资源"));
     const auto index_path =
         safe_path(root_, "assets/indexes/" + asset_index["id"].toString() + ".json");
-    resources_.fetch({described_resource(asset_index, index_path)});
-    const auto index = read_json(index_path);
+    downloads.append(described_resource(asset_index, index_path));
+    QJsonObject index;
+    resources_.fetch(downloads, false, [&](const GameResource& ready) -> QList<GameResource> {
+      if (ready.path != index_path) return {};
+      index = read_json(index_path);
+      const auto objects = index["objects"].toObject();
+      QList<GameResource> assets;
+      for (auto it = objects.begin(); it != objects.end(); ++it) {
+        const auto object = it.value().toObject();
+        const auto hash = object["hash"].toString();
+        if (!QRegularExpression("\\A[0-9a-f]{40}\\z").match(hash).hasMatch())
+          throw std::runtime_error(
+              QCoreApplication::translate("Bugg", "资源摘要格式错误").toStdString());
+        const auto path = hash.left(2) + '/' + hash;
+        assets.append({QUrl("https://resources.download.minecraft.net/" + path),
+                       safe_path(root_, "assets/objects/" + path), hash.toLatin1(),
+                       qint64(object["size"].toDouble())});
+      }
+      return assets;
+    });
     const auto objects = index["objects"].toObject();
-    QList<GameResource> assets;
-    for (auto it = objects.begin(); it != objects.end(); ++it) {
-      const auto object = it.value().toObject();
-      const auto hash = object["hash"].toString();
-      if (!QRegularExpression("\\A[0-9a-f]{40}\\z").match(hash).hasMatch())
-        throw std::runtime_error(
-            QCoreApplication::translate("Bugg", "资源摘要格式错误").toStdString());
-      const auto path = hash.left(2) + '/' + hash;
-      assets.append({QUrl("https://resources.download.minecraft.net/" + path),
-                     safe_path(root_, "assets/objects/" + path), hash.toLatin1(),
-                     qint64(object["size"].toDouble())});
-    }
-    downloads.append(assets);
-    resources_.fetch(downloads);
     downloads.clear();
     if (index["virtual"].toBool() || index["map_to_resources"].toBool()) {
       const auto destination =
@@ -233,6 +251,43 @@ void GameOperations::prepare_files(const QJsonObject& metadata, const QString& i
         natives, {}, excludes, cancelled_);
   }
 }
+int GameOperations::select_java(const QJsonObject& metadata, const QJsonArray& artifacts,
+                                int minimum, const QString& preferred) {
+  QJsonArray candidates;
+  const auto add_candidate = [&](int major) {
+    if (major >= minimum && !candidates.contains(major)) candidates.append(major);
+  };
+  if (!preferred.isEmpty()) add_candidate(java_major(preferred, cancelled_));
+  add_candidate(metadata["javaVersion"].toObject()["majorVersion"].toInt(8));
+  for (const auto major : {8, 17, 21, 25}) add_candidate(major);
+  for (const auto& executable : java_candidates(portable_, cancelled_))
+    add_candidate(java_major(executable, cancelled_));
+  const auto descriptor = instance_descriptor(metadata);
+  QJsonObject java_input{
+      {"environment",
+       QJsonObject{{"minecraft", descriptor.value("version").toString()},
+                   {"loader", descriptor.value("loader").toString().toLower()},
+                   {"loader_version", descriptor.value("loaderVersion").toString()}}},
+      {"artifacts", artifacts},
+      {"minimum_java", minimum},
+      {"candidates", candidates}};
+  const auto selected =
+      QJsonDocument::fromJson(
+          QByteArray::fromStdString(dependency::select_java_json(
+              QJsonDocument(java_input).toJson(QJsonDocument::Compact).toStdString())))
+          .object();
+  if (!selected["major"].isDouble()) {
+    record_diagnostic("launch.java_conflict",
+                      {{"minimum", minimum}, {"issues", selected["issues"].toArray()}});
+    throw std::runtime_error(
+        QCoreApplication::translate(
+            "Bugg",
+            "游戏与模组的 Java 要求没有共同可用版本，请检查模组约束或在设置中指定兼容 "
+            "Java（详见日志）")
+            .toStdString());
+  }
+  return selected["major"].toInt();
+}
 QString GameOperations::ensure_java(const QJsonObject& metadata, const QString& preferred) {
   report(-1, QCoreApplication::translate("Bugg", "匹配 Java 运行环境"));
   const auto java = metadata["javaVersion"].toObject();
@@ -245,10 +300,6 @@ QString GameOperations::ensure_java(const QJsonObject& metadata, const QString& 
   for (const auto& executable : java_candidates(portable_, cancelled_))
     if (java_major(executable, cancelled_) == required) return executable;
   QString component = java["component"].toString();
-  if (component.isEmpty())
-    component = required <= 8    ? "jre-legacy"
-                : required <= 17 ? "java-runtime-gamma"
-                                 : "java-runtime-delta";
   const auto all =
       resources_.json(QUrl("https://launchermeta.mojang.com/v1/products/java-runtime/"
                            "2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"));
@@ -260,6 +311,19 @@ QString GameOperations::ensure_java(const QJsonObject& metadata, const QString& 
              : minecraft_os() == "windows" ? "windows-arm64"
                                            : "linux-arm64";
 #endif
+  if (component.isEmpty()) {
+    const auto available = all[platform].toObject();
+    for (auto it = available.begin(); it != available.end(); ++it) {
+      const auto entries = it.value().toArray();
+      if (entries.isEmpty()) continue;
+      const auto name = entries.first().toObject()["version"].toObject()["name"].toString();
+      const auto major = name.section('.', 0, 0).toInt();
+      if (major == required) {
+        component = it.key();
+        break;
+      }
+    }
+  }
   const auto versions = all[platform].toObject()[component].toArray();
   if (versions.isEmpty())
     throw std::runtime_error(
@@ -358,7 +422,8 @@ void GameOperations::run_processors(const QJsonObject& profile, const QString& i
     if (!match.hasMatch())
       throw std::runtime_error(
           QCoreApplication::translate("Bugg", "处理器缺少入口类").toStdString());
-    QStringList arguments{"-cp", unique_classpath(classpath).join(QDir::listSeparator()),
+    QStringList arguments{"-cp",
+                          unique_classpath(classpath, cancelled_).join(QDir::listSeparator()),
                           match.captured(1).trimmed()};
     for (const auto& argument : processor["args"].toArray())
       arguments.append(expand(argument.toString()));
@@ -518,10 +583,73 @@ LaunchCommand GameOperations::prepare(const QString& instance_id, int memory_mb,
   }
   prepare_files(metadata, instance_id);
   validate_libraries(metadata);
-  const auto java = ensure_java(metadata, contributions.value("javaPath").toString());
   check_cancelled(cancelled_);
+  const auto directory = safe_path(root_, "versions/" + instance_id);
+  QStringList mods;
+  for (const auto& file : QDir(safe_path(directory, "mods"))
+                              .entryInfoList({"*.jar"}, QDir::Files | QDir::NoSymLinks, QDir::Name))
+    mods.append(QDir::fromNativeSeparators(file.canonicalFilePath()));
+  const auto unique = unique_classpath(mods, cancelled_);
+  for (const auto& path : mods) {
+    if (unique.contains(path)) continue;
+    check_cancelled(cancelled_);
+    // Keep the user's bytes beside the original; loaders ignore the suffix.
+    const auto backup = path + ".duplicate-disabled";
+    if (!QFile::rename(path, backup))
+      throw std::runtime_error(
+          QCoreApplication::translate("Bugg",
+                                      "发现内容完全相同的重复模组，但无法停用副本，请检查文件权限")
+              .toStdString());
+    record_diagnostic("launch.duplicate_mod_disabled", {{"instance", instance_id},
+                                                        {"file", QFileInfo(path).fileName()},
+                                                        {"backup", QFileInfo(backup).fileName()}});
+  }
+  const auto cache_path = safe_path(portable_cache_root(portable_), "java-requirements-v2.json");
+  QJsonObject cache;
+  QFile cache_file(cache_path);
+  if (cache_file.open(QIODevice::ReadOnly) && cache_file.size() < 8 * 1024 * 1024)
+    cache = QJsonDocument::fromJson(cache_file.readAll()).object();
+  cache_file.close();
+  int required_java = metadata["javaVersion"].toObject()["majorVersion"].toInt(8);
+  bool cache_changed = false;
+  QJsonArray java_artifacts;
+  DependencyFacts local_facts(portable_cache_root(portable_), resources_, {}, cancelled_);
+  for (const auto& path : unique) {
+    check_cancelled(cancelled_);
+    const QFileInfo info(path);
+    const auto previous = cache[path].toObject();
+    int major = previous["major"].toInt();
+    if (previous["size"].toInteger(-1) != info.size() ||
+        previous["modified"].toInteger() != info.lastModified().toMSecsSinceEpoch()) {
+      const auto facts = local_facts.local(path);
+      major = facts["java_major"].toInt();
+      cache[path] = QJsonObject{{"facts", facts},
+                                {"size", info.size()},
+                                {"modified", info.lastModified().toMSecsSinceEpoch()},
+                                {"major", major}};
+      cache_changed = true;
+    }
+    const auto facts = cache[path].toObject()["facts"].toObject();
+    java_artifacts.append(
+        QJsonObject{{"sha256", facts["artifact_sha256"]}, {"path", path}, {"facts", facts}});
+    required_java = qMax(required_java, major);
+  }
+  if (cache_changed) write_json(cache_path, cache);
+  required_java = select_java(metadata, java_artifacts, required_java,
+                              contributions.value("javaPath").toString());
+  auto java_requirement = metadata["javaVersion"].toObject();
+  if (required_java != java_requirement["majorVersion"].toInt(8)) {
+    record_diagnostic("launch.java_requirement",
+                      {{"instance", instance_id},
+                       {"metadataMajor", java_requirement["majorVersion"].toInt(8)},
+                       {"modMajor", required_java}});
+    java_requirement["majorVersion"] = required_java;
+    java_requirement.remove("component");
+    metadata["javaVersion"] = java_requirement;
+  }
+  const auto java = ensure_java(metadata, contributions.value("javaPath").toString());
   apply_game_options(root_, instance_id, metadata, contributions);
   return build_launch_command(metadata, root_, instance_id, java, memory_mb, identity,
-                              contributions);
+                              contributions, cancelled_);
 }
 }  // namespace bugg

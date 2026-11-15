@@ -3,14 +3,20 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QProcessEnvironment>
+
+#include "platform/diagnostics/diagnostic_log.h"
 namespace bugg {
-NativeBridge::NativeBridge(QString executable, QObject* parent)
+NativeBridge::NativeBridge(QString executable, QObject* parent, const QString& diagnostic_root)
     : QObject(parent), executable_(std::move(executable)) {
+  if (!diagnostic_root.isEmpty()) relocate_diagnostics(diagnostic_root);
   process_.setProcessChannelMode(QProcess::SeparateChannels);
   connect(&process_, &QProcess::readyReadStandardOutput, this, &NativeBridge::receive);
-  // 引擎诊断只排空，不让包含运行上下文的 stderr 进入 UI 或增长内存。
-  connect(&process_, &QProcess::readyReadStandardError, this,
-          [this] { process_.readAllStandardError(); });
+  // Drain and redact bounded diagnostics; never retain raw unbounded stderr.
+  connect(&process_, &QProcess::readyReadStandardError, this, [this] {
+    const auto bytes = process_.readAllStandardError();
+    record_diagnostic("bridge.output", {{"message", QString::fromUtf8(bytes.first(12000))}});
+  });
   connect(&process_, &QProcess::started, this, &NativeBridge::dispatch);
   connect(&process_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
     if (error == QProcess::FailedToStart)
@@ -34,8 +40,14 @@ NativeBridge::NativeBridge(QString executable, QObject* parent)
   terminate_.setInterval(3000);
   connect(&terminate_, &QTimer::timeout, &process_, &QProcess::kill);
 }
+void NativeBridge::relocate_diagnostics(const QString& directory) {
+  auto environment = QProcessEnvironment::systemEnvironment();
+  environment.insert("BUGGCRAFT_BRIDGE_LOG_DIR", directory);
+  process_.setProcessEnvironment(environment);
+}
 void NativeBridge::call(const QString& method, const QJsonObject& parameters, Reply complete,
                         Priority priority) {
+  if (priority == Priority::Interactive) record_diagnostic("bridge.request", {{"method", method}});
   const auto id = ++sequence_;
   auto bytes =
       QJsonDocument(
@@ -87,7 +99,10 @@ void NativeBridge::receive() {
     auto request = queue_.dequeue();
     pending_ = false;
     timeout_.stop();
-    request.complete(object["result"].toObject(), object["error"].toObject()["message"].toString());
+    const auto error = object["error"].toObject()["message"].toString();
+    if (!error.isEmpty())
+      record_diagnostic("bridge.failed", {{"id", request.id}, {"error", error}});
+    request.complete(object["result"].toObject(), error);
     dispatch();
   }
 }

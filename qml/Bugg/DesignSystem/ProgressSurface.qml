@@ -9,6 +9,7 @@ Item {
     property bool fluid: false
     property color fillColor: DesignTokens.accent
     property color trackColor: "transparent"
+    property bool edgeToEdge: false
     property real phase: 0
     readonly property real fraction: progress < 0 ? 0.25 + 0.45 * (0.5 + 0.5 * Math.sin(phase * 0.5)) : Math.max(0, Math.min(1, progress))
     implicitHeight: 4
@@ -33,7 +34,7 @@ Item {
         onPaint: {
             const ctx = getContext("2d");
             ctx.reset();
-            const w = width, h = height, r = Math.min(root.cornerRadius, h / 2, w / 2);
+            const w = width, h = height, r = root.edgeToEdge ? 0 : Math.min(root.cornerRadius, h / 2, w / 2);
             ctx.beginPath();
             ctx.moveTo(r, 0);
             ctx.lineTo(w - r, 0);

@@ -20,7 +20,16 @@ PageLayout {
     readonly property bool split: DesignTokens.comfortable && !inviteMode && !notificationMode && !detailMode
     readonly property string activeCategory: notificationMode ? notificationCategory : (selectedPerson || {}).category || "rooms"
     readonly property var notifications: (status.notifications || []).filter(item => (item.notificationKind === "requests") === (activeCategory === "requests"))
-    readonly property var items: notificationMode ? notifications : (status.friends || []).concat(inviteMode ? [] : [
+    readonly property var myself: ({
+            id: "bugg-self",
+            account: "bugg-self",
+            name: qsTr("自己"),
+            self: true,
+            online: true,
+            network_profile: status.networkProfile || ({})
+        })
+    readonly property var people: (inviteMode ? [] : [myself]).concat(status.friends || [])
+    readonly property var items: notificationMode ? notifications : people.concat(inviteMode ? [] : [
         {
             id: "bugg-notifications",
             account: "bugg-notifications",
@@ -43,14 +52,16 @@ PageLayout {
     readonly property var filteredItems: items.map((person, index) => ({
                 person: person,
                 index: index
-            })).filter(entry => entry.person.service || ((entry.person.username || entry.person.name || "") + " " + (entry.person.alias || "")).toLowerCase().includes(queryText.trim().toLowerCase())).sort((a, b) => (b.person.receivedAt || 0) - (a.person.receivedAt || 0) || a.index - b.index).map(entry => entry.person)
-    readonly property var selectedPerson: (detailMode ? status.friends || [] : filteredItems).find(item => (item.id || item.account) === selectedId) || (!detailMode && !notificationMode ? filteredItems[0] : null)
+            })).filter(entry => entry.person.self || entry.person.service || ((entry.person.username || entry.person.name || "") + " " + (entry.person.alias || "")).toLowerCase().includes(queryText.trim().toLowerCase())).sort((a, b) => Number(!!b.person.self) - Number(!!a.person.self) || Number(!!b.person.service) - Number(!!a.person.service) || Number(!!b.person.online) - Number(!!a.person.online) || (b.person.receivedAt || 0) - (a.person.receivedAt || 0) || a.index - b.index).map(entry => entry.person)
+    readonly property var selectedPerson: (detailMode ? people : filteredItems).find(item => (item.id || item.account) === selectedId) || (!detailMode && !notificationMode ? filteredItems[0] : null)
     readonly property var selectedRoom: selectedPerson ? selectedPerson.room || ({}) : ({})
     readonly property bool viewingNotifications: ready && (notificationMode || split && !!(selectedPerson || {}).service)
     signal openRequested(string route)
     signal edited(string key, var value)
     signal noticeRequested(string message)
     function personCaption(person) {
+        if (person.self)
+            return qsTr("查看我的网络与连接记录");
         if (person.service) {
             const latest = (status.notifications || []).find(item => (item.notificationKind === "requests") === (person.category === "requests"));
             return latest ? (latest.username || latest.name || "") + " · " + personCaption(latest) : qsTr("暂无通知");
@@ -196,7 +207,7 @@ PageLayout {
                     }
                 }
                 FriendActions {
-                    visible: !root.viewingNotifications
+                    visible: !root.viewingNotifications && !(root.selectedPerson || {}).self
                     service: root.service
                     status: root.status
                     person: root.selectedPerson || ({})
@@ -205,6 +216,22 @@ PageLayout {
             }
             Divider {
                 Layout.fillWidth: true
+            }
+            NetworkReference {
+                Layout.fillWidth: true
+                visible: !root.viewingNotifications && !!root.selectedPerson && !root.selectedPerson.service
+                own: !!(root.selectedPerson || {}).self
+                profile: (root.selectedPerson || {}).network_profile || ({})
+            }
+            ActionButton {
+                objectName: "refreshOwnNetwork"
+                visible: !!(root.selectedPerson || {}).self
+                text: root.status.networkBusy ? qsTr("检测中…") : qsTr("重新检测网络")
+                enabled: !root.status.networkBusy
+                compact: true
+                variant: "soft"
+                onClicked: if (root.service)
+                    root.service.inspect_network(true)
             }
             ListViewport {
                 objectName: "friendNotificationViewport"
@@ -233,7 +260,7 @@ PageLayout {
             }
             RoomChat {
                 objectName: "friendConversation"
-                visible: !root.viewingNotifications
+                visible: !root.viewingNotifications && !(root.selectedPerson || {}).self
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 available: false
@@ -255,12 +282,15 @@ PageLayout {
             objectName: "friendRow_" + modelData.account
             width: ListView.view.width
             compact: true
+            implicitHeight: 46
+            leadingSize: 28
+            padding: 5
             text: modelData.alias || modelData.username || modelData.name || ""
             caption: root.personCaption(modelData)
             selected: root.split && !!root.selectedPerson && (root.selectedPerson.id || root.selectedPerson.account) === (modelData.id || modelData.account)
             showChevron: false
             showSelectionMark: false
-            showTrailing: !modelData.service && (!root.split || !!modelData.notificationKind)
+            showTrailing: !modelData.service && !modelData.self && (!root.split || !!modelData.notificationKind)
             onClicked: {
                 if (modelData.service && !root.split) {
                     root.edited("notificationCategory", modelData.category);
@@ -275,6 +305,7 @@ PageLayout {
                 Avatar {
                     initials: friendRow.modelData.service ? "B" : friendRow.text.slice(0, 1)
                     online: !!friendRow.modelData.online
+                    tint: friendRow.modelData.service ? DesignTokens.neutralAccent : friendRow.modelData.online ? DesignTokens.success : DesignTokens.quiet
                     showStatus: !friendRow.modelData.service && !friendRow.modelData.notificationKind
                     badgeCount: friendRow.modelData.service ? friendRow.modelData.unread : 0
                 }

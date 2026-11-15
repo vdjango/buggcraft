@@ -56,7 +56,13 @@ class GameOperations {
   /// memory_mb 是当前环境与活动模组估算出的堆上限；不固定初始堆，身份和参数仅本次启动使用。
   LaunchCommand prepare(const QString& instance_id, int memory_mb, const GameIdentity& identity,
                         const QVariantMap& contributions = {});
-  QJsonObject load_version(const QString& id);
+  /// Worker-only local inheritance merge; default may fetch missing parents.
+  /// false keeps an existing child's own declarations when its parent is absent;
+  /// missing root, malformed metadata, cycles and cancellation still throw.
+  QJsonObject load_version(const QString& id, bool allow_download = true);
+  /// Worker-only: verify installed shader receipt against current loader and bytes.
+  /// Missing/disabled/changed files yield an empty context; cancellation throws.
+  QVariantMap shader_feedback_context(const QString& id);
 
  private:
   /// 唯一文件事务：校验、暂存、替换、回滚。上层为主内容/单个依赖复用。
@@ -71,6 +77,10 @@ class GameOperations {
                                  const QJsonObject& metadata, const QString& intent);
   QJsonObject base_version(const QString& version);
   QString ensure_java(const QJsonObject& metadata, const QString& preferred = {});
+  /// Worker-only intersection of game, bytecode and declared Java constraints.
+  /// Returns an available/official major; throws with structured diagnostics.
+  int select_java(const QJsonObject& metadata, const QJsonArray& artifacts, int minimum,
+                  const QString& preferred = {});
   void prepare_files(const QJsonObject& metadata, const QString& instance_id);
   void fetch_libraries(const QJsonArray& libraries);
   /// Worker-only descriptor collection; all callers use the same rules/native mapping.

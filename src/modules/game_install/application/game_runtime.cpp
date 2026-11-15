@@ -1,20 +1,24 @@
 #include "modules/game_install/application/game_runtime.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QJSValue>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrl>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
-#include "modules/game_install/application/game_operations.h"
 #include "contracts/dependency_decision.h"
+#include "modules/game_install/application/game_operations.h"
 #include "modules/settings/application/language_service.h"
 #include "platform/diagnostics/diagnostic_log.h"
 #include "platform/runtime/runtime_environment.h"
@@ -23,6 +27,8 @@ namespace bugg {
 namespace {
 QVariantMap scan_instances(const QString& root) {
   QVariantList result;
+  GameOperations profiles(root, {}, {"官方"}, std::make_shared<std::atomic_bool>(false),
+                          [](double, const QString&) {});
   // Variants of one game share an asset index; keep only its language codes
   // for this scan, so the next scan still observes changed files/directories.
   QHash<QString, QStringList> language_indexes;
@@ -38,7 +44,7 @@ QVariantMap scan_instances(const QString& root) {
     try {
       if (id.startsWith('.') || QFileInfo::exists(versions.filePath(id + "/.buggcraft-removed")))
         continue;
-      const auto metadata = read_json(safe_path(root, "versions/" + id + '/' + id + ".json"));
+      const auto metadata = profiles.load_version(id, false);
       const auto descriptor = instance_descriptor(metadata);
       const QDir mods_directory(versions.filePath(id + "/mods"));
       if (mods_directory.exists()) watch_paths.append(mods_directory.absolutePath());
@@ -84,6 +90,20 @@ GameRuntime::GameRuntime(QString portable_root, QString game_root, AccountPort* 
   connect(&directory_watcher_, &QFileSystemWatcher::fileChanged, &rescan_timer_,
           qOverload<>(&QTimer::start));
   connect(&process_, &GameProcess::exited, this, [this](int code) {
+    auto feedback = std::exchange(launch_shader_feedback_, {});
+    if (!closing_ && !shader_feedback_stopped_ && !feedback.isEmpty()) {
+      const auto token = QString::fromLatin1(
+          QCryptographicHash::hash(
+              QJsonDocument::fromVariant(feedback.value("target")).toJson(QJsonDocument::Compact),
+              QCryptographicHash::Sha256)
+              .toHex());
+      if (!settings_.value("shaderFeedbackAnswered").toStringList().contains(token)) {
+        feedback["token"] = token;
+        feedback["exitCode"] = code;
+        shader_feedback_ = feedback;
+        emit shader_feedback_changed();
+      }
+    }
     publish_launch(
         code == 0 ? "idle" : "failed",
         code == 0 ? QString()
@@ -393,7 +413,8 @@ void GameRuntime::run_operation(const QString& id, const QVariantMap& specificat
             break;
           }
           update_task(id, "needs_dependency_decision", -1,
-                      QCoreApplication::translate("Bugg", "依赖检查需要选择；已下载文件保留，尚未提交安装"));
+                      QCoreApplication::translate(
+                          "Bugg", "依赖检查需要选择；已下载文件保留，尚未提交安装"));
           persist_tasks();
           dispatch_next();
           if (closing_ && !busy()) emit drained();
@@ -447,6 +468,8 @@ void GameRuntime::run_operation(const QString& id, const QVariantMap& specificat
         if (result.pid) {
           // 创建进程与取消竞争时，PID 已真实存在，不能假报未启动或遗留不可停止进程。
           process_.watch(result.pid);
+          launch_shader_feedback_ = result.content.value("shaderFeedback").toMap();
+          shader_feedback_stopped_ = false;
           publish_launch("running",
                          QCoreApplication::translate("Bugg", "游戏进程已启动，日志保存在实例目录"),
                          1);
@@ -498,18 +521,25 @@ void GameRuntime::run_operation(const QString& id, const QVariantMap& specificat
   launch_options["language"] = preferences().value("language");
   launch_options["concurrency"] = preferences().value("concurrency");
   launch_options["javaPath"] = settings.value("javaPath");
+  auto operation_specification = specification;
+  operation_specification["autoDependencies"] =
+      specification.value("kind") == "installWithContent" &&
+              specification.value("plan").toMap().value("kind") == "shader"
+          ? QVariant(true)
+          : preferences().value("autoDependencies");
   watcher->setFuture(QtConcurrent::run([=] {
     try {
       GameOperations operation(game_root, portable, order, cancelled, progress,
                                launch_options.value("concurrency").toInt(), nullptr, bugg_base);
       operation.set_content_progress(content_progress);
-      operation.set_dependency_context(specification, content_request);
+      operation.set_dependency_context(operation_specification, content_request);
       if (!launching) {
         const auto kind = specification.value("kind", "install").toString();
         if (kind == "room")
           operation.sync_room(specification, room_request);
         else if (kind == "content" || kind == "onlinePack")
-          return OperationResult{{}, 0, operation.install_content(specification, content_request)};
+          return OperationResult{
+              {}, 0, operation.install_content(operation_specification, content_request)};
         else if (kind == "import")
           return OperationResult{
               {},
@@ -522,7 +552,7 @@ void GameRuntime::run_operation(const QString& id, const QVariantMap& specificat
               specification.value("compact").toBool(), specification.value("saves").toBool());
         else if (kind == "installWithContent")
           return OperationResult{
-              {}, 0, operation.install_with_content(specification, content_request)};
+              {}, 0, operation.install_with_content(operation_specification, content_request)};
         else
           return OperationResult{{}, 0, {{"instance", operation.install(specification)}}};
         return OperationResult{};
@@ -533,21 +563,40 @@ void GameRuntime::run_operation(const QString& id, const QVariantMap& specificat
       const int mod_count =
           mods_directory.entryList({"*.jar"}, QDir::Files | QDir::NoSymLinks, QDir::Name).size();
       const int hosted_players = qBound(1, contributions.value("hostPlayerCount", 1).toInt(), 32);
-      if (settings.value("automatic", true).toBool() &&
-          memory_limit_mb(snapshot) < kMinimumAutomaticMemoryMB)
-        throw std::runtime_error(
-            (QCoreApplication::translate("Bugg", "可分配上限 %1 GiB")
-                 .arg(QString::number(memory_limit_mb(snapshot) / 1024.0, 'f', 1)) +
-             " < " + QString::number(kMinimumAutomaticMemoryMB / 1024.0, 'f', 1) + " GiB")
-                .toStdString());
       const int memory =
           settings.value("automatic", true).toBool()
-              ? automatic_memory_mb(snapshot, mod_count, hosted_players)
+              ? automatic_memory_mb(snapshot, mod_count, hosted_players,
+                                    settings.value("memoryMode", "auto").toString())
               : qBound(512, settings.value("memoryMB", 4096).toInt(), memory_limit_mb(snapshot));
+      QMetaObject::invokeMethod(
+          watcher,
+          [this, id, cancelled, snapshot, memory, mod_count] {
+            if (closing_ || cancelled->load() || launch_task_id_ != id) return;
+            for (auto it = snapshot.begin(); it != snapshot.end(); ++it)
+              environment_[it.key()] = it.value();
+            environment_["maximumMemoryMB"] = memory_limit_mb(snapshot);
+            launch_memory_ = {{"allocatedMB", memory}, {"instance", launch_id_}};
+            if (memory < kMinimumAutomaticMemoryMB + qMin(mod_count, 10000) * 20)
+              launch_memory_["notice"] = QCoreApplication::translate(
+                  "Bugg",
+                  "BUGG 检测到可用内存较紧张，正在努力启动；如失败，建议退出不常用的软件。");
+            emit environment_changed();
+            emit settings_changed();
+            publish_launch(launch_status_.value("state").toString(),
+                           launch_status_.value("detail").toString(),
+                           launch_status_.value("progress").toDouble());
+          },
+          Qt::QueuedConnection);
       const auto command =
           operation.prepare(specification.value("id").toString(), memory, identity, launch_options);
       check_cancelled(cancelled);
-      return OperationResult{{}, start_game_process(command)};
+      QVariantMap feedback;
+      try {
+        feedback = operation.shader_feedback_context(specification.value("id").toString());
+      } catch (...) {
+        check_cancelled(cancelled);
+      }
+      return OperationResult{{}, start_game_process(command), {{"shaderFeedback", feedback}}};
     } catch (const DependencyDecision& decision) {
       return OperationResult{{}, 0, {{"dependencyDecision", decision.value()}}};
     } catch (const std::exception& error) {
@@ -556,6 +605,10 @@ void GameRuntime::run_operation(const QString& id, const QVariantMap& specificat
   }));
 }
 void GameRuntime::publish_launch(const QString& state, const QString& detail, double progress) {
+  if (launch_status_.value("state") != state ||
+      (state == "failed" && launch_status_.value("detail") != detail))
+    record_diagnostic("game.state",
+                      {{"instance", launch_id_}, {"state", state}, {"detail", detail}});
   const QMap<QString, QString> titles{
       {"idle", ""},
       {"preparing", QCoreApplication::translate("Bugg", "正在启动游戏")},
@@ -564,6 +617,10 @@ void GameRuntime::publish_launch(const QString& state, const QString& detail, do
       {"failed", QCoreApplication::translate("Bugg", "启动未完成")}};
   launch_status_ = {{"state", state},       {"title", titles.value(state)}, {"detail", detail},
                     {"progress", progress}, {"instanceName", launch_id_},   {"preview", false}};
+  if (state == "preparing" || state == "running") {
+    launch_status_["memoryMB"] = launch_memory_.value("allocatedMB");
+    launch_status_["memoryNotice"] = launch_memory_.value("notice");
+  }
   emit launch_changed(launch_status_);
   emit status_changed();
   emit tasks_changed();
@@ -591,6 +648,7 @@ void GameRuntime::launch(const QString& instance_id, const QString& profile_id,
     return;
   }
   launch_id_ = instance_id;
+  launch_memory_.clear();
   publish_launch("preparing", QCoreApplication::translate("Bugg", "正在确认游戏身份"));
   const auto generation = ++generation_;
   disconnect(credentials_connection_);
@@ -626,6 +684,7 @@ void GameRuntime::cancel_launch() {
     publish_launch("idle");
 }
 void GameRuntime::stop_game() {
+  shader_feedback_stopped_ = true;
   if (launch_status_.value("state") != "running") return;
   publish_launch("stopping", QCoreApplication::translate("Bugg", "等待游戏进程退出"));
   process_.stop();
@@ -633,7 +692,8 @@ void GameRuntime::stop_game() {
 void GameRuntime::cancel_task(const QString& id) {
   for (const auto& value : tasks_) {
     const auto task = value.toMap();
-    if (task.value("id") == id && (task.value("state") == "queued" || task.value("state") == "needs_dependency_decision")) {
+    if (task.value("id") == id &&
+        (task.value("state") == "queued" || task.value("state") == "needs_dependency_decision")) {
       update_task(id, "cancelled", -1, QCoreApplication::translate("Bugg", "已取消"));
       return;
     }
@@ -661,12 +721,17 @@ void GameRuntime::retry_task(const QString& id) {
 }
 void GameRuntime::resolve_dependencies(const QString& id, const QString& choice) {
   if (closing_ || initializing_ || !specifications_.contains(id) ||
-      !QStringList{"keep", "repair", "cancel"}.contains(choice)) return;
+      !QStringList{"keep", "repair", "cancel"}.contains(choice))
+    return;
   for (const auto& value : tasks_) {
     const auto task = value.toMap();
     if (task.value("id") != id || task.value("state") != "needs_dependency_decision") continue;
     const auto decision = task.value("dependencyDecision").toMap();
-    if (choice == "cancel") { cancel_task(id); persist_tasks(); return; }
+    if (choice == "cancel") {
+      cancel_task(id);
+      persist_tasks();
+      return;
+    }
     if (choice == "repair" && !decision.value("canRepair").toBool()) return;
     auto specification = specifications_.value(id);
     specification["dependencyChoice"] = choice;
@@ -701,12 +766,20 @@ QVariantMap GameRuntime::instance_settings(const QString& id) const {
   for (auto it = overrides.begin(); it != overrides.end(); ++it) value[it.key()] = it.value();
   if (!value.contains("automatic")) value["automatic"] = true;
   if (!value.contains("memoryMB")) value["memoryMB"] = 4096;
+  const auto target = id.isEmpty() ? preferences().value("selectedInstance").toString() : id;
   const auto instance = std::find_if(
       instances_.cbegin(), instances_.cend(),
-      [&id](const QVariant& item) { return item.toMap().value("id").toString() == id; });
+      [&target](const QVariant& item) { return item.toMap().value("id").toString() == target; });
   const int mod_count =
       instance == instances_.cend() ? 0 : instance->toMap().value("modCount").toInt();
-  value["automaticMemoryMB"] = automatic_memory_mb(environment_, mod_count);
+  if (!value.contains("memoryMode")) value["memoryMode"] = "auto";
+  value["automaticMemoryMB"] =
+      automatic_memory_mb(environment_, mod_count, 1, value.value("memoryMode").toString());
+  if (launch_memory_.value("instance") == target &&
+      QStringList{"preparing", "running", "stopping"}.contains(
+          launch_status_.value("state").toString()))
+    value["automaticMemoryMB"] = launch_memory_.value("allocatedMB");
+  value["memoryTarget"] = target;
   if (!value.contains("fullscreen")) value["fullscreen"] = false;
   if (!value.contains("resolution")) value["resolution"] = "1280x720";
   value["overridden"] = !id.isEmpty() && !overrides.isEmpty();
@@ -718,10 +791,19 @@ QVariantMap GameRuntime::preferences() const {
   if (!value.contains("concurrency")) value["concurrency"] = 6;
   if (!value.contains("afterLaunch")) value["afterLaunch"] = "collapse";
   if (!value.contains("theme")) value["theme"] = "small";
-  if (!value.contains("startCollapsed")) value["startCollapsed"] = false;
+  value.remove("startCollapsed");
   if (!value.contains("showOverlayInFullscreen")) value["showOverlayInFullscreen"] = false;
   if (!value.contains("swipeHintSeen")) value["swipeHintSeen"] = false;
   if (!value.contains("contentTranslation")) value["contentTranslation"] = true;
+  if (!value.contains("autoDependencies")) value["autoDependencies"] = true;
+  if (!value.contains("backgroundStyle")) value["backgroundStyle"] = "edges";
+  if (!value.contains("backgroundBlur")) value["backgroundBlur"] = 0.35;
+  if (!value.contains("backgroundVignette")) value["backgroundVignette"] = 0.35;
+  if (!value.contains("surfaceOpacity")) value["surfaceOpacity"] = 0.18;
+  if (!value.contains("backgroundOnPages")) value["backgroundOnPages"] = false;
+  if (!value.contains("pageOverlayOpacity")) value["pageOverlayOpacity"] = 0.10;
+  if (!value.contains("pageTextColor")) value["pageTextColor"] = "light";
+  if (!value.contains("backgroundSoundEnabled")) value["backgroundSoundEnabled"] = false;
   if (!value.contains("multiplayerOrigin")) value["multiplayerOrigin"] = "";
   return value;
 }
@@ -732,28 +814,75 @@ bool GameRuntime::set_preference(const QString& key, const QVariant& input) {
                              : input;
   if ((key == "language" && !LanguageService::known_language(value.toString())) ||
       (key == "concurrency" && !QList<int>{1, 2, 4, 6, 8, 16, 32}.contains(value.toInt())) ||
-      (key == "afterLaunch" && !QStringList{"keep", "collapse"}.contains(value.toString())) ||
+      (key == "afterLaunch" &&
+       !QStringList{"keep", "collapse", "hide", "close"}.contains(value.toString())) ||
       (key == "theme" &&
        !QStringList{"panel", "small", "classic", "large"}.contains(value.toString())) ||
-      ((key == "startCollapsed" || key == "showOverlayInFullscreen" || key == "swipeHintSeen" ||
-        key == "contentTranslation") &&
+      ((key == "showOverlayInFullscreen" || key == "swipeHintSeen" || key == "contentTranslation" ||
+        key == "autoDependencies" || key == "backgroundOnPages" || key == "backgroundSoundEnabled") &&
        value.metaType().id() != QMetaType::Bool) ||
       (key == "multiplayerOrigin" &&
        (value.metaType().id() != QMetaType::QString || value.toString().size() > 2048)) ||
-      (key == "backgrounds" && value.toList().size() > 20) ||
+      (key == "agreementRevision" && value.toString() != "2026-11-14") ||
+      (key == "backgrounds" && value.toList().size() > 100) ||
+      (key == "backgroundDirectory" &&
+       (value.metaType().id() != QMetaType::QString || value.toString().size() > 4096)) ||
+      (key == "backgroundStyle" &&
+       !QStringList{"none", "top", "edges", "full"}.contains(value.toString())) ||
+      ((key == "backgroundBlur" || key == "backgroundVignette" || key == "surfaceOpacity" ||
+        key == "pageOverlayOpacity") &&
+       (!value.canConvert<double>() || !std::isfinite(value.toDouble()) || value.toDouble() < 0 ||
+        value.toDouble() > 1)) ||
+      (key == "pageTextColor" &&
+       !QStringList{"light", "dark"}.contains(value.toString())) ||
       (key == "identity" && value.metaType().id() != QMetaType::QVariantMap) ||
-      !QStringList{"language", "concurrency", "afterLaunch", "theme", "startCollapsed",
-                   "backgrounds", "selectedInstance", "identity", "swipeHintSeen",
-                   "contentTranslation", "multiplayerOrigin", "showOverlayInFullscreen"}
+      !QStringList{"language", "concurrency", "afterLaunch", "theme", "backgrounds",
+                   "selectedInstance", "identity", "swipeHintSeen", "contentTranslation",
+                   "autoDependencies", "multiplayerOrigin", "showOverlayInFullscreen",
+                   "agreementRevision", "backgroundDirectory", "backgroundStyle", "backgroundBlur",
+                   "backgroundVignette", "surfaceOpacity", "backgroundOnPages", "pageOverlayOpacity",
+                   "pageTextColor", "backgroundSoundEnabled"}
            .contains(key))
     return false;
   if (preferences().value(key) == value) return true;
   auto values = preferences();
   values[key] = value;
+  record_diagnostic("settings.preference", {{"key", key}});
   settings_["preferences"] = values;
   emit settings_changed();
   save_settings();
   return true;
+}
+void GameRuntime::set_background_folder(const QString& url) {
+  if (!QUrl(url).isLocalFile() || !set_preference("backgroundDirectory", url)) return;
+  run_file_work(
+      [url](const Cancellation& cancelled) {
+        const auto folder = QUrl(url).toLocalFile();
+        if (!QFileInfo(folder).isDir())
+          throw std::runtime_error("Background folder is unavailable");
+        QVariantList images;
+        QDirIterator entries(
+            folder,
+            {"*.png", "*.jpg", "*.jpeg", "*.webp", "*.mp4", "*.m4v", "*.mov", "*.webm", "*.mkv"},
+            QDir::Files | QDir::NoSymLinks);
+        while (entries.hasNext() && images.size() < 100) {
+          check_cancelled(cancelled);
+          images.append(QUrl::fromLocalFile(entries.next()).toString());
+        }
+        if (images.isEmpty())
+          throw std::runtime_error("No supported images or videos in background folder");
+        return QVariantMap{{"images", images}};
+      },
+      [this, url](const QVariantMap& result) {
+        if (closing_ || preferences().value("backgroundDirectory") != url) return;
+        const auto error = result.value("error").toString();
+        if (!error.isEmpty()) {
+          record_diagnostic("background.folder_failed", {{"error", error}});
+          emit notice(tr("背景文件夹无法读取或没有可用图片、视频"));
+          return;
+        }
+        set_preference("backgrounds", result.value("images"));
+      });
 }
 bool GameRuntime::set_game_setting(const QString& id, const QString& key, const QVariant& value) {
   if (closing_ || initializing_) return false;
@@ -766,13 +895,17 @@ bool GameRuntime::set_game_setting(const QString& id, const QString& key, const 
   if (((key == "automatic" || key == "fullscreen") &&
        normalized.metaType().id() != QMetaType::Bool) ||
       (key == "memoryMB" && (normalized.toInt() < 512 || normalized.toInt() > maximum)) ||
+      (key == "memoryMode" &&
+       !QStringList{"auto", "saving", "balanced", "generous", "available"}.contains(
+           normalized.toString())) ||
       (key == "javaPath" && !normalized.toString().isEmpty() &&
        (!java_info.isAbsolute() || !java_info.isFile() ||
         (java_name != "java.exe" && java_name != "java"))) ||
       (key == "resolution" &&
        !QStringList{"854x480", "1280x720", "1600x900", "1920x1080", "2560x1440"}.contains(
            normalized.toString())) ||
-      !QStringList{"automatic", "memoryMB", "fullscreen", "resolution", "javaPath"}.contains(key))
+      !QStringList{"automatic", "memoryMB", "memoryMode", "fullscreen", "resolution", "javaPath"}
+           .contains(key))
     return false;
   if (key == "javaPath") {
     const auto generation = ++java_selection_generations_[id];

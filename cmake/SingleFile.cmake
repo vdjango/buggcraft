@@ -16,15 +16,15 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 target_link_libraries(bugg PRIVATE buggcraft-bridge-cli)
 target_compile_definitions(bugg PRIVATE BUGG_SINGLE_FILE)
-set_target_properties(bugg PROPERTIES QT_TARGET_VERSION "${PROJECT_VERSION}"
-    QT_TARGET_COMPANY_NAME "Buggcraft" QT_TARGET_PRODUCT_NAME "Bugg"
-    QT_TARGET_DESCRIPTION "Bugg C++ launcher with native multiplayer")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/AppVersion.rc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/app-version.rc" @ONLY)
+target_sources(bugg PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/app-version.rc")
 set(BUGG_QT_SOURCE_ROOT "" CACHE PATH "Exact Qt source root, for single-file license notices")
 if(NOT EXISTS "${BUGG_QT_SOURCE_ROOT}/qtbase/LICENSES/LGPL-3.0-only.txt")
     message(FATAL_ERROR "BUGG_SINGLE_FILE needs BUGG_QT_SOURCE_ROOT with the exact Qt sources")
 endif()
 set(single_file_notices "Bugg single-file launcher\nQt and third-party notices follow.\n")
-foreach(module qtbase qtshadertools qtdeclarative qtsvg qtimageformats)
+foreach(module qtbase qtshadertools qtdeclarative qtsvg qtimageformats qtmultimedia qtmultimedia-everywhere-src-6.8.1)
     file(GLOB_RECURSE module_notices CONFIGURE_DEPENDS
         "${BUGG_QT_SOURCE_ROOT}/${module}/LICENSES/*.txt"
         "${BUGG_QT_SOURCE_ROOT}/${module}/src/3rdparty/*LICENSE*"

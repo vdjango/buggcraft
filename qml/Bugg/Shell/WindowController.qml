@@ -13,15 +13,19 @@ QtObject {
     readonly property bool switching: layoutMotion.running
     property int collapseEdge: 0
     property bool edgeCollapsing: false
+    property bool animationsEnabled: true
     property var desktopEnvironment: null
     property bool showOverlayInFullscreen: false
     property bool closing: false
     property bool fullscreenSuppressed: false
+    property bool hiddenByLaunch: false
+    property bool gameRunning: false
+    property string launchAction: "keep"
     readonly property bool trayAvailable: trayIcon.available
     // Native platform tray; no second window, task session or Widgets fallback.
     property Platform.SystemTrayIcon trayIcon: Platform.SystemTrayIcon {
         objectName: "panelTrayIcon"
-        visible: root.theme === "panel" && available && !root.closing
+        visible: (root.theme === "panel" || root.dock.folded || root.hiddenByLaunch || root.fullscreenSuppressed) && available && !root.closing
         icon.source: Qt.resolvedUrl("assets/bugg-tray.png")
         tooltip: "Bugg"
         onActivated: reason => {
@@ -30,7 +34,7 @@ QtObject {
         }
         menu: Platform.Menu {
             Platform.MenuItem {
-                text: qsTr("打开悬浮面板")
+                text: qsTr("打开启动器")
                 onTriggered: root.restoreFromTray()
             }
             Platform.MenuItem {
@@ -51,6 +55,7 @@ QtObject {
         if (closing)
             return;
         fullscreenSuppressed = false;
+        hiddenByLaunch = false;
         selectTheme(theme);
         targetWindow.showNormal();
         targetWindow.raise();
@@ -58,7 +63,7 @@ QtObject {
     }
     // Only folded entries are suppressed. Never reopen a user-hidden/minimized window.
     function updateFullscreenSuppression() {
-        const suppress = !closing && !showOverlayInFullscreen && dock.folded && targetWindow.visibility !== Window.Minimized && desktopEnvironment && desktopEnvironment.fullscreen_foreground(targetWindow);
+        const suppress = !closing && gameRunning && launchAction === "collapse" && !hiddenByLaunch && !showOverlayInFullscreen && dock.folded && targetWindow.visibility !== Window.Minimized && desktopEnvironment && desktopEnvironment.fullscreen_foreground(targetWindow);
         if (suppress && !fullscreenSuppressed && targetWindow.visible) {
             fullscreenSuppressed = true;
             targetWindow.hide();
@@ -76,13 +81,53 @@ QtObject {
         onTriggered: root.updateFullscreenSuppression()
     }
     onShowOverlayInFullscreenChanged: updateFullscreenSuppression()
+    function applyAfterLaunch(action, multiplayer = false) {
+        gameRunning = true;
+        launchAction = action === "close" && multiplayer ? "hide" : action;
+        action = launchAction;
+        if (action === "collapse") {
+            collapseToEdge();
+            if (!showOverlayInFullscreen) {
+                hiddenByLaunch = true;
+                if (trayAvailable)
+                    targetWindow.hide();
+                else
+                    targetWindow.showMinimized();
+            } else {
+                updateFullscreenSuppression();
+            }
+        } else if (action === "hide") {
+            hiddenByLaunch = true;
+            if (trayAvailable)
+                targetWindow.hide();
+            else
+                targetWindow.showMinimized();
+        } else if (action === "close") {
+            targetWindow.close();
+        }
+    }
+    function restoreAfterGame() {
+        gameRunning = false;
+        const restore = hiddenByLaunch || fullscreenSuppressed;
+        hiddenByLaunch = false;
+        fullscreenSuppressed = false;
+        if (closing || !restore)
+            return;
+        if (launchAction === "collapse") {
+            collapsed = true;
+            dock.dockNearest(collapseEdge, true);
+        }
+        targetWindow.showNormal();
+        targetWindow.raise();
+    }
     function selectTheme(value) {
         if (!["panel", "small", "classic", "large"].includes(value))
             return false;
-        edgeCollapsing = false;
+        edgeCollapsing = collapsed || dock.folded;
         collapsed = false;
-        dock.setFolded(false);
         theme = value;
+        dock.setFolded(false);
+        edgeCollapsing = false;
         return true;
     }
     // Commit one final dock state without displaying an intermediate panel.
@@ -96,7 +141,7 @@ QtObject {
         edgeCollapsing = false;
     }
     Behavior on layoutProgress {
-        enabled: !root.edgeCollapsing
+        enabled: root.animationsEnabled && !root.edgeCollapsing
         NumberAnimation {
             id: layoutMotion
             duration: root.edgeCollapsing ? 200 : 260

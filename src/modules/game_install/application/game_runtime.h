@@ -28,6 +28,7 @@ class GameRuntime : public GameRuntimePort {
   Q_PROPERTY(QVariantMap diagnostics_status READ diagnostics_status NOTIFY diagnostics_changed)
   Q_PROPERTY(QVariantMap content_installation READ content_installation NOTIFY
                  content_installation_changed)
+  Q_PROPERTY(QVariantMap shader_feedback READ shader_feedback NOTIFY shader_feedback_changed)
  public:
   GameRuntime(QString portable_root, QString game_root, AccountPort* account,
               QObject* parent = nullptr);
@@ -51,7 +52,17 @@ class GameRuntime : public GameRuntimePort {
   /// GUI command; bounded, redacted ZIP in the existing cancellable file worker.
   /// Existing destination is refused; diagnostics_changed publishes path/error.
   Q_INVOKABLE void export_diagnostics(const QString& url);
+  /// GUI explicit report; collects the same redacted archive on the cancellable
+  /// file worker. feedback_prepared goes directly to the authenticated transport.
+  Q_INVOKABLE void prepare_feedback(const QString& message, const QString& expected,
+                                    const QString& contact);
+  /// GUI command from transport completion; removes only our own generated file.
+  void release_feedback(const QString& path);
   QVariantMap content_installation() const { return content_installation_; }
+  QVariantMap shader_feedback() const { return shader_feedback_; }
+  /// GUI explicit answer for the displayed receipt token. Empty outcome defers;
+  /// stale tokens are ignored. Existing cancellable worker posts anonymous feedback.
+  Q_INVOKABLE void answer_shader_feedback(const QString& token, const QString& outcome);
   bool busy() const { return workers_ > 0; }
   /// GUI 调度环境/配置/实例工作；initialized(error) 在真实扫描完成后发出。
   void initialize();
@@ -91,6 +102,9 @@ class GameRuntime : public GameRuntimePort {
   Q_INVOKABLE void reset_instance_settings(const QString& id);
   /// GUI 通用设置唯一入口：language / concurrency / afterLaunch；同值不重复保存。
   Q_INVOKABLE bool set_preference(const QString& key, const QVariant& value);
+  /// GUI command; scan up to 100 images in the chosen local folder on the existing
+  /// file worker. Results apply only while the same folder is selected.
+  Q_INVOKABLE void set_background_folder(const QString& url);
   Q_INVOKABLE void select_game_root(const QString& path);
   Q_INVOKABLE void open_directory(const QString& id);
   /// GUI 提交归档只读检查，结果 pack_preview；不会自动安装。
@@ -130,8 +144,13 @@ class GameRuntime : public GameRuntimePort {
   void pack_preview_changed();
   void content_changed();
   void diagnostics_changed();
+  void feedback_prepared(const QString& message, const QString& expected, const QString& contact,
+                         const QString& path);
   void debug_log_changed();
   void content_installation_changed();
+  void shader_feedback_changed();
+  /// GUI: emitted only after the source accepted a player's explicit report.
+  void shader_feedback_submitted();
   /// GUI 成功结果带原会话 ID，接收方忽略已经离开的房间。
   void room_prepared(const QString& session, const QString& instance_id, const QString& config);
   void room_checked(const QString& session, quint64 revision, const QString& instance_id,
@@ -147,6 +166,7 @@ class GameRuntime : public GameRuntimePort {
   void update_content_item(const QString& id, const QVariantMap& item);
   void publish_launch(const QString& state, const QString& detail = {}, double progress = -1);
   void save_settings();
+  void write_diagnostics(const QString& path, const QVariantMap& feedback = {});
   // GUI 串行派发已入队任务；取消/失败不丢掉其他任务。
   void dispatch_next();
   void persist_tasks();
@@ -160,10 +180,13 @@ class GameRuntime : public GameRuntimePort {
   QTimer rescan_timer_;
   QVariantList instances_, tasks_;
   QVariantMap environment_, settings_, launch_status_{{"state", "idle"}};
+  QVariantMap launch_memory_;
   QVariantMap pack_preview_, content_;
   QVariantMap diagnostics_status_;
   QVariantMap debug_log_;
   QVariantMap content_installation_;
+  QVariantMap shader_feedback_, launch_shader_feedback_;
+  bool shader_feedback_stopped_ = false;
   quint64 content_install_generation_ = 0;
   quint64 content_generation_ = 0, pack_generation_ = 0;
   QHash<QString, QVariantMap> specifications_;

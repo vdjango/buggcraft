@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
-project(Bugg VERSION 2.0.1 LANGUAGES C CXX)
+set(BUGG_BUILD_VERSION "2.0.1" CACHE STRING "Application version for this build")
+project(Bugg VERSION ${BUGG_BUILD_VERSION} LANGUAGES C CXX)
 include(cmake/MsvcDependencies.cmake)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -12,7 +13,7 @@ if(BUGG_SINGLE_FILE)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 include(cmake/SizeOptimization.cmake)
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Network Concurrent LinguistTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Network Concurrent LinguistTools Multimedia)
 if(BUGG_SINGLE_FILE AND (QT6_IS_SHARED_LIBS_BUILD OR NOT QT_FEATURE_static_runtime))
     message(FATAL_ERROR "BUGG_SINGLE_FILE requires Qt built with -static -static-runtime")
 endif()
@@ -99,6 +100,7 @@ qt_add_lrelease(TS_FILES ${BUGG_TRANSLATIONS} EXCLUDE_FROM_ALL
     LRELEASE_TARGET bugg_language_qm QM_FILES_OUTPUT_VARIABLE BUGG_QM_FILES
     OPTIONS -compress -nounfinished)
 set(BUGG_LANGUAGE_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/generated/i18n/packs.json")
+set(BUGG_LANGUAGE_ASSET_VERSION "1.0.0" CACHE STRING "Stable content-addressed language asset namespace, independent of executable versions")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/i18n")
 string(JOIN "\n" BUGG_LANGUAGE_CATALOGS ${BUGG_TRANSLATIONS})
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/i18n/catalogs.txt" CONTENT "${BUGG_LANGUAGE_CATALOGS}\n")
@@ -107,7 +109,7 @@ add_custom_command(OUTPUT "${BUGG_LANGUAGE_MANIFEST}"
         "-DCATALOGS=${CMAKE_CURRENT_BINARY_DIR}/generated/i18n/catalogs.txt"
         "-DINPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/language-input"
         "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/language-assets"
-        "-DMANIFEST=${BUGG_LANGUAGE_MANIFEST}" "-DVERSION=${PROJECT_VERSION}"
+        "-DMANIFEST=${BUGG_LANGUAGE_MANIFEST}" "-DVERSION=${BUGG_LANGUAGE_ASSET_VERSION}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLanguagePacks.cmake"
     DEPENDS ${BUGG_QM_FILES} "${CMAKE_CURRENT_BINARY_DIR}/generated/i18n/catalogs.txt"
         cmake/BuildLanguagePacks.cmake VERBATIM)
@@ -146,8 +148,8 @@ qt_add_qml_module(bugg_presentation
         src/modules/game_install/ui/install_catalog_session.cpp
         src/modules/catalog/ui/content_catalog_session.h
         src/modules/catalog/ui/content_catalog_session.cpp
-        src/modules/catalog/ui/content_list_model.h
-        src/modules/catalog/ui/content_list_model.cpp
+        src/shell/value_list_model.h
+        src/shell/value_list_model.cpp
         src/modules/settings/ui/source_settings.h
         src/modules/settings/ui/source_settings.cpp
 )

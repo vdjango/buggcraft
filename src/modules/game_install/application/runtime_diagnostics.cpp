@@ -1,17 +1,22 @@
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QNetworkInterface>
 #include <QRegularExpression>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <QUuid>
 #include <QXmlStreamReader>
 #include <algorithm>
 
 #include "modules/game_install/application/game_runtime.h"
+#include "modules/game_install/infrastructure/dependency_facts.h"
 #include "platform/diagnostics/diagnostic_log.h"
 
 namespace bugg {
@@ -114,13 +119,19 @@ void GameRuntime::refresh_debug_log(const QString& module, const QString& level,
               (!logger.isEmpty() && logger != record_logger && logger != mod) ||
               (!search.isEmpty() && !searchable.contains(search, Qt::CaseInsensitive)))
             return;
-          entries.append(QVariantMap{{"module", origin},
-                                     {"level", severity},
-                                     {"time", utc},
-                                     {"logger", record_logger},
-                                     {"thread", thread},
-                                     {"mod", mod},
-                                     {"message", redact_diagnostic(message.left(12288))}});
+          message = redact_diagnostic(message.left(12288));
+          const auto structured = QJsonDocument::fromJson(message.toUtf8());
+          entries.append(QVariantMap{
+              {"module", origin},
+              {"level", severity},
+              {"time", utc},
+              {"logger", record_logger},
+              {"thread", thread},
+              {"mod", mod},
+              {"message", message},
+              {"structuredText", structured.isNull() ? QString{}
+                                                     : QString::fromUtf8(structured.toJson(
+                                                           QJsonDocument::Indented))}});
         };
         for (const auto& line : diagnostic_snapshot().split('\n')) {
           check_cancelled(cancelled);
@@ -129,14 +140,16 @@ void GameRuntime::refresh_debug_log(const QString& module, const QString& level,
           const auto name = event.value("event").toString();
           const auto status = event.value("status").toInt();
           const auto state = event.value("state").toString();
+          const auto declared_level = event.value("level").toString().toUpper();
           const auto severity =
-              !event.value("error").toString().isEmpty() || state == "failed" || status >= 400
+              !declared_level.isEmpty() ? declared_level
+              : !event.value("error").toString().isEmpty() || state == "failed" || status >= 400
                   ? QString("ERROR")
               : name.contains("retry")   ? QString("WARN")
               : name.endsWith("attempt") ? QString("DEBUG")
                                          : QString("INFO");
           append(name.section('.', 0, 0), severity, event.value("utc").toString(),
-                 QString::fromUtf8(line));
+                 QString::fromUtf8(line), event.value("logger").toString());
         }
         const auto tail = [&](const QString& origin, const QString& path) {
           return visit_debug_log(
@@ -178,6 +191,37 @@ void GameRuntime::export_diagnostics(const QString& url) {
     emit notice(QCoreApplication::translate("Bugg", "请选择诊断 ZIP 的保存位置"));
     return;
   }
+  write_diagnostics(path);
+}
+void GameRuntime::prepare_feedback(const QString& message, const QString& expected,
+                                   const QString& contact) {
+  if (closing_ || initializing_ || diagnostics_status_.value("busy").toBool()) return;
+  if (message.trimmed().isEmpty() || expected.trimmed().isEmpty() ||
+      message.toUtf8().size() > 8000 || expected.toUtf8().size() > 4000 ||
+      contact.toUtf8().size() > 320) {
+    diagnostics_status_ = {
+        {"error", tr("请填写问题和期望（分别最多 8000、4000 字节），联系方式最多 320 字节")}};
+    emit diagnostics_changed();
+    return;
+  }
+  write_diagnostics(
+      cache_root_ + "/logs/feedback-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".zip",
+      {{"message", message.trimmed()},
+       {"expected", expected.trimmed()},
+       {"contact", contact.trimmed()}});
+}
+void GameRuntime::release_feedback(const QString& path) {
+  if (QFileInfo(path).absolutePath() != QDir(cache_root_ + "/logs").absolutePath() ||
+      !QFileInfo(path).fileName().startsWith("feedback-") || !path.endsWith(".zip"))
+    return;
+  run_file_work(
+      [path](const Cancellation&) {
+        QFile::remove(path);
+        return QVariantMap{};
+      },
+      [](const auto&) {});
+}
+void GameRuntime::write_diagnostics(const QString& path, const QVariantMap& feedback) {
   diagnostics_status_ = {{"busy", true}};
   emit diagnostics_changed();
   QJsonArray tasks;
@@ -201,8 +245,8 @@ void GameRuntime::export_diagnostics(const QString& url) {
                              {"tasks", tasks}};
   const auto selected = preferences().value("selectedInstance").toString();
   run_file_work(
-      [path, overview, cache = cache_root_, root = game_root_, selected,
-       active = launch_id_](const Cancellation& cancelled) {
+      [path, overview, cache = cache_root_, root = game_root_, selected, active = launch_id_,
+       feedback](const Cancellation& cancelled) {
         QMap<QString, QByteArray> entries;
         entries["diagnostics.json"] =
             redact_diagnostic(QString::fromUtf8(QJsonDocument(overview).toJson())).toUtf8();
@@ -219,13 +263,77 @@ void GameRuntime::export_diagnostics(const QString& url) {
         add_log("network-last-checkpoint.jsonl", cache + "/logs/downloads.jsonl");
         add_log("network-previous.jsonl", cache + "/logs/downloads.previous.jsonl");
         add_log("installer.log", cache + "/logs/install.log");
+        QFileInfoList bridge_logs;
+        QDirIterator bridge(cache + "/logs/bridge", QDir::Files | QDir::NoSymLinks,
+                            QDirIterator::Subdirectories);
+        while (bridge.hasNext()) {
+          check_cancelled(cancelled);
+          bridge.next();
+          bridge_logs.append(bridge.fileInfo());
+        }
+        std::sort(bridge_logs.begin(), bridge_logs.end(),
+                  [](const auto& a, const auto& b) { return a.lastModified() > b.lastModified(); });
+        for (int n = 0; n < std::min(8, int(bridge_logs.size())); ++n)
+          add_log(QString("bridge-%1.jsonl").arg(n), bridge_logs[n].absoluteFilePath());
+        QJsonArray network;
+        for (const auto& interface : QNetworkInterface::allInterfaces()) {
+          if (!(interface.flags() & QNetworkInterface::IsUp)) continue;
+          QJsonArray addresses;
+          for (const auto& entry : interface.addressEntries())
+            if (!entry.ip().isNull()) addresses.append(entry.ip().toString());
+          network.append(QJsonObject{{"name", interface.humanReadableName()},
+                                     {"type", int(interface.type())},
+                                     {"addresses", addresses}});
+        }
+        entries["network-interfaces.json"] = QJsonDocument(network).toJson();
         QStringList instances{active, selected};
         instances.removeAll(QString());
         instances.removeDuplicates();
         for (int i = 0; i < instances.size(); ++i) {
           const auto directory = safe_path(root, "versions/" + instances[i]);
+          const auto prefix = QString("game-%1-").arg(i);
+          QJsonObject metadata;
+          try {
+            metadata = read_json(safe_path(directory, instances[i] + ".json"));
+          } catch (const std::exception& error) {
+            metadata["collection_error"] = QString::fromUtf8(error.what());
+          }
+          metadata.remove("logging");
+          entries[prefix + "version.json"] =
+              redact_diagnostic(QString::fromUtf8(QJsonDocument(metadata).toJson())).toUtf8();
+          QJsonArray contents;
+          for (const auto* category : {"mods", "shaderpacks", "resourcepacks"}) {
+            const QDir files(directory + '/' + category);
+            for (const auto& file :
+                 files.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name)) {
+              check_cancelled(cancelled);
+              QJsonObject item{{"file", QString::fromLatin1(category) + '/' + file.fileName()},
+                               {"size", file.size()},
+                               {"modified", file.lastModified().toUTC().toString(Qt::ISODate)}};
+              if (QString::fromLatin1(category) == "mods" &&
+                  file.suffix().compare("jar", Qt::CaseInsensitive) == 0) {
+                try {
+                  const auto declaration =
+                      DependencyFacts::describe(file.absoluteFilePath(), cancelled);
+                  item["mods"] = declaration["mods"];
+                  item["issues"] = declaration["issues"];
+                } catch (const std::exception& error) {
+                  check_cancelled(cancelled);
+                  item["collection_error"] = QString::fromUtf8(error.what());
+                }
+              }
+              contents.append(item);
+            }
+          }
+          entries[prefix + "content.json"] =
+              redact_diagnostic(QString::fromUtf8(QJsonDocument(contents).toJson())).toUtf8();
           add_log(QString("game-%1-launcher.log").arg(i), directory + "/logs/launcher-game.log");
           add_log(QString("game-%1-latest.log").arg(i), directory + "/logs/latest.log");
+          const auto crashes =
+              QDir(directory + "/crash-reports")
+                  .entryInfoList({"*.txt"}, QDir::Files | QDir::NoSymLinks, QDir::Time);
+          for (int n = 0; n < std::min(3, int(crashes.size())); ++n)
+            add_log(prefix + QString("crash-%1.txt").arg(n), crashes[n].absoluteFilePath());
         }
         entries["README.txt"] =
             "Bugg diagnostics (UTF-8). Network journal is bounded to 2 MiB; log tails to 1 MiB.\n"
@@ -233,12 +341,24 @@ void GameRuntime::export_diagnostics(const QString& url) {
             "No account store, full settings, request bodies, auth headers, saves or mod files.\n"
             "URLs omit credentials/query/fragment. Review game log text before sharing publicly.\n";
         archive_write(path, {}, entries, cancelled, [](int, int) {});
+        if (!feedback.isEmpty() && QFileInfo(path).size() > 8 * 1024 * 1024) {
+          QFile::remove(path);
+          throw std::runtime_error("诊断包超过在线提交上限，请导出后手动提交");
+        }
         return QVariantMap{{"path", path}};
       },
-      [this](const QVariantMap& result) {
+      [this, feedback](const QVariantMap& result) {
         diagnostics_status_ = result;
+        if (!feedback.isEmpty()) diagnostics_status_.remove("path");
         diagnostics_status_["busy"] = false;
         emit diagnostics_changed();
+        if (!feedback.isEmpty()) {
+          if (!result.contains("error"))
+            emit feedback_prepared(
+                feedback.value("message").toString(), feedback.value("expected").toString(),
+                feedback.value("contact").toString(), result.value("path").toString());
+          return;
+        }
         emit notice(result.contains("error")
                         ? result.value("error").toString()
                         : QCoreApplication::translate("Bugg", "诊断日志已导出"));

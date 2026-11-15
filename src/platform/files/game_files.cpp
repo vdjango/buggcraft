@@ -32,6 +32,15 @@ void copy_file(const QString& source, const QString& destination, const Cancella
 }
 namespace {
 [[noreturn]] void fail(const QString& text) { throw std::runtime_error(text.toUtf8().constData()); }
+QString relative_path(const QString& relative) {
+  QString normalized = relative;
+  normalized.replace('\\', '/');
+  if (normalized.isEmpty() || QDir::isAbsolutePath(normalized) || normalized.contains(':') ||
+      normalized.split('/').contains("..") || normalized.contains(QChar::Null) ||
+      QDir::cleanPath(normalized) == ".")
+    fail(QCoreApplication::translate("Bugg", "资源包含不安全路径"));
+  return normalized;
+}
 class Archive {
  public:
   explicit Archive(const QString& path) {
@@ -51,6 +60,15 @@ class Archive {
   QFile file;
   mz_zip_archive zip{};
 };
+QString archive_name(Archive& archive, mz_uint index) {
+  const auto size = mz_zip_reader_get_filename(&archive.zip, index, nullptr, 0);
+  if (!size || size > 32768) fail(QCoreApplication::translate("Bugg", "压缩文件路径无效"));
+  QByteArray name(size, Qt::Uninitialized);
+  if (mz_zip_reader_get_filename(&archive.zip, index, name.data(), size) != size)
+    fail(QCoreApplication::translate("Bugg", "压缩目录损坏"));
+  name.chop(1);
+  return QString::fromUtf8(name);
+}
 }  // namespace
 QString portable_cache_root(const QString& portable) {
   QFile locator(QDir(portable).filePath("bugg-portable.json"));
@@ -61,11 +79,7 @@ QString portable_cache_root(const QString& portable) {
   return QDir(portable).filePath(".buggcraft");
 }
 QString safe_path(const QString& root, const QString& relative) {
-  QString normalized = relative;
-  normalized.replace('\\', '/');
-  if (normalized.isEmpty() || QDir::isAbsolutePath(normalized) || normalized.contains(':') ||
-      normalized.split('/').contains("..") || normalized.contains(QChar::Null))
-    fail(QCoreApplication::translate("Bugg", "资源包含不安全路径"));
+  const auto normalized = relative_path(relative);
   const auto base = QDir(root).absolutePath();
   const auto target = QDir::cleanPath(base + '/' + normalized);
   if (!target.startsWith(base + '/')) fail(QCoreApplication::translate("Bugg", "资源路径越界"));
@@ -111,13 +125,13 @@ bool valid_file(const QString& path, const QByteArray& sha1, qint64 size,
   return hash.result().toHex() == sha1.toLower();
 }
 QByteArray archive_read(const QString& path, const QString& entry, qint64 limit,
-                       const Cancellation& cancelled) {
+                        const Cancellation& cancelled) {
   check_cancelled(cancelled);
   Archive archive(path);
   const int index = mz_zip_reader_locate_file(&archive.zip, entry.toUtf8().constData(), nullptr, 0);
   mz_zip_archive_file_stat info;
-  if (index < 0 || !mz_zip_reader_file_stat(&archive.zip, index, &info) ||
-      limit < 0 || info.m_uncomp_size > quint64(limit))
+  if (index < 0 || !mz_zip_reader_file_stat(&archive.zip, index, &info) || limit < 0 ||
+      info.m_uncomp_size > quint64(limit))
     fail(QCoreApplication::translate("Bugg", "安装器缺少有效的 ") + entry);
   QByteArray bytes(info.m_uncomp_size, Qt::Uninitialized);
   if (!mz_zip_reader_extract_to_mem(&archive.zip, index, bytes.data(), bytes.size(), 0))
@@ -137,7 +151,7 @@ void archive_extract(const QString& path, const QString& destination, const QStr
     mz_zip_archive_file_stat info;
     if (!mz_zip_reader_file_stat(&archive.zip, index, &info))
       fail(QCoreApplication::translate("Bugg", "压缩目录损坏"));
-    const auto name = QString::fromUtf8(info.m_filename);
+    const auto name = archive_name(archive, index);
     if (!name.startsWith(prefix) || info.m_is_directory) continue;
     const auto relative = name.mid(prefix.size());
     if (relative.isEmpty()) continue;
@@ -230,6 +244,10 @@ QMap<QByteArray, QByteArray> file_digests(const QString& path, const QList<QByte
   return result;
 }
 QStringList archive_entries(const QString& path, const Cancellation& cancelled) {
+  return archive_entries(path, cancelled, true);
+}
+QStringList archive_entries(const QString& path, const Cancellation& cancelled,
+                            bool portable_names) {
   Archive archive(path);
   QStringList result;
   QSet<QString> seen;
@@ -241,14 +259,17 @@ QStringList archive_entries(const QString& path, const Cancellation& cancelled) 
     mz_zip_archive_file_stat info;
     if (!mz_zip_reader_file_stat(&archive.zip, index, &info))
       fail(QCoreApplication::translate("Bugg", "压缩目录损坏"));
-    auto name = QString::fromUtf8(info.m_filename);
+    auto name = archive_name(archive, index);
     name.replace('\\', '/');
     if (name.endsWith('/')) name.chop(1);
-    safe_path(QDir::tempPath(), name);
-    const auto key = QDir::cleanPath(name).toCaseFolded();
-    if (seen.contains(key) || info.m_is_encrypted ||
-        ((info.m_external_attr >> 16) & 0170000) == 0120000)
-      fail(QCoreApplication::translate("Bugg", "归档包含重复、加密或链接文件"));
+    relative_path(name);
+    const auto normalized = QDir::cleanPath(name);
+    const auto key = portable_names ? normalized.toCaseFolded() : normalized;
+    if (seen.contains(key) && !info.m_is_directory)
+      fail(QCoreApplication::translate("Bugg", "归档包含重复文件：") + name);
+    if (info.m_is_encrypted) fail(QCoreApplication::translate("Bugg", "归档包含加密文件：") + name);
+    if (((info.m_external_attr >> 16) & 0170000) == 0120000)
+      fail(QCoreApplication::translate("Bugg", "归档包含符号链接：") + name);
     seen.insert(key);
     total += info.m_uncomp_size;
     if (info.m_uncomp_size > 1024ULL * 1024 * 1024 || total > 8ULL * 1024 * 1024 * 1024)
@@ -256,6 +277,31 @@ QStringList archive_entries(const QString& path, const Cancellation& cancelled) 
     if (!info.m_is_directory) result.append(name);
   }
   return result;
+}
+int archive_java_version(const QString& path, const Cancellation& cancelled) {
+  Archive archive(path);
+  const auto count = mz_zip_reader_get_num_files(&archive.zip);
+  if (count > 200000) fail(QCoreApplication::translate("Bugg", "JAR 条目过多：") + path);
+  int required = 0;
+  for (mz_uint index = 0; index < count; ++index) {
+    check_cancelled(cancelled);
+    const auto name = archive_name(archive, index);
+    if (!name.endsWith(".class") || name.startsWith("META-INF/versions/") ||
+        name == "module-info.class")
+      continue;
+    auto* reader = mz_zip_reader_extract_iter_new(&archive.zip, index, 0);
+    if (!reader) fail(QCoreApplication::translate("Bugg", "无法读取 Java 类：") + name);
+    unsigned char header[8]{};
+    const auto read = mz_zip_reader_extract_iter_read(reader, header, sizeof(header));
+    // Only the header is needed; full CRC validation belongs to installation.
+    mz_zip_reader_extract_iter_free(reader);
+    if (read != sizeof(header) || header[0] != 0xca || header[1] != 0xfe || header[2] != 0xba ||
+        header[3] != 0xbe)
+      continue;
+    const int major = (int(header[6]) << 8) | header[7];
+    if (major >= 45 && major <= 100) required = qMax(required, major - 44);
+  }
+  return required;
 }
 void archive_write(const QString& path, const QMap<QString, QString>& files,
                    const QMap<QString, QByteArray>& entries, const Cancellation& cancelled,
@@ -280,7 +326,7 @@ void archive_write(const QString& path, const QMap<QString, QString>& files,
     QSet<QString> seen;
     for (auto it = files.begin(); it != files.end(); ++it) {
       check_cancelled(cancelled);
-      safe_path(QDir::tempPath(), it.key());
+      relative_path(it.key());
       if (seen.contains(it.key().toCaseFolded()))
         fail(QCoreApplication::translate("Bugg", "导出路径重复"));
       seen.insert(it.key().toCaseFolded());
@@ -306,7 +352,7 @@ void archive_write(const QString& path, const QMap<QString, QString>& files,
     }
     for (auto it = entries.begin(); it != entries.end(); ++it) {
       check_cancelled(cancelled);
-      safe_path(QDir::tempPath(), it.key());
+      relative_path(it.key());
       if (!mz_zip_writer_add_mem(&zip, it.key().toUtf8().constData(), it.value().constData(),
                                  it.value().size(), MZ_BEST_SPEED))
         fail(QCoreApplication::translate("Bugg", "写入整合包清单失败"));

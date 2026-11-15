@@ -16,6 +16,7 @@ struct ContentEndpoints {
   // Short-lived anonymous translation session, owned by ContentCatalogService.
   QByteArray translation_token;
   qint64 translation_token_expires = 0;
+  QUrl bmclapi{"https://bmclapi2.bangbang93.com"};
 };
 /// Worker-only metadata/required-dependency resolver, bounded HTTP and JSON.
 /// No downloads, disk access, UI state or global cache; failures throw.

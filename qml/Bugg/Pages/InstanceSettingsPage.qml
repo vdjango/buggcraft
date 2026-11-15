@@ -29,6 +29,43 @@ PageLayout {
         onAutomaticEdited: value => root.settingEdited("automatic", value)
         onMemoryEdited: value => root.settingEdited("memoryMB", value)
     }
+    SelectField {
+        objectName: "memoryModeSelector"
+        Layout.fillWidth: true
+        visible: root.configuration.automatic !== false
+        label: qsTr("内存分配模式")
+        selection: root.configuration.memoryMode || "auto"
+        options: [
+            {
+                id: "auto",
+                name: qsTr("自动 · 按模组和可用内存")
+            },
+            {
+                id: "saving",
+                name: qsTr("节省 · 大型整合包约 4–6 GiB")
+            },
+            {
+                id: "balanced",
+                name: qsTr("均衡 · 大型整合包约 6–8 GiB")
+            },
+            {
+                id: "generous",
+                name: qsTr("充裕 · 大型整合包约 8–10 GiB")
+            },
+            {
+                id: "available",
+                name: qsTr("充分使用可用内存 · 不设策略上限")
+            }
+        ]
+        onChosen: id => root.settingEdited("memoryMode", id)
+    }
+    UiText {
+        Layout.fillWidth: true
+        text: qsTr("显示的是游戏堆上限，实际占用会按需增长。始终为系统保留空间，低内存电脑可能启动较慢。")
+        color: DesignTokens.muted
+        wrapMode: Text.Wrap
+        font.pixelSize: 11
+    }
     Divider {
         Layout.fillWidth: true
     }

@@ -82,7 +82,12 @@ void validate_content_record(const QJsonObject& record, QSet<QString>& names) {
           QStringList{"cdn.modrinth.com", "github.com",        "raw.githubusercontent.com",
                       "gitlab.com",       "download.bugg.icu", "mirror.bugg.icu"}
               .contains(host) ||
-          host.endsWith(".forgecdn.net");
+          host.endsWith(".forgecdn.net") ||
+          (host == "bmclapi2.bangbang93.com" &&
+           QRegularExpression("\\A/optifine/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\z")
+               .match(url.path())
+               .hasMatch() &&
+           !url.hasQuery() && !url.hasFragment());
       if (!trusted || url.scheme() != "https" || !url.userInfo().isEmpty() || url.port(443) != 443)
         invalid_pack(QCoreApplication::translate("Bugg", "整合包下载地址不受支持"));
     }
@@ -332,7 +337,22 @@ QString GameOperations::import_pack(const QString& archive, const QString& name)
       QString sha1;
       for (const auto& hash : file["hashes"].toArray())
         if (hash.toObject()["algo"].toInt() == 1) sha1 = hash.toObject()["value"].toString();
+      QJsonArray publisher_dependencies;
+      for (const auto& item : file["dependencies"].toArray()) {
+        const auto dependency = item.toObject();
+        if (dependency["relationType"].toInt() == 3)
+          publisher_dependencies.append(
+              QJsonObject{{"type", "required"},
+                          {"publisher", "CurseForge"},
+                          {"projectId", QString::number(dependency["modId"].toInteger())}});
+      }
       record = {{"path", folder + '/' + file["fileName"].toString()},
+                {"publisher", "CurseForge"},
+                {"projectId", project},
+                {"versionId", file_id},
+                {"title", project_data["name"]},
+                {"versionName", file["displayName"]},
+                {"publisherDependencies", publisher_dependencies},
                 {"fileSize", file["fileLength"]},
                 {"hashes", QJsonObject{{"sha1", sha1}}},
                 {"downloads", QJsonArray{url}},
@@ -568,8 +588,9 @@ QString GameOperations::commit_content(const QString& staging_id, const QString&
   // 覆盖文件不得替换启动器生成的版本描述；最后一次重写后再发布可见目录。
   auto checked_records = records;
   QStringList remove;
-  const auto receipt = check_dependencies(staging, staging, remove, checked_records, metadata,
-                                         source == "BUGG Room" ? "room_manifest" : "authored_pack");
+  const auto receipt =
+      check_dependencies(staging, staging, remove, checked_records, metadata,
+                         source == "BUGG Room" ? "room_manifest" : "authored_pack");
   if (!receipt.isEmpty()) metadata["buggDependencyDecision"] = receipt;
   metadata["id"] = name;
   metadata["buggcraftModpack"] = QJsonObject{{"source", source}, {"resources", checked_records}};

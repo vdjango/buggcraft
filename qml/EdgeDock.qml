@@ -48,7 +48,6 @@ Item {
             autoFold.stop();
             settleAnimation.stop();
             instantReveal = true;
-            foldMotion.stop();
             folded = true;
             foldReveal = 0;
             reposition(false);
@@ -107,7 +106,6 @@ Item {
         autoFold.stop();
         settleAnimation.stop();
         instantReveal = true;
-        foldMotion.stop();
         folded = false;
         foldReveal = 1;
         reposition(false);
@@ -175,7 +173,6 @@ Item {
             autoFold.stop();
             releasePoll.stop();
             settleAnimation.stop();
-            foldMotion.stop();
             instantReveal = true;
             folded = false;
             foldReveal = 1;
@@ -255,10 +252,10 @@ Item {
         }
     }
 
-    Component.onCompleted: Qt.callLater(function () {
-        root.restingPosition = Qt.point(root.targetWindow.x, root.targetWindow.y);
+    Component.onCompleted: {
         root.refreshWorkArea();
+        root.restingPosition = Qt.point(root.workArea.x + Math.max(0, (root.workArea.width - root.displayWidth) / 2), root.workArea.y + Math.max(0, (root.workArea.height - root.displayHeight) / 2));
         root.ready = true;
         root.reposition(false);
-    })
+    }
 }

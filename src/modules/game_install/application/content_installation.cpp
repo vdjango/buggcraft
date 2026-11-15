@@ -4,6 +4,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QRegularExpression>
+#include <algorithm>
 
 #include "modules/game_install/application/game_operations.h"
 #include "modules/game_install/application/modpack_plan.h"
@@ -125,6 +127,8 @@ QJsonArray GameOperations::content_records(const QVariantMap& plan) {
     if (!file.value("dependencies").toList().isEmpty())
       record["publisherDependencies"] =
           QJsonArray::fromVariantList(file.value("dependencies").toList());
+    if (file.value("publisher") == "BMCLAPI" && file.value("projectId") == "optifine")
+      record["optifine"] = QJsonObject::fromVariantMap(file.value("optifine").toMap());
     validate_content_record(record, names);
     if (record["fileSize"].toDouble() <= 0)
       invalid_content(QCoreApplication::translate("Bugg", "内容文件大小无效"));
@@ -132,24 +136,30 @@ QJsonArray GameOperations::content_records(const QVariantMap& plan) {
   }
   return records;
 }
-QVariantMap GameOperations::prepare_content_install(const QString& id, const QVariantMap& plan,
+QVariantMap GameOperations::prepare_content_install(const QString& id, const QVariantMap& requested,
                                                     const ContentRequest& request) {
+  const bool automatic = dependency_context_.value("autoDependencies", true).toBool();
+  const auto plan = automatic ? requested : content_subset(requested, false);
   const bool shader = plan.value("kind") == "shader";
   if (!shader && (plan.value("kind") != "mod" || plan.value("query").toMap().isEmpty()))
     return plan;
   auto support = plan.value("shaderSupport").toMap();
-  if (shader && support.value("runtimes").toList().isEmpty())
+  if (shader && automatic && support.value("runtimes").toList().isEmpty())
     invalid_content(
         QCoreApplication::translate("Bugg", "缺少光影核心兼容信息，请重新选择光影版本"));
   const auto directory = safe_path(root_, "versions/" + id);
   const auto metadata = load_version(id);
   const auto descriptor = instance_descriptor(metadata);
   auto query = plan.value("query").toMap();
+  query.remove("deferShaderRuntime");
+  query["autoDependencies"] = automatic;
   query["gameVersion"] = descriptor.value("version");
   query["loader"] = descriptor.value("loader").toString().toLower();
   query["loaderVersion"] = descriptor.value("loaderVersion");
   auto result = plan;
-  if ((shader && support.value("loader") != query.value("loader")) ||
+  if (support.value("deferred").toBool() ||
+      (shader && automatic && support.value("loader") != query.value("loader")) ||
+      plan.value("query").toMap().value("autoDependencies", true).toBool() != automatic ||
       plan.value("query").toMap().value("loader").toString() != query.value("loader").toString() ||
       plan.value("query").toMap().value("loaderVersion").toString() !=
           query.value("loaderVersion").toString() ||
@@ -158,6 +168,12 @@ QVariantMap GameOperations::prepare_content_install(const QString& id, const QVa
       invalid_content(QCoreApplication::translate("Bugg", "目标游戏已变化，请重新匹配内容与依赖"));
     result = request(query, cancelled_);
     support = result.value("shaderSupport").toMap();
+  }
+  if (!automatic) {
+    result = content_subset(result, false);
+    result["missingDependencies"] = QVariantList{};
+    if (shader) result["shaderSupport"] = QVariantMap{{"automaticDisabled", true}};
+    return result;
   }
   if (!shader) return result;
   for (const auto& library : metadata["libraries"].toArray())
@@ -175,7 +191,7 @@ QVariantMap GameOperations::prepare_content_install(const QString& id, const QVa
     check_cancelled(cancelled_);
     QStringList entries;
     try {
-      entries = archive_entries(file.absoluteFilePath(), cancelled_);
+      entries = archive_entries(file.absoluteFilePath(), cancelled_, false);
     } catch (const std::exception&) {
       check_cancelled(cancelled_);
       continue;
@@ -205,6 +221,14 @@ QVariantMap GameOperations::prepare_content_install(const QString& id, const QVa
   query["shaderRuntimeHash"] = QString::fromLatin1(file_digest(found, "sha1", cancelled_));
   for (const auto& value : metadata["buggcraftModpack"].toObject()["resources"].toArray()) {
     const auto record = value.toObject();
+    if (record["publisher"] == "BMCLAPI" && record["projectId"] == "optifine" &&
+        record["hashes"].toObject()["sha1"] == query.value("shaderRuntimeHash").toString() &&
+        !record["optifine"].toObject().isEmpty()) {
+      verify_content_file(found, record, cancelled_);
+      query["shaderRuntimeOptiFine"] = record["optifine"].toObject().toVariantMap();
+      query.remove("shaderRuntimeChoice");
+      break;
+    }
     if (record["publisher"] == "CurseForge" &&
         record["hashes"].toObject()["sha1"] == query.value("shaderRuntimeHash").toString() &&
         !record["projectId"].toString().isEmpty() && !record["versionId"].toString().isEmpty()) {
@@ -248,14 +272,18 @@ QVariantMap GameOperations::check_content_install(const QString& id, const QVari
   LocalContentIndex local_content(directory, cancelled_);
   const auto metadata = load_version(id);
   const auto descriptor = instance_descriptor(metadata);
+  const auto formats = content_loader_formats(descriptor.value("loader").toString().toLower(),
+                                              descriptor.value("version").toString());
   for (const auto& value : plan.value("files").toList()) {
     check_cancelled(cancelled_);
     const auto file = value.toMap();
     if (!file.value("gameVersions")
              .toStringList()
              .contains(descriptor.value("version").toString()) ||
-        file.value("kind") == "mod" && !file.value("loaders").toStringList().contains(
-                                           descriptor.value("loader").toString().toLower()))
+        file.value("kind") == "mod" &&
+            !std::any_of(formats.begin(), formats.end(), [&](const QString& format) {
+              return file.value("loaders").toStringList().contains(format);
+            }))
       invalid_content(QCoreApplication::translate("Bugg", "内容与所选游戏版本或加载器不兼容"));
   }
   const auto old_records = metadata["buggcraftModpack"].toObject()["resources"].toArray();
@@ -391,7 +419,71 @@ QVariantMap GameOperations::install_content(const QVariantMap& specification,
   auto complete = specification;
   complete["plan"] = prepare_content_install(specification.value("id").toString(),
                                              specification.value("plan").toMap(), request);
-  const auto plan = complete.value("plan").toMap();
+  auto plan = complete.value("plan").toMap();
+  const auto support = plan.value("shaderSupport").toMap();
+  if (support.value("id") == "optifine" && !support.value("installed").toBool()) {
+    auto evidence = support.value("optifine").toMap();
+    const auto release = evidence.value("releaseId").toString();
+    static const QRegularExpression token("\\A[A-Za-z0-9_.-]{1,64}\\z");
+    for (const auto* key : {"mcversion", "type", "patch"})
+      if (!token.match(evidence.value(key).toString()).hasMatch())
+        invalid_content(QCoreApplication::translate("Bugg", "OptiFine 版本记录无效，请重新查询"));
+    if (release != evidence.value("mcversion").toString() + '_' +
+                       evidence.value("type").toString() + '_' + evidence.value("patch").toString())
+      invalid_content(QCoreApplication::translate("Bugg", "OptiFine 发布标识无效"));
+    const auto descriptor = instance_descriptor(load_version(specification.value("id").toString()));
+    auto build = descriptor.value("loaderVersion").toString();
+    const auto game = descriptor.value("version").toString();
+    if (build.startsWith(game + '-')) build.remove(0, game.size() + 1);
+    if (descriptor.value("loader").toString().compare("forge", Qt::CaseInsensitive) != 0 ||
+        game != evidence.value("mcversion") || build != evidence.value("forge"))
+      invalid_content(
+          QCoreApplication::translate("Bugg", "OptiFine 与当前游戏或 Forge 构建不匹配"));
+    const auto archive =
+        safe_path(portable_cache_root(portable_), "content/optifine/" + release + ".jar");
+    QVariantMap file{{"publisher", "BMCLAPI"},
+                     {"projectId", "optifine"},
+                     {"versionId", release},
+                     {"versionName", release},
+                     {"title", "OptiFine"},
+                     {"kind", "mod"},
+                     {"filename", "OptiFine_" + release + ".jar"},
+                     {"dependency", true},
+                     {"url", evidence.value("url")},
+                     {"gameVersions", QStringList{game}},
+                     {"loaders", QStringList{"forge"}},
+                     {"optifine", evidence}};
+    content_update(file, "downloading", -1,
+                   QCoreApplication::translate("Bugg", "从 BMCLAPI 下载 OptiFine"));
+    content_transfers_[archive] = file;
+    QJsonObject cached;
+    if (QFileInfo::exists(archive + ".json")) cached = read_json(archive + ".json");
+    if (cached["url"].toString() != evidence.value("url").toString() ||
+        cached["sha1"].toString().isEmpty() ||
+        !valid_file(archive, cached["sha1"].toString().toLatin1(), cached["size"].toInteger(-1),
+                    cancelled_)) {
+      if (QFileInfo::exists(archive) && !QFile::remove(archive))
+        invalid_content(QCoreApplication::translate("Bugg", "无法更新本地 OptiFine 下载文件"));
+      resources_.fetch({{QUrl(evidence.value("url").toString()), archive, {}, -1}});
+    }
+    content_transfers_.remove(archive);
+    const auto entries = archive_entries(archive, cancelled_, false);
+    if (QFileInfo(archive).size() > 64 * 1024 * 1024 ||
+        (!entries.contains("optifine/OptiFineTransformationService.class") &&
+         !entries.contains("optifine/OptiFineClassTransformer.class")))
+      invalid_content(QCoreApplication::translate("Bugg", "下载的文件不是有效的 OptiFine 核心"));
+    const auto hashes = file_digests(archive, {"sha1", "sha256"}, cancelled_);
+    file["hashes"] = QVariantMap{{"sha1", QString::fromLatin1(hashes.value("sha1"))},
+                                 {"sha256", QString::fromLatin1(hashes.value("sha256"))}};
+    file["size"] = QFileInfo(archive).size();
+    write_json(archive + ".json", {{"url", evidence.value("url").toString()},
+                                   {"sha1", QString::fromLatin1(hashes.value("sha1"))},
+                                   {"size", QFileInfo(archive).size()}});
+    auto files = plan.value("files").toList();
+    files.prepend(file);
+    plan["files"] = files;
+    complete["plan"] = plan;
+  }
   for (const auto& file : plan.value("files").toList()) content_update(file.toMap(), "queued");
   if (!plan.value("missingDependencies").toList().isEmpty())
     invalid_content(QCoreApplication::translate("Bugg", "必要依赖的发布信息尚未取得，请重试"));
@@ -442,6 +534,13 @@ QVariantMap GameOperations::prepare_content_files(const QVariantMap& specificati
       if (!QFileInfo::exists(target)) copy_file(existing, target, cancelled_);
     }
     auto file = plan.value("files").toList().value(index++).toMap();
+    if (!local && file.value("publisher") == "BMCLAPI" && file.value("projectId") == "optifine") {
+      const auto archive =
+          safe_path(portable_cache_root(portable_),
+                    "content/optifine/" + file.value("versionId").toString() + ".jar");
+      verify_content_file(archive, value.toObject(), cancelled_);
+      copy_file(archive, target, cancelled_);
+    }
     file["dependency"] = specification.value("dependency", file.value("dependency"));
     content_transfers_[target] = file;
     content_update(file, local ? "checking" : "downloading", -1,
@@ -546,6 +645,53 @@ void GameOperations::install_content_files(const QVariantMap& specification,
       published.append(target);
     }
     check_cancelled(cancelled_);
+    const auto support = plan.value("shaderSupport").toMap();
+    if (!support.isEmpty()) {
+      const auto descriptor = instance_descriptor(metadata);
+      QJsonArray files, dependencies;
+      QString core;
+      const auto installed_core = support.value("path").toString();
+      if (support.value("installed").toBool() && installed_core.startsWith("mods/") &&
+          installed_core.endsWith(".jar")) {
+        core = QString::fromLatin1(
+            file_digest(safe_path(directory, installed_core), "sha256", cancelled_));
+        files.append(QJsonObject{{"path", installed_core}, {"sha256", core}});
+      }
+      for (const auto& value : merged) {
+        const auto record = value.toObject();
+        const auto relative = record["path"].toString();
+        if (!relative.startsWith("mods/")) continue;
+        if (relative == installed_core) continue;
+        // Only the resolved core/dependency lock belongs to this report.
+        bool selected = false;
+        for (const auto& item : records) selected |= item.toObject()["path"] == record["path"];
+        if (!selected) continue;
+        auto digest = record["hashes"].toObject()["sha256"].toString();
+        if (digest.size() != 64)
+          digest = QString::fromLatin1(
+              file_digest(safe_path(directory, relative), "sha256", cancelled_));
+        const bool is_core =
+            record["publisher"].toString() == support.value("publisher").toString() &&
+            record["projectId"].toString() == support.value("projectId").toString() &&
+            record["versionId"].toString() == support.value("versionId").toString();
+        if (is_core)
+          core = digest;
+        else
+          dependencies.append(digest);
+        files.append(QJsonObject{{"path", relative}, {"sha256", digest}});
+      }
+      metadata.remove("buggShaderFeedback");
+      if (!core.isEmpty() && !descriptor.value("loaderVersion").toString().isEmpty())
+        metadata["buggShaderFeedback"] = QJsonObject{
+            {"target", QJsonObject{{"game_version", descriptor.value("version").toString()},
+                                   {"loader", descriptor.value("loader").toString().toLower()},
+                                   {"loader_version", descriptor.value("loaderVersion").toString()},
+                                   {"core_sha256", core},
+                                   {"dependencies", dependencies}}},
+            {"files", files},
+            {"name",
+             support.value("name").toString() + " · " + support.value("version").toString()}};
+    }
     write_json(safe_path(directory, id + ".json"), metadata);
   } catch (...) {
     for (const auto& path : published) QFile::remove(path);
@@ -565,5 +711,40 @@ void GameOperations::install_content_files(const QVariantMap& specification,
   }
   content_item_.clear();
   report(1, QCoreApplication::translate("Bugg", "内容安装完成"));
+}
+
+QVariantMap GameOperations::shader_feedback_context(const QString& id) {
+  const auto metadata = load_version(id);
+  auto receipt = metadata["buggShaderFeedback"].toObject();
+  const auto target = receipt["target"].toObject();
+  if (target.isEmpty()) return {};
+  const auto descriptor = instance_descriptor(metadata);
+  if (descriptor.value("version").toString() != target["game_version"].toString() ||
+      descriptor.value("loader").toString().toLower() != target["loader"].toString() ||
+      descriptor.value("loaderVersion").toString() != target["loader_version"].toString())
+    return {};
+  const auto files = receipt["files"].toArray();
+  if (files.isEmpty() || files.size() > 65) return {};
+  auto sha1_target = target;
+  sha1_target.remove("core_sha256");
+  QJsonArray dependencies;
+  for (const auto& item : files) {
+    const auto file = item.toObject();
+    const auto relative = file["path"].toString();
+    if (!relative.startsWith("mods/") || !relative.endsWith(".jar")) return {};
+    const auto path = safe_path(root_, "versions/" + id + '/' + relative);
+    if (!QFileInfo::exists(path) || QFileInfo(path).isSymLink()) return {};
+    const auto hashes = file_digests(path, {"sha1", "sha256"}, cancelled_);
+    if (hashes.value("sha256") != file["sha256"].toString().toLatin1()) return {};
+    const auto sha1 = QString::fromLatin1(hashes.value("sha1"));
+    if (file["sha256"] == target["core_sha256"])
+      sha1_target["core_sha1"] = sha1;
+    else
+      dependencies.append(sha1);
+  }
+  sha1_target["dependencies"] = dependencies;
+  receipt["sha1_target"] = sha1_target;
+  receipt.remove("files");
+  return receipt.toVariantMap();
 }
 }  // namespace bugg

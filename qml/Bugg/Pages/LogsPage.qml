@@ -7,6 +7,8 @@ import Bugg.DesignSystem
 Item {
     id: root
     property var runtime: null
+    property var service: null
+    property bool enlarged: false
     property real viewportHeight: 420
     readonly property var exportStatus: runtime ? runtime.diagnostics_status : ({})
     readonly property var journal: runtime ? runtime.debug_log : ({})
@@ -15,8 +17,10 @@ Item {
     property string selectedLogger: ""
     property bool following: true
     property var selectedEntry: null
+    property bool structuredView: true
     implicitHeight: viewportHeight
     signal noticeRequested(string message)
+    signal enlargeRequested
     function refresh() {
         if (!visible)
             return;
@@ -51,11 +55,13 @@ Item {
                 id: search
                 Layout.fillWidth: true
                 objectName: "debugLogSearch"
+                compact: true
                 placeholderText: qsTr("搜索日志、模组或错误")
                 onTextChanged: debounce.restart()
             }
             ActionButton {
                 objectName: "debugLogFollow"
+                Layout.preferredHeight: 30
                 text: root.following ? qsTr("暂停") : qsTr("跟随")
                 compact: true
                 onClicked: {
@@ -67,7 +73,18 @@ Item {
                 }
             }
             IconButton {
+                objectName: "debugLogEnlarge"
+                visible: !root.enlarged
+                Layout.preferredHeight: 30
+                Layout.preferredWidth: 30
+                iconName: "maximize"
+                accessibleName: qsTr("放大日志窗口")
+                onClicked: root.enlargeRequested()
+            }
+            IconButton {
                 objectName: "debugLogRefresh"
+                Layout.preferredHeight: 30
+                Layout.preferredWidth: 30
                 iconName: "refresh"
                 accessibleName: qsTr("刷新日志")
                 enabled: !root.journal.busy
@@ -211,15 +228,37 @@ Item {
         Divider {
             Layout.fillWidth: true
         }
-        UiText {
+        RowLayout {
             Layout.fillWidth: true
-            text: root.selectedEntry ? [root.selectedEntry.time, root.selectedEntry.level, root.selectedEntry.mod || root.selectedEntry.logger || root.selectedEntry.module, root.selectedEntry.thread].filter(Boolean).join(" · ") : qsTr("选择一条日志，查看并复制完整消息与堆栈")
-            color: DesignTokens.muted
-            font.pixelSize: 10
+            UiText {
+                Layout.fillWidth: true
+                text: root.selectedEntry ? [root.selectedEntry.time, root.selectedEntry.level, root.selectedEntry.mod || root.selectedEntry.logger || root.selectedEntry.module, root.selectedEntry.thread].filter(Boolean).join(" · ") : qsTr("选择一条日志，查看并复制完整消息与堆栈")
+                color: DesignTokens.muted
+                font.pixelSize: 10
+                elide: Text.ElideRight
+            }
+            SelectField {
+                objectName: "debugLogDetailFormat"
+                visible: !!(root.selectedEntry && root.selectedEntry.structuredText)
+                Layout.preferredWidth: 108
+                compact: true
+                selection: root.structuredView ? "structured" : "raw"
+                options: [
+                    {
+                        id: "structured",
+                        name: qsTr("结构化")
+                    },
+                    {
+                        id: "raw",
+                        name: qsTr("原文")
+                    }
+                ]
+                onChosen: value => root.structuredView = value === "structured"
+            }
         }
         ScrollView {
             Layout.fillWidth: true
-            Layout.preferredHeight: DesignTokens.comfortable ? 100 : 88
+            Layout.preferredHeight: DesignTokens.comfortable ? 140 : 120
             visible: root.selectedEntry !== null
             clip: true
             TextAreaField {
@@ -228,7 +267,7 @@ Item {
                 readOnly: true
                 flat: true
                 padding: 2
-                text: root.selectedEntry ? root.selectedEntry.message || "" : ""
+                text: root.selectedEntry ? (root.structuredView && root.selectedEntry.structuredText ? root.selectedEntry.structuredText : root.selectedEntry.message || "") : ""
                 textFormat: Text.PlainText
                 wrapMode: TextEdit.WrapAnywhere
                 font.family: "Consolas, monospace"
@@ -242,6 +281,13 @@ Item {
                 text: root.journal.busy ? qsTr("正在读取…") : qsTr("%1 条 · 最近 500 条 · %2").arg(events.count).arg(root.following ? qsTr("跟随") : qsTr("已暂停"))
                 color: DesignTokens.muted
                 font.pixelSize: 10
+            }
+            ActionButton {
+                objectName: "diagnosticFeedbackButton"
+                text: qsTr("反馈问题")
+                compact: true
+                enabled: root.runtime !== null
+                onClicked: feedback.open()
             }
             ActionButton {
                 objectName: "exportDiagnosticsButton"
@@ -274,5 +320,10 @@ Item {
             if (urls.length && root.runtime)
                 root.runtime.export_diagnostics(urls[0]);
         }
+    }
+    FeedbackDialog {
+        id: feedback
+        runtime: root.runtime
+        service: root.service
     }
 }

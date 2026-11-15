@@ -56,18 +56,28 @@ QString issue_text(const QJsonObject& issue) {
       {"duplicate_provider", QCoreApplication::translate("Bugg", "重复模组")},
       {"known_runtime_failure", QCoreApplication::translate("Bugg", "已知运行问题")},
       {"incomplete_metadata", QCoreApplication::translate("Bugg", "元数据未完整解析")},
+      {"unverified_runtime_dependency",
+       QCoreApplication::translate("Bugg", "依赖可能由加载器动态提供，尚未核实")},
       {"no_active_loader_metadata", QCoreApplication::translate("Bugg", "未识别当前加载器的声明")},
       {"unknown_version_expression", QCoreApplication::translate("Bugg", "版本表达式尚不能核验")},
-      {"load_order_cycle", QCoreApplication::translate("Bugg", "加载顺序存在循环")}};
+      {"load_order_cycle", QCoreApplication::translate("Bugg", "加载顺序存在循环")},
+      {"nested_library_conflict", QCoreApplication::translate("Bugg", "内嵌库版本约束冲突")}};
   const auto range =
       issue["required"].isString() ? issue["required"].toString()
       : issue["required"].isArray()
           ? QString::fromUtf8(
                 QJsonDocument(issue["required"].toArray()).toJson(QJsonDocument::Compact))
           : QString{};
-  return QStringList{labels.value(issue["code"].toString(), issue["code"].toString()),
-                     issue["mod_id"].toString(), issue["target_id"].toString(), range,
-                     issue["reason"].toString()}
+  const auto source = issue["mod_id"].toString();
+  const auto target = issue["target_id"].toString();
+  const auto names = source == target ? source : source + " → " + target;
+  return QStringList{
+      labels.value(issue["code"].toString(), issue["code"].toString()), names,
+      range.isEmpty() ? QString{} : QCoreApplication::translate("Bugg", "要求 %1").arg(range),
+      issue["found"].isString()
+          ? QCoreApplication::translate("Bugg", "当前 %1").arg(issue["found"].toString())
+          : QString{},
+      issue["reason"].toString()}
       .filter(QRegularExpression(".+"))
       .join(" · ");
 }
@@ -101,7 +111,41 @@ QJsonObject GameOperations::check_dependencies(const QString& directory, const Q
                           {"loader_version", descriptor.value("loaderVersion").toString()}};
   const auto java = metadata["javaVersion"].toObject()["majorVersion"].toInt();
   if (java > 0) environment["java"] = QString::number(java);
+  for (const auto& value : metadata["libraries"].toArray()) {
+    const auto name = value.toObject()["name"].toString();
+    if (name.startsWith("net.minecraftforge:JarJarSelector:"))
+      environment["jarjar_version"] = name.section(':', 2, 2);
+  }
+  if (environment["loader"] == "quilt") {
+    const auto coordinate = "org.quiltmc:quilt-loader:" + environment["loader_version"].toString();
+    for (const auto& entry : metadata["libraries"].toArray()) {
+      const auto library = entry.toObject();
+      if (library["name"] != coordinate) continue;
+      const auto artifact = library["downloads"].toObject()["artifact"].toObject();
+      const auto path =
+          safe_path(root_, "libraries/" + artifact["path"].toString(maven_path(coordinate)));
+      if (!QFileInfo::exists(path)) continue;
+      const auto document =
+          QJsonDocument::fromJson(archive_read(path, "quilt.mod.json", 1024 * 1024, cancelled_))
+              .object();
+      const auto loader = document["quilt_loader"].toObject();
+      if (loader["id"] != "quilt_loader" || loader["version"] != environment["loader_version"])
+        continue;
+      for (const auto& provided : loader["provides"].toArray()) {
+        const auto mod = provided.toObject();
+        if (mod["id"] == "fabricloader" && mod["version"].isString())
+          environment["fabric_loader_version"] = mod["version"];
+      }
+    }
+  }
   QJsonObject input{{"environment", environment}, {"artifacts", facts.collect(paths)}};
+  int minimum_java = metadata["javaVersion"].toObject()["majorVersion"].toInt(8);
+  for (const auto& artifact : input["artifacts"].toArray())
+    minimum_java =
+        qMax(minimum_java, artifact.toObject()["facts"].toObject()["java_major"].toInt());
+  environment["java"] =
+      QString::number(select_java(metadata, input["artifacts"].toArray(), minimum_java));
+  input["environment"] = environment;
   auto checked = evaluate(input);
   const auto fingerprint = combination_fingerprint(input, checked);
   QJsonObject receipt{{"schema", "bugg-dependency-decision-v1"},
@@ -114,14 +158,49 @@ QJsonObject GameOperations::check_dependencies(const QString& directory, const Q
     receipt["choice"] = "satisfied_declared";
     return receipt;
   }
-  QStringList messages;
-  for (const auto& issue : checked["issues"].toArray())
-    messages.append(issue_text(issue.toObject()));
+  const auto all_issues = checked["issues"].toArray();
+  const auto errors = std::count_if(
+      all_issues.begin(), all_issues.end(),
+      [](const QJsonValue& value) { return value.toObject()["severity"] != "warning"; });
+  if (!errors) {
+    receipt["choice"] = "partial_declared";
+    report(-1,
+           QCoreApplication::translate("Bugg", "依赖检查完成，%1 项声明待核验（详见日志）")
+               .arg(all_issues.size()),
+           true);
+    return receipt;
+  }
+  QVariantList details;
+  QMap<QString, QString> filenames;
+  for (const auto& value : input["artifacts"].toArray()) {
+    const auto artifact = value.toObject();
+    filenames[artifact["sha256"].toString()] = QFileInfo(artifact["path"].toString()).fileName();
+  }
+  for (const auto& value : all_issues) {
+    const auto issue = value.toObject();
+    if (issue["severity"] == "warning") continue;
+    const auto text = issue_text(issue);
+    const auto file = filenames.value(issue["artifact"].toString());
+    const auto provider = filenames.value(issue["provider_artifact"].toString());
+    QStringList files{file, provider};
+    for (const auto& value : issue["providers"].toArray()) {
+      const auto owner = value.toObject();
+      const auto name = filenames.value(owner["artifact"].toString());
+      if (!name.isEmpty()) files.append(name + " · " + owner["version"].toString());
+    }
+    files = files.filter(QRegularExpression(".+"));
+    files.removeDuplicates();
+    details.append(QVariantMap{
+        {"id", issue["id"].toString()}, {"title", text}, {"caption", files.join("\n")}});
+  }
   auto decision =
       QVariantMap{{"fingerprint", fingerprint},
                   {"intent", intent},
                   {"issues", checked["issues"].toArray().toVariantList()},
-                  {"summary", messages.mid(0, 20).join('\n')},
+                  {"summary", QCoreApplication::translate("Bugg", "%1 项依赖冲突，%2 项声明待核验")
+                                  .arg(errors)
+                                  .arg(all_issues.size() - errors)},
+                  {"details", details},
                   {"canRepair", intent != "room_manifest" && bool(dependency_request_)}};
   const bool confirmed =
       dependency_context_.value("dependencyFingerprint").toString() == fingerprint;
@@ -134,7 +213,8 @@ QJsonObject GameOperations::check_dependencies(const QString& directory, const Q
     return receipt;
   }
   const auto issues = checked["issues"].toArray();
-  const bool automatic = choice.isEmpty() && intent == "requested_content" &&
+  const bool automatic = dependency_context_.value("autoDependencies", true).toBool() &&
+                         choice.isEmpty() && intent == "requested_content" &&
                          std::all_of(issues.begin(), issues.end(), [](const QJsonValue& value) {
                            return value.toObject()["code"] == "missing_dependency";
                          });
@@ -309,6 +389,7 @@ QJsonObject GameOperations::check_dependencies(const QString& directory, const Q
   }
   const auto solution = evaluate(input, true);
   if (solution["state"] != "resolved_declared") {
+    decision["canRepair"] = false;
     decision["repairError"] =
         QCoreApplication::translate(
             "Bugg", "暂未找到可完整核验的组合。已保留原文件，可继续保留原版本或取消。") +

@@ -33,7 +33,7 @@ PageLayout {
         model: root.instances.map((item, index) => ({
                     item: item,
                     originalIndex: index
-                })).filter(entry => (entry.item.name + " " + entry.item.version + " " + entry.item.loader).toLowerCase().includes(root.queryText.trim().toLowerCase()))
+                })).filter(entry => (entry.item.name + " " + entry.item.version + " " + entry.item.loader).toLowerCase().includes(root.queryText.trim().toLowerCase())).sort((a, b) => Number(b.originalIndex === root.selectedIndex) - Number(a.originalIndex === root.selectedIndex) || a.originalIndex - b.originalIndex)
         delegate: SwipeListRow {
             required property var modelData
             required property int index

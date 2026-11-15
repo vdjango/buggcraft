@@ -13,7 +13,7 @@ CreateRoomPage 1.0 CreateRoomPage.qml
 DeleteInstancePage 1.0 DeleteInstancePage.qml
 DeviceAuthPage 1.0 DeviceAuthPage.qml
 DownloadsPage 1.0 DownloadsPage.qml
-FeedbackPage 1.0 FeedbackPage.qml
+FeedbackDialog 1.0 FeedbackDialog.qml
 FriendsPage 1.0 FriendsPage.qml
 FriendActions 1.0 FriendActions.qml
 GameIdentityPage 1.0 GameIdentityPage.qml

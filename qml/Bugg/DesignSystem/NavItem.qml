@@ -10,11 +10,15 @@ AbstractButton {
     implicitWidth: 55
     implicitHeight: 34
     hoverEnabled: true
+    activeFocusOnTab: true
     Accessible.role: Accessible.Button
     Accessible.name: text
     background: InteractiveSurface {
         control: root
         selected: root.selected && root.drawSelection
+        restingColor: "transparent"
+        border.width: root.visualFocus ? 1 : 0
+        border.color: DesignTokens.accent
     }
     contentItem: Item {
         AppIcon {

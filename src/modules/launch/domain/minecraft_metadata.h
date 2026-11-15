@@ -5,6 +5,7 @@
 #include <QVariantMap>
 
 #include "contracts/game_runtime.h"
+#include "platform/files/game_files.h"
 
 namespace bugg {
 QString minecraft_os();
@@ -14,9 +15,12 @@ QVariantMap instance_descriptor(const QJsonObject& metadata);
 bool rules_allow(const QJsonArray& rules, const QVariantMap& features = {});
 QJsonObject merge_metadata(const QJsonObject& parent, const QJsonObject& child);
 QJsonArray effective_libraries(const QJsonArray& libraries);
-QStringList unique_classpath(const QStringList& paths);
+/// Worker-only: canonical paths, then SHA-256 for same-size files; distinct
+/// contents are preserved. Cancellation/read errors throw, no file is modified.
+QStringList unique_classpath(const QStringList& paths, const Cancellation& cancelled = {});
 /// 最后一步语义归一化；分别处理 JVM/game 参数，不能对整个 token 数组去重。
-QStringList normalize_arguments(const QStringList& arguments, bool jvm);
+QStringList normalize_arguments(const QStringList& arguments, bool jvm,
+                                const Cancellation& cancelled = {});
 struct LaunchCommand {
   QString java;
   QStringList arguments;
@@ -27,6 +31,7 @@ struct LaunchCommand {
 LaunchCommand build_launch_command(const QJsonObject& metadata, const QString& root,
                                    const QString& instance_id, const QString& java, int memory_mb,
                                    const GameIdentity& identity,
-                                   const QVariantMap& contributions = {});
+                                   const QVariantMap& contributions = {},
+                                   const Cancellation& cancelled = {});
 }  // namespace bugg
 #endif

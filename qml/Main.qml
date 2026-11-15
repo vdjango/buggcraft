@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import Bugg.DesignSystem
 import Bugg.Pages
 import Bugg.Shell
@@ -30,7 +31,9 @@ ApplicationWindow {
     property int pendingTool: -1
     property int selectedInstance: 0
     property bool restoredPreferences: false
+    property string previousLaunchState: "idle"
     readonly property bool initializing: applicationLifecycle ? applicationLifecycle.phase !== "ready" : false
+    readonly property bool consentPending: !!applicationLifecycle && applicationLifecycle.phase === "awaiting_consent"
     property real contentReveal: 1
     property string noticeText: ""
     readonly property bool floating: presentation.theme === "panel"
@@ -49,13 +52,17 @@ ApplicationWindow {
         const saved = gameRuntime ? gameRuntime.preferences.selectedInstance : "";
         const restored = instances.findIndex(item => item.id === saved);
         selectedInstance = restored >= 0 ? restored : Math.max(0, Math.min(selectedInstance, instances.length - 1));
-        if (languageService)
+        if (languageService && !initializing)
             languageService.set_game_codes((instances[selectedInstance] || {}).languages || []);
     }
     onSelectedInstanceChanged: {
         if (gameRuntime && restoredPreferences && instances[selectedInstance])
             gameRuntime.set_preference("selectedInstance", instances[selectedInstance].id);
-        if (languageService)
+        if (languageService && !initializing)
+            languageService.set_game_codes((instances[selectedInstance] || {}).languages || []);
+    }
+    onInitializingChanged: {
+        if (!initializing && languageService)
             languageService.set_game_codes((instances[selectedInstance] || {}).languages || []);
     }
 
@@ -81,6 +88,63 @@ ApplicationWindow {
         noticeTimer.restart();
     }
 
+    ChoiceDialog {
+        id: agreementDialog
+        objectName: "firstRunAgreement"
+        visible: !!window.applicationLifecycle && window.applicationLifecycle.phase === "awaiting_consent"
+        title: qsTr("使用前请阅读")
+        requireReading: true
+        message: qsTr("Bugg 使用约定 · 2026-11-14\n\nBugg 是开源、免费、由志愿者维护的游戏启动器。请尊重项目许可证，也请善待维护者。\n\n请使用合法取得的游戏与资源，并遵守游戏、模组及服务器各自的协议。第三方服务器的充值、交易、内容和运营由相应提供者负责；Bugg 无法控制，也不参与这些交易。请自行核实并谨慎消费。\n\n游戏、模组、加载器和光影由不同作者维护。兼容信息和其他玩家的反馈仅供参考，不能保证每种组合正常运行。请备份重要存档。我们会在能力范围内修复问题，不作不切实际的可用性保证；本约定不排除法律规定不得免除的责任。\n\n本版本仅面向已满 18 周岁的用户。未满 18 周岁请选择拒绝，并与监护人沟通后选择适合的产品。请合理安排游戏时间。\n\n联网功能会向所使用的资源服务发送必要的下载请求；登录与联机会向相应服务发送必要的账号和连接信息。长期凭据保存在本机受保护的存储中。问题反馈必须由您主动提交，提交前会说明诊断范围；不会自动上传存档、模组文件或账号凭据。\n\n您可以随时退出并停止使用。拒绝会关闭启动器，不启动登录和联网服务。继续表示您已阅读上述约定，并确认已满 18 周岁。")
+        options: [
+            {
+                id: "reject",
+                name: qsTr("拒绝并退出")
+            },
+            {
+                id: "accept",
+                name: agreementDialog.readComplete ? qsTr("我已满 18 周岁，阅读并同意") : qsTr("请先阅读至底部"),
+                variant: "primary",
+                enabled: agreementDialog.readComplete
+            }
+        ]
+        onChosen: value => {
+            if (value === "accept")
+                window.applicationLifecycle.accept_agreement();
+            else
+                window.applicationLifecycle.shutdown();
+        }
+    }
+
+    ChoiceDialog {
+        objectName: "shaderFeedbackDialog"
+        readonly property var feedback: window.gameRuntime ? window.gameRuntime.shader_feedback : ({})
+        visible: !!feedback.token && window.presented
+        busy: !!feedback.busy
+        title: qsTr("刚安装的光影能正常使用吗？")
+        message: (feedback.name || "") + "\n" + qsTr("光影默认未启用。请在游戏内启用后再判断；游戏进程退出不代表光影正常。您的选择会帮助其他用户判断这个组合。反馈仅包含匿名安装标识和版本文件组合。")
+        errorText: feedback.error || ""
+        options: [
+            {
+                id: "working",
+                name: qsTr("已启用，光影正常"),
+                variant: "primary"
+            },
+            {
+                id: "startup_failed",
+                name: qsTr("游戏启动失败")
+            },
+            {
+                id: "shader_failed",
+                name: qsTr("能启动，光影异常 / 贴图错误")
+            },
+            {
+                id: "",
+                name: qsTr("尚未测试 / 稍后反馈")
+            }
+        ]
+        onChosen: value => window.gameRuntime.answer_shader_feedback(feedback.token, value)
+    }
+
     DropArea {
         anchors.fill: parent
         onDropped: drop => {
@@ -101,7 +165,7 @@ ApplicationWindow {
     visible: true
     title: "Bugg"
     color: "transparent"
-    flags: (floating && presentation.trayAvailable ? Qt.Tool : Qt.Window) | Qt.FramelessWindowHint | (floating ? Qt.WindowStaysOnTopHint : 0)
+    flags: ((floating || edgeDock.folded || presentation.collapsed) && presentation.trayAvailable ? Qt.Tool : Qt.Window) | Qt.FramelessWindowHint | ((floating || edgeDock.folded || presentation.collapsed) ? Qt.WindowStaysOnTopHint : 0)
     font.family: DesignTokens.fontFamily
     palette.highlight: DesignTokens.accent
     palette.windowText: DesignTokens.text
@@ -155,6 +219,7 @@ ApplicationWindow {
         service: window.contentService
         active: window.presented && (deck.route === "catalog" || deck.route === "content" || (!deck.route.length && deck.toolIndex === 1))
         detail_view: deck.route === "content"
+        auto_dependencies: !window.gameRuntime || window.gameRuntime.preferences.autoDependencies !== false
         translation_enabled: !window.gameRuntime || window.gameRuntime.preferences.contentTranslation !== false
     }
     LaunchSession {
@@ -182,19 +247,24 @@ ApplicationWindow {
         function onInitialized(error) {
             const prefs = window.gameRuntime.preferences;
             identity.restore_state(prefs.identity || {});
-            window.restoredPreferences = true;
             presentation.selectTheme(prefs.theme || "small");
-            if (prefs.startCollapsed)
-                presentation.collapseToEdge();
+            window.restoredPreferences = true;
         }
-        function onStatus_changed() {
-            if (window.gameRuntime.launch_status.state === "running" && window.gameRuntime.preferences.afterLaunch === "collapse")
-                presentation.collapseToEdge();
+        function onLaunch_changed(status) {
+            const state = window.gameRuntime.launch_status.state;
+            const wasRunning = window.previousLaunchState === "running";
+            window.previousLaunchState = state;
+            if (state === "running" && !wasRunning)
+                presentation.applyAfterLaunch(window.gameRuntime.preferences.afterLaunch, !!(window.multiplayerService && ((window.multiplayerService.status.room || {}).id || (window.multiplayerService.status.room || {}).session)));
+            else if (wasRunning && state !== "stopping")
+                presentation.restoreAfterGame();
+            else if (window.previousLaunchState !== "running" && presentation.gameRunning && ["idle", "failed", "exited"].includes(state))
+                presentation.restoreAfterGame();
         }
     }
 
     Behavior on height {
-        enabled: !presentation.switching && !edgeDock.compact
+        enabled: window.restoredPreferences && !window.consentPending && !presentation.switching && !edgeDock.compact
         NumberAnimation {
             duration: 360
             easing.type: Easing.OutQuint
@@ -214,11 +284,32 @@ ApplicationWindow {
     Binding {
         target: DesignTokens
         property: "scenic"
-        value: floatingShell.immersiveHome
+        value: floatingShell.immersiveHome && !window.consentPending
+    }
+    Binding {
+        target: DesignTokens
+        property: "sceneSurfaceOpacity"
+        value: window.gameRuntime && window.gameRuntime.preferences.surfaceOpacity !== undefined ? window.gameRuntime.preferences.surfaceOpacity : 0.18
+    }
+    Binding {
+        target: DesignTokens
+        property: "pageBackdrop"
+        value: !!floatingShell && floatingShell.backgroundOnPages && !floatingShell.immersiveHome && !presentation.collapsed
+    }
+    Binding {
+        target: DesignTokens
+        property: "pageSurfaceOpacity"
+        value: window.gameRuntime && window.gameRuntime.preferences.pageOverlayOpacity !== undefined ? window.gameRuntime.preferences.pageOverlayOpacity : 0.10
+    }
+    Binding {
+        target: DesignTokens
+        property: "pageTextColor"
+        value: window.gameRuntime && window.gameRuntime.preferences.pageTextColor !== undefined ? window.gameRuntime.preferences.pageTextColor : "light"
     }
     WindowController {
         // Both layouts use the same controls; only the page density changes.
         id: presentation
+        animationsEnabled: window.restoredPreferences || !window.gameRuntime
         objectName: "windowController"
         desktopEnvironment: window.desktopEnvironment
         showOverlayInFullscreen: window.gameRuntime ? !!window.gameRuntime.preferences.showOverlayInFullscreen : false
@@ -241,10 +332,19 @@ ApplicationWindow {
         targetWindow: window
         desktopEnvironment: window.desktopEnvironment
         expandedWidth: 410 + (Math.min(presentation.pageWidth, workArea.width > 0 ? workArea.width - 16 : presentation.pageWidth) - 410) * presentation.layoutProgress
-        expandedHeight: floatingShell.requestedHeight
+        expandedHeight: window.consentPending ? Math.min(floatingShell.pageExtent, workArea.height > 0 ? workArea.height - 16 : floatingShell.pageExtent) : DesignTokens.modalCount > 0 ? Math.max(floatingShell.requestedHeight, Math.min(520, workArea.height > 0 ? workArea.height - 16 : 520)) : floatingShell.requestedHeight
     }
     FloatingShell {
         id: floatingShell
+        layer.enabled: DesignTokens.modalCount > 0 && GraphicsInfo.api !== GraphicsInfo.Software
+        layer.effect: MultiEffect {
+            blurEnabled: true
+            blur: 0.7
+            blurMax: 24
+            autoPaddingEnabled: false
+            maskEnabled: true
+            maskSource: modalBackdropMask
+        }
         anchors.fill: parent
         dock: edgeDock
         pageMode: presentation.layoutProgress
@@ -254,7 +354,7 @@ ApplicationWindow {
         contentMaximumWidth: deck.contentMaximumWidth
         fixedViewport: deck.fixedViewport
         contentReveal: presentation.collapsed ? 0 : window.contentReveal
-        notice: noticeTimer.running ? window.noticeText : ""
+        notice: noticeTimer.running ? window.noticeText : launch.status.memoryNotice || ""
         title: deck.pageTitle
         caption: deck.pageCaption
         captionColor: deck.route === "room" ? (deck.roomStatus.availability === "ready" ? DesignTokens.success : DesignTokens.warning) : DesignTokens.muted
@@ -266,7 +366,11 @@ ApplicationWindow {
         showPageHeader: deck.showPageHeader
         backdropAllowed: !presentation.collapsed
         backgrounds: window.gameRuntime ? window.gameRuntime.preferences.backgrounds || [] : uiState.values["appearance.backgrounds"] || []
-        backgroundActive: window.visible && window.visibility !== Window.Minimized
+        backgroundActive: window.visible && window.visibility !== Window.Minimized && launch.status.state !== "running"
+        backgroundEffects: window.gameRuntime ? window.gameRuntime.preferences : ({})
+        backgroundOnPages: window.gameRuntime ? window.gameRuntime.preferences.backgroundOnPages === true : false
+        backgroundPageOverlayOpacity: window.gameRuntime && window.gameRuntime.preferences.pageOverlayOpacity !== undefined ? window.gameRuntime.preferences.pageOverlayOpacity : 0.10
+        backgroundSoundEnabled: window.gameRuntime ? window.gameRuntime.preferences.backgroundSoundEnabled === true : false
         activity: window.gameRuntime ? window.gameRuntime.activity : ({
                 active: launch.status.state === "preparing",
                 progress: launch.status.progress || -1
@@ -285,18 +389,38 @@ ApplicationWindow {
         }
         onBackRequested: deck.goBack()
         onHomeRequested: deck.goHome()
+        onExpandRequested: {
+            presentation.selectTheme(presentation.theme);
+            window.raise();
+            window.requestActivate();
+        }
         onCollapseRequested: {
             presentation.collapseToEdge(Qt.TopEdge);
         }
         onCloseRequested: {
             if (deck.route === "room" && window.multiplayerService)
-                window.multiplayerService.leave_room();
+                deck.requestLeaveRoom();
             else
                 window.close();
         }
+        onBackgroundSoundToggled: enabled => {
+            if (window.gameRuntime)
+                window.gameRuntime.set_preference("backgroundSoundEnabled", enabled);
+        }
+    }
+    RoundedMask {
+        id: modalBackdropMask
+        width: floatingShell.width
+        height: floatingShell.height
+        radius: 19 - floatingShell.pageMode * 7
     }
     ToolDeck {
         id: deck
+        onEnlargeLogsRequested: {
+            logsWindow.show();
+            logsWindow.raise();
+            logsWindow.requestActivate();
+        }
         objectName: "toolContent"
         parent: floatingShell.contentHost
         width: parent.width
@@ -374,8 +498,10 @@ ApplicationWindow {
         }
         onDraftEdited: (key, value) => {
             uiState.set_value(key, value);
-            if (key === "appearance.backgrounds" && window.gameRuntime)
+            if (key === "appearance.backgrounds" && window.gameRuntime) {
+                window.gameRuntime.set_preference("backgroundDirectory", "");
                 window.gameRuntime.set_preference("backgrounds", value);
+            }
         }
         onMicrosoftAuthRequested: {
             if (window.identitySession && !deck.identityLocked)
@@ -397,6 +523,24 @@ ApplicationWindow {
         onNavigateRequested: index => window.navigate(index)
         onThemeRequested: theme => presentation.selectTheme(theme)
         onNoticeRequested: message => window.notify(message)
+    }
+    Window {
+        id: logsWindow
+        objectName: "diagnosticLogWindow"
+        title: qsTr("Bugg · 日志与诊断")
+        width: 960
+        height: 720
+        minimumWidth: 410
+        minimumHeight: 430
+        transientParent: window
+        color: DesignTokens.surface
+        LogsPage {
+            anchors.fill: parent
+            viewportHeight: parent.height
+            enlarged: true
+            runtime: window.gameRuntime
+            service: window.multiplayerService
+        }
     }
     SequentialAnimation {
         id: toolSwitch

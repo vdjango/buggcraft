@@ -22,6 +22,12 @@ int main() {
         "arbitrary precision decimal components");
   check(matches_maven("1.11.7+mc26.3", "(,1.12.1)") == true, "actual sodium exclusion");
   check(matches_maven("26.3.0.101", "[26.1.2.10-beta,)") == true, "actual loader requirement");
+  check(matches_maven("60.0.4.0.1.101", "[60.0.4,]") == true,
+        "all numeric components retained for open upper bound");
+  check(matches_maven("60.0.4.0.1.101", "[60.0.4]") == false,
+        "extended version is not an exact equality");
+  check(matches_maven("60.0.4.0.1.101", "[60.0.4,60.0.5)") == true,
+        "extended version remains below next component");
   check(matches_maven("2", "[1,2)") == false, "exclusive upper boundary");
   check(matches_maven("1", "[1,2)") == true, "inclusive lower boundary");
   check(matches_maven("1.1", "(,1],[1.2,)") == false, "union gap");

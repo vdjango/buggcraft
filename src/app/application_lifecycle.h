@@ -32,6 +32,9 @@ class ApplicationLifecycle : public QObject {
   void before_mount();
   /// 首帧后幂等一次，后台初始化账号/运行时；各所有者完成后 ready。
   Q_INVOKABLE void mounted();
+  /// GUI explicit consent; persists the current agreement revision before starting
+  /// identity/network owners. Ignored outside awaiting_consent; shutdown drains saves.
+  Q_INVOKABLE void accept_agreement();
   /// GUI 输入路由/主题/工具键，hook 携带旧/新上下文；相同键无操作。
   Q_INVOKABLE void update_view(const QString& key);
   /// GUI 视图激活/失活；只改变呈现寿命，不取消业务。
@@ -47,6 +50,7 @@ class ApplicationLifecycle : public QObject {
  private:
   void notify(const QString& name, const QVariantMap& context = {});
   void complete(const QString& owner, const QString& error);
+  void initialize_services();
   void drain();
   GameRuntime* runtime_;
   MultiplayerService* multiplayer_ = nullptr;

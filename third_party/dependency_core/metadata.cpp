@@ -60,7 +60,8 @@ std::map<std::string, std::string> manifest_attributes(const std::string& text) 
 std::string metadata_json(std::string_view raw) {
   if (raw.size() > 8 * 1024 * 1024) throw std::invalid_argument("metadata_budget");
   const auto input = strict_json(std::string(raw));
-  Json mods = Json::array(), issues = Json::array(), nested = Json::array();
+  Json mods = Json::array(), issues = Json::array(), nested = Json::array(),
+       bundled = Json::array();
   const auto& members = input.at("members");
   const auto container = input.value("container_path", "root");
   const auto attributes = manifest_attributes(members.value("META-INF/MANIFEST.MF", ""));
@@ -124,11 +125,17 @@ std::string metadata_json(std::string_view raw) {
             document.value("dependencies", Json::object()).value(identifier, Json::array());
         std::size_t index = 0;
         for (const auto& row : rows) {
-          const auto relation =
-              row.contains("type") ? id(row.at("type"))
-              : row.contains("mandatory") && row.at("mandatory").is_boolean()
-                  ? row.at("mandatory").get<bool>() ? "required" : "optional"
-                  : throw std::invalid_argument("missing_dependency_requirement_type");
+          auto relation = row.contains("type") ? id(row.at("type"))
+                          : row.contains("mandatory") && row.at("mandatory").is_boolean()
+                              ? row.at("mandatory").get<bool>() ? "required" : "optional"
+                          : path == "META-INF/neoforge.mods.toml" && !row.contains("mandatory")
+                              ? "required"
+                              : throw std::invalid_argument("missing_dependency_requirement_type");
+          // NeoForge resolves DependencyType without case sensitivity. Preserve
+          // the original row as evidence and normalize only the interpreted type.
+          std::transform(relation.begin(), relation.end(), relation.begin(), [](unsigned char c) {
+            return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+          });
           if (relation != "required" && relation != "optional" && relation != "incompatible" &&
               relation != "discouraged")
             throw std::invalid_argument("unknown_neoforge_dependency_type");
@@ -136,6 +143,16 @@ std::string metadata_json(std::string_view raw) {
               id(row.at("modId")), relation, row.value("versionRange", Json()),
               row.value("side", Json()), row.value("ordering", Json()),
               path + "#/dependencies/" + identifier + "/" + std::to_string(index++), row));
+        }
+        const auto features =
+            document.value("features", Json::object()).value(identifier, Json::object());
+        if (!features.is_object()) throw std::invalid_argument("invalid_toml_features");
+        if (features.contains("javaVersion")) {
+          if (!features.at("javaVersion").is_string())
+            throw std::invalid_argument("invalid_java_version_feature");
+          dependencies.push_back(
+              dependency("java", "required", features.at("javaVersion"), nullptr, nullptr,
+                         path + "#/features/" + identifier + "/javaVersion", features));
         }
         const auto version = mod.value("version", Json());
         auto resolved = version;
@@ -164,10 +181,23 @@ std::string metadata_json(std::string_view raw) {
              {"dependencies", dependencies},
              {"raw", mod}});
       }
+      const auto declarations = document.value("dependencies", Json::object());
+      for (auto owner = declarations.begin(); owner != declarations.end(); ++owner)
+        if (!identifiers.contains(owner.key()))
+          issues.push_back({{"code", "orphan_dependency_owner"},
+                            {"path", container + "!/" + path},
+                            {"detail", owner.key()}});
     } else if (path == "META-INF/jarjar/metadata.json") {
       const auto document = strict_json(entry->get<std::string>());
-      for (const auto& jar : document.value("jars", Json::array()))
+      for (const auto& jar : document.value("jars", Json::array())) {
         nested.push_back(id(jar.at("path")));
+        bundled.push_back({{"container_path", container},
+                           {"path", id(jar.at("path"))},
+                           {"group", id(jar.at("identifier").at("group"))},
+                           {"artifact", id(jar.at("identifier").at("artifact"))},
+                           {"version", id(jar.at("version").at("artifactVersion"))},
+                           {"range", id(jar.at("version").at("range"))}});
+      }
     } else if (path == "quilt.mod.json" || path == "mcmod.info") {
       issues.push_back({{"code", "unsupported_metadata_format"}, {"path", path}, {"detail", ""}});
     }
@@ -178,6 +208,7 @@ std::string metadata_json(std::string_view raw) {
   return Json{{"mods", mods},
               {"issues", issues},
               {"nested", nested},
+              {"nested_artifacts", bundled},
               {"status", mods.empty() ? "unsupported" : "complete_declared"}}
       .dump();
 }

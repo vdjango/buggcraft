@@ -65,14 +65,19 @@ QVariantMap instance_descriptor(const QJsonObject& metadata) {
   // Some complete Forge client profiles omit the aggregate forge coordinate.
   // Their explicit FML arguments still identify the game and loader versions.
   const auto game_arguments = metadata["arguments"].toObject()["game"].toArray();
-  QString fml_game, fml_forge;
+  QString fml_game, fml_forge, fml_neo;
   for (int i = 0; i + 1 < game_arguments.size(); ++i) {
     if (game_arguments[i] == "--fml.mcVersion") fml_game = game_arguments[i + 1].toString();
     if (game_arguments[i] == "--fml.forgeVersion") fml_forge = game_arguments[i + 1].toString();
+    if (game_arguments[i] == "--fml.neoForgeVersion") fml_neo = game_arguments[i + 1].toString();
   }
   if (!fml_forge.isEmpty() && loader == "vanilla") {
     loader = "forge";
     loader_version = fml_forge;
+  }
+  if (!fml_neo.isEmpty() && (loader == "vanilla" || loader == "forge")) {
+    loader = "neoforge";
+    loader_version = fml_neo;
   }
   if (!own.contains("version") && !fml_game.isEmpty()) version = fml_game;
   const QMap<QString, QString> names{{"vanilla", "Minecraft"},
@@ -149,10 +154,12 @@ QJsonArray effective_libraries(const QJsonArray& libraries) {
   }
   return result;
 }
-QStringList unique_classpath(const QStringList& paths) {
+QStringList unique_classpath(const QStringList& paths, const Cancellation& cancelled) {
   QStringList result;
   QSet<QString> seen;
+  QHash<qint64, QStringList> sizes;
   for (const auto& path : paths) {
+    check_cancelled(cancelled);
     const QFileInfo info(path);
     auto key = info.exists() ? info.canonicalFilePath() : info.absoluteFilePath();
 #ifdef Q_OS_WIN
@@ -162,11 +169,24 @@ QStringList unique_classpath(const QStringList& paths) {
       seen.insert(key);
       result.append(QDir::fromNativeSeparators(info.exists() ? info.canonicalFilePath()
                                                              : info.absoluteFilePath()));
+      if (info.isFile()) sizes[info.size()].append(result.last());
     }
   }
+  QSet<QString> duplicates;
+  for (const auto& candidates : sizes) {
+    if (candidates.size() < 2) continue;
+    QSet<QByteArray> hashes;
+    for (const auto& path : candidates) {
+      const auto hash = file_digest(path, "sha256", cancelled);
+      if (hashes.contains(hash)) duplicates.insert(path);
+      hashes.insert(hash);
+    }
+  }
+  result.removeIf([&](const QString& path) { return duplicates.contains(path); });
   return result;
 }
-QStringList normalize_arguments(const QStringList& arguments, bool jvm) {
+QStringList normalize_arguments(const QStringList& arguments, bool jvm,
+                                const Cancellation& cancelled) {
   QList<QStringList> units;
   QStringList keys;
   QHash<QString, int> last;
@@ -174,27 +194,42 @@ QStringList normalize_arguments(const QStringList& arguments, bool jvm) {
                                "--module-path", "--add-opens",   "--add-exports", "--add-modules",
                                "--add-reads",   "--patch-module"};
   for (int i = 0; i < arguments.size(); ++i) {
-    const auto argument = arguments[i];
+    check_cancelled(cancelled);
+    auto argument = arguments[i];
     QStringList unit{argument};
     QString key;
+    const auto option = argument.section('=', 0, 0);
+    if (jvm && pairs.contains(option) && argument.contains('=')) {
+      unit = {option, argument.mid(option.size() + 1)};
+      argument = option;
+    }
     const bool paired = (jvm ? pairs.contains(argument) : argument.startsWith("--")) &&
-                        !argument.contains('=') && i + 1 < arguments.size() &&
+                        unit.size() == 1 && !argument.contains('=') && i + 1 < arguments.size() &&
                         !arguments[i + 1].startsWith("--");
     if (paired) unit.append(arguments[++i]);
     if (jvm && (argument.startsWith("-Xmx") || argument.startsWith("-Xms")))
       key = argument.left(4);
     else if (jvm && argument.startsWith("-D"))
       key = argument.section('=', 0, 0);
-    else if (jvm && (argument == "-cp" || argument == "-classpath" || argument == "--class-path")) {
-      key = "classpath";
-      if (unit.size() == 2)
-        unit[1] = unique_classpath(unit[1].split(QDir::listSeparator(), Qt::SkipEmptyParts))
-                      .join(QDir::listSeparator());
+    else if (jvm && argument.startsWith("-XX:")) {
+      key = argument.mid(4).section('=', 0, 0);
+      if (key.startsWith('+') || key.startsWith('-')) key.remove(0, 1);
+      key.prepend("-XX:");
+    } else if (jvm &&
+               (argument == "-cp" || argument == "-classpath" || argument == "--class-path" ||
+                argument == "-p" || argument == "--module-path")) {
+      key = argument == "-p" || argument == "--module-path" ? "modulepath" : "classpath";
+      if (unit.size() == 2) {
+        auto paths = unit[1].split(QDir::listSeparator(), Qt::SkipEmptyParts);
+        if (last.contains(key))
+          paths = units[last[key]][1].split(QDir::listSeparator(), Qt::SkipEmptyParts) + paths;
+        unit = {key == "modulepath" ? "-p" : "-cp", paths.join(QDir::listSeparator())};
+      }
     } else if (!jvm && argument == "--tweakClass")
       key = unit.join(QChar(0x1f));
     else if (!jvm && argument.startsWith("--"))
       key = argument.section('=', 0, 0);
-    else if (jvm && argument.startsWith("--add-") || (jvm && argument.startsWith("--patch-module")))
+    else if (jvm && (argument.startsWith("--add-") || argument == "--patch-module"))
       key = unit.join(QChar(0x1f));
     // 未知 JVM 项只合并完全相同项；不单独去重参数值。
     else if (jvm && argument.startsWith('-'))
@@ -205,28 +240,30 @@ QStringList normalize_arguments(const QStringList& arguments, bool jvm) {
   }
   QStringList result;
   for (int i = 0; i < units.size(); ++i)
-    if (keys[i].isEmpty() || last[keys[i]] == i) result.append(units[i]);
-  if (jvm && result.contains("ALL-MODULE-PATH")) {
+    if (keys[i].isEmpty() || last[keys[i]] == i) {
+      auto unit = units[i];
+      if ((keys[i] == "classpath" || keys[i] == "modulepath") && unit.size() == 2)
+        unit[1] =
+            unique_classpath(unit[1].split(QDir::listSeparator(), Qt::SkipEmptyParts), cancelled)
+                .join(QDir::listSeparator());
+      result.append(unit);
+    }
+  if (jvm && std::any_of(result.cbegin(), result.cend(), [](const QString& value) {
+        return value.split(',').contains("ALL-MODULE-PATH");
+      })) {
     // Java exposes a resolved module's resources separately from -cp. The
     // same physical ASM JAR in both paths becomes file:/// and file:/ URLs;
     // Fabric's bootstrap correctly rejects the resulting duplicate classes.
     QStringList modules;
     for (int i = 0; i + 1 < result.size(); ++i)
       if (result[i] == "-p" || result[i] == "--module-path")
-        modules.append(
-            unique_classpath(result[i + 1].split(QDir::listSeparator(), Qt::SkipEmptyParts)));
+        modules.append(unique_classpath(
+            result[i + 1].split(QDir::listSeparator(), Qt::SkipEmptyParts), cancelled));
     for (int i = 0; i + 1 < result.size(); ++i) {
       if (result[i] != "-cp" && result[i] != "-classpath" && result[i] != "--class-path") continue;
-      auto paths = unique_classpath(result[i + 1].split(QDir::listSeparator(), Qt::SkipEmptyParts));
-      paths.removeIf([&](const QString& path) {
-        return std::any_of(modules.begin(), modules.end(), [&](const QString& module) {
-#ifdef Q_OS_WIN
-          return path.compare(module, Qt::CaseInsensitive) == 0;
-#else
-          return path == module;
-#endif
-        });
-      });
+      auto paths = unique_classpath(
+          modules + result[i + 1].split(QDir::listSeparator(), Qt::SkipEmptyParts), cancelled);
+      for (const auto& module : modules) paths.removeAll(module);
       result[i + 1] = paths.join(QDir::listSeparator());
     }
   }
@@ -234,7 +271,8 @@ QStringList normalize_arguments(const QStringList& arguments, bool jvm) {
 }
 LaunchCommand build_launch_command(const QJsonObject& metadata, const QString& root,
                                    const QString& instance_id, const QString& java, int memory_mb,
-                                   const GameIdentity& identity, const QVariantMap& contributions) {
+                                   const GameIdentity& identity, const QVariantMap& contributions,
+                                   const Cancellation& cancelled) {
   const auto directory = safe_path(root, "versions/" + instance_id);
   const auto natives = safe_path(directory, "natives");
   QStringList classpath;
@@ -249,7 +287,7 @@ LaunchCommand build_launch_command(const QJsonObject& metadata, const QString& r
   const auto jar_id = metadata["jar"].toString(metadata["id"].toString());
   classpath.append(safe_path(root, "versions/" + jar_id + '/' + jar_id + ".jar"));
   classpath.append(contributions.value("classpath").toStringList());
-  classpath = unique_classpath(classpath);
+  classpath = unique_classpath(classpath, cancelled);
   const auto assets = safe_path(root, "assets");
   const bool fullscreen = contributions.value("fullscreen").toBool();
   const bool window_size = !fullscreen && contributions.contains("resolution");
@@ -348,9 +386,9 @@ LaunchCommand build_launch_command(const QJsonObject& metadata, const QString& r
   if (main_class.isEmpty())
     throw std::runtime_error(QCoreApplication::translate("Bugg", "版本缺少入口类").toStdString());
   // 所有版本、加载器、房间、用户贡献均已收齐；去重只在此最终边界执行。
-  auto final = normalize_arguments(jvm, true);
+  auto final = normalize_arguments(jvm, true, cancelled);
   final.append(main_class);
-  final.append(normalize_arguments(game, false));
+  final.append(normalize_arguments(game, false, cancelled));
   return {java, final, directory, safe_path(directory, "logs/launcher-game.log")};
 }
 }  // namespace bugg

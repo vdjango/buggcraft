@@ -9,6 +9,8 @@ AbstractButton {
     property string variant: "primary"
     property bool trailingIcon: false
     property bool compact: false
+    property bool neutral: false
+    readonly property color labelColor: !enabled ? DesignTokens.neutralMuted : variant === "primary" || variant === "danger" ? (neutral ? "#FFFFFF" : DesignTokens.accentInk) : neutral ? DesignTokens.neutralText : palette.buttonText
     property real cornerRadius: 8
     Layout.maximumWidth: DesignTokens.comfortable ? Math.max(120, implicitWidth + 24) : Number.POSITIVE_INFINITY
     implicitWidth: row.implicitWidth + (compact ? 24 : 36)
@@ -31,7 +33,7 @@ AbstractButton {
             if (root.variant === "danger")
                 return DesignTokens.danger;
             if (root.variant === "primary")
-                return root.down ? DesignTokens.accentPressed : root.hovered ? DesignTokens.accentHover : DesignTokens.accent;
+                return root.neutral ? DesignTokens.neutralAccent : root.down ? DesignTokens.accentPressed : root.hovered ? DesignTokens.accentHover : DesignTokens.accent;
             if (root.variant === "soft")
                 return root.hovered ? DesignTokens.line : DesignTokens.surfaceHover;
             return root.hovered ? root.palette.midlight : "transparent";
@@ -55,14 +57,14 @@ AbstractButton {
                 name: root.iconName
                 implicitWidth: 17
                 implicitHeight: 17
-                color: root.variant === "primary" || root.variant === "danger" ? DesignTokens.accentInk : root.palette.buttonText
+                color: root.labelColor
             }
             UiText {
                 visible: root.text.length > 0
                 text: root.text
                 font.pixelSize: DesignTokens.comfortable ? 14 : root.compact ? 12 : 13
                 font.weight: Font.DemiBold
-                color: root.variant === "primary" || root.variant === "danger" ? DesignTokens.accentInk : root.palette.buttonText
+                color: root.labelColor
             }
         }
     }

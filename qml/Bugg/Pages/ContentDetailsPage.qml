@@ -12,6 +12,7 @@ PageLayout {
     property real viewportHeight: 500
     property string targetId: ""
     property var inspection: ({})
+    property var setupCatalog: ({})
     property int selectedTab: 0
     readonly property var project: status.project || ({})
     readonly property var plan: status.plan || ({})
@@ -20,6 +21,9 @@ PageLayout {
     signal targetChosen(string id)
     signal installRequested(var specification)
     signal setupRequested(string game, string loader)
+    signal setupLoaderChosen(string loader)
+    signal setupVersionChosen(string version)
+    signal setupRetryRequested
     maximumWidth: 1040
     verticalPadding: 12
     spacing: 12
@@ -83,9 +87,13 @@ PageLayout {
                 instances: root.instances
                 targetId: root.targetId
                 inspection: root.inspection
+                setupCatalog: root.setupCatalog
                 onTargetChosen: id => root.targetChosen(id)
                 onInstallRequested: specification => root.installRequested(specification)
                 onSetupRequested: (game, loader) => root.setupRequested(game, loader)
+                onSetupLoaderChosen: loader => root.setupLoaderChosen(loader)
+                onSetupVersionChosen: version => root.setupVersionChosen(version)
+                onSetupRetryRequested: root.setupRetryRequested()
             }
         }
     }

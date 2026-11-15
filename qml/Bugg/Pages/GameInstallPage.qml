@@ -115,6 +115,15 @@ PageLayout {
         placeholderText: root.catalog.loaderError ? qsTr("获取失败，可重试") : qsTr("没有兼容版本")
         onChosen: id => root.loaderVersionSelected(id)
     }
+    UiText {
+        objectName: "loaderSourceHint"
+        Layout.fillWidth: true
+        visible: root.catalog.loader !== "vanilla" && (root.catalog.loadingLoaders || !!root.catalog.loaderSource)
+        text: root.catalog.loadingLoaders ? qsTr("加载器目录：BUGG 源站优先，失败自动回退") : qsTr("加载器目录来源：%1").arg(root.catalog.loaderSource)
+        color: DesignTokens.muted
+        font.pixelSize: 10
+        wrapMode: Text.Wrap
+    }
     RowLayout {
         Layout.fillWidth: true
         visible: !!root.catalog.loaderError

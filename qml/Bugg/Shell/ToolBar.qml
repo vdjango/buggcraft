@@ -10,22 +10,13 @@ Item {
     property bool showWindowControls: true
     property real pageMode: 0
     property bool friendsVisible: false
-    property var activity: ({
-            active: false,
-            progress: -1
-        })
+    property bool videoPlaying: false
+    property bool videoSoundEnabled: false
     signal navigateRequested(int index)
     signal tasksRequested
     signal closeRequested
+    signal backgroundSoundToggled(bool enabled)
     implicitHeight: 60
-    ProgressSurface {
-        objectName: "toolbarActivity"
-        anchors.fill: parent
-        active: root.activity.active === true
-        progress: root.activity.progress === undefined ? -1 : root.activity.progress
-        fluid: true
-        cornerRadius: 18
-    }
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 14 + root.pageMode * 6
@@ -63,6 +54,14 @@ Item {
             iconName: "download"
             accessibleName: qsTr("任务")
             onClicked: root.tasksRequested()
+        }
+        IconButton {
+            objectName: "backgroundSoundButton"
+            iconName: root.videoSoundEnabled ? "volume" : "volumeOff"
+            accessibleName: root.videoSoundEnabled ? qsTr("关闭背景声音") : qsTr("取消静音")
+            visible: root.videoPlaying
+            selected: root.videoSoundEnabled
+            onClicked: root.backgroundSoundToggled(!root.videoSoundEnabled)
         }
         IconButton {
             objectName: "settingsButton"

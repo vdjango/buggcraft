@@ -48,6 +48,9 @@ QString redact_diagnostic(QString text) {
   text.replace(secrets, "\\1<redacted>");
   static const QRegularExpression bearer(R"((?i)Bearer\s+[^\s,"']+)");
   text.replace(bearer, "Bearer <redacted>");
+  static const QRegularExpression delegation(
+      R"(acct1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:~[A-Za-z0-9_-]+)?)");
+  text.replace(delegation, "<redacted-account-delegation>");
   const auto home = QDir::homePath();
   if (!home.isEmpty()) {
     text.replace(home, "<home>", Qt::CaseInsensitive);
@@ -61,7 +64,9 @@ void record_diagnostic(const QString& event, const QJsonObject& fields) {
   object["event"] = event;
   object["utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
   // Callers supply allowlisted fields; clipping keeps malformed remote data bounded.
-  auto bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
+  auto bytes =
+      redact_diagnostic(QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)))
+          .toUtf8();
   if (bytes.size() > 16384) return;
   bytes.append('\n');
   auto& state = journal();

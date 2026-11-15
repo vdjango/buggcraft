@@ -26,7 +26,7 @@ Item {
     signal stopRequested
     signal openRequested(string route)
     signal identitySelected(string id)
-    implicitHeight: spacious ? viewportHeight : (launchState === "failed" ? 112 : 72)
+    implicitHeight: spacious ? viewportHeight : (launchState === "failed" ? 148 : 72)
 
     ListRow {
         objectName: "homeRoomSummary"
@@ -154,6 +154,14 @@ Item {
             titleSize: root.spacious ? 30 : 14
             captionSize: root.spacious ? 12 : 11
             titleWeight: Font.Normal
+        }
+        ActionButton {
+            objectName: "failedLaunchSelectGame"
+            visible: root.launchState === "failed"
+            text: qsTr("切换游戏或版本")
+            compact: true
+            variant: "ghost"
+            onClicked: root.openRequested("selectInstance")
         }
     }
     ActionButton {

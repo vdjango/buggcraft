@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -42,7 +43,8 @@ QString partial_path(const HttpRequest& options) {
 
 HttpClient::HttpClient(QObject* parent, HttpTimeouts timeouts)
     : QObject(parent),
-      timeouts_{qMax(1, timeouts.idle_ms), qMax(1, timeouts.total_ms)},
+      timeouts_{qMax(1, timeouts.idle_ms), qMax(1, timeouts.total_ms),
+                qMax(1, timeouts.slow_window_ms)},
       diagnostic_id_(QUuid::createUuid().toString(QUuid::WithoutBraces)) {}
 
 quint64 HttpClient::get(const QUrl& url, const QStringList& blocked_redirect_hosts) {
@@ -66,8 +68,10 @@ quint64 HttpClient::request(const HttpRequest& options) {
                      {"first_byte_ms", qMax(timeouts_.idle_ms, options.first_byte_ms)},
                      {"idle_ms", timeouts_.idle_ms},
                      {"range", QString::fromLatin1(options.headers.value("Range"))}});
-  if (options.parallel_ranges && !QFileInfo::exists(partial_path(options)) &&
-      options.method == "GET" && !options.output_path.isEmpty() && !options.sha1.isEmpty() &&
+  if (options.parallel_ranges &&
+      range_disabled_until_.value(options.url) <= QDateTime::currentMSecsSinceEpoch() &&
+      !QFileInfo::exists(partial_path(options)) && options.method == "GET" &&
+      !options.output_path.isEmpty() && !options.sha1.isEmpty() &&
       options.expected_size >= 8 * 1024 * 1024 && options.expected_size <= options.maximum_bytes &&
       !options.headers.contains("Range")) {
     pending_.insert(id, nullptr);
@@ -177,6 +181,7 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
   }
   reply->setReadBufferSize(1024 * 1024);
   pending_.insert(id, reply);
+  emit route_changed(id, options.url);
   if (*offset) {
     emit resumed(id, *offset);
     emit progress(id, *offset, options.expected_size);
@@ -185,18 +190,21 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
     reply->setProperty("failure_reason", reason);
     if (!reply->isFinished()) reply->abort();
   };
+  auto redirect_from = std::make_shared<QUrl>(options.url);
   connect(reply, &QNetworkReply::redirected, reply,
-          [this, id, reply, options, abort_with_error, timing](const QUrl& target) {
+          [this, id, reply, options, abort_with_error, timing, redirect_from](const QUrl& target) {
             record_diagnostic("http.redirect", {{"client", diagnostic_id_},
                                                 {"id", qint64(id)},
-                                                {"from", diagnostic_url(reply->url())},
+                                                {"from", diagnostic_url(*redirect_from)},
                                                 {"to", diagnostic_url(target)},
                                                 {"elapsed_ms", timing->elapsed()}});
+            const auto previous = *redirect_from;
+            *redirect_from = target;
             const auto host = target.host().toLower();
             const bool blocked = std::any_of(
                 options.blocked_redirect_hosts.begin(), options.blocked_redirect_hosts.end(),
                 [&](const auto& item) { return host == item || host.endsWith("." + item); });
-            if (blocked || (reply->url().scheme() == "https" && target.scheme() != "https") ||
+            if (blocked || (previous.scheme() == "https" && target.scheme() != "https") ||
                 !target.userInfo().isEmpty() ||
                 ((!options.headers.value("Authorization").isEmpty() ||
                   !options.headers.value("x-api-key").isEmpty() || options.method != "GET") &&
@@ -204,8 +212,10 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
                   target.scheme() != options.url.scheme())))
               abort_with_error(
                   QCoreApplication::translate("Bugg", "所选来源重定向到不允许的地址，已阻止请求"));
-            else
+            else {
+              emit route_changed(id, target);
               reply->redirectAllowed();
+            }
           });
   auto* idle = new QTimer(reply);
   idle->setSingleShot(true);
@@ -221,9 +231,13 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
   });
   auto body = std::make_shared<QByteArray>();
   auto checked_headers = std::make_shared<bool>(false);
-  const auto consume = [reply, idle, options, output, partial, offset, part_path, discard,
-                        checked_headers, hash, size, body, abort_with_error, timing, first_byte,
-                        idle_ms = timeouts_.idle_ms] {
+  auto checked_range = std::make_shared<bool>(false);
+  auto speed_started = std::make_shared<qint64>(-1);
+  auto speed_bytes = std::make_shared<qint64>(0);
+  const auto consume = [this, id, reply, idle, options, output, partial, offset, part_path, discard,
+                        checked_range, checked_headers, hash, size, body, abort_with_error, timing,
+                        first_byte, idle_ms = timeouts_.idle_ms, speed_started, speed_bytes,
+                        slow_window_ms = timeouts_.slow_window_ms] {
     // abort 会先关闭设备再发 finished；取消/超时路径不再读取已关闭的 reply。
     if (!reply->isOpen()) return;
     const auto bytes = reply->readAll();
@@ -232,6 +246,16 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
     if (!options.output_path.isEmpty()) {
       const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
       if (status < 200 || status >= 300) return;
+      if (!options.expected_range.isEmpty() && !*checked_range) {
+        *checked_range = true;
+        const auto encoding = reply->rawHeader("Content-Encoding").toLower();
+        if (status != 206 || reply->rawHeader("Content-Range") != options.expected_range ||
+            (!encoding.isEmpty() && encoding != "identity")) {
+          abort_with_error(QCoreApplication::translate("Bugg", "服务器不支持所需的分段下载"));
+          return;
+        }
+        emit range_accepted(id);
+      }
       if (!part_path.isEmpty() && !*checked_headers) {
         *checked_headers = true;
         const auto encoding = reply->rawHeader("Content-Encoding").toLower();
@@ -267,6 +291,22 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
     else if ((part_path.isEmpty() ? output.get() : static_cast<QFileDevice*>(partial.get()))
                  ->write(bytes) != bytes.size())
       abort_with_error(QCoreApplication::translate("Bugg", "写入下载文件失败"));
+    if (options.minimum_bytes_per_second > 0 && !options.output_path.isEmpty() &&
+        !bytes.isEmpty() && !reply->isFinished() &&
+        (options.expected_size < 0 || *size < options.expected_size)) {
+      const auto now = timing->elapsed();
+      if (*speed_started < 0) *speed_started = now;
+      *speed_bytes += bytes.size();
+      const auto elapsed = now - *speed_started;
+      if (elapsed >= slow_window_ms) {
+        if (*speed_bytes * 1000 / qMax<qint64>(1, elapsed) < options.minimum_bytes_per_second) {
+          reply->setProperty("slow_transfer", true);
+          abort_with_error(QCoreApplication::translate("Bugg", "当前来源传输过慢，正在切换来源"));
+        }
+        *speed_started = now;
+        *speed_bytes = 0;
+      }
+    }
   };
   connect(reply, &QNetworkReply::readyRead, this, consume);
   connect(reply, &QNetworkReply::downloadProgress, this,
@@ -295,7 +335,8 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
             bool active = pending_.contains(id);
             QString error = reply->property("failure_reason").toString();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (error.isEmpty() && !options.expected_range.isEmpty() &&
+            if (error.isEmpty() && status >= 200 && status < 300 &&
+                !options.expected_range.isEmpty() &&
                 (status != 206 || reply->rawHeader("Content-Range") != options.expected_range))
               error = QCoreApplication::translate("Bugg", "服务器不支持所需的分段下载");
             if (error.isEmpty() && reply->error() != QNetworkReply::NoError)
@@ -358,6 +399,7 @@ void HttpClient::start_request(quint64 id, const HttpRequest& options) {
             reply->deleteLater();
             if (active) {
               const auto network_error = reply->error();
+              if (reply->property("slow_transfer").toBool()) emit transient_failure(id);
               if (reply->property("transport_timeout").toBool() ||
                   reply->property("incomplete_file").toBool() ||
                   network_error == QNetworkReply::ConnectionRefusedError ||
@@ -398,14 +440,45 @@ void HttpClient::ranged_request(quint64 id, const HttpRequest& options) {
     QStringList parts;
     int done = 0;
     bool fallback = false;
+    bool expanded = false;
   };
   auto group = std::make_shared<Group>();
   auto* scope = new QObject(this);
   range_scopes_[id] = scope;
+  const auto start_part = [this, id, group, options](int index) {
+    const qint64 first = options.expected_size * index / 3;
+    const qint64 last = options.expected_size * (index + 1) / 3 - 1;
+    auto part = options;
+    part.parallel_ranges = false;
+    part.sha1.clear();
+    part.expected_size = last - first + 1;
+    part.maximum_bytes = part.expected_size + 1;
+    part.output_path = group->directory.filePath(QString::number(index));
+    part.headers["Range"] = "bytes=" + QByteArray::number(first) + '-' + QByteArray::number(last);
+    part.headers["Accept-Encoding"] = "identity";
+    part.expected_range = "bytes " + QByteArray::number(first) + '-' + QByteArray::number(last) +
+                          '/' + QByteArray::number(options.expected_size);
+    const auto child = request(part);
+    group->indexes[child] = index;
+    range_children_[id].append(child);
+  };
+  connect(this, &HttpClient::range_accepted, scope, [this, id, group, start_part](quint64 child) {
+    if (!pending_.contains(id) || group->fallback || group->expanded ||
+        !group->indexes.contains(child))
+      return;
+    group->expanded = true;
+    start_part(1);
+    start_part(2);
+  });
   connect(this, &HttpClient::transient_failure, scope, [this, id, group](quint64 child) {
     if (group->fallback && group->indexes.contains(child) && pending_.contains(id))
       emit transient_failure(id);
   });
+  connect(this, &HttpClient::route_changed, scope,
+          [this, id, group](quint64 child, const QUrl& url) {
+            if (group->indexes.contains(child) && pending_.contains(id))
+              emit route_changed(id, url);
+          });
   const auto finish = [this, id, scope](const QString& error, int status) {
     if (!pending_.remove(id)) return;
     range_children_.remove(id);
@@ -431,6 +504,10 @@ void HttpClient::ranged_request(quint64 id, const HttpRequest& options) {
               return;
             }
             if (!failure.isEmpty()) {
+              if (status == 200 || status == 404 || status == 416) {
+                if (range_disabled_until_.size() >= 256) range_disabled_until_.clear();
+                range_disabled_until_[options.url] = QDateTime::currentMSecsSinceEpoch() + 300000;
+              }
               for (const auto sibling : range_children_.value(id))
                 if (sibling != child) cancel(sibling);
               group->indexes.clear();
@@ -487,23 +564,8 @@ void HttpClient::ranged_request(quint64 id, const HttpRequest& options) {
     finish(QCoreApplication::translate("Bugg", "无法创建下载暂存目录"), 0);
     return;
   }
-  for (int index = 0; index < 3; ++index) {
-    const qint64 first = options.expected_size * index / 3;
-    const qint64 last = options.expected_size * (index + 1) / 3 - 1;
-    auto part = options;
-    part.parallel_ranges = false;
-    part.sha1.clear();
-    part.expected_size = last - first + 1;
-    part.maximum_bytes = part.expected_size + 1;
-    part.output_path = group->directory.filePath(QString::number(index));
-    part.headers["Range"] = "bytes=" + QByteArray::number(first) + '-' + QByteArray::number(last);
-    part.headers["Accept-Encoding"] = "identity";
-    part.expected_range = "bytes " + QByteArray::number(first) + '-' + QByteArray::number(last) +
-                          '/' + QByteArray::number(options.expected_size);
-    group->parts.append(part.output_path);
-    const auto child = request(part);
-    group->indexes[child] = index;
-    range_children_[id].append(child);
-  }
+  for (int index = 0; index < 3; ++index)
+    group->parts.append(group->directory.filePath(QString::number(index)));
+  start_part(0);
 }
 }  // namespace bugg

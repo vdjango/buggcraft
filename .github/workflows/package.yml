@@ -1,0 +1,83 @@
+name: Build and release native launcher
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+  id-token: write
+concurrency:
+  group: launcher-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bugg
+      - uses: actions/checkout@v4
+        with:
+          repository: vdjango/minecraft-tunnel-native
+          ref: 6dbcc223ebc46df326cbac10dd3c83380ded1b67
+          path: minecraft-tunnel-native
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Restore static Qt kit
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: D:/bugg-qt
+          key: qt-6.8.1-static-mt-windows2022-${{ hashFiles('bugg/tools/build_size_qt.cmake', 'bugg/tools/patch_qtmultimedia_windows_vulkan.cmake') }}
+      - name: Build pinned static Qt and translation tools
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: cmake -DWORK_ROOT=D:/bugg-qt -DSTATIC_RUNTIME=ON -DPARALLEL=4 -P bugg/tools/build_size_qt.cmake
+      - name: Install static OpenSSL
+        run: vcpkg install openssl:x64-windows-static
+      - name: Fetch pinned native dependencies
+        run: python minecraft-tunnel-native/scripts/fetch_deps.py
+      - name: Build native single executable
+        run: >-
+          cmake -DQT_ROOT=D:/bugg-qt/static -DQT_SOURCE_ROOT=D:/bugg-qt/src
+          -DOPENSSL_ROOT="$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static"
+          -DWORK_ROOT=D:/bugg-build -DOUTPUT_ROOT=D:/bugg-package -DPARALLEL=4
+          -DBUGG_BUILD_VERSION=2.0.1 -DBUGG_LANGUAGE_ASSET_VERSION=2.0.1
+          -P bugg/tools/build_single_file.cmake
+      - name: Verify version and bridge entry
+        shell: pwsh
+        run: |
+          if ((Get-Item D:/bugg-package/bugg.exe).VersionInfo.FileVersion -ne '2.0.1') { throw 'Wrong executable version' }
+          & D:/bugg-package/bugg.exe --native-bridge --version
+          if ($LASTEXITCODE -ne 0) { throw 'Bridge entry failed' }
+      - name: Package update and language assets
+        run: python bugg/tools/package_release.py --version 2.0.1 --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bugg-v2.0.1-windows-x64
+          path: D:/bugg-release/*
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: vdjango/buggcraft
+        shell: pwsh
+        run: |
+          gh release create $env:GITHUB_REF_NAME D:/bugg-release/* --title 'Bugg v2.0.1' --notes-file bugg/.github/release-notes-v2.0.1.md --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
+      - name: Notify download website with Actions identity
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $audience = [uri]::EscapeDataString('https://download.bugg.icu/api/launcher/github-sync')
+          $identity = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{Authorization="Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
+          $payload = @{tag=$env:GITHUB_REF_NAME;github_token=$env:GH_TOKEN} | ConvertTo-Json -Compress
+          $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $payload
+          Write-Output ('Download website sync: ' + $result.status)

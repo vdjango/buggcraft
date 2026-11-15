@@ -19,14 +19,21 @@ void check_cancelled(const Cancellation& cancelled);
 bool valid_file(const QString& path, const QByteArray& sha1, qint64 size,
                 const Cancellation& cancelled);
 /// ZIP/JAR 只读取/解压；限定单文件/总大小、拒绝穿越与符号链接。均在工作线程调用。
-QByteArray archive_read(const QString& path, const QString& entry,
-                       qint64 limit = 32 * 1024 * 1024, const Cancellation& cancelled = {});
+QByteArray archive_read(const QString& path, const QString& entry, qint64 limit = 32 * 1024 * 1024,
+                        const Cancellation& cancelled = {});
 /// preserve_executable 仅原生更新开启，保留 UNIX 可执行位，不恢复特权位。
 void archive_extract(const QString& path, const QString& destination, const QString& prefix,
                      const QStringList& excludes, const Cancellation& cancelled,
                      bool preserve_executable = false);
 /// 工作线程预检整个归档；拒绝重复、加密、链接、穿越与超限，再返回文件名。
+/// Portable destinations reject case collisions; JAR metadata inspection uses
+/// case-sensitive names because Java class names are case-sensitive on all OSes.
 QStringList archive_entries(const QString& path, const Cancellation& cancelled);
+QStringList archive_entries(const QString& path, const Cancellation& cancelled,
+                            bool portable_names);
+/// Worker-only inspection of ordinary class headers; excludes multi-release
+/// alternatives and module descriptors. Returns 0 when the archive has no classes.
+int archive_java_version(const QString& path, const Cancellation& cancelled);
 /// 工作线程流式、原子写 ZIP；files 为归档名→磁盘文件，entries 为少量清单内容。
 /// 不覆盖已有文件；失败/取消不留下可见输出。进度输出已完成文件数/总数。
 void archive_write(const QString& path, const QMap<QString, QString>& files,

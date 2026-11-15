@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "app/application_lifecycle.h"
+#include "contracts/dependency_decision.h"
 #include "language_asset_server.h"
 #include "miniz.h"
 #include "modules/account/application/microsoft_account.h"
@@ -28,6 +29,7 @@
 #include "modules/game_install/application/game_operations.h"
 #include "modules/game_install/application/game_runtime.h"
 #include "modules/game_install/application/modpack_plan.h"
+#include "modules/game_install/infrastructure/dependency_facts.h"
 #include "modules/multiplayer/application/multiplayer_service.h"
 #include "modules/room_sync/application/room_content_cache.h"
 #include "modules/settings/application/language_service.h"
@@ -833,15 +835,32 @@ class RuntimeTest : public QObject {
   }
   void room_sync_checks_manifest_and_publishes_atomically_data() {
     QTest::addColumn<QString>("scenario");
-    for (const auto* value :
-         {"transfer", "local-reuse", "truncated", "unsafe-path", "hash-mismatch", "cancel"})
+    for (const auto* value : {"transfer", "local-reuse", "neoforge-case", "truncated",
+                              "unsafe-path", "hash-mismatch", "cancel"})
       QTest::newRow(value) << QString(value);
   }
   void room_sync_checks_manifest_and_publishes_atomically() {
     QFETCH(QString, scenario);
     QTemporaryDir root;
     const auto game_root = root.path() + "/.minecraft";
-    const QByteArray body("room-mod-contents");
+    const bool neoforge = scenario == "neoforge-case";
+    const QByteArray metadata =
+        neoforge ? QByteArray(
+                       "modLoader='javafml'\nloaderVersion='[1,)'\n[[mods]]\n"
+                       "modId='alpha'\nversion='1'\n[[dependencies.alpha]]\n"
+                       "modId='minecraft'\ntype='ReQuIrEd'\nversionRange='[1.21,1.22)'\n")
+                 : QByteArray(R"({"schemaVersion":1,"id":"alpha","version":"1"})");
+    mz_zip_archive jar{};
+    QVERIFY(mz_zip_writer_init_heap(&jar, 0, 0));
+    QVERIFY(mz_zip_writer_add_mem(&jar,
+                                  neoforge ? "META-INF/neoforge.mods.toml" : "fabric.mod.json",
+                                  metadata.constData(), metadata.size(), 0));
+    void* buffer = nullptr;
+    size_t size = 0;
+    QVERIFY(mz_zip_writer_finalize_heap_archive(&jar, &buffer, &size));
+    const QByteArray body(static_cast<const char*>(buffer), size);
+    mz_free(buffer);
+    mz_zip_writer_end(&jar);
     const auto digest =
         QString::fromLatin1(QCryptographicHash::hash(body, QCryptographicHash::Sha256).toHex());
     const auto empty =
@@ -851,8 +870,8 @@ class RuntimeTest : public QObject {
                            {"sha256", digest}};
     const QJsonObject game{
         {"version", "1.21.1"},
-        {"loader", "fabric"},
-        {"loader_version", "0.16.0"},
+        {"loader", scenario == "neoforge-case" ? "neoforge" : "fabric"},
+        {"loader_version", scenario == "neoforge-case" ? "21.1.200" : "0.16.0"},
         {"mods_count", scenario == "truncated" ? 2 : 1},
         {"mods_hash",
          QString::fromLatin1(
@@ -865,11 +884,11 @@ class RuntimeTest : public QObject {
                                                 QCryptographicHash::Sha256)
                            .toHex()
                            .left(16));
-    write_json(
-        game_root + "/versions/" + stage + '/' + stage + ".json",
-        {{"id", stage},
-         {"bugg",
-          QJsonObject{{"version", "1.21.1"}, {"loader", "fabric"}, {"loaderVersion", "0.16.0"}}}});
+    write_json(game_root + "/versions/" + stage + '/' + stage + ".json",
+               {{"id", stage},
+                {"bugg", QJsonObject{{"version", "1.21.1"},
+                                     {"loader", game["loader"]},
+                                     {"loaderVersion", game["loader_version"]}}}});
     const auto cancelled = std::make_shared<std::atomic_bool>(false);
     int fetches = 0, cleanups = 0;
     if (scenario == "local-reuse") {
@@ -908,10 +927,13 @@ class RuntimeTest : public QObject {
     };
     GameOperations operation(game_root, root.path(), {"官方"}, cancelled,
                              [](double, const QString&) {});
-    const QVariantMap spec{
-        {"name", "room-instance"}, {"roomSession", "test-room"}, {"roomGame", game.toVariantMap()},
-        {"game", "1.21.1"},        {"loader", "fabric"},         {"loaderVersion", "0.16.0"}};
-    if (scenario == "transfer" || scenario == "local-reuse") {
+    const QVariantMap spec{{"name", "room-instance"},
+                           {"roomSession", "test-room"},
+                           {"roomGame", game.toVariantMap()},
+                           {"game", "1.21.1"},
+                           {"loader", game["loader"].toString()},
+                           {"loaderVersion", game["loader_version"].toString()}};
+    if (scenario == "transfer" || scenario == "local-reuse" || scenario == "neoforge-case") {
       try {
         QCOMPARE(operation.sync_room(spec, request), QString("room-instance"));
       } catch (const std::exception& error) {
@@ -921,9 +943,9 @@ class RuntimeTest : public QObject {
           file_digest(game_root + "/versions/room-instance/mods/sample.jar", "sha256", cancelled),
           digest.toLatin1());
       QVERIFY(!QDir(game_root + "/versions/" + stage).exists());
-      QCOMPARE(fetches, scenario == "transfer" ? 1 : 0);
+      QCOMPARE(fetches, scenario == "local-reuse" ? 0 : 1);
       QCOMPARE(operation.sync_room(spec, request), QString("room-instance"));
-      QCOMPARE(fetches, scenario == "transfer" ? 1 : 0);
+      QCOMPARE(fetches, scenario == "local-reuse" ? 0 : 1);
     } else {
       QVERIFY_EXCEPTION_THROWN(operation.sync_room(spec, request), std::exception);
       QVERIFY(!QDir(game_root + "/versions/room-instance").exists());
@@ -1182,6 +1204,7 @@ class RuntimeTest : public QObject {
     QTRY_COMPARE(languages.code(), QString("en_us"));
     const auto downloaded = server.requests;
     QVERIFY(downloaded >= 2);
+    QVERIFY(server.paths.last().startsWith("/1.0.0/Bugg-language-"));
     QCOMPARE(QDir(cache.path() + "/languages").entryList({"*.qm"}, QDir::Files).size(), 1);
     server.delay_ms = 400;
     QVERIFY(languages.set_code("ja_jp"));
@@ -1286,6 +1309,9 @@ class RuntimeTest : public QObject {
     QVERIFY(!runtime.set_preference("showOverlayInFullscreen", "yes"));
     QVERIFY(runtime.set_preference("showOverlayInFullscreen", true));
     QCOMPARE(runtime.preferences().value("contentTranslation").toBool(), true);
+    QCOMPARE(runtime.preferences().value("autoDependencies").toBool(), true);
+    QVERIFY(runtime.set_preference("autoDependencies", false));
+    QVERIFY(!runtime.set_preference("autoDependencies", "yes"));
     QVERIFY(runtime.set_preference("contentTranslation", false));
     QVERIFY(!runtime.set_preference("contentTranslation", "yes"));
     QVERIFY(runtime.set_preference("multiplayerOrigin", "https://test.example"));
@@ -1317,12 +1343,111 @@ class RuntimeTest : public QObject {
     QCOMPARE(reopened.preferences().value("concurrency").toInt(), 16);
     QCOMPARE(reopened.preferences().value("showOverlayInFullscreen").toBool(), true);
     QCOMPARE(reopened.preferences().value("contentTranslation").toBool(), false);
+    QCOMPARE(reopened.preferences().value("autoDependencies").toBool(), false);
     QCOMPARE(reopened.preferences().value("multiplayerOrigin").toString(), "https://test.example");
     QCOMPARE(reopened.preferences().value("identity").toMap().value("selectedId").toString(),
              "offline:PortablePlayer");
     QCOMPARE(reopened.instance_settings("external").value("memoryMB").toInt(), 4096);
     QVERIFY(!reopened.instance_settings("external").value("automatic").toBool());
     reopened.shutdown();
+  }
+  void imported_profiles_resolve_local_inheritance_and_modern_neoforge() {
+    QTemporaryDir root;
+    const auto game = root.filePath("game");
+    write_json(
+        game + "/versions/Base/Base.json",
+        {{"id", "Base"},
+         {"jar", "1.21.1"},
+         {"libraries", QJsonArray{QJsonObject{{"name", "net.fabricmc:fabric-loader:0.18.0"}}}}});
+    write_json(game + "/versions/Imported/Imported.json",
+               {{"id", "Imported"}, {"inheritsFrom", "Base"}});
+    write_json(
+        game + "/versions/Orphan/Orphan.json",
+        {{"id", "Orphan"},
+         {"inheritsFrom", "1.21.1"},
+         {"libraries", QJsonArray{QJsonObject{{"name", "net.neoforged:neoforge:21.1.265"}}}}});
+    write_json(
+        game + "/versions/Neo/Neo.json",
+        {{"id", "Neo"},
+         {"arguments", QJsonObject{{"game", QJsonArray{"--fml.mcVersion", "1.21.1",
+                                                       "--fml.neoForgeVersion", "21.1.265"}}}}});
+    GameOperations operation(game, root.path(), {"官方"}, {}, [](double, const QString&) {});
+    QVERIFY_EXCEPTION_THROWN(operation.load_version("Missing", false), std::runtime_error);
+    write_json(game + "/versions/Missing/Missing.json", {{"id", "Missing"}});
+    QCOMPARE(operation.load_version("Missing", false)["id"].toString(), QString("Missing"));
+    HttpClient http;
+    MicrosoftAccount account(&http, root.filePath("credentials.bin"));
+    GameRuntime runtime(root.path(), game, &account);
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
+    const auto instances = runtime.instances();
+    const auto find = [&](const QString& id) {
+      for (const auto& row : instances)
+        if (row.toMap().value("id") == id) return row.toMap();
+      return QVariantMap{};
+    };
+    QCOMPARE(find("Imported").value("loader").toString(), QString("Fabric"));
+    QCOMPARE(find("Imported").value("version").toString(), QString("1.21.1"));
+    QCOMPARE(find("Imported").value("loaderVersion").toString(), QString("0.18.0"));
+    QCOMPARE(find("Neo").value("loader").toString(), QString("NeoForge"));
+    QCOMPARE(find("Neo").value("version").toString(), QString("1.21.1"));
+    QCOMPARE(find("Neo").value("loaderVersion").toString(), QString("21.1.265"));
+    QCOMPARE(find("Orphan").value("loader").toString(), QString("NeoForge"));
+    QCOMPARE(find("Orphan").value("version").toString(), QString("1.21.1"));
+    runtime.shutdown();
+  }
+  void background_folder_and_effect_preferences_are_bounded_and_persisted() {
+    QTemporaryDir root;
+    const auto folder = root.filePath("壁纸");
+    QDir().mkpath(folder);
+    for (const auto& name : {"one.jpg", "two.PNG", "three.webp", "four.MP4", "ignore.txt"}) {
+      QFile file(folder + '/' + name);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write("test image selection only");
+    }
+    HttpClient http;
+    MicrosoftAccount account(&http, root.filePath("credentials.bin"));
+    GameRuntime runtime(root.path(), root.filePath("game"), &account);
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
+    QVERIFY(runtime.set_preference("backgroundStyle", "top"));
+    QVERIFY(runtime.set_preference("backgroundBlur", 0.6));
+    QVERIFY(runtime.set_preference("backgroundVignette", 0.4));
+    QVERIFY(runtime.set_preference("surfaceOpacity", 0.3));
+    QCOMPARE(runtime.preferences().value("backgroundOnPages").toBool(), false);
+    QCOMPARE(runtime.preferences().value("pageOverlayOpacity").toDouble(), 0.10);
+    QCOMPARE(runtime.preferences().value("pageTextColor").toString(), QString("light"));
+    QCOMPARE(runtime.preferences().value("backgroundSoundEnabled").toBool(), false);
+    QVERIFY(runtime.set_preference("backgroundOnPages", true));
+    QVERIFY(runtime.set_preference("pageOverlayOpacity", 0.2));
+    QVERIFY(runtime.set_preference("pageTextColor", "dark"));
+    QVERIFY(runtime.set_preference("backgroundSoundEnabled", true));
+    QVERIFY(!runtime.set_preference("backgroundOnPages", "yes"));
+    QVERIFY(!runtime.set_preference("backgroundSoundEnabled", "yes"));
+    QVERIFY(!runtime.set_preference("backgroundBlur", 1.1));
+    QVERIFY(!runtime.set_preference("pageOverlayOpacity", 1.1));
+    QVERIFY(!runtime.set_preference("pageTextColor", "invalid"));
+    QVERIFY(!runtime.set_preference("backgroundStyle", "invalid"));
+    runtime.set_background_folder(QUrl::fromLocalFile(folder).toString());
+    QTRY_COMPARE_WITH_TIMEOUT(runtime.preferences().value("backgrounds").toList().size(), 4, 5000);
+    const auto images = runtime.preferences().value("backgrounds");
+    QSignalSpy notices(&runtime, &GameRuntime::notice);
+    runtime.set_background_folder(QUrl::fromLocalFile(root.filePath("missing")).toString());
+    QTRY_COMPARE_WITH_TIMEOUT(notices.count(), 1, 5000);
+    QCOMPARE(runtime.preferences().value("backgrounds"), images);
+    runtime.shutdown();
+    QTRY_VERIFY(!runtime.busy());
+    GameRuntime restored(root.path(), root.filePath("game"), &account);
+    restored.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!restored.loading_instances(), 15000);
+    QCOMPARE(restored.preferences().value("backgrounds"), images);
+    QCOMPARE(restored.preferences().value("backgroundStyle").toString(), QString("top"));
+    QCOMPARE(restored.preferences().value("surfaceOpacity").toDouble(), 0.3);
+    QCOMPARE(restored.preferences().value("backgroundOnPages").toBool(), true);
+    QCOMPARE(restored.preferences().value("pageOverlayOpacity").toDouble(), 0.2);
+    QCOMPARE(restored.preferences().value("pageTextColor").toString(), QString("dark"));
+    QCOMPARE(restored.preferences().value("backgroundSoundEnabled").toBool(), true);
+    restored.shutdown();
   }
   void selected_cache_stays_inside_portable_tree_after_move() {
     QTemporaryDir root;
@@ -1398,6 +1523,28 @@ class RuntimeTest : public QObject {
     QVERIFY(!command.arguments.contains("-Xmx4096M"));
     const auto classpath = command.arguments[command.arguments.indexOf("-cp") + 1];
     QCOMPARE(classpath.split(QDir::listSeparator()).size(), 2);
+  }
+  void identical_bytes_at_distinct_paths_are_deduplicated_without_losing_distinct_jars() {
+    QTemporaryDir root;
+    QStringList paths;
+    for (const auto& name : {"first.jar", "copied.jar", "different.jar"}) {
+      const auto path = root.filePath(name);
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(QString(name) == "different.jar" ? "DIFFERENT" : "IDENTICAL");
+      paths.append(path);
+    }
+    QCOMPARE(unique_classpath(paths), (QStringList{paths[0], paths[2]}));
+    const auto args = normalize_arguments(
+        {"-cp", paths[0], "--class-path=" + paths[1] + QDir::listSeparator() + paths[2],
+         "-XX:+UseG1GC", "-XX:-UseG1GC", "-XX:MaxGCPauseMillis=50", "-XX:MaxGCPauseMillis=100"},
+        true);
+    QCOMPARE(args.count("-cp"), 1);
+    QCOMPARE(args[args.indexOf("-cp") + 1], paths[0] + QDir::listSeparator() + paths[2]);
+    QVERIFY(!args.contains("-XX:+UseG1GC"));
+    QVERIFY(args.contains("-XX:-UseG1GC"));
+    QVERIFY(!args.contains("-XX:MaxGCPauseMillis=50"));
+    QVERIFY(QFileInfo::exists(paths[1]));
   }
   void module_path_does_not_duplicate_asm_on_classpath() {
     QTemporaryDir root;
@@ -1536,6 +1683,30 @@ class RuntimeTest : public QObject {
       QVERIFY(!command.arguments.contains("--server"));
     }
   }
+  void download_source_follows_the_actual_redirect_and_custom_bugg_origin() {
+    AuthHttp http;
+    QTemporaryDir root;
+    QStringList labels, details;
+    http.on_request = [&](quint64 id, const HttpRequest&) {
+      emit http.route_changed(id, QUrl("https://mediafilez.forgecdn.net/files/1/file.jar"));
+      emit http.progress(id, 1, 2);
+      emit http.response(id, {}, {}, 200);
+    };
+    ResourceClient client(
+        {"BUGG"}, std::make_shared<std::atomic_bool>(false),
+        [&](double, const QString& text) { details.append(text); }, &http, 2,
+        QUrl("https://source.example"));
+    client.set_transfer_progress(
+        [&](const QVariantMap& row) { labels.append(row.value("source").toString()); });
+    client.fetch({{QUrl("https://cdn.modrinth.com/data/example/file.jar"),
+                   root.filePath("file.jar"),
+                   {},
+                   2}});
+    QVERIFY(labels.contains("BUGG"));
+    QCOMPARE(labels.last(), QString("CurseForge"));
+    QVERIFY(std::any_of(details.begin(), details.end(),
+                        [](const QString& text) { return text.contains("CurseForge"); }));
+  }
   void source_file_mapping_keeps_priority_and_official_supplement() {
     const auto urls =
         resource_urls(QUrl("https://libraries.minecraft.net/a/b.jar"), {"BUGG", "BMCLAPI", "官方"});
@@ -1627,20 +1798,136 @@ class RuntimeTest : public QObject {
     QVERIFY(constrained < hosting);
     QVERIFY(first <= 8192);
     QVERIFY(constrained >= 512);
+    const QVariantMap spacious{{"totalMB", 65536}, {"availableMB", 58000}};
+    QCOMPARE(automatic_memory_mb(spacious, 425, 1, "saving"), 6144);
+    QCOMPARE(automatic_memory_mb(spacious, 425, 1, "balanced"), 8192);
+    QCOMPARE(automatic_memory_mb(spacious, 425, 1, "generous"), 10240);
+    QVERIFY(automatic_memory_mb(spacious, 425) > 10240);
+    QVERIFY(automatic_memory_mb({{"totalMB", 4096}, {"availableMB", 2800}}, 425) < 2800);
+  }
+  void java_class_requirement_ignores_multi_release_alternatives() {
+    QTemporaryDir root;
+    const auto path = root.filePath("classes.jar");
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    archive_write(path, {},
+                  {{"a/Main.class", QByteArray::fromHex("cafebabe00000041")},
+                   {"META-INF/versions/25/a/Main.class", QByteArray::fromHex("cafebabe00000045")},
+                   {"module-info.class", QByteArray::fromHex("cafebabe00000045")}},
+                  cancelled, {});
+    QCOMPARE(archive_java_version(path, cancelled), 21);
+  }
+  void jar_class_names_are_case_sensitive_while_extracted_paths_are_portable() {
+    QTemporaryDir root;
+    const auto path = root.filePath("obfuscated.jar");
+    mz_zip_archive zip{};
+    QVERIFY(mz_zip_writer_init_file(&zip, path.toLocal8Bit().constData(), 0));
+    for (const auto* name : {"org/example/A.class", "org/example/a.class"})
+      QVERIFY(mz_zip_writer_add_mem(&zip, name, "class", 5, MZ_BEST_SPEED));
+    QVERIFY(mz_zip_writer_finalize_archive(&zip));
+    mz_zip_writer_end(&zip);
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    QCOMPARE(archive_entries(path, cancelled, false).size(), 2);
+    QVERIFY_EXCEPTION_THROWN(archive_entries(path, cancelled), std::runtime_error);
+  }
+  void workspace_archive_and_pack_profiles_are_readable() {
+    if (!qEnvironmentVariableIsSet("BUGG_TEST_WORKSPACE_ARCHIVES"))
+      QSKIP("Explicit user archive inspection");
+    const QDir root(qEnvironmentVariable("BUGG_TEST_WORKSPACE_ARCHIVES"));
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    for (const auto& file : root.entryInfoList({"*.zip"}, QDir::Files)) {
+      try {
+        const auto plan = inspect_modpack(file.absoluteFilePath(), cancelled);
+        qInfo().noquote() << "ARCHIVE_PROFILE" << file.fileName() << plan.format
+                          << plan.files.size();
+      } catch (const std::exception& error) {
+        QFAIL(qPrintable(file.fileName() + " : " + QString::fromUtf8(error.what())));
+      }
+    }
   }
   void archive_path_traversal_is_rejected() {
     QTemporaryDir root;
-    const auto path = root.path() + "/archive.zip";
-    mz_zip_archive zip{};
-    QVERIFY(mz_zip_writer_init_file(&zip, path.toUtf8().constData(), 0));
-    QVERIFY(mz_zip_writer_add_mem(&zip, "../escape.txt", "bad", 3, 0));
-    QVERIFY(mz_zip_writer_finalize_archive(&zip));
-    mz_zip_writer_end(&zip);
-    QVERIFY_EXCEPTION_THROWN(archive_extract(path, root.path() + "/output", {}, {},
-                                             std::make_shared<std::atomic_bool>(false)),
-                             std::runtime_error);
+    for (const auto* name : {"../escape.txt", "/absolute.txt", "C:/escape.txt", "a\\..\\escape.txt",
+                             "a/../../escape.txt", "entry:stream", "."}) {
+      const auto path = root.path() + "/archive.zip";
+      mz_zip_archive zip{};
+      QVERIFY(mz_zip_writer_init_file(&zip, path.toUtf8().constData(), 0));
+      if (!mz_zip_writer_add_mem(&zip, name, "bad", 3, 0)) {
+        mz_zip_writer_end(&zip);
+        QVERIFY_EXCEPTION_THROWN(safe_path(root.path(), QString::fromLatin1(name)),
+                                 std::runtime_error);
+        continue;  // The fixture writer itself rejects some absolute/invalid names.
+      }
+      QVERIFY(mz_zip_writer_finalize_archive(&zip));
+      mz_zip_writer_end(&zip);
+      QVERIFY_EXCEPTION_THROWN(archive_entries(path, std::make_shared<std::atomic_bool>(false)),
+                               std::runtime_error);
+      QVERIFY_EXCEPTION_THROWN(archive_extract(path, root.path() + "/output", {}, {},
+                                               std::make_shared<std::atomic_bool>(false)),
+                               std::runtime_error);
+    }
     QVERIFY(!QFileInfo::exists(root.path() + "/escape.txt"));
     QVERIFY_EXCEPTION_THROWN(safe_path(root.path(), "C:/escape"), std::runtime_error);
+  }
+  void archive_names_do_not_probe_temporary_filesystem() {
+    QTemporaryDir root;
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    QMap<QString, QByteArray> entries;
+    for (int i = 0; i < 500; ++i)
+      entries[QString("bugg-archive-benchmark/assets/example/models/block/deep/part%1/data.json")
+                  .arg(i)] = "{}";
+    const auto archive = root.filePath("entries.zip");
+    archive_write(archive, {}, entries, cancelled, [](int, int) {});
+    QElapsedTimer timer;
+    timer.start();
+    for (auto it = entries.begin(); it != entries.end(); ++it)
+      safe_path(QDir::tempPath(), it.key());
+    const auto filesystem_ns = timer.nsecsElapsed();
+    timer.restart();
+    const auto names = archive_entries(archive, cancelled);
+    const auto archive_ns = timer.nsecsElapsed();
+    QCOMPARE(names, entries.keys());
+    cancelled->store(true);
+    QVERIFY_EXCEPTION_THROWN(archive_entries(archive, cancelled), std::runtime_error);
+    const QJsonObject result{{"entries", entries.size()},
+                             {"old_filesystem_validation_ns", filesystem_ns},
+                             {"new_complete_enumeration_ns", archive_ns},
+                             {"scope",
+                              "Old validation step only vs complete new enumeration; "
+                              "same native process, local ZIP, no network"}};
+    write_json(QCoreApplication::applicationDirPath() + "/experience-archive-performance.json",
+               result);
+    qInfo().noquote() << QJsonDocument(result).toJson(QJsonDocument::Compact);
+    const auto installed = qEnvironmentVariable("BUGG_TEST_INSTALLED_GAME");
+    if (installed.isEmpty()) return;
+    auto work = QtConcurrent::run([installed] {
+      const auto flag = std::make_shared<std::atomic_bool>(false);
+      const auto jars =
+          QDir(installed + "/mods").entryInfoList({"*.jar"}, QDir::Files | QDir::NoSymLinks);
+      if (jars.isEmpty() || jars.size() > 4096)
+        throw std::runtime_error("Invalid explicit test instance");
+      QElapsedTimer clock;
+      clock.start();
+      int mods = 0;
+      QStringList cores;
+      for (const auto& jar : jars) {
+        const auto facts = DependencyFacts::describe(jar.absoluteFilePath(), flag);
+        for (const auto& entry : facts["mods"].toArray()) {
+          ++mods;
+          const auto id = entry.toObject()["mod_id"].toString();
+          if (QStringList{"iris", "oculus", "optifine"}.contains(id)) cores.append(id);
+        }
+      }
+      return QJsonObject{
+          {"root_jars", jars.size()},
+          {"root_mods", mods},
+          {"shader_core_ids", QJsonArray::fromStringList(cores)},
+          {"elapsed_ms", clock.elapsed()},
+          {"scope", "Read-only actual installed pack root declarations; no network or launch"}};
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(work.isFinished(), 180000);
+    const auto scanned = work.result();
+    write_json(QCoreApplication::applicationDirPath() + "/experience-installed-scan.json", scanned);
+    qInfo().noquote() << QJsonDocument(scanned).toJson(QJsonDocument::Compact);
   }
   void grouped_downloads_and_catalogues_use_configured_concurrency() {
     QTemporaryDir root;
@@ -1677,6 +1964,7 @@ class RuntimeTest : public QObject {
                       {},
                       2});
     client.fetch(files);
+    // Each independent download group receives its own configured window.
     QCOMPARE(peak, 6);
     for (auto value : peaks) QCOMPARE(value, 2);
     active = 0;
@@ -1724,6 +2012,40 @@ class RuntimeTest : public QObject {
     }
     qputenv("BUGGCRAFT_CURSEFORGE_API_KEY", previous);
     QVERIFY(failure.contains("频繁"));
+    QCOMPARE(http.requests.size(), 7);  // Initial attempt plus the shared six-retry budget.
+  }
+  void discovered_assets_start_before_the_core_and_libraries_finish() {
+    QTemporaryDir root;
+    AuthHttp http;
+    bool core_finished = false, asset_started_early = false;
+    http.on_request = [&](quint64 id, const HttpRequest& request) {
+      const auto name = request.url.fileName();
+      if (name == "asset") asset_started_early = !core_finished;
+      QTimer::singleShot(name == "core" ? 80 : 5, &http, [&, id, request, name] {
+        QDir().mkpath(QFileInfo(request.output_path).absolutePath());
+        QFile file(request.output_path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("ok"), 2);
+        file.close();
+        if (name == "core") core_finished = true;
+        http.answer({{"ok", true}}, 200, id);
+      });
+    };
+    ResourceClient client(
+        {"官方"}, std::make_shared<std::atomic_bool>(false), [](double, const QString&) {}, &http,
+        2);
+    const auto resource = [&](const QString& name, const QString& group) {
+      GameResource value{QUrl("https://files.example/" + name), root.filePath(name), {}, 2};
+      value.group = group;
+      return value;
+    };
+    client.fetch({resource("core", "versions"), resource("index", "assets")}, false,
+                 [&](const GameResource& ready) {
+                   return ready.url.fileName() == "index"
+                              ? QList<GameResource>{resource("asset", "assets")}
+                              : QList<GameResource>{};
+                 });
+    QVERIFY(asset_started_early);
     QCOMPARE(http.requests.size(), 3);
   }
   void large_download_ranges_validate_fallback_and_atomic_cancel() {
@@ -1839,7 +2161,14 @@ class RuntimeTest : public QObject {
         QCOMPARE(ranged, 3);
         QCOMPARE(full, 0);
       }
-      if (scenario == 2) QCOMPARE(full, 1);
+      if (scenario == 2) {
+        QCOMPARE(ranged, 1);  // No sibling requests until an exact 206 is accepted.
+        QCOMPARE(full, 1);
+      }
+      if (scenario == 3) {
+        QCOMPARE(ranged, 0);  // Remember this URL's refused Range for five minutes.
+        QCOMPARE(full, 1);
+      }
     }
     qInfo().noquote() << QString(
                              "DOWNLOAD_RANGE_BENCH controlled 10MiB: single=%1ms three-ranges=%2ms "
@@ -1962,11 +2291,35 @@ class RuntimeTest : public QObject {
             root + "/game", root + "/portable", {"BUGG", "BMCLAPI", "官方"}, cancelled,
             [](double, const QString& detail) { qInfo().noquote() << detail; });
         const auto name = qEnvironmentVariable("BUGG_TEST_WORKSPACE_NAME", "Verified pack");
-        const auto id = operation.import_pack(archive, name);
+        QString id;
+        try {
+          id = operation.import_pack(archive, name);
+        } catch (const DependencyDecision& decision) {
+          write_json(root + "/dependency-decision.json",
+                     QJsonObject::fromVariantMap(decision.value()));
+          if (!qEnvironmentVariableIsSet("BUGG_TEST_WORKSPACE_KEEP_DECLARED")) throw;
+          operation.set_dependency_context(
+              {{"dependencyChoice", "keep"},
+               {"dependencyFingerprint", decision.value().value("fingerprint")}},
+              {});
+          id = operation.import_pack(archive, name);
+        }
         const auto metadata = operation.load_version(id);
         if (metadata["id"].toString() != id) return QString("missing committed profile");
         qInfo().noquote() << "WORKSPACE_PACK_IMPORTED" << id << "resources"
                           << metadata["buggcraftModpack"].toObject()["resources"].toArray().size();
+        if (qEnvironmentVariableIsSet("BUGG_TEST_WORKSPACE_PREPARE")) {
+          QElapsedTimer prepare_clock;
+          prepare_clock.start();
+          const auto command = operation.prepare(
+              id, 4096, {"PackVerifier", "12345678123456781234567812345678", {}, "offline"});
+          const int major = java_major(command.java, cancelled);
+          qInfo().noquote() << "WORKSPACE_PACK_PREPARED" << id << "java" << major << "milliseconds"
+                            << prepare_clock.elapsed();
+          const int expected = qEnvironmentVariableIntValue("BUGG_TEST_WORKSPACE_EXPECT_JAVA");
+          if (expected && major != expected)
+            return QString("wrong actual Java major: %1").arg(major);
+        }
         return QString();
       } catch (const std::exception& error) {
         return QString::fromUtf8(error.what());
@@ -1974,6 +2327,60 @@ class RuntimeTest : public QObject {
     }));
     QTRY_VERIFY_WITH_TIMEOUT(watcher.isFinished(), 1200000);
     QVERIFY2(watcher.result().isEmpty(), qPrintable(watcher.result()));
+  }
+  void live_curseforge_cold_origin_concurrency() {
+    const auto manifest = qEnvironmentVariable("BUGG_TEST_CF_RESOURCES");
+    if (manifest.isEmpty()) QSKIP("Explicit bounded CurseForge origin measurement only");
+    const auto rows = read_json(manifest).value("files").toArray();
+    QVERIFY(rows.size() >= 4 && rows.size() <= 8);
+    QTemporaryDir root;
+    QJsonArray measurements;
+    const QList<int> rounds =
+        qEnvironmentVariableIsSet("BUGG_TEST_CF_AFTER") ? QList<int>{1, 4} : QList<int>{1, 4, 4, 1};
+    for (const int concurrency : rounds) {
+      auto work = QtConcurrent::run([&, concurrency] {
+        const auto cancelled = std::make_shared<std::atomic_bool>(false);
+        QList<GameResource> files;
+        qint64 bytes = 0;
+        const auto destination =
+            root.path() + '/' + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        for (const auto& value : rows) {
+          const auto row = value.toObject();
+          const QUrl url(row["url"].toString());
+          if (!url.host().endsWith(".forgecdn.net") || row["size"].toInteger() > 8 * 1024 * 1024)
+            throw std::runtime_error("Invalid bounded CF benchmark input");
+          bytes += row["size"].toInteger();
+          files.append({url,
+                        destination + '/' + row["sha1"].toString(),
+                        row["sha1"].toString().toLatin1(),
+                        row["size"].toInteger(),
+                        {},
+                        "curseforge"});
+        }
+        ResourceClient resources(
+            {"官方"}, cancelled, [](double, const QString&) {}, nullptr, concurrency);
+        QElapsedTimer clock;
+        clock.start();
+        resources.fetch(files);
+        return QJsonObject{{"concurrency", concurrency},
+                           {"files", files.size()},
+                           {"bytes", bytes},
+                           {"elapsed_ms", clock.elapsed()}};
+      });
+      QTRY_VERIFY_WITH_TIMEOUT(work.isFinished(), 150000);
+      try {
+        const auto measurement = work.result();
+        measurements.append(measurement);
+        qInfo().noquote() << QJsonDocument(measurement).toJson(QJsonDocument::Compact);
+      } catch (const std::exception& error) {
+        QFAIL(error.what());
+      }
+    }
+    write_json(qEnvironmentVariable("BUGG_TEST_CF_REPORT"),
+               {{"measurements", measurements},
+                {"source",
+                 "direct official CF CDN; fresh local destinations; native ResourceClient SHA-1 "
+                 "validation"}});
   }
   void actual_http_download_is_atomic_and_hash_checked() {
     QTcpServer server;
@@ -2078,19 +2485,92 @@ class RuntimeTest : public QObject {
     QVERIFY(events.contains("http.finish"));
     QVERIFY(events.contains("download.attempt"));
   }
+  void slow_source_switches_and_keeps_verified_atomic_downloads() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    const QByteArray payload(65536, 's');
+    QStringList paths;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+      while (server.hasPendingConnections()) {
+        auto* socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+          auto raw = socket->property("request").toByteArray() + socket->readAll();
+          socket->setProperty("request", raw);
+          if (!raw.contains("\r\n\r\n") || socket->property("answered").toBool()) return;
+          socket->setProperty("answered", true);
+          const auto path = QString::fromLatin1(raw.split(' ').value(1));
+          paths.append(path);
+          socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(payload.size()) +
+                        "\r\nConnection: close\r\n\r\n");
+          if (path == "/fast") {
+            socket->write(payload);
+            socket->disconnectFromHost();
+          } else {
+            socket->write("s");
+            auto* timer = new QTimer(socket);
+            connect(timer, &QTimer::timeout, socket, [socket] {
+              if (socket->state() == QAbstractSocket::ConnectedState) socket->write("s");
+            });
+            timer->start(10);
+          }
+        });
+      }
+    });
+    QTemporaryDir root;
+    auto work = QtConcurrent::run([&] {
+      try {
+        HttpClient http(nullptr, {250, 2000, 50});
+        QSignalSpy slow(&http, &HttpClient::transient_failure);
+        const auto base = "http://127.0.0.1:" + QString::number(server.serverPort());
+        ResourceClient client(
+            {"官方"}, std::make_shared<std::atomic_bool>(false), [](double, const QString&) {},
+            &http, 1);
+        client.fetch({{QUrl(base + "/slow"),
+                       root.filePath("file.jar"),
+                       QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex(),
+                       payload.size(),
+                       {QUrl(base + "/fast")}}});
+        return slow.count() == 1 ? QString() : QString("Missing low throughput failover");
+      } catch (const std::exception& error) {
+        return QString::fromUtf8(error.what());
+      }
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(work.isFinished(), 5000);
+    QVERIFY2(work.result().isEmpty(), qPrintable(work.result()));
+    QCOMPARE(paths, QStringList({"/slow", "/fast"}));
+    QFile file(root.filePath("file.jar"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), payload);
+    QVERIFY(!QFile::exists(root.filePath("file.jar.part")));
+  }
   void diagnostics_export_is_bounded_redacted_and_does_not_collect_credentials() {
     QTemporaryDir root;
+    const auto instance = root.path() + "/.minecraft/versions/diagnostic";
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    write_json(
+        instance + "/diagnostic.json",
+        {{"id", "diagnostic"},
+         {"bugg",
+          QJsonObject{{"version", "1.21.1"}, {"loader", "fabric"}, {"loaderVersion", "0.16.0"}}}});
+    archive_write(
+        instance + "/mods/sample.jar", {},
+        {{"fabric.mod.json",
+          R"({"schemaVersion":1,"id":"diagnostic_sample","version":"1.2.3","depends":{"minecraft":"1.21.1"}})"}},
+        cancelled, [](int, int) {});
     HttpClient http;
     MicrosoftAccount account(&http, root.filePath("credentials.bin"));
     GameRuntime runtime(root.path(), root.filePath(".minecraft"), &account);
     runtime.initialize();
     QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
+    QVERIFY(runtime.set_preference("selectedInstance", "diagnostic"));
     QDir().mkpath(runtime.cache_root() + "/logs");
     QFile log(runtime.cache_root() + "/logs/install.log");
     QVERIFY(log.open(QIODevice::WriteOnly));
     log.write(
         "access_token=SECRET1 password:SECRET2 Authorization: Bearer SECRET3\n"
-        "GET https://user:SECRET4@example.com/file.jar?token=SECRET5#SECRET6\n");
+        "GET https://user:SECRET4@example.com/file.jar?token=SECRET5#SECRET6\n"
+        "acct1.SECRET7.SECRET8~SECRET9\n");
     log.close();
     QFile credentials(runtime.cache_root() + "/credentials.bin");
     QVERIFY(credentials.open(QIODevice::WriteOnly));
@@ -2103,11 +2583,14 @@ class RuntimeTest : public QObject {
     QTRY_VERIFY_WITH_TIMEOUT(!runtime.diagnostics_status().value("busy").toBool(), 5000);
     QVERIFY2(runtime.diagnostics_status().value("error").toString().isEmpty(),
              qPrintable(runtime.diagnostics_status().value("error").toString()));
-    const auto cancelled = std::make_shared<std::atomic_bool>(false);
     const auto names = archive_entries(path, cancelled);
     QVERIFY(names.contains("network-current.jsonl"));
     QVERIFY(names.contains("installer.log"));
     QVERIFY(!names.contains("credentials.bin"));
+    const auto mods = archive_read(path, "game-0-content.json");
+    QVERIFY(mods.contains("diagnostic_sample"));
+    QVERIFY(mods.contains("1.2.3"));
+    QVERIFY(!names.contains("sample.jar"));
     const auto content = archive_read(path, "installer.log");
     QVERIFY(!content.contains("SECRET"));
     QVERIFY(content.contains("https://example.com/file.jar"));
@@ -2199,11 +2682,28 @@ class RuntimeTest : public QObject {
     const QJsonObject claims{{"xui", QJsonArray{xbox_user}}};
     http.answer({{"Token", "XBOX_SECRET"}, {"DisplayClaims", claims}});
     http.answer({{"Token", "XSTS_SECRET"}});
-    http.answer({{"access_token", "MC_SECRET"}, {"expires_in", 3600}});
+    http.answer({{"access_token", "MC_SECRET"}, {"expires_in", 1}});
     QCOMPARE(http.requests.last().headers.value("Authorization"), "Bearer MC_SECRET");
     http.answer({{"name", "RealProfile"}, {"id", "0123456789abcdef0123456789abcdef"}});
     QCOMPARE(session.status().value("name").toString(), "RealProfile");
     QVERIFY(!QJsonDocument::fromVariant(session.status()).toJson().contains("SECRET"));
+    QSignalSpy credentials(&account, &AccountPort::credentials_ready);
+    account.acquire(101, "microsoft:RealProfile");
+    const auto refresh_request = http.sequence;
+    account.acquire(102, "microsoft:RealProfile");
+    QCOMPARE(http.sequence, refresh_request);
+    QVERIFY(http.requests.last().body.contains("grant_type=refresh_token"));
+    QVERIFY(http.requests.last().body.contains("REFRESH_SECRET"));
+    http.answer({{"access_token", "MS_ROTATED"}, {"refresh_token", "REFRESH_ROTATED"}});
+    http.answer({{"Token", "XBOX_ROTATED"}, {"DisplayClaims", claims}});
+    http.answer({{"Token", "XSTS_ROTATED"}});
+    http.answer({{"access_token", "MC_ROTATED"}, {"expires_in", 3600}});
+    http.answer({{"name", "RealProfile"}, {"id", "0123456789abcdef0123456789abcdef"}});
+    QCOMPARE(credentials.size(), 2);
+    const auto renewed_request = http.sequence;
+    account.acquire(103, "microsoft:RealProfile");
+    QCOMPARE(credentials.size(), 3);
+    QCOMPARE(http.sequence, renewed_request);
     QVERIFY(session.use_offline("Original"));
     session.begin_microsoft();
     QCOMPARE(session.status().value("name").toString(), "RealProfile");
@@ -2213,7 +2713,7 @@ class RuntimeTest : public QObject {
     QVERIFY(encrypted.open(QIODevice::ReadOnly));
     QVERIFY(!encrypted.readAll().contains("REFRESH_SECRET"));
     encrypted.close();
-    QVERIFY(load_credentials(root.path() + "/credentials.bin").contains("REFRESH_SECRET"));
+    QVERIFY(load_credentials(root.path() + "/credentials.bin").contains("REFRESH_ROTATED"));
 #endif
     session.logout_microsoft();
     QCOMPARE(session.status().value("kind").toString(), "offline");
@@ -2329,6 +2829,9 @@ class RuntimeTest : public QObject {
     lifecycle.before_mount();
     lifecycle.mounted();
     lifecycle.mounted();
+    QTRY_COMPARE_WITH_TIMEOUT(lifecycle.phase(), "awaiting_consent", 15000);
+    QVERIFY(http.requests.isEmpty());
+    lifecycle.accept_agreement();
     QTRY_COMPARE_WITH_TIMEOUT(lifecycle.phase(), "ready", 15000);
     QTRY_COMPARE_WITH_TIMEOUT(runtime.instances().size(), 1, 15000);
     QCOMPARE(runtime.instances()[0].toMap().value("id").toString(), "real");
@@ -2777,7 +3280,8 @@ class RuntimeTest : public QObject {
     QFutureWatcher<QString> watcher;
     watcher.setFuture(QtConcurrent::run([root] {
       try {
-        GameOperations operation(root + "/.minecraft", root, {"BUGG", "BMCLAPI", "官方"},
+        const auto game_root = qEnvironmentVariable("BUGG_TEST_GAME_ROOT", root + "/.minecraft");
+        GameOperations operation(game_root, root, {"BUGG", "BMCLAPI", "官方"},
                                  std::make_shared<std::atomic_bool>(false),
                                  [](double value, const QString& detail) {
                                    qInfo().noquote() << QString::number(value, 'f', 2) << detail;
@@ -2788,19 +3292,31 @@ class RuntimeTest : public QObject {
         const auto id = qEnvironmentVariable(
             "BUGG_TEST_INSTANCE",
             version + '-' + loader + (loader_version.isEmpty() ? QString() : '-' + loader_version));
-        if (!QFileInfo::exists(root + "/.minecraft/versions/" + id + '/' + id + ".json"))
+        if (!QFileInfo::exists(game_root + "/versions/" + id + '/' + id + ".json"))
           operation.install({{"name", id},
                              {"game", version},
                              {"loader", loader},
                              {"loaderVersion", loader_version}});
         const auto preferred = qEnvironmentVariable("BUGG_TEST_JAVA");
+        QElapsedTimer prepare_clock;
+        prepare_clock.start();
         const auto command = operation.prepare(
             id, 2048, {"BuggTest", "0123456789abcdef0123456789abcdef", {}, "offline"},
             {{"javaPath", preferred}});
         qInfo().noquote() << "Java executable:" << command.java;
+        const auto major = java_major(command.java, std::make_shared<std::atomic_bool>(false));
+        const auto report = qEnvironmentVariable("BUGG_TEST_PREPARE_REPORT");
+        if (!report.isEmpty())
+          write_json(report, {{"instance", id},
+                              {"javaMajor", major},
+                              {"java", command.java},
+                              {"milliseconds", prepare_clock.elapsed()},
+                              {"argumentCount", command.arguments.size()}});
+        const int expected = qEnvironmentVariableIntValue("BUGG_TEST_JAVA_MAJOR");
+        if (expected && expected != major) return QString("Unexpected actual Java major");
         if (!QFileInfo::exists(command.java) || command.arguments.isEmpty())
           return QString("没有真实启动命令");
-        if (!preferred.isEmpty() &&
+        if (!expected && !preferred.isEmpty() &&
             java_major(command.java, std::make_shared<std::atomic_bool>(false)) !=
                 operation.load_version(id)["javaVersion"].toObject()["majorVersion"].toInt(8))
           return QString("未自动匹配兼容 Java");

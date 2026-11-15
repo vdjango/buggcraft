@@ -15,6 +15,7 @@ Item {
     property var pendingNavigation: null
     property string pendingInstanceName: ""
     property bool taskCancelled: false
+    property bool confirmingLeave: false
     property real pageReveal: 1
     property real viewportHeight: 500
     property var launchStatus: ({
@@ -59,6 +60,10 @@ Item {
             loader: "",
             id: ""
         })
+    onCurrentInstanceChanged: {
+        if (contentCatalog)
+            contentCatalog.select_target(currentInstance.id ? currentInstance : {});
+    }
     property bool authPreviewEnabled: false
     // 显式测试夹具开关；正常入口不把未接入服务的示例快照展示为真实数据。
     property bool previewEnabled: false
@@ -68,7 +73,7 @@ Item {
     property bool canStart: false
     property bool viewActive: true
     readonly property bool identityLocked: !["idle", "failed"].includes(launchStatus.state)
-    readonly property bool canGoBack: joiningRoom || history.length > 0
+    readonly property bool canGoBack: joiningRoom || history.length > 0 || (route === "room" && !!roomStatus.id)
     readonly property bool showPageHeader: false
     readonly property string pageTitle: joiningRoom ? qsTr("加入房间") : route.length ? routeTitle(route) : [qsTr("启动"), qsTr("广场"), qsTr("联机"), qsTr("好友"), qsTr("设置")][Math.max(0, toolIndex)]
     readonly property string pageCaption: !joiningRoom && route.length ? (routes[route].caption || "") : ""
@@ -139,10 +144,41 @@ Item {
             multiplayer.leave_room();
             return;
         }
+        if (route === "room" && roomStatus.id) {
+            confirmingLeave = true;
+            return;
+        }
         if (!history.length)
             return;
         route = history[history.length - 1];
         history = history.slice(0, -1);
+    }
+    function requestLeaveRoom() {
+        if (roomStatus.id)
+            confirmingLeave = true;
+    }
+    ChoiceDialog {
+        objectName: "leaveRoomConfirmation"
+        visible: root.confirmingLeave && !!root.roomStatus.id
+        title: qsTr("退出当前房间？")
+        message: root.roomStatus.role === "host" ? qsTr("你是房主。退出会关闭当前联机房间，其他成员将断开连接；正在运行的本地游戏不会关闭。") : qsTr("退出会断开与房间的连接并取消尚未完成的房间同步；正在运行的游戏不会关闭。")
+        options: [
+            {
+                id: "stay",
+                name: qsTr("留在房间"),
+                variant: "primary"
+            },
+            {
+                id: "leave",
+                name: qsTr("退出房间")
+            }
+        ]
+        onChosen: value => {
+            root.confirmingLeave = false;
+            if (value === "leave" && root.multiplayer) {
+                root.multiplayer.leave_room();
+            }
+        }
     }
     // 清理导航栈，不取消窗口级任务；同在启动入口时避免重复导航把面板收起。
     function goHome() {
@@ -182,6 +218,7 @@ Item {
     signal navigateRequested(int index)
     signal themeRequested(string theme)
     signal noticeRequested(string message)
+    signal enlargeLogsRequested
     signal catalogRequested
     signal catalogRefreshRequested
     signal gameVersionSelected(string version)
@@ -328,10 +365,6 @@ Item {
                 title: qsTr("存储位置"),
                 component: storagePage
             },
-            feedback: {
-                title: qsTr("问题反馈"),
-                component: feedbackPage
-            },
             update: {
                 title: qsTr("关于与更新"),
                 component: updatePage
@@ -370,7 +403,7 @@ Item {
             }
         })
     readonly property Item toolItem: joiningRoom ? joiningLoader.item as Item : pageLoader.item as Item
-    readonly property bool fixedViewport: joiningRoom || ["logs", "catalog", "content", "selectInstance", "instances", "inviteFriends", "notifications", "friendConversation", "room"].includes(route) || (!route.length && [1, 2, 3].includes(toolIndex))
+    readonly property bool fixedViewport: joiningRoom || ["tasks", "logs", "catalog", "content", "selectInstance", "instances", "inviteFriends", "notifications", "friendConversation", "room"].includes(route) || (!route.length && [1, 2, 3].includes(toolIndex))
     readonly property real contentMaximumWidth: toolItem instanceof PageLayout ? toolItem.maximumWidth : 560
     implicitHeight: toolItem ? toolItem.implicitHeight : 0
     Loader {
@@ -549,7 +582,6 @@ Item {
                     root.runtime.add_content(root.currentInstance.id, category, urls);
             }
             onBrowseRequested: kind => {
-                root.draftEdited("content.target", root.currentInstance.id);
                 if (root.contentCatalog)
                     root.contentCatalog.browse(kind, "", root.currentInstance);
                 root.openPage("catalog");
@@ -586,6 +618,9 @@ Item {
             enabled: !root.loadingInstances
             configuration: {
                 root.settingsRevision;
+                root.currentInstance;
+                root.instances;
+                root.environment;
                 return root.runtime ? root.runtime.instance_settings("") : ({});
             }
             environment: root.environment
@@ -648,15 +683,15 @@ Item {
         GeneralPage {
             enabled: !root.loadingInstances
             afterLaunch: root.preferences.afterLaunch
-            startCollapsed: root.preferences.startCollapsed || false
             showOverlayInFullscreen: root.preferences.showOverlayInFullscreen || false
+            autoDependencies: root.preferences.autoDependencies !== false
+            onAutoDependenciesEdited: value => {
+                if (root.runtime)
+                    root.runtime.set_preference("autoDependencies", value);
+            }
             onShowOverlayInFullscreenEdited: value => {
                 if (root.runtime)
                     root.runtime.set_preference("showOverlayInFullscreen", value);
-            }
-            onStartCollapsedEdited: value => {
-                if (root.runtime)
-                    root.runtime.set_preference("startCollapsed", value);
             }
             onAfterLaunchEdited: value => {
                 if (root.runtime)
@@ -711,18 +746,16 @@ Item {
             session: root.contentCatalog
             viewportHeight: DesignTokens.comfortable ? root.viewportHeight : 510
             instances: root.instances
-            targetId: root.pageState["content.target"] === undefined ? root.currentInstance.id || "" : root.pageState["content.target"]
+            targetId: root.currentInstance.id || ""
             filtersExpanded: root.pageState["content.filtersExpanded"] !== false
             onFilterExpansionRequested: expanded => root.draftEdited("content.filtersExpanded", expanded)
             Component.onCompleted: Qt.callLater(root.catalogRequested)
-            onTargetChosen: id => root.draftEdited("content.target", id)
+            onTargetChosen: id => root.selected(root.instances.findIndex(item => item.id === id))
             onProjectRequested: id => {
                 if (root.contentStatus.loading)
                     return;
-                if (root.contentStatus.kind !== "modpack" && !root.pageState["content.target"] && root.currentInstance.id)
-                    root.draftEdited("content.target", root.currentInstance.id);
                 if (root.contentCatalog)
-                    root.contentCatalog.open_project(id, root.instances.find(item => item.id === (root.pageState["content.target"] || root.currentInstance.id)) || {});
+                    root.contentCatalog.open_project(id, root.currentInstance.id ? root.currentInstance : {});
                 root.openPage("content");
             }
             onOpenRequested: route => root.openPage(route)
@@ -732,14 +765,16 @@ Item {
         id: contentPage
         ContentDetailsPage {
             session: root.contentCatalog
-            viewportHeight: DesignTokens.comfortable ? root.viewportHeight : 510
+            viewportHeight: root.theme === "panel" ? 510 : root.viewportHeight
             instances: root.instances
-            targetId: root.pageState["content.target"] || root.currentInstance.id || ""
+            targetId: root.currentInstance.id || ""
             inspection: root.runtime ? root.runtime.content_installation : ({})
+            setupCatalog: root.installCatalog
+            onSetupLoaderChosen: loader => root.loaderSelected(loader)
+            onSetupVersionChosen: version => root.loaderVersionSelected(version)
+            onSetupRetryRequested: root.loaderRetryRequested()
             onTargetChosen: id => {
-                root.draftEdited("content.target", id);
-                if (root.contentCatalog)
-                    root.contentCatalog.select_target(root.instances.find(item => item.id === id) || {});
+                root.selected(root.instances.findIndex(item => item.id === id));
             }
             onInspectRequested: (id, plan) => {
                 if (root.runtime)
@@ -752,6 +787,10 @@ Item {
                 }
             }
             onSetupRequested: (game, loader) => {
+                if (root.contentStatus.kind === "shader" && root.contentStatus.missingLoader) {
+                    root.contentSetupRequested(game, loader);
+                    return;
+                }
                 root.openPage("install");
                 root.draftEdited("content.setup", root.contentStatus.plan || {});
                 if (root.contentStatus.kind === "shader" || (root.contentStatus.plan || {}).kind === "shader")
@@ -766,7 +805,6 @@ Item {
             existingTarget: root.pageState["content.setupTarget"] || ({})
             contentTitle: (root.pageState["content.setup"] || {}).files ? (root.contentStatus.project || {}).title || "" : ""
             onContentRequested: {
-                root.draftEdited("content.target", "");
                 if (root.contentCatalog)
                     root.contentCatalog.browse("modpack");
                 root.openPage("catalog");
@@ -1048,13 +1086,6 @@ Item {
         }
     }
     Component {
-        id: feedbackPage
-        FeedbackPage {
-            service: root.multiplayer
-            onNoticeRequested: message => root.noticeRequested(message)
-        }
-    }
-    Component {
         id: updatePage
         UpdatePage {
             service: root.updateService
@@ -1078,6 +1109,15 @@ Item {
         id: appearancePage
         AppearancePage {
             theme: root.theme
+            preferences: root.preferences
+            onFolderChosen: url => {
+                if (root.runtime)
+                    root.runtime.set_background_folder(url);
+            }
+            onPreferenceEdited: (key, value) => {
+                if (root.runtime)
+                    root.runtime.set_preference(key, value);
+            }
             backgrounds: root.preferences.backgrounds || root.pageState["appearance.backgrounds"] || []
             onThemeRequested: theme => root.themeRequested(theme)
             onBackgroundsEdited: urls => root.draftEdited("appearance.backgrounds", urls)
@@ -1121,6 +1161,8 @@ Item {
         LogsPage {
             viewportHeight: DesignTokens.comfortable ? root.viewportHeight : 510
             runtime: root.runtime
+            service: root.multiplayer
+            onEnlargeRequested: root.enlargeLogsRequested()
             onNoticeRequested: message => root.noticeRequested(message)
         }
     }

@@ -5,7 +5,8 @@ TextField {
     id: root
     default property alias trailingContent: trailing.data
     property string leadingIcon: ""
-    implicitHeight: DesignTokens.controlHeight
+    property bool compact: false
+    implicitHeight: compact ? 30 : DesignTokens.controlHeight
     font.family: DesignTokens.fontFamily
     font.pixelSize: DesignTokens.controlTextSize
     color: DesignTokens.text

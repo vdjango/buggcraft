@@ -44,6 +44,14 @@ void ContentCatalogSession::set_service(QObject* service) {
   service_ = qobject_cast<ContentCatalogPort*>(service);
   if (service_) {
     connect(service_, &ContentCatalogPort::finished, this, &ContentCatalogSession::accept);
+    connect(service_, &ContentCatalogPort::feedback_changed, this, [this] {
+      if (filters_.value("kind") != "shader" || version_.isEmpty()) return;
+      const auto choice = plan_.value("shaderSupport").toMap().value("choice").toString();
+      if (!choice.isEmpty())
+        select_shader_runtime(choice);
+      else
+        select_version(version_.value("id").toString());
+    });
     connect(service_, &ContentCatalogPort::source_selection_changed, this, [this] {
       cancel();
       translations_.clear();
@@ -267,6 +275,12 @@ void ContentCatalogSession::edit(const QString& key, const QString& value) {
   debounce_.start();
   emit changed();
 }
+void ContentCatalogSession::set_auto_dependencies(bool enabled) {
+  if (auto_dependencies_ == enabled) return;
+  auto_dependencies_ = enabled;
+  if (!version_.isEmpty()) select_version(version_.value("id").toString());
+  emit changed();
+}
 void ContentCatalogSession::request(const QString& operation, const QVariantMap& extra) {
   if (!service_) {
     error_ = tr("内容服务尚未接入");
@@ -275,6 +289,13 @@ void ContentCatalogSession::request(const QString& operation, const QVariantMap&
   }
   auto query = filters_;
   query["operation"] = operation;
+  if (operation == "plan") {
+    query["autoDependencies"] = !setup_loader_.isEmpty() || auto_dependencies_;
+    if (!setup_loader_.isEmpty()) {
+      query["loader"] = setup_loader_;
+      query["loaderVersion"] = setup_loader_version_;
+    }
+  }
   for (auto it = extra.begin(); it != extra.end(); ++it) query[it.key()] = it.value();
   auto& id = operation == "search"         ? search_id_
              : operation == "translations" ? translation_id_
@@ -335,6 +356,8 @@ void ContentCatalogSession::version_page(int page) {
           {{"projectId", project_.value("id")}, {"offset", version_page_ * 20}});
 }
 void ContentCatalogSession::apply_target(const QVariantMap& instance) {
+  setup_loader_.clear();
+  setup_loader_version_.clear();
   target_ = instance;
   filters_["gameVersion"] = instance.value("version", "");
   filters_["loaderVersion"] = instance.value("loaderVersion", "");
@@ -365,11 +388,31 @@ void ContentCatalogSession::select_version(const QString& id) {
     version_ = version;
     plan_.clear();
     plan_error_.clear();
+    const auto loader = target_.value("loader").toString().toLower();
+    if (setup_loader_.isEmpty() && filters_.value("kind") == "shader" && !target_.isEmpty() &&
+        (loader.isEmpty() || loader == "vanilla" || loader == "minecraft")) {
+      request("plan", {{"projectId", project_.value("id")},
+                       {"versionId", id},
+                       {"projectTitle", project_.value("title")},
+                       {"deferShaderRuntime", true}});
+      return;
+    }
     request("plan", {{"projectId", project_.value("id")},
                      {"versionId", id},
                      {"projectTitle", project_.value("title")}});
     return;
   }
+}
+void ContentCatalogSession::select_setup_loader(const QString& loader, const QString& version) {
+  const auto current = target_.value("loader").toString().toLower();
+  if (filters_.value("kind") != "shader" || target_.isEmpty() ||
+      (!current.isEmpty() && current != "vanilla" && current != "minecraft") ||
+      !QStringList{"forge", "neoforge", "fabric", "quilt"}.contains(loader) ||
+      (setup_loader_ == loader && setup_loader_version_ == version))
+    return;
+  setup_loader_ = loader;
+  setup_loader_version_ = version;
+  if (!version_.isEmpty()) select_version(version_.value("id").toString());
 }
 void ContentCatalogSession::select_shader_runtime(const QString& id) {
   if (filters_.value("kind") != "shader" || version_.isEmpty()) return;

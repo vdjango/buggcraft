@@ -4,6 +4,7 @@ import QtQuick.Controls
 TextArea {
     id: root
     property bool flat: false
+    property color surfaceColor: DesignTokens.surface
     implicitHeight: 112
     padding: 12
     wrapMode: TextEdit.Wrap
@@ -14,7 +15,7 @@ TextArea {
     selectByMouse: true
     background: Rectangle {
         radius: root.flat ? 0 : 10
-        color: root.flat ? "transparent" : DesignTokens.surface
+        color: root.flat ? "transparent" : root.surfaceColor
         border.color: root.activeFocus ? DesignTokens.quiet : "transparent"
     }
 }

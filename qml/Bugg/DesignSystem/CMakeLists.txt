@@ -10,9 +10,13 @@ qt_add_qml_module(bugg_designsystem STATIC
     AppIcon.qml
     Avatar.qml
     BackdropCarousel.qml
+    BackdropMedia.qml
+    RoundedMask.qml
     BrandButton.qml
     CheckOption.qml
     ChoiceCard.qml
+    ChoiceDialog.qml
+    ModalSurface.qml
     DesignTokens.qml
     Divider.qml
     DockHandle.qml
@@ -54,4 +58,4 @@ qt_add_qml_module(bugg_designsystem STATIC
   RESOURCES
     assets/home-siege-1.webp
 )
-target_link_libraries(bugg_designsystem PRIVATE Qt6::Quick Qt6::QuickControls2)
+target_link_libraries(bugg_designsystem PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)

@@ -22,6 +22,17 @@ namespace {
 bool retryable_response(int status, bool interrupted) {
   return interrupted || status == 0 || status == 408 || status == 429 || status >= 500;
 }
+
+QString source_label(const QUrl& url, const QUrl& bugg_base) {
+  const auto host = url.host().toLower();
+  if (host == bugg_base.host().toLower() && url.port() == bugg_base.port()) return "BUGG";
+  if (host.endsWith(".bugg.icu") || host == "bugg.icu") return "BUGG";
+  if (host.contains("modrinth")) return "Modrinth";
+  if (host.contains("forgecdn") || host.contains("curseforge")) return "CurseForge";
+  if (host.contains("bmclapi")) return "BMCLAPI";
+  if (host.contains("mojang") || host.contains("minecraft")) return "官方";
+  return host;
+}
 }  // namespace
 QList<QUrl> resource_urls(const QUrl& official, const QStringList& source_order,
                           const QUrl& bugg_base) {
@@ -66,10 +77,13 @@ QList<QUrl> resource_urls(const QUrl& official, const QStringList& source_order,
     bmcl_path = "/maven/" + path.mid(QString("/releases/").size());
   } else if (host == "cdn.modrinth.com" && path.startsWith("/data/")) {
     bugg_path = "/mods/modrinth" + path;
-  } else if ((host == "edge.forgecdn.net" || host == "mediafilez.forgecdn.net") &&
+  } else if ((host == "edge.forgecdn.net" || host == "mediafilez.forgecdn.net" ||
+              host == "media.forgecdn.net") &&
              path.startsWith("/files/")) {
-    bugg_path =
-        (host == "edge.forgecdn.net" ? "/mods/curseforge" : "/mods/curseforge-mediafilez") + path;
+    bugg_path = (host == "edge.forgecdn.net"    ? "/mods/curseforge"
+                 : host == "media.forgecdn.net" ? "/mods/curseforge-media"
+                                                : "/mods/curseforge-mediafilez") +
+                path;
   }
   QList<QUrl> result;
   for (const auto& route : plan.routes) {
@@ -131,11 +145,20 @@ bool ResourceClient::cooling_down(const QUrl& url) const {
 }
 
 QJsonObject ResourceClient::json(const QUrl& official, const QJsonObject& body) {
-  return json_many({official}, body).value(official);
+  return json(official, body, 45000, 6);
+}
+QJsonObject ResourceClient::json(const QUrl& official, const QJsonObject& body, int budget_ms,
+                                 int retries) {
+  return json_many({official}, body, budget_ms, retries).value(official);
 }
 
 QHash<QUrl, QJsonObject> ResourceClient::json_many(const QList<QUrl>& official,
                                                    const QJsonObject& body) {
+  return json_many(official, body, 45000, 6);
+}
+QHash<QUrl, QJsonObject> ResourceClient::json_many(const QList<QUrl>& official,
+                                                   const QJsonObject& body, int budget_ms,
+                                                   int retries) {
   struct Pending {
     QUrl original;
     QList<QUrl> urls;
@@ -191,6 +214,7 @@ QHash<QUrl, QJsonObject> ResourceClient::json_many(const QList<QUrl>& official,
         ++item.candidate;
       HttpRequest request;
       request.url = item.urls[item.candidate];
+      request.total_ms = qBound(1, budget_ms, 45000);
       if (!body.isEmpty()) {
         request.method = "POST";
         request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
@@ -214,12 +238,13 @@ QHash<QUrl, QJsonObject> ResourceClient::json_many(const QList<QUrl>& official,
         const bool missing_key = object.value("code") == "catalog_authorization_unavailable";
         if (failure.isEmpty() && parse.error == QJsonParseError::NoError && document.isObject()) {
           result.insert(item.original, object);
-        } else if (!missing_key && retryable_response(status, interrupted) && item.retries < 6) {
+        } else if (!missing_key && retryable_response(status, interrupted) &&
+                   item.retries < retries) {
           ++item.retries;
           if (item.candidate + 1 < item.urls.size()) ++item.candidate;
           item.ready_at = QDateTime::currentMSecsSinceEpoch() + qMin(8000, 250 << item.retries);
           queue.append(item);
-        } else if (item.retries < 6 && ++item.candidate < item.urls.size()) {
+        } else if (item.retries < retries && ++item.candidate < item.urls.size()) {
           ++item.retries;
           queue.append(item);
         } else {
@@ -262,6 +287,11 @@ QHash<QUrl, QJsonObject> ResourceClient::json_many(const QList<QUrl>& official,
 
 QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resources,
                                               bool continue_on_error) {
+  return fetch(resources, continue_on_error, {});
+}
+QHash<QString, QString> ResourceClient::fetch(
+    const QList<GameResource>& resources, bool continue_on_error,
+    const std::function<QList<GameResource>(const GameResource&)>& expand) {
   record_diagnostic("download.batch",
                     {{"files", resources.size()},
                      {"per_group_concurrency", concurrency_},
@@ -276,57 +306,68 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
     qint64 received = 0;
     qint64 started = 0;
     qint64 ready_at = 0;
+    QUrl route;
+    QString source;
   };
   QList<Pending> queue;
   QHash<QString, GameResource> paths;
   QElapsedTimer verification_clock;
   verification_clock.start();
-  int checked = 0;
+  int total = 0;
   progress_(0, QCoreApplication::translate("Bugg", "校验文件 0 / %1").arg(resources.size()));
-  for (const auto& resource : resources) {
-    check_cancelled(cancelled_);
-    ++checked;
-    if (paths.contains(resource.path)) {
-      if (paths.value(resource.path).sha1 != resource.sha1)
-        throw std::runtime_error(
-            QCoreApplication::translate("Bugg", "同一路径存在冲突的依赖摘要").toStdString());
-      continue;
-    }
-    paths.insert(resource.path, resource);
-    if (!valid_file(resource.path, resource.sha1, resource.size, cancelled_)) {
-      auto urls = resource_urls(resource.url, source_order_, bugg_base_);
-      for (const auto& alternative : resource.alternatives)
-        for (const auto& url : resource_urls(alternative, source_order_, bugg_base_))
-          if (!urls.contains(url)) urls.append(url);
-      QString group = resource.group;
-      const auto path = QDir::fromNativeSeparators(resource.path).toLower();
-      if (group.isEmpty()) {
-        for (const auto& name : {"assets", "libraries", "resourcepacks", "shaderpacks", "mods",
-                                 "datapacks", "runtime", "installers", "versions"})
-          if (path.contains('/' + QString(name) + '/')) {
-            group = name;
-            break;
-          }
+  const auto enqueue = [&](const QList<GameResource>& additions) {
+    auto discovered = additions;
+    for (qsizetype position = 0; position < discovered.size(); ++position) {
+      const auto resource = discovered[position];
+      check_cancelled(cancelled_);
+      if (paths.contains(resource.path)) {
+        if (paths.value(resource.path).sha1 != resource.sha1)
+          throw std::runtime_error(
+              QCoreApplication::translate("Bugg", "同一路径存在冲突的依赖摘要").toStdString());
+        continue;
       }
-      if (group.isEmpty()) group = "files";
-      Pending pending{resource, urls};
-      pending.group = group;
-      queue.append(pending);
+      paths.insert(resource.path, resource);
+      if (!valid_file(resource.path, resource.sha1, resource.size, cancelled_)) {
+        auto urls = resource_urls(resource.url, source_order_, bugg_base_);
+        for (const auto& alternative : resource.alternatives)
+          for (const auto& url : resource_urls(alternative, source_order_, bugg_base_))
+            if (!urls.contains(url)) urls.append(url);
+        QString group = resource.group;
+        const auto path = QDir::fromNativeSeparators(resource.path).toLower();
+        if (group.isEmpty()) {
+          for (const auto& name : {"assets", "libraries", "resourcepacks", "shaderpacks", "mods",
+                                   "datapacks", "runtime", "installers", "versions"})
+            if (path.contains('/' + QString(name) + '/')) {
+              group = name;
+              break;
+            }
+        }
+        if (group.isEmpty()) group = "files";
+        if (QStringList{"mods", "resourcepacks", "shaderpacks", "datapacks"}.contains(group))
+          group = "content";
+        Pending pending{resource, urls};
+        pending.group = group;
+        queue.append(pending);
+        ++total;
+      } else if (expand) {
+        discovered.append(expand(resource));
+      }
+      if (position + 1 == discovered.size() || verification_clock.elapsed() >= 100) {
+        verification_clock.restart();
+        const auto known = paths.size() + discovered.size() - position - 1;
+        progress_(double(paths.size()) / qMax<qsizetype>(1, known),
+                  QCoreApplication::translate("Bugg", "校验文件 %1 / %2 · %3")
+                      .arg(paths.size())
+                      .arg(known)
+                      .arg(QFileInfo(resource.path).fileName()));
+      }
     }
-    if (checked == resources.size() || verification_clock.elapsed() >= 100) {
-      verification_clock.restart();
-      progress_(double(checked) / resources.size(),
-                QCoreApplication::translate("Bugg", "校验文件 %1 / %2 · %3")
-                    .arg(checked)
-                    .arg(resources.size())
-                    .arg(QFileInfo(resource.path).fileName()));
-    }
-  }
+  };
+  enqueue(resources);
   if (queue.isEmpty()) {
     progress_(1, QCoreApplication::translate("Bugg", "文件已校验"));
     return {};
   }
-  const int total = queue.size();
   int done = 0;
   QHash<quint64, Pending> active;
   QHash<QString, int> group_active;
@@ -346,6 +387,14 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
   double speed = 0;
   QHash<QString, QString> failures;
   QString error;
+  const auto notify_progress = [&](const auto& callback) {
+    try {
+      callback();
+    } catch (const std::exception& exception) {
+      error = QString::fromUtf8(exception.what());
+      loop.quit();
+    }
+  };
   // One publisher owns this batch. Bound periodic updates, but flush phase
   // transitions immediately so a fast cached phase never masks a slow wait.
   const auto publish = [&](const QString& detail, bool immediate = false) {
@@ -353,10 +402,23 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
     throttle.restart();
     double fraction = done;
     for (auto value : partial) fraction += value;
-    progress_(fraction / total, QCoreApplication::translate("Bugg", "下载文件 %1 / %2 · %3")
-                                    .arg(done)
-                                    .arg(total)
-                                    .arg(detail));
+    QStringList sources;
+    for (const auto& item : active) {
+      const auto name = item.source;
+      if (!name.isEmpty() && !sources.contains(name)) sources.append(name);
+    }
+    sources.sort();
+    notify_progress([&] {
+      progress_(
+          fraction / total,
+          QCoreApplication::translate("Bugg", "下载文件 %1 / %2 · %3")
+                  .arg(done)
+                  .arg(total)
+                  .arg(detail) +
+              (sources.isEmpty()
+                   ? QString{}
+                   : QCoreApplication::translate("Bugg", " · 来源：%1").arg(sources.join(" / "))));
+    });
   };
   const auto snapshot = [&](const Pending& pending, const QString& state, const QString& detail) {
     if (!transfer_progress_) return;
@@ -364,31 +426,45 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
     const auto file_speed =
         pending.received * 1000.0 / qMax<qint64>(100, elapsed - pending.started);
     const QLocale locale;
-    transfer_progress_(
-        {{"path", pending.resource.path},
-         {"state", state},
-         {"progress",
-          pending.resource.size > 0 ? double(pending.received) / pending.resource.size : -1},
-         {"received", pending.received},
-         {"total", pending.resource.size},
-         {"speedText", locale.formattedDataSize(qint64(file_speed)) + "/s"},
-         {"aggregateSpeedText", locale.formattedDataSize(qint64(speed)) + "/s"},
-         {"activeTransfers", active.size()},
-         {"transferText",
-          locale.formattedDataSize(pending.received) + " / " +
-              (pending.resource.size > 0 ? locale.formattedDataSize(pending.resource.size)
-                                         : QString("—"))},
-         {"detail", detail}});
+    notify_progress([&] {
+      transfer_progress_(
+          {{"path", pending.resource.path},
+           {"state", state},
+           {"progress",
+            pending.resource.size > 0 ? double(pending.received) / pending.resource.size : -1},
+           {"received", pending.received},
+           {"total", pending.resource.size},
+           {"speedText", locale.formattedDataSize(qint64(file_speed)) + "/s"},
+           {"aggregateSpeedText", locale.formattedDataSize(qint64(speed)) + "/s"},
+           {"activeTransfers", active.size()},
+           {"source", pending.source},
+           {"transferText",
+            locale.formattedDataSize(pending.received) + " / " +
+                (pending.resource.size > 0 ? locale.formattedDataSize(pending.resource.size)
+                                           : QString("—"))},
+           {"detail", detail}});
+    });
   };
+  const auto route_connection = QObject::connect(
+      transport_, &HttpClient::route_changed, &loop, [&](quint64 id, const QUrl& url) {
+        if (!active.contains(id)) return;
+        active[id].route = url;
+        const auto routed_source = source_label(url, bugg_base_);
+        if (QStringList{"BUGG", "Modrinth", "CurseForge", "BMCLAPI", "官方"}.contains(
+                routed_source))
+          active[id].source = routed_source;
+        snapshot(active[id], "downloading", QCoreApplication::translate("Bugg", "连接中"));
+        publish(QFileInfo(active[id].resource.path).fileName(), true);
+      });
   std::function<void()> pump;
   pump = [&] {
     if (cancelled_->load() || !error.isEmpty()) {
       loop.quit();
       return;
     }
-    while (!queue.isEmpty()) {
+    while (!queue.isEmpty() && !cancelled_->load() && error.isEmpty()) {
       const auto next = std::find_if(queue.begin(), queue.end(), [&](const Pending& item) {
-        return active.size() < concurrency_ && group_active.value(item.group) < concurrency_ &&
+        return group_active.value(item.group) < concurrency_ &&
                item.ready_at <= QDateTime::currentMSecsSinceEpoch();
       });
       if (next == queue.end()) break;
@@ -399,6 +475,8 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
         ++pending.attempt;
       HttpRequest request;
       request.url = pending.urls[pending.attempt++];
+      pending.route = request.url;
+      pending.source = source_label(request.url, bugg_base_);
       request.output_path = pending.resource.path;
       request.sha1 = pending.resource.sha1;
       request.resume = true;
@@ -407,6 +485,7 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
           request.expected_size >= 0 ? request.expected_size + 1 : 1024LL * 1024 * 1024;
       request.total_ms = 10 * 60 * 1000;
       request.first_byte_ms = 60000;
+      if (pending.attempt < pending.urls.size()) request.minimum_bytes_per_second = 4096;
       record_diagnostic("download.attempt",
                         {{"file", QFileInfo(pending.resource.path).fileName()},
                          {"publisher_url", diagnostic_url(pending.resource.url)},
@@ -436,6 +515,13 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
           ++done;
           snapshot(pending, "checking",
                    QCoreApplication::translate("Bugg", "下载完成，待校验安装"));
+          if (expand) {
+            try {
+              enqueue(expand(pending.resource));
+            } catch (const std::exception& exception) {
+              error = QString::fromUtf8(exception.what());
+            }
+          }
         } else if (retryable_response(status, interrupted) && pending.retries < 6) {
           snapshot(pending, "downloading",
                    QCoreApplication::translate("Bugg", "连接中断，自动重试"));
@@ -508,6 +594,7 @@ QHash<QString, QString> ResourceClient::fetch(const QList<GameResource>& resourc
   QObject::disconnect(complete);
   QObject::disconnect(transient_connection);
   QObject::disconnect(resumed);
+  QObject::disconnect(route_connection);
   QObject::disconnect(progress);
   for (auto id : active.keys()) transport_->cancel(id);
   check_cancelled(cancelled_);

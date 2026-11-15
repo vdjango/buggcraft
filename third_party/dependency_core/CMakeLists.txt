@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(BuggDependencyCore VERSION 1.0.0 LANGUAGES CXX)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime-rules.json")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/runtime-rules.json" BUGG_RUNTIME_RULES)
 configure_file(runtime_rules.h.in runtime_rules.h @ONLY)
 

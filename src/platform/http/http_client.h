@@ -17,6 +17,7 @@ namespace bugg {
 struct HttpTimeouts {
   int idle_ms = 15000;
   int total_ms = 45000;
+  int slow_window_ms = 10000;
 };
 
 /// 请求机制，不包含来源策略。output_path 非空仅允许工作线程使用；校验后原子落盘。
@@ -37,6 +38,8 @@ struct HttpRequest {
   int total_ms = 45000;
   /// Optional cold-origin first body allowance; after data arrives idle_ms applies.
   int first_byte_ms = 0;
+  /// Optional file throughput floor; callers enable only when another route exists.
+  qint64 minimum_bytes_per_second = 0;
   /// Known large files may use three same-origin byte ranges; callers may disable.
   bool parallel_ranges = true;
   /// Worker file GET with an explicit SHA-1/size may retain verified-identity partial bytes.
@@ -68,6 +71,10 @@ class HttpClient : public QObject {
   void transient_failure(quint64 request_id);
   /// Cached bytes restored for this attempt; not new network throughput.
   void resumed(quint64 request_id, qint64 bytes);
+  /// Internal transport event: an exact 206 byte range was accepted before writing.
+  void range_accepted(quint64 request_id);
+  /// Actual request route, including accepted redirects, for download UI/source reporting.
+  void route_changed(quint64 request_id, const QUrl& url);
 
  private:
   void start_request(quint64 id, const HttpRequest& request);
@@ -78,6 +85,7 @@ class HttpClient : public QObject {
   QHash<quint64, QPointer<QNetworkReply>> pending_;
   QHash<quint64, QList<quint64>> range_children_;
   QHash<quint64, QObject*> range_scopes_;
+  QHash<QUrl, qint64> range_disabled_until_;
   quint64 sequence_ = 0;
   QString diagnostic_id_;
 };

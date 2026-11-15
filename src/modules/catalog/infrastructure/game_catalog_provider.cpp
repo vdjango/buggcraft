@@ -174,7 +174,11 @@ class RemoteCatalogProvider final : public GameCatalogProvider {
           const auto entry = item.toObject();
           if (query.kind == "fabric" || query.kind == "quilt") {
             const QString mapping = query.kind == "fabric" ? "intermediary" : "hashed";
-            if (entry.value(mapping).toObject().value("version").toString() != query.game_version)
+            const auto mapped_game = entry.value(mapping).toObject().value("version").toString();
+            // Post-obfuscation releases use Fabric's explicit no-mapping sentinel.
+            // The loader endpoint itself is scoped to the requested game version.
+            if (mapped_game != query.game_version &&
+                !(query.kind == "fabric" && mapped_game == "0.0.0"))
               continue;
             const auto loader = entry.value("loader").toObject();
             const QString version = loader.value("version").toString();

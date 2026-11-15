@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Bugg.DesignSystem
+import Bugg.Presentation
 
 PageLayout {
     id: root
@@ -17,7 +18,10 @@ PageLayout {
     ListViewport {
         Layout.fillWidth: true
         Layout.preferredHeight: Math.max(120, root.viewportHeight - root.verticalPadding * 2 - summary.implicitHeight - root.spacing)
-        model: root.tasks
+        objectName: "taskListViewport"
+        model: ValueListModel {
+            rows: root.tasks
+        }
         delegate: TaskCard {
             required property var modelData
             width: ListView.view.width

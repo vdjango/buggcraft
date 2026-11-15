@@ -5,6 +5,7 @@
 #include <QQuickWindow>
 #include <QTimer>
 #include <QVariant>
+#include <cstdio>
 
 #include "app/application_lifecycle.h"
 #include "modules/account/application/microsoft_account.h"
@@ -15,14 +16,39 @@
 #include "modules/settings/application/language_service.h"
 #include "modules/settings/ui/source_settings.h"
 #include "modules/update/application/launcher_update_service.h"
+#include "platform/diagnostics/diagnostic_log.h"
 #include "platform/http/http_client.h"
 #include "shell/desktop_environment.h"
 #ifdef BUGG_SINGLE_FILE
 #include <QFile>
-#include <cstdio>
 
 #include "cli.hpp"
 #endif
+
+namespace {
+QtMessageHandler previous_messages = nullptr;
+void diagnostic_message(QtMsgType type, const QMessageLogContext& context, const QString& message) {
+  static thread_local bool logging = false;
+  if (!logging) {
+    logging = true;
+    const QString level = type == QtDebugMsg     ? "DEBUG"
+                          : type == QtInfoMsg    ? "INFO"
+                          : type == QtWarningMsg ? "WARN"
+                          : type == QtFatalMsg   ? "FATAL"
+                                                 : "ERROR";
+    bugg::record_diagnostic(
+        "launcher.message",
+        {{"level", level},
+         {"logger", QString::fromUtf8(context.category ? context.category : "launcher")},
+         {"message", message.left(12000)}});
+    logging = false;
+  }
+  if (previous_messages)
+    previous_messages(type, context, message);
+  else
+    std::fprintf(stderr, "%s\n", qPrintable(bugg::redact_diagnostic(message)));
+}
+}  // namespace
 
 int main(int argc, char* argv[]) {
 #ifdef BUGG_SINGLE_FILE
@@ -41,6 +67,7 @@ int main(int argc, char* argv[]) {
     QCoreApplication helper(argc, argv);
     return bugg::LauncherUpdateService::apply_staged(QString::fromLocal8Bit(argv[2]));
   }
+  previous_messages = qInstallMessageHandler(diagnostic_message);
   QGuiApplication app(argc, argv);
   QCoreApplication::setApplicationName("Bugg");
   QCoreApplication::setApplicationVersion(BUGG_VERSION);
@@ -48,8 +75,7 @@ int main(int argc, char* argv[]) {
   QQuickStyle::setStyle("Basic");
   QCommandLineParser parser;
   parser.addHelpOption();
-  parser.addOption(
-      {"theme", "Initial UI size: panel, small, classic or large.", "theme", "small"});
+  parser.addOption({"theme", "Initial UI size: panel, small, classic or large.", "theme", "small"});
   parser.addOption({"page", "Open a preview subpage.", "route"});
   parser.addOption({"capture", "Save a preview PNG, then exit.", "path"});
   parser.process(app);
@@ -66,6 +92,8 @@ int main(int argc, char* argv[]) {
   bugg::GameRuntime runtime(portable, portable + "/.minecraft", &account);
   bugg::LauncherUpdateService updates(&http, cache);
   runtime.set_content_request(content_catalog.requester());
+  QObject::connect(&runtime, &bugg::GameRuntime::shader_feedback_submitted, &content_catalog,
+                   &bugg::ContentCatalogPort::feedback_changed);
   QObject::connect(&content_catalog, &bugg::ContentCatalogPort::source_selection_changed, &runtime,
                    [&] { runtime.set_content_request(content_catalog.requester()); });
 #ifdef BUGG_SINGLE_FILE
@@ -76,6 +104,10 @@ int main(int argc, char* argv[]) {
   const auto bridge = portable + "/native/bin/buggcraft-bridge";
 #endif
   bugg::MultiplayerService multiplayer(&http, cache, bridge);
+  QObject::connect(&runtime, &bugg::GameRuntime::feedback_prepared, &multiplayer,
+                   &bugg::MultiplayerService::submit_feedback);
+  QObject::connect(&multiplayer, &bugg::MultiplayerService::feedback_finished, &runtime,
+                   &bugg::GameRuntime::release_feedback);
   runtime.set_room_content_request(
       [&multiplayer](const auto& method, auto parameters, const auto& cancelled) {
         return multiplayer.content_request(method, parameters, cancelled);
@@ -122,8 +154,14 @@ int main(int argc, char* argv[]) {
     app.setLayoutDirection(languages.right_to_left() ? Qt::RightToLeft : Qt::LeftToRight);
     engine.retranslate();
   });
-  QObject::connect(&runtime, &bugg::GameRuntime::settings_changed, &languages,
-                   [&] { languages.set_code(runtime.preferences().value("language").toString()); });
+  QObject::connect(&runtime, &bugg::GameRuntime::settings_changed, &languages, [&] {
+    if (lifecycle.phase() == "ready")
+      languages.set_code(runtime.preferences().value("language").toString());
+  });
+  QObject::connect(&lifecycle, &bugg::ApplicationLifecycle::changed, &languages, [&] {
+    if (lifecycle.phase() == "ready")
+      languages.set_code(runtime.preferences().value("language").toString());
+  });
 #ifdef BUGG_SINGLE_FILE
   engine.setImportPathList({"qrc:/qt/qml", "qrc:/qt-project.org/imports"});
 #else

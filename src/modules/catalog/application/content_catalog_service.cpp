@@ -11,6 +11,12 @@ ContentCatalogService::ContentCatalogService(QObject* parent, ContentEndpoints e
     : ContentCatalogPort(parent), endpoints_(std::move(endpoints)) {
   if (endpoints_.curseforge_key.isEmpty())
     endpoints_.curseforge_key = qgetenv("BUGGCRAFT_CURSEFORGE_API_KEY");
+  connect(this, &ContentCatalogPort::feedback_changed, this, [this] {
+    cache_.clear();
+    const auto ids = active_.keys();
+    for (const auto id : ids)
+      if (active_.value(id).shader_plan) cancel(id);
+  });
 }
 ContentCatalogService::~ContentCatalogService() { shutdown(); }
 ContentRequest ContentCatalogService::requester() const {
@@ -23,7 +29,8 @@ void ContentCatalogService::query(quint64 id, const QVariantMap& query) {
   if (closing_) return;
   const auto generation = ++sequence_;
   const auto cancelled = std::make_shared<std::atomic_bool>(false);
-  active_[id] = {generation, cancelled};
+  active_[id] = {generation, cancelled,
+                 query.value("operation") == "plan" && query.value("kind") == "shader"};
   auto effective_query = query;
   QByteArray ensure_key;
   if (query.value("operation") == "translations" && query.value("ensure").toBool()) {
@@ -73,7 +80,9 @@ void ContentCatalogService::query(quint64 id, const QVariantMap& query) {
                        1024));
             const bool polling = value.value("pending").toBool();
             const bool translation = value.contains("translations");
-            const int ttl = translation ? (polling ? 0 : 15000) : 5 * 60 * 1000;
+            const int ttl = translation                       ? (polling ? 0 : 15000)
+                            : value.contains("shaderSupport") ? 15000
+                                                              : 5 * 60 * 1000;
             cache_.insert(key, new Cached{value, QDateTime::currentMSecsSinceEpoch() + ttl}, cost);
           }
           emit finished(id, value);

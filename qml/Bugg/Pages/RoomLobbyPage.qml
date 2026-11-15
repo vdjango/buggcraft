@@ -159,57 +159,76 @@ PageLayout {
                 anchors.fill: parent
                 visible: root.activeView === "members"
                 model: (root.room.members || []).filter(item => item.online !== false)
-                delegate: ListRow {
-                    id: memberRow
+                delegate: Column {
+                    id: memberDelegate
                     required property var modelData
                     width: ListView.view.width
-                    compact: true
-                    text: modelData.name || qsTr("玩家")
-                    caption: [modelData.id === root.lobby.manager_id ? qsTr("房主") : "", ({
-                                idle: qsTr("等待准备"),
-                                ready: qsTr("已就绪"),
-                                playing: qsTr("游戏中"),
-                                starting: qsTr("正在启动"),
-                                checking: qsTr("检查文件"),
-                                downloading: qsTr("正在下载"),
-                                installing: qsTr("正在安装"),
-                                verifying: qsTr("正在校验"),
-                                failed: qsTr("准备失败"),
-                                cancelled: qsTr("已取消")
-                            })[modelData.state] || qsTr("准备中"), typeof modelData.node_rtt_ms === "number" && modelData.node_rtt_ms >= 0 ? qsTr("到节点 %1 ms").arg(Math.round(modelData.node_rtt_ms)) : qsTr("到节点待测"), modelData.id === root.lobby.provider_id ? qsTr("本机世界") : typeof modelData.host_rtt_ms === "number" && modelData.host_rtt_ms >= 0 ? qsTr("到房主 %1 ms").arg(Math.round(modelData.host_rtt_ms)) : qsTr("到房主待测")].filter(Boolean).join(" · ")
-                    showChevron: false
-                    value: modelData.total > 0 && !["ready", "playing", "idle"].includes(modelData.state) ? Math.round(modelData.done * 100 / modelData.total) + "%" : ""
-                    leadingComponent: Component {
-                        Avatar {
-                            initials: memberRow.text.slice(0, 1)
-                        }
-                    }
-                    trailingComponent: Component {
-                        IconButton {
-                            objectName: "roomMemberActions_" + memberRow.modelData.id
-                            visible: !!root.room.isManager && memberRow.modelData.id !== root.lobby.self_id
-                            iconName: "more"
-                            accessibleName: qsTr("成员操作")
-                            onClicked: memberActions.open()
-                            SelectionMenu {
-                                id: memberActions
-                                x: parent.width - width
-                                y: parent.height
-                                items: [
-                                    {
-                                        id: "owner_offer",
-                                        name: qsTr("转让房主")
-                                    },
-                                    {
-                                        id: "member_kick",
-                                        name: qsTr("移出房间")
-                                    }
-                                ].filter(item => item.id !== "member_kick" || memberRow.modelData.id !== root.lobby.provider_id)
-                                onChosen: id => root.service.room_command(id, {
-                                        member: memberRow.modelData.id
-                                    })
+                    spacing: 2
+                    ListRow {
+                        id: memberRow
+                        readonly property var modelData: memberDelegate.modelData
+                        width: parent.width
+                        compact: true
+                        text: modelData.name || qsTr("玩家")
+                        caption: [modelData.id === root.lobby.manager_id ? qsTr("房主") : "", ({
+                                    idle: qsTr("等待准备"),
+                                    ready: qsTr("已就绪"),
+                                    playing: qsTr("游戏中"),
+                                    starting: qsTr("正在启动"),
+                                    checking: qsTr("检查文件"),
+                                    downloading: qsTr("正在下载"),
+                                    installing: qsTr("正在安装"),
+                                    verifying: qsTr("正在校验"),
+                                    failed: qsTr("准备失败"),
+                                    cancelled: qsTr("已取消")
+                                })[modelData.state] || qsTr("准备中"), ({
+                                    p2p: qsTr("直连"),
+                                    relay: qsTr("中转"),
+                                    local: qsTr("本机")
+                                })[modelData.path] || qsTr("线路确认中"), modelData.id === root.lobby.provider_id && root.room.availability === "ready" ? qsTr("世界已开放") : "", typeof modelData.node_rtt_ms === "number" && modelData.node_rtt_ms >= 0 ? qsTr("节点 %1 ms").arg(Math.round(modelData.node_rtt_ms)) : "", modelData.id !== root.lobby.provider_id && typeof modelData.host_rtt_ms === "number" && modelData.host_rtt_ms >= 0 ? qsTr("房主 %1 ms").arg(Math.round(modelData.host_rtt_ms)) : ""].filter(Boolean).join(" · ")
+                        showChevron: false
+                        value: modelData.total > 0 && !["ready", "playing", "idle"].includes(modelData.state) ? Math.round(modelData.done * 100 / modelData.total) + "%" : ""
+                        leadingComponent: Component {
+                            Avatar {
+                                initials: memberRow.text.slice(0, 1)
                             }
                         }
+                        trailingComponent: Component {
+                            IconButton {
+                                objectName: "roomMemberActions_" + memberRow.modelData.id
+                                visible: !!root.room.isManager && memberRow.modelData.id !== root.lobby.self_id
+                                iconName: "more"
+                                accessibleName: qsTr("成员操作")
+                                onClicked: memberActions.open()
+                                SelectionMenu {
+                                    id: memberActions
+                                    x: parent.width - width
+                                    y: parent.height
+                                    items: [
+                                        {
+                                            id: "owner_offer",
+                                            name: qsTr("转让房主")
+                                        },
+                                        {
+                                            id: "member_kick",
+                                            name: qsTr("移出房间")
+                                        }
+                                    ].filter(item => item.id !== "member_kick" || memberRow.modelData.id !== root.lobby.provider_id)
+                                    onChosen: id => root.service.room_command(id, {
+                                            member: memberRow.modelData.id
+                                        })
+                                }
+                            }
+                        }
+                    }
+                    ProgressSurface {
+                        objectName: "roomMemberProgress_" + memberDelegate.modelData.id
+                        width: parent.width - 16
+                        x: 8
+                        visible: ["downloading", "installing", "verifying", "checking", "starting"].includes(memberDelegate.modelData.state)
+                        height: 4
+                        active: true
+                        progress: memberDelegate.modelData.total > 0 ? memberDelegate.modelData.done / memberDelegate.modelData.total : -1
                     }
                 }
                 EmptyState {

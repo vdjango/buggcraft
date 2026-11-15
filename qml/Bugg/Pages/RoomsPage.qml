@@ -17,7 +17,7 @@ PageLayout {
     signal edited(string key, var value)
     signal openRequested(string route)
     maximumWidth: 1040
-    minimumHeight: DesignTokens.comfortable || !ready ? viewportHeight : 0
+    minimumHeight: viewportHeight
     centered: !ready
     spacing: 12
     Component.onCompleted: {
@@ -43,7 +43,7 @@ PageLayout {
     ColumnLayout {
         visible: root.ready
         Layout.fillWidth: true
-        Layout.preferredHeight: DesignTokens.comfortable ? Math.max(0, root.viewportHeight - root.verticalPadding * 2) : -1
+        Layout.preferredHeight: Math.max(0, root.viewportHeight - root.verticalPadding * 2)
         spacing: root.spacing
         GridLayout {
             visible: root.ready
@@ -98,8 +98,8 @@ PageLayout {
             objectName: "roomsViewport"
             visible: root.ready
             Layout.fillWidth: true
-            Layout.fillHeight: DesignTokens.comfortable
-            Layout.minimumHeight: DesignTokens.comfortable ? 80 : 0
+            Layout.fillHeight: true
+            Layout.minimumHeight: 80
             Layout.preferredHeight: DesignTokens.comfortable ? 120 : root.rooms.length ? Math.min(3, root.rooms.length) * (DesignTokens.rowHeight + 6) - 6 : 96
             model: DesignTokens.comfortable ? root.rooms : root.rooms.slice(pages.currentPage * pages.pageSize, (pages.currentPage + 1) * pages.pageSize)
             delegate: ListRow {
@@ -142,13 +142,24 @@ PageLayout {
             text: root.status.error || ""
             color: DesignTokens.danger
         }
-        UiText {
-            objectName: "nodeStatusFooter"
+        RowLayout {
             Layout.fillWidth: true
             visible: root.ready
-            text: [root.status.nodeName || qsTr("联机节点"), root.status.latency >= 0 ? Math.round(root.status.latency) + " ms" : ""].filter(Boolean).join(" · ")
-            font.pixelSize: 11
-            color: DesignTokens.muted
+            UiText {
+                objectName: "nodeStatusFooter"
+                Layout.fillWidth: true
+                text: [root.status.nodeName || qsTr("联机节点"), root.status.latency >= 0 ? Math.round(root.status.latency) + " ms" : ""].filter(Boolean).join(" · ")
+                font.pixelSize: 11
+                color: DesignTokens.muted
+            }
+            NetworkReference {
+                objectName: "lobbyNetworkFooter"
+                Layout.alignment: Qt.AlignRight | Qt.AlignBottom
+                Layout.maximumWidth: root.width * 0.58
+                own: true
+                compact: true
+                profile: root.status.networkProfile || ({})
+            }
         }
     }
 }

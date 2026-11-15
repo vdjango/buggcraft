@@ -13,12 +13,16 @@ class NativeBridge : public QObject {
   using Reply = std::function<void(const QJsonObject&, const QString&)>;
   enum class Priority { Interactive, Background };
   /// 统一以 --native-bridge 运行原生子进程，可传独立桥或单文件启动器路径。
-  explicit NativeBridge(QString executable, QObject* parent = nullptr);
+  explicit NativeBridge(QString executable, QObject* parent = nullptr,
+                        const QString& diagnostic_root = {});
   /// GUI 入队，最长 60 秒；回调在 GUI，退出/进程故障令所有未完成请求失败。
   /// 仅尚未发送的后台请求让位；同级 FIFO，已经发送的请求不抢占。
   void call(const QString& method, const QJsonObject& parameters, Reply complete,
             Priority priority = Priority::Interactive);
   void shutdown();
+  /// GUI only. Changes the log destination for the next child process start;
+  /// an active bridge retains its environment until drained/restarted.
+  void relocate_diagnostics(const QString& directory);
   bool busy() const { return process_.state() != QProcess::NotRunning; }
  signals:
   void drained();

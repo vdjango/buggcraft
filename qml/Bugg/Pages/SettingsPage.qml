@@ -62,11 +62,6 @@ PageLayout {
                 route: "logs"
             },
             {
-                label: qsTr("问题反馈"),
-                value: qsTr("诊断与帮助"),
-                route: "feedback"
-            },
-            {
                 label: qsTr("关于与更新"),
                 value: root.updateStatus.state === "ready" ? qsTr("重启安装更新") : root.updateStatus.state === "available" ? qsTr("新版本 %1").arg(root.updateStatus.version) : "Bugg",
                 route: "update"

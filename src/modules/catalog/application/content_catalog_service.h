@@ -32,6 +32,7 @@ class ContentCatalogService final : public ContentCatalogPort {
   struct Pending {
     quint64 generation;
     std::shared_ptr<std::atomic_bool> cancelled;
+    bool shader_plan = false;
   };
   ContentEndpoints endpoints_;
   QStringList order_ = supported_download_sources();

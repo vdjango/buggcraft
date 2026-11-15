@@ -14,6 +14,12 @@ class DependencyFacts {
   /// relative path -> concrete staged/installed file. Maximum 4096 active JARs.
   /// Returns content-addressed versioned facts; failures/cancellation throw.
   QJsonArray collect(const QMap<QString, QString>& files);
+  /// Worker-only local root declarations for diagnostics. No hashing/network or
+  /// nested JAR extraction; bounded metadata reads, throws on I/O/cancellation.
+  static QJsonObject describe(const QString& path, const Cancellation& cancelled);
+  /// Worker-only complete local facts, including nested declarations and class
+  /// minimum. Used after a local file changes; does not contact any source.
+  QJsonObject local(const QString& path);
 
  private:
   QJsonObject parse(const QString& path, const QString& digest, qint64 size);

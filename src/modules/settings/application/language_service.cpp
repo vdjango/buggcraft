@@ -11,6 +11,7 @@
 #include <QtConcurrent>
 #include <algorithm>
 
+#include "platform/diagnostics/diagnostic_log.h"
 #include "platform/files/game_files.h"
 
 static void initialize_language_resources() {
@@ -199,7 +200,9 @@ bool LanguageService::set_code(const QString& code) {
       }
       check_cancelled(cancelled);
       return {{"data", data}};
-    } catch (const std::exception&) {
+    } catch (const std::exception& error) {
+      record_diagnostic("language.download_failed",
+                        {{"url", diagnostic_url(url)}, {"error", QString::fromUtf8(error.what())}});
       return {{"error",
                QCoreApplication::translate("LanguageService", "语言包下载失败，请检查网络后重试")}};
     }

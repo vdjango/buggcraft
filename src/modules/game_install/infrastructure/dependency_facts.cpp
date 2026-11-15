@@ -1,5 +1,6 @@
 #include "modules/game_install/infrastructure/dependency_facts.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -11,7 +12,21 @@
 
 namespace bugg {
 namespace {
-constexpr auto kNativeParser = "native-1.1.0";
+constexpr auto kNativeParser = "native-1.4.1";
+QMap<QString, QByteArray> read_members(const QString& path, const Cancellation& cancelled,
+                                       QStringList* listed = nullptr) {
+  const auto entries = archive_entries(path, cancelled, false);
+  if (listed) *listed = entries;
+  QMap<QString, QByteArray> members;
+  for (const auto* name :
+       {"fabric.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml",
+        "META-INF/MANIFEST.MF", "META-INF/jarjar/metadata.json", "quilt.mod.json", "mcmod.info",
+        "META-INF/services/net.minecraftforge.forgespi.locating.IModLocator",
+        "META-INF/services/net.neoforged.neoforgespi.locating.IModFileCandidateLocator"}) {
+    if (entries.contains(name)) members[name] = archive_read(path, name, 1024 * 1024, cancelled);
+  }
+  return members;
+}
 QJsonObject parsed_json(const std::string& value) {
   const auto result = QJsonDocument::fromJson(QByteArray::fromStdString(value));
   if (!result.isObject()) throw std::runtime_error("invalid_dependency_response");
@@ -19,7 +34,7 @@ QJsonObject parsed_json(const std::string& value) {
 }
 bool valid_facts(const QJsonObject& facts, const QString& digest, qint64 size) {
   return facts["artifact_sha256"] == digest && facts["size"].toInteger(-1) == size &&
-         QStringList{"1.1.0", kNativeParser}.contains(facts["parser_version"].toString()) &&
+         QStringList{"1.4.1", kNativeParser}.contains(facts["parser_version"].toString()) &&
          QStringList{"complete_declared", "partial", "unsupported"}.contains(
              facts["status"].toString()) &&
          facts["mods"].isArray();
@@ -31,8 +46,18 @@ DependencyFacts::DependencyFacts(QString cache, ResourceClient& resources, QUrl 
       resources_(resources),
       source_(std::move(source)),
       cancelled_(std::move(cancelled)) {}
+QJsonObject DependencyFacts::describe(const QString& path, const Cancellation& cancelled) {
+  const auto raw = read_members(path, cancelled);
+  QJsonObject members;
+  for (auto it = raw.begin(); it != raw.end(); ++it)
+    members[it.key()] = QString::fromUtf8(it.value());
+  return parsed_json(dependency::metadata_json(
+      QJsonDocument(QJsonObject{{"container_path", "root"}, {"members", members}})
+          .toJson(QJsonDocument::Compact)
+          .toStdString()));
+}
 QJsonObject DependencyFacts::parse(const QString& path, const QString& digest, qint64 size) {
-  QJsonArray mods, issues, evidence;
+  QJsonArray mods, issues, evidence, bundled;
   QTemporaryDir temporary;
   if (!temporary.isValid()) throw std::runtime_error("dependency_temporary_directory");
   struct Container {
@@ -42,24 +67,24 @@ QJsonObject DependencyFacts::parse(const QString& path, const QString& digest, q
   QList<Container> pending{{path, "root", 0}};
   qint64 consumed = 0;
   int count = 0;
+  int java_major = 0;
   bool partial = false;
   while (!pending.isEmpty()) {
     check_cancelled(cancelled_);
     const auto container = pending.takeFirst();
+    java_major = qMax(java_major, archive_java_version(container.path, cancelled_));
     if (++count > 129 || container.depth > 4) throw std::runtime_error("dependency_nested_budget");
-    const auto entries = archive_entries(container.path, cancelled_);
+    QStringList entries;
+    const auto raw = read_members(container.path, cancelled_, &entries);
     QJsonObject members;
-    for (const auto* name : {"fabric.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml",
-                             "META-INF/MANIFEST.MF", "META-INF/jarjar/metadata.json",
-                             "quilt.mod.json", "mcmod.info"}) {
-      if (!entries.contains(name)) continue;
-      const auto bytes = archive_read(container.path, name, 1024 * 1024, cancelled_);
+    for (auto member = raw.begin(); member != raw.end(); ++member) {
+      const auto& bytes = member.value();
+      members[member.key()] = QString::fromUtf8(bytes);
       consumed += bytes.size();
       if (consumed > 128 * 1024 * 1024) throw std::runtime_error("dependency_metadata_budget");
-      members[name] = QString::fromUtf8(bytes);
       evidence.append(QJsonObject{
           {"container_path", container.name},
-          {"member_path", name},
+          {"member_path", member.key()},
           {"sha256", QString::fromLatin1(
                          QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())},
           {"size", bytes.size()}});
@@ -69,9 +94,10 @@ QJsonObject DependencyFacts::parse(const QString& path, const QString& digest, q
             .toJson(QJsonDocument::Compact);
     const auto result = parsed_json(dependency::metadata_json(input.toStdString()));
     for (const auto& mod : result["mods"].toArray()) mods.append(mod);
+    for (const auto& item : result["nested_artifacts"].toArray()) bundled.append(item);
     for (const auto& issue : result["issues"].toArray()) {
       issues.append(issue);
-      partial |= issue.toObject()["code"] == "unsupported_metadata_format";
+      partial = true;
     }
     if (container.depth == 0 && result["mods"].toArray().isEmpty()) partial = true;
     QSet<QString> seen_nested;
@@ -87,6 +113,12 @@ QJsonObject DependencyFacts::parse(const QString& path, const QString& digest, q
           archive_read(container.path, name,
                        qMin<qint64>(32 * 1024 * 1024, 128 * 1024 * 1024 - consumed), cancelled_);
       consumed += bytes.size();
+      evidence.append(QJsonObject{
+          {"container_path", container.name},
+          {"member_path", name},
+          {"sha256", QString::fromLatin1(
+                         QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())},
+          {"size", bytes.size()}});
       const auto target =
           safe_path(temporary.path(), QString::number(pending.size() + count) + ".jar");
       QFile file(target);
@@ -97,14 +129,22 @@ QJsonObject DependencyFacts::parse(const QString& path, const QString& digest, q
     }
   }
   return {{"artifact_sha256", digest},
+          {"java_major", java_major},
           {"size", size},
           {"parser_version", kNativeParser},
           {"status", mods.isEmpty() ? "unsupported"
                      : partial      ? "partial"
                                     : "complete_declared"},
           {"mods", mods},
+          {"nested_artifacts", bundled},
           {"issues", issues},
           {"evidence", evidence}};
+}
+QJsonObject DependencyFacts::local(const QString& path) {
+  const QFileInfo info(path);
+  if (!info.isFile() || info.isSymLink() || info.size() > qint64(1024) * 1024 * 1024)
+    throw std::runtime_error("dependency_invalid_artifact");
+  return parse(path, QString::fromLatin1(file_digest(path, "sha256", cancelled_)), info.size());
 }
 QJsonArray DependencyFacts::collect(const QMap<QString, QString>& files) {
   if (files.size() > 4096) throw std::runtime_error("dependency_artifact_budget");
@@ -114,8 +154,12 @@ QJsonArray DependencyFacts::collect(const QMap<QString, QString>& files) {
   for (auto it = files.begin(); it != files.end(); ++it) {
     check_cancelled(cancelled_);
     const QFileInfo info(it.value());
-    if (!info.isFile() || info.isSymLink() || info.size() > 256 * 1024 * 1024)
-      throw std::runtime_error("dependency_invalid_artifact");
+    if (!info.isFile() || info.isSymLink()) throw std::runtime_error("dependency_invalid_artifact");
+    if (info.size() > qint64(1024) * 1024 * 1024)
+      throw std::runtime_error(
+          (QCoreApplication::translate("Bugg", "模组文件超过 1 GiB 检查上限：%1")
+               .arg(info.fileName()))
+              .toStdString());
     const auto digest = QString::fromLatin1(file_digest(it.value(), "sha256", cancelled_));
     hashes[it.key()] = digest;
     paths[digest] = it.value();
@@ -139,7 +183,7 @@ QJsonArray DependencyFacts::collect(const QMap<QString, QString>& files) {
     for (const auto& digest : missing.mid(offset, 100)) batch.append(digest);
     try {
       const auto response = resources_.json(
-          source_.resolved(QUrl("/api/v1/dependency-facts/query")), {{"sha256", batch}});
+          source_.resolved(QUrl("/api/v1/dependency-facts/query")), {{"sha256", batch}}, 2500, 0);
       if (response["schema"] != "bugg-dependency-facts-v1") {
         source_available_ = false;
         break;

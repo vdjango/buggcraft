@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Bugg.Presentation
 
 // 任务呈现共用组件；任务状态与重试规则由 GameRuntime 所有。
 Surface {
@@ -64,15 +65,32 @@ Surface {
                 Layout.fillWidth: true
                 text: (root.task.dependencyDecision || {}).summary || ""
             }
+            ListViewport {
+                objectName: "dependencyIssuesViewport"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, 200)
+                visible: count > 0
+                spacing: 12
+                model: (root.task.dependencyDecision || {}).details || []
+                delegate: ProgressItem {
+                    required property var modelData
+                    width: ListView.view.width - 8
+                    title: modelData.title || ""
+                    caption: modelData.caption || ""
+                    showBar: false
+                }
+            }
             UiText {
                 Layout.fillWidth: true
-                text: (root.task.dependencyDecision || {}).repairError || qsTr("整合包可能包含作者验证过的特殊组合。保留原版本不会替换文件；自动处理会在暂存区重新选择并核验依赖，也可能使用测试版。")
+                text: (root.task.dependencyDecision || {}).repairError || qsTr("保留原文件也会保留已发现的冲突，可能无法启动。自动处理会重新选择并核验依赖，也可能使用测试版；检查通过不代表光影显示正常。")
                 color: DesignTokens.muted
                 font.pixelSize: 12
+                wrapMode: Text.Wrap
+                elide: Text.ElideNone
             }
             ActionButton {
                 Layout.fillWidth: true
-                text: qsTr("保留原版本继续")
+                text: qsTr("保留原文件（接受兼容风险）")
                 onClicked: root.dependencyChoiceRequested(root.task.id, "keep")
             }
             ActionButton {
@@ -113,7 +131,9 @@ Surface {
             Layout.preferredHeight: Math.max(64, Math.min(contentHeight, DesignTokens.comfortable ? 250 : 210, root.viewportLimit > 0 ? root.viewportLimit - root.padding * 2 - taskHeader.implicitHeight - disclosure.implicitHeight - body.spacing * 2 - (dependencyNotice.visible ? dependencyNotice.implicitHeight + body.spacing : 0) : 250))
             visible: root.detailsExpanded && count > 0
             spacing: 8
-            model: root.task.contentItems || []
+            model: ValueListModel {
+                rows: root.task.contentItems || []
+            }
             delegate: ProgressItem {
                 required property var modelData
                 width: ListView.view.width - 8
@@ -133,6 +153,7 @@ Surface {
                 titleWeight: Font.Medium
                 captionSize: 11
                 caption: [modelData.versionName && modelData.versionName !== modelData.title && modelData.versionName !== modelData.filename ? modelData.versionName : "", modelData.state === "downloading" ? [modelData.transferText || "", modelData.speedText || ""].filter(Boolean).join(" · ") : "", ["failed", "interrupted"].includes(modelData.state) ? modelData.detail || "" : ""].filter(Boolean).join("\n")
+                source: modelData.source || ""
                 progress: modelData.progress === undefined ? -1 : modelData.progress
                 showBar: modelData.state === "downloading"
             }

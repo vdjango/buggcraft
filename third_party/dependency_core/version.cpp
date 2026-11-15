@@ -134,7 +134,11 @@ std::unique_ptr<Item> parse(std::string_view input) {
       const bool empty = child->kind == Kind::List     ? child->children.empty()
                          : child->kind == Kind::Number ? child->value == "0"
                                                        : qualifier(child->value) == "5";
-      if (empty)
+      // Preserve interior zero components (60.0.4 is not 60.4); only
+      // trailing numeric zeros are Maven-insignificant.
+      const bool trailing_zero = child->kind == Kind::Number && child->value == "0" &&
+                                 index + 1 == children.size();
+      if (empty && (trailing_zero || child->kind != Kind::Number))
         children.erase(children.begin() + index);
       else if (child->kind != Kind::List)
         break;
@@ -178,8 +182,9 @@ std::optional<bool> matches_maven(std::string_view version, std::string_view exp
       auto lower = trim(bounds.substr(0, comma)), upper = trim(bounds.substr(comma + 1));
       auto l = lower.empty() ? nullptr : parse(lower);
       auto r = upper.empty() ? nullptr : parse(upper);
-      if ((!lower.empty() && !l) || (!upper.empty() && !r) || (lower.empty() && lower_inclusive) ||
-          (upper.empty() && upper_inclusive))
+      // Maven's VersionRange permits an empty endpoint with either bracket;
+      // inclusivity has meaning only when that endpoint actually exists.
+      if ((!lower.empty() && !l) || (!upper.empty() && !r))
         return {};
       if (l && r) {
         const auto order = compare(l.get(), r.get());

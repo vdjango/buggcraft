@@ -33,8 +33,11 @@ class ResourceClient {
                  QUrl bugg_base = default_bugg_source());
   ~ResourceClient();
   QJsonObject json(const QUrl& official, const QJsonObject& body = {});
+  QJsonObject json(const QUrl& official, const QJsonObject& body, int budget_ms, int retries);
   /// Metadata batch, bounded by the same configured concurrency, URL deduped.
   QHash<QUrl, QJsonObject> json_many(const QList<QUrl>& official, const QJsonObject& body = {});
+  QHash<QUrl, QJsonObject> json_many(const QList<QUrl>& official, const QJsonObject& body,
+                                     int budget_ms, int retries);
   /// Worker-only file snapshots; uses the same batch/HTTP/cancellation owner.
   void set_transfer_progress(TransferProgress progress) {
     transfer_progress_ = std::move(progress);
@@ -43,6 +46,11 @@ class ResourceClient {
   /// by path while the other files finish; cancellation always throws.
   QHash<QString, QString> fetch(const QList<GameResource>& resources,
                                 bool continue_on_error = false);
+  /// Worker-owned expansion after a cached or downloaded file is verified.
+  /// Discovered files join this same queue; callback failures cancel the batch.
+  QHash<QString, QString> fetch(
+      const QList<GameResource>& resources, bool continue_on_error,
+      const std::function<QList<GameResource>(const GameResource&)>& expand);
 
  private:
   bool cooling_down(const QUrl& url) const;

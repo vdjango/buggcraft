@@ -43,7 +43,8 @@ Item {
             folder: "M3 7 L3 20 L21 20 L21 7 L12 7 L9 4 L3 4 Z",
             bell: "M5 17 L7 14 L7 9 Q7 4 12 4 Q17 4 17 9 L17 14 L19 17 Z M10 21 L14 21",
             chat: "M3 4 L21 4 L21 17 L10 17 L5 21 L5 17 L3 17 Z M7 8 L17 8 M7 12 L14 12",
-            volume: "M3 9 L7 9 L12 5 L12 19 L7 15 L3 15 Z M16 8 Q20 12 16 16"
+            volume: "M3 9 L7 9 L12 5 L12 19 L7 15 L3 15 Z M16 8 Q20 12 16 16",
+            volumeOff: "M3 9 L7 9 L12 5 L12 19 L7 15 L3 15 Z M16 9 L21 15 M21 9 L16 15"
         };
         return paths[name] || paths.plus;
     }

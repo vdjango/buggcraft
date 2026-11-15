@@ -7,7 +7,7 @@
 
 #include "bugg_presentation_export.h"
 #include "contracts/content_catalog.h"
-#include "modules/catalog/ui/content_list_model.h"
+#include "shell/value_list_model.h"
 
 namespace bugg {
 /// Window-owned selection/query presentation. Pages only compose controls;
@@ -21,6 +21,8 @@ class BUGG_PRESENTATION_EXPORT ContentCatalogSession : public QObject {
   Q_PROPERTY(QAbstractItemModel* document_model READ document_model CONSTANT)
   Q_PROPERTY(bool active READ active WRITE set_active NOTIFY changed)
   Q_PROPERTY(bool detail_view READ detail_view WRITE set_detail_view NOTIFY changed)
+  Q_PROPERTY(
+      bool auto_dependencies READ auto_dependencies WRITE set_auto_dependencies NOTIFY changed)
   Q_PROPERTY(bool translation_enabled READ translation_enabled WRITE set_translation_enabled NOTIFY
                  changed)
  public:
@@ -35,6 +37,9 @@ class BUGG_PRESENTATION_EXPORT ContentCatalogSession : public QObject {
   /// Visibility only; stops translation retry without discarding successful data.
   void set_active(bool active);
   bool detail_view() const { return detail_view_; }
+  bool auto_dependencies() const { return auto_dependencies_; }
+  /// Global preference; cancels the previous plan and regenerates for the selected release.
+  void set_auto_dependencies(bool enabled);
   /// GUI route binding selects one detail or the visible result page; cancels stale lookup.
   void set_detail_view(bool detail);
   bool translation_enabled() const { return translated_; }
@@ -59,6 +64,9 @@ class BUGG_PRESENTATION_EXPORT ContentCatalogSession : public QObject {
   Q_INVOKABLE void select_version(const QString& id);
   /// Replan the selected shader release with the user's exact core choice.
   Q_INVOKABLE void select_shader_runtime(const QString& id);
+  /// GUI-owned preview for adding a loader to the current vanilla instance.
+  /// Reuses the plan service; changing the target clears this proposed loader.
+  Q_INVOKABLE void select_setup_loader(const QString& loader, const QString& version);
   Q_INVOKABLE void version_page(int page);
   Q_INVOKABLE void cancel();
  signals:
@@ -75,13 +83,14 @@ class BUGG_PRESENTATION_EXPORT ContentCatalogSession : public QObject {
   QPointer<ContentCatalogPort> service_;
   QTimer debounce_;
   QTimer translation_retry_;
-  ContentListModel results_model_, document_model_;
+  ValueListModel results_model_, document_model_;
   QVariantMap translations_;
   QString translation_error_;
   QVariantMap filters_{{"kind", "mod"}, {"publisher", "CurseForge"},
                        {"query", ""},   {"gameVersion", ""},
                        {"loader", ""},  {"category", ""}};
   QVariantMap project_, version_, plan_, target_;
+  QString setup_loader_, setup_loader_version_;
   QVariantList items_, versions_, categories_;
   QString error_, detail_error_, plan_error_, category_error_, category_context_;
   quint64 sequence_ = 0, search_id_ = 0, detail_id_ = 0, plan_id_ = 0, category_id_ = 0;
@@ -89,6 +98,7 @@ class BUGG_PRESENTATION_EXPORT ContentCatalogSession : public QObject {
   int translation_attempts_ = 0;
   bool active_ = false, detail_view_ = true, translated_ = true, translation_pending_ = false;
   bool original_text_ = false;
+  bool auto_dependencies_ = true;
   int page_ = 0, total_ = 0, version_page_ = 0, version_total_ = 0;
   bool more_ = false, versions_more_ = false;
 };

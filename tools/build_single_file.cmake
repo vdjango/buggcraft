@@ -21,6 +21,11 @@ set(single_common -G Ninja -DCMAKE_BUILD_TYPE=Release
     "-DOPENSSL_ROOT_DIR=${OPENSSL_ROOT}" -DOPENSSL_USE_STATIC_LIBS=ON
     -DOPENSSL_MSVC_STATIC_RT=ON)
 set(single_app_options)
+foreach(option BUGG_BUILD_VERSION BUGG_LANGUAGE_ASSET_VERSION)
+    if(DEFINED ${option})
+        list(APPEND single_app_options "-D${option}=${${option}}")
+    endif()
+endforeach()
 if(DEFINED Qt6LinguistTools_DIR)
     list(APPEND single_app_options "-DQt6LinguistTools_DIR=${Qt6LinguistTools_DIR}")
 endif()

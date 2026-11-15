@@ -51,14 +51,20 @@ int memory_limit_mb(const QVariantMap& snapshot) {
   const int reserve = qBound(1024, total / 8, 4096);
   return qMax(512, qMin(total - reserve, available - reserve) / 256 * 256);
 }
-int automatic_memory_mb(const QVariantMap& snapshot, int mod_count, int hosted_players) {
+int automatic_memory_mb(const QVariantMap& snapshot, int mod_count, int hosted_players,
+                        const QString& mode) {
   if (snapshot.value("totalMB").toInt() <= 0 || snapshot.value("availableMB").toInt() <= 0)
     return 1024;
   const int mods = qBound(0, mod_count, 10000);
   const int players = qBound(1, hosted_players, 32);
   const int estimated = kMinimumAutomaticMemoryMB + mods * 20 + (players - 1) * 256;
   const int rounded = ((estimated + 511) / 512) * 512;
-  return qMax(512, qMin(qMin(rounded, memory_limit_mb(snapshot)), 16384));
+  const int ceiling = mode == "saving"      ? 6144
+                      : mode == "balanced"  ? 8192
+                      : mode == "generous"  ? 10240
+                      : mode == "available" ? memory_limit_mb(snapshot)
+                                            : 16384;
+  return qMax(512, qMin(qMin(rounded, memory_limit_mb(snapshot)), ceiling));
 }
 QStringList java_candidates(const QString& portable_root, const Cancellation& cancelled) {
 #ifdef Q_OS_WIN

@@ -3,6 +3,7 @@ import Bugg.DesignSystem
 
 Item {
     id: root
+    objectName: "floatingShell"
     required property var dock
     property int activeTool: -1
     property real pageMode: 0
@@ -24,13 +25,17 @@ Item {
     property bool backdropAllowed: true
     property var backgrounds: []
     property bool backgroundActive: true
+    property var backgroundEffects: ({})
+    property bool backgroundOnPages: false
+    property real backgroundPageOverlayOpacity: 0.10
+    property bool backgroundSoundEnabled: false
     property var activity: ({
             active: false,
             progress: -1
         })
     property real preferredPageHeight: 600
     readonly property real pageExtent: Math.min(preferredPageHeight, Math.max(400, dock.workArea.height - 30))
-    readonly property real noticeExtent: notice.length ? noticeBanner.implicitHeight + 20 : 0
+    readonly property real noticeExtent: 24
     readonly property real requestedHeight: (76 + (activeTool >= 0 ? contentHeight + noticeExtent : 0)) * (1 - pageMode) + pageExtent * pageMode
     readonly property alias contentHost: page.contentHost
     readonly property alias backdropColor: frame.backdropColor
@@ -42,7 +47,9 @@ Item {
     signal homeRequested
     signal headerActionRequested
     signal collapseRequested
+    signal expandRequested
     signal closeRequested
+    signal backgroundSoundToggled(bool enabled)
     function resetScroll() {
         page.resetScroll();
     }
@@ -58,9 +65,25 @@ Item {
         backdropSources: root.backgrounds.length ? root.backgrounds : DesignTokens.homeBackdrops
         backdropShade: root.backgrounds.length > 0
         backdropActive: root.backgroundActive
-        backdropOpacity: root.immersiveHome ? 1 : 0
+        backdropEffects: root.backgroundEffects
+        backdropPageMode: root.backgroundOnPages && !root.immersiveHome
+        backdropSoundEnabled: root.backgroundSoundEnabled
+        backdropPageOverlayOpacity: root.backgroundPageOverlayOpacity
+        backdropOpacity: root.immersiveHome || root.backgroundOnPages ? 1 : 0
         // 收起/贴边时立即去掉图片，不能把整张背景压缩成小条。
-        backdropVisible: root.backdropAllowed && !root.dock.compact && root.activeTool >= 0 && root.pageMode > 0.5
+        backdropVisible: root.backdropAllowed && !root.dock.compact && root.activeTool >= 0
+        ProgressSurface {
+            objectName: "topActivity"
+            anchors.top: parent.top
+            width: parent.width
+            height: 4
+            z: 20
+            active: root.activity.active === true
+            progress: root.activity.progress === undefined ? -1 : root.activity.progress
+            fluid: false
+            edgeToEdge: true
+            visible: active && !root.dock.compact && root.activeTool >= 0
+        }
     }
     Item {
         id: body
@@ -120,7 +143,8 @@ Item {
             activeTool: root.activeTool
             pageMode: root.pageMode
             showWindowControls: root.pageMode < 0.5
-            activity: root.activity
+            videoPlaying: root.immersiveHome && frame.backdropVideoPlaying
+            videoSoundEnabled: root.backgroundSoundEnabled
             friendsVisible: root.friendsVisible
             opacity: root.showingSubpage ? 0 : 1
             visible: opacity > 0
@@ -133,6 +157,7 @@ Item {
             }
             onNavigateRequested: index => root.navigateRequested(index)
             onTasksRequested: root.tasksRequested()
+            onBackgroundSoundToggled: enabled => root.backgroundSoundToggled(enabled)
             onCloseRequested: root.closeRequested()
         }
         SubpageHeader {
@@ -176,7 +201,8 @@ Item {
             id: noticeBanner
             x: root.pageMode > 0.5 ? (parent.width - width) / 2 : 28
             y: root.pageMode > 0.5 ? body.height - root.noticeExtent - 12 : 65 + root.contentHeight
-            width: root.pageMode > 0.5 ? Math.min(560, parent.width - 96) : parent.width - 56
+            width: parent.width - 56
+            maximumLineCount: 1
             text: root.notice
         }
     }
@@ -189,7 +215,7 @@ Item {
         opacity: Math.max(0, Math.min(1, (0.6 - root.dock.foldReveal) / 0.6))
         visible: opacity > 0
         enabled: root.dock.folded
-        onClicked: root.dock.toggleFold()
+        onClicked: root.expandRequested()
         onMoveRequested: root.dock.beginMove()
     }
 }

@@ -22,6 +22,7 @@
 
 #include "modules/account/infrastructure/credential_store.h"
 #include "modules/room_sync/application/room_content_cache.h"
+#include "platform/diagnostics/diagnostic_log.h"
 #include "platform/security/device_key.h"
 
 static const bool control_resources_initialized = [] {
@@ -80,7 +81,10 @@ QString friend_code(const QString& account) {
 }  // namespace
 MultiplayerService::MultiplayerService(HttpClient* http, QString cache, QString engine,
                                        QObject* parent)
-    : QObject(parent), http_(http), bridge_(std::move(engine)), cache_(std::move(cache)) {
+    : QObject(parent),
+      http_(http),
+      bridge_(std::move(engine), this, cache + "/logs/bridge"),
+      cache_(std::move(cache)) {
   connect(&polling_, &QTimer::timeout, this, &MultiplayerService::poll);
   heartbeat_.setInterval(8000);
   connect(&heartbeat_, &QTimer::timeout, this, &MultiplayerService::heartbeat);
@@ -118,18 +122,6 @@ MultiplayerService::MultiplayerService(HttpClient* http, QString cache, QString 
   });
   connect(http_, &HttpClient::response, this,
           [this](quint64 id, const QByteArray& bytes, const QString& error, int) {
-            if (id == feedback_request_ && feedback_request_) {
-              feedback_request_ = 0;
-              const auto result = QJsonDocument::fromJson(bytes).object();
-              auto detail = response_error(result, error);
-              const bool accepted = detail.isEmpty() && result["accepted"].toBool() &&
-                                    result["id"].toString() == feedback_id_;
-              if (!accepted && detail.isEmpty()) detail = tr("反馈未确认，请稍后重试");
-              feedback_ = {
-                  {"busy", false}, {"id", accepted ? feedback_id_ : QString()}, {"error", detail}};
-              emit changed();
-              return;
-            }
             if (id != request_ || !request_) return;
             request_ = 0;
             const auto callback = std::exchange(response_, {});
@@ -142,47 +134,67 @@ MultiplayerService::MultiplayerService(HttpClient* http, QString cache, QString 
                                    : detail);
           });
 }
-void MultiplayerService::submit_feedback(const QString& message, const QString& contact,
-                                         bool diagnostics) {
-  if (closing_ || feedback_request_) return;
-  const auto content = message.trimmed();
-  const auto address = contact.trimmed();
-  if (content.isEmpty() || content.toUtf8().size() > 8000 || address.toUtf8().size() > 320) {
-    feedback_ = {{"error", tr("请填写问题描述，描述最多 8000 字节，联系方式最多 320 字节")}};
+void MultiplayerService::submit_feedback(const QString& message, const QString& expected,
+                                         const QString& contact, const QString& archive) {
+  const auto reject = [this, &archive](const QString& error) {
+    feedback_ = {{"error", error}};
     emit changed();
+    emit feedback_finished(archive);
+  };
+  if (feedback_.value("busy").toBool()) {
+    emit feedback_finished(archive);
     return;
   }
-  if (feedback_id_.isEmpty() || feedback_message_ != content || feedback_contact_ != address ||
-      feedback_diagnostics_ != diagnostics) {
-    feedback_id_ = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    feedback_message_ = content;
-    feedback_contact_ = address;
-    feedback_diagnostics_ = diagnostics;
+  if (closing_) {
+    reject(tr("启动器正在关闭，请稍后重试"));
+    return;
   }
-  QJsonObject basic;
-  if (diagnostics)
-    basic = {{"application", "Bugg"},
-             {"version", "C++ preview"},
-             {"system", QSysInfo::productType()},
-             {"architecture", QSysInfo::currentCpuArchitecture()}};
-  HttpRequest request;
-  request.url = QUrl(origin_ + "/v1/feedback/submit");
-  request.method = "POST";
-  request.body = QJsonDocument(QJsonObject{{"id", feedback_id_},
-                                           {"message", content},
-                                           {"contact", address},
-                                           {"diagnostics", basic}})
-                     .toJson(QJsonDocument::Compact);
-  request.headers = {{"Content-Type", "application/json"}, {"Cache-Control", "no-store"}};
-  request.blocked_redirect_hosts = {request.url.host()};
-  request.maximum_bytes = 4096;
-  request.total_ms = 15000;
+  if (origin_ != default_origin() || node_.isEmpty() || status_.value("state") != "ready" ||
+      !profile_.contains("control")) {
+    reject(tr("请先登录官方 Bugg 服务，或导出日志后手动提交；自建服务的身份不能提交官方反馈"));
+    return;
+  }
+  if (message.trimmed().isEmpty() || expected.trimmed().isEmpty() ||
+      message.toUtf8().size() > 8000 || expected.toUtf8().size() > 4000 ||
+      contact.toUtf8().size() > 320) {
+    reject(tr("问题描述、期望或联系方式无效"));
+    return;
+  }
+  const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  const QJsonObject metadata{
+      {"id", id}, {"message", message}, {"expected", expected}, {"contact", contact}};
+  if (QJsonDocument(metadata).toJson(QJsonDocument::Compact).size() > 6000) {
+    reject(tr("问题、期望与联系方式合计过长，请简述问题后重试"));
+    return;
+  }
+  const auto generation = generation_;
   feedback_ = {{"busy", true}};
-  feedback_request_ = http_->request(request);
   emit changed();
+  bridge_.call(
+      "feedback.submit",
+      {{"node", node_},
+       {"origin", default_origin()},
+       {"archive", archive},
+       {"consent", true},
+       {"metadata", metadata}},
+      [this, id, generation, archive](const QJsonObject& result, const QString& error) {
+        emit feedback_finished(archive);
+        if (closing_) return;
+        const bool accepted = error.isEmpty() && result["accepted"].toBool() && result["id"] == id;
+        const auto detail =
+            accepted ? QString{}
+                     : (error.isEmpty() ? tr("反馈尚未收到确认，请重试或导出日志") : error);
+        feedback_ = {{"busy", false}, {"id", accepted ? id : QString{}}, {"error", detail}};
+        record_diagnostic("feedback.completed", {{"accepted", accepted},
+                                                 {"id", id},
+                                                 {"error", detail},
+                                                 {"identity_changed", generation != generation_}});
+        emit changed();
+      });
 }
 void MultiplayerService::report(const QString& error) {
   if (closing_) return;
+  record_diagnostic("multiplayer.error", {{"error", error.left(4000)}});
   if (!renewing_ && !node_.isEmpty() &&
       (error.contains("account-device-inactive") || error.contains("token-expired") ||
        error.contains("account-token-expired") || error.contains("grant-revoked"))) {
@@ -217,6 +229,8 @@ void MultiplayerService::post(const QString& path, const QJsonObject& body,
 }
 QVariantMap MultiplayerService::status() const {
   auto result = status_;
+  result["feedbackAvailable"] = origin_ == default_origin() && !node_.isEmpty() &&
+                                status_.value("state") == "ready" && profile_.contains("control");
   result["authorized"] = !profile_.isEmpty() && token_claims(profile_)["e"].toDouble() >
                                                     QDateTime::currentSecsSinceEpoch();
   return result;
@@ -350,6 +364,8 @@ void MultiplayerService::connect_profile() {
                    // A renewed handle can overtake unsent telemetry for the old handle.
                    status_["loading"] = false;
                    status_["nodesBusy"] = false;
+                   status_["networkBusy"] = false;
+                   status_.remove("networkProfile");
                    status_.remove("routes");
                    status_.remove("nodesError");
                    if (session_.isEmpty())
@@ -367,6 +383,7 @@ void MultiplayerService::connect_profile() {
                  emit changed();
                  if (!node_.isEmpty()) {
                    refresh();
+                   inspect_network();
                    heartbeat_.start();
                    heartbeat();
                  }
@@ -766,6 +783,7 @@ QJsonObject MultiplayerService::content_request(const QString& method, QJsonObje
 }
 void MultiplayerService::relocate_storage(const QString& cache) {
   cache_ = cache;
+  bridge_.relocate_diagnostics(cache + "/logs/bridge");
   persist();
 }
 void MultiplayerService::logout() {
@@ -789,6 +807,27 @@ void MultiplayerService::logout() {
   emit changed();
 }
 void MultiplayerService::refresh_nodes() { node_routes("node.routes", {{"refresh", true}}); }
+void MultiplayerService::inspect_network(bool refresh) {
+  if (closing_ || node_.isEmpty() || status_.value("networkBusy").toBool()) return;
+  const auto generation = generation_;
+  const auto node = node_;
+  status_["networkBusy"] = true;
+  emit changed();
+  bridge_.call(
+      "network.inspect", {{"node", node}, {"refresh", refresh}},
+      [this, generation, node](const QJsonObject& value, const QString& error) {
+        if (closing_ || generation != generation_ || node != node_) return;
+        status_["networkBusy"] = false;
+        if (response_error(value, error).isEmpty()) {
+          status_["networkProfile"] = value.toVariantMap();
+          status_.remove("networkError");
+        } else {
+          status_["networkError"] = tr("网络参考暂不可用，可稍后重试");
+        }
+        emit changed();
+      },
+      NativeBridge::Priority::Background);
+}
 void MultiplayerService::select_node(int index) {
   if (index < -1) return;
   node_routes(index < 0 ? "node.routes" : "node.select",
@@ -863,6 +902,7 @@ void MultiplayerService::heartbeat() {
   const auto generation = generation_;
   const auto node = node_;
   const auto room = status_.value("room").toMap();
+  inspect_network();
   QJsonObject presence;
   if (!room.value("id").toString().isEmpty() && !room.value("title").toString().isEmpty())
     presence = {{"room", room.value("id").toString()},
@@ -1027,6 +1067,7 @@ void MultiplayerService::room_result(const QJsonObject& value, const QString& er
     room_poll_.start();
     if (room.value("role") != "host") announcement_.start();
     emit room_joined();
+    launch_progress(launch_status_);
     refresh(room_query_);
     heartbeat();
   }
@@ -1711,7 +1752,6 @@ void MultiplayerService::launch_progress(const QVariantMap& status) {
   if (state == "idle" || state == "failed") launch_task_.clear();
 }
 void MultiplayerService::shutdown() {
-  if (feedback_request_) http_->cancel(std::exchange(feedback_request_, 0));
   closing_ = true;
   if (cache_cancelled_) cache_cancelled_->store(true);
   preparation_timer_.stop();

@@ -6,6 +6,7 @@ ColumnLayout {
     property string title: ""
     property string state: ""
     property string caption: ""
+    property string source: ""
     property real progress: 0
     property int titleSize: 12
     property int captionSize: 10
@@ -37,7 +38,7 @@ ColumnLayout {
     }
     UiText {
         Layout.fillWidth: true
-        text: root.caption
+        text: [root.source ? qsTr("来源：%1").arg(root.source) : "", root.caption].filter(Boolean).join("\n")
         font.pixelSize: root.captionSize
         color: DesignTokens.muted
         wrapMode: Text.Wrap

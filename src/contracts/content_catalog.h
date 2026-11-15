@@ -1,6 +1,7 @@
 #ifndef BUGG_CONTRACTS_CONTENT_CATALOG_H_
 #define BUGG_CONTRACTS_CONTENT_CATALOG_H_
 #include <QObject>
+#include <QStringList>
 #include <QVariantMap>
 #include <atomic>
 #include <functional>
@@ -9,6 +10,13 @@
 #include "bugg_contracts_export.h"
 
 namespace bugg {
+/// Shared target policy; actual JAR dependencies still require separate checks.
+inline QStringList content_loader_formats(const QString& loader, const QString& game) {
+  QStringList formats{loader};
+  if (loader == "quilt") formats.append("fabric");
+  if (loader == "neoforge" && game == "1.20.1") formats.append("forge");
+  return formats;
+}
 /// Worker-only value port. Throws on network/metadata failure or cancellation;
 /// captures a source snapshot, never a page or GUI QObject.
 using ContentRequest =
@@ -25,6 +33,8 @@ class BUGG_CONTRACTS_EXPORT ContentCatalogPort : public QObject {
  signals:
   void finished(quint64 id, const QVariantMap& result);
   void source_selection_changed();
+  /// GUI: a confirmed report invalidates shader feedback snapshots and pending plans.
+  void feedback_changed();
 };
 }  // namespace bugg
 #endif

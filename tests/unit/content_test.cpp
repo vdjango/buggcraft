@@ -1,4 +1,5 @@
 #include <QBuffer>
+#include <QColor>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -66,6 +67,15 @@ class ContentGameCatalogProbe : public GameCatalogPort {
 QByteArray content_fixture_payload(QByteArray bytes, const QString& filename) {
   if (filename.startsWith("dependency-")) {
     const auto identity = filename.toUtf8();
+    if (bytes.startsWith("PK")) {
+      const auto end = bytes.lastIndexOf(QByteArray::fromHex("504b0506"));
+      if (end >= 0 && end + 22 == bytes.size()) {
+        bytes[end + 20] = char(identity.size() & 255);
+        bytes[end + 21] = char((identity.size() >> 8) & 255);
+        bytes.append(identity);
+        return bytes;
+      }
+    }
     bytes.replace(0, qMin(bytes.size(), identity.size()), identity);
   }
   return bytes;
@@ -76,6 +86,7 @@ class ContentFilesServer : public QTcpServer {
   QByteArray payload = QByteArray(256 * 1024, 'm');
   QByteArray profile;
   int active = 0, peak = 0, requests = 0;
+  QStringList paths;
   QString failing;
   int initial_delay_ms = 90;
   int chunk_delay_ms = 45;
@@ -94,6 +105,7 @@ class ContentFilesServer : public QTcpServer {
           if (!request.contains("\r\n\r\n") || socket->property("handled").toBool()) return;
           socket->setProperty("handled", true);
           ++requests;
+          paths.append(QUrl(QString::fromUtf8(request.split(' ').value(1))).path());
           peak = qMax(peak, ++active);
           const bool fail = !failing.isEmpty() && request.contains(failing.toUtf8());
           const auto filename =
@@ -377,7 +389,14 @@ class ContentServer : public QTcpServer {
                                         {"publisher", "Modrinth"},
                                         {"projectId", "oculus"},
                                         {"loaders", QJsonArray{"forge", "neoforge"}},
-                                        {"markers", QJsonArray{"net/coderbot/iris/Iris.class"}}}}}};
+                                        {"markers", QJsonArray{"net/coderbot/iris/Iris.class"}}},
+                            QJsonObject{{"id", "optifine"},
+                                        {"name", "OptiFine"},
+                                        {"publisher", "BMCLAPI"},
+                                        {"projectId", "optifine"},
+                                        {"loaders", QJsonArray{"forge"}},
+                                        {"markers",
+                                         QJsonArray{"optifine/OptiFineClassTransformer.class"}}}}}};
           } else if (path.contains("/version_file/")) {
             response = version(true, "older-core", "iris");
           } else if (path.endsWith("/description")) {
@@ -589,11 +608,35 @@ class ContentTest : public QObject {
     write_json(root.filePath("versions/automatic/automatic.json"),
                {{"id", "automatic"}, {"bugg", before["bugg"]}});
     const QVariantMap omitted{{"kind", "mod"}, {"files", QVariantList{file("alpha.jar", "alpha")}}};
+    write_json(root.filePath("versions/manual/manual.json"),
+               {{"id", "manual"}, {"bugg", before["bugg"]}});
+    future = run({{"id", "manual"}, {"plan", omitted}, {"autoDependencies", false}});
+    QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 30000);
+    QVERIFY(future.result().value("canRepair").toBool());
+    QVERIFY(!QFileInfo::exists(root.filePath("versions/manual/mods/library2.jar")));
     future = run({{"id", "automatic"}, {"plan", omitted}});
     QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 30000);
     QVERIFY2(future.result().value("done").toBool(),
              qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(future.result()).toJson())));
     QVERIFY(QFileInfo::exists(root.filePath("versions/automatic/mods/library2.jar")));
+    jar("duplicate.jar", R"({"schemaVersion":1,"id":"library","version":"2"})");
+    write_json(root.filePath("versions/unsolved/unsolved.json"),
+               {{"id", "unsolved"}, {"bugg", before["bugg"]}});
+    const QVariantMap duplicate{
+        {"kind", "mod"},
+        {"files", QVariantList{file("library2.jar", "library"), file("duplicate.jar", "other")}}};
+    future = run({{"id", "unsolved"}, {"plan", duplicate}});
+    QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 30000);
+    const auto unsolved = future.result();
+    QVERIFY(unsolved.value("canRepair").toBool());
+    future = run({{"id", "unsolved"},
+                  {"plan", duplicate},
+                  {"dependencyChoice", "repair"},
+                  {"dependencyFingerprint", unsolved.value("fingerprint")}});
+    QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 30000);
+    QVERIFY2(!future.result().value("canRepair").toBool(),
+             "An exhausted repair cannot repeat unchanged");
+    QVERIFY(!future.result().value("repairError").toString().isEmpty());
   }
   void native_26_3_shader_installation() {
     const auto portable = qEnvironmentVariable("BUGG_TEST_NATIVE_DEPENDENCIES");
@@ -639,6 +682,139 @@ class ContentTest : public QObject {
     QCOMPARE(receipt["choice"].toString(), QString("repair"));
     QCOMPARE(receipt["check"].toObject()["state"].toString(), QString("satisfied_declared"));
     QVERIFY(!receipt["changes"].toArray().isEmpty());
+  }
+  void real_neoforge_shader_archives_install_without_duplicate_prompt() {
+    const auto jars = qEnvironmentVariable("BUGG_TEST_REAL_SHADER_JARS");
+    if (jars.isEmpty()) QSKIP("Requires explicit downloaded publisher archives");
+    QTemporaryDir root;
+    ContentFilesServer server;
+    server.initial_delay_ms = server.chunk_delay_ms = 1;
+    QVariantList files;
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    for (const auto& pair :
+         QList<QPair<QString, QString>>{{"iris-neoforge-1.9.6+mc1.21.8.jar", "iris"},
+                                        {"sodium-neoforge-0.7.2+mc1.21.8.jar", "sodium"}}) {
+      QFile source(jars + '/' + pair.first);
+      QVERIFY(source.open(QIODevice::ReadOnly));
+      const auto bytes = source.readAll();
+      server.files[pair.first] = bytes;
+      files.append(QVariantMap{
+          {"kind", "mod"},
+          {"filename", pair.first},
+          {"publisher", "Modrinth"},
+          {"projectId", pair.second},
+          {"versionId", pair.first},
+          {"gameVersions", QStringList{"1.21.8"}},
+          {"loaders", QStringList{"neoforge"}},
+          {"size", bytes.size()},
+          {"url", "https://cdn.modrinth.com/" + pair.first},
+          {"hashes",
+           QVariantMap{
+               {"sha1", QString::fromLatin1(
+                            QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex())}}}});
+    }
+    write_json(root.filePath("versions/real/real.json"),
+               {{"id", "real"},
+                {"bugg", QJsonObject{{"version", "1.21.8"},
+                                     {"loader", "neoforge"},
+                                     {"loaderVersion", "21.8.52"}}}});
+    auto future = QtConcurrent::run([=, folder = root.path(), port = server.serverPort()] {
+      ContentFilesHttp http(port);
+      GameOperations operations(
+          folder, folder, {"官方"}, cancelled, [](double, const QString&) {}, 2, &http,
+          QUrl("http://127.0.0.1:9"));
+      operations.install_content(
+          {{"id", "real"}, {"plan", QVariantMap{{"kind", "mod"}, {"files", files}}}});
+      return operations.load_version("real")["buggDependencyDecision"].toObject();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 60000);
+    const auto receipt = future.result();
+    QCOMPARE(receipt["choice"].toString(), "satisfied_declared");
+    QCOMPARE(receipt["check"].toObject()["issues"].toArray().size(), 0);
+  }
+  void real_neoforge_263_repair_selects_compatible_dependency() {
+    const auto jars = qEnvironmentVariable("BUGG_TEST_REAL_SHADER_JARS");
+    if (jars.isEmpty()) QSKIP("Requires explicit downloaded publisher archives");
+    QTemporaryDir root;
+    ContentFilesServer server;
+    server.initial_delay_ms = server.chunk_delay_ms = 1;
+    QMap<QString, QVariantMap> files;
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    const auto core = QString("iris-neoforge-1.11.7+mc26.3.jar");
+    const auto original = QString("sodium-neoforge-0.9.2+mc26.3.jar");
+    for (const auto& name : QDir(jars).entryList({"*mc26.3.jar"}, QDir::Files)) {
+      QFile source(jars + '/' + name);
+      QVERIFY(source.open(QIODevice::ReadOnly));
+      const auto bytes = source.readAll();
+      server.files[name] = bytes;
+      files[name] = QVariantMap{
+          {"kind", "mod"},
+          {"filename", name},
+          {"publisher", "Modrinth"},
+          {"projectId", name.startsWith("iris-") ? "iris" : "sodium"},
+          {"versionId", name},
+          {"gameVersions", QStringList{"26.3"}},
+          {"loaders", QStringList{"neoforge"}},
+          {"size", bytes.size()},
+          {"url", "https://cdn.modrinth.com/" + name},
+          {"hashes",
+           QVariantMap{
+               {"sha1", QString::fromLatin1(
+                            QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex())}}}};
+    }
+    QVERIFY(files.contains(core));
+    QVERIFY(files.contains(original));
+    const ContentRequest request = [files](const QVariantMap& query, const Cancellation&) {
+      if (query.value("projectId") != "sodium") return QVariantMap{};
+      if (query.value("operation") == "versions") {
+        QVariantList versions;
+        for (const auto* tag : {"beta.5", "beta.4", "beta.3", "beta.2", "beta.1"})
+          versions.append(
+              QVariantMap{{"id", "sodium-neoforge-0.9.3-" + QString(tag) + "+mc26.3.jar"},
+                          {"channel", "beta"}});
+        return QVariantMap{{"versions", versions}};
+      }
+      const auto record = files.value(query.value("versionId").toString());
+      return QVariantMap{{"files", QVariantList{record}}};
+    };
+    write_json(root.filePath("versions/real/real.json"),
+               {{"id", "real"},
+                {"bugg", QJsonObject{{"version", "26.3"},
+                                     {"loader", "neoforge"},
+                                     {"loaderVersion", "26.3.0.102"}}}});
+    const QVariantMap plan{{"kind", "mod"}, {"files", QVariantList{files[core], files[original]}}};
+    const auto run = [&](QVariantMap specification) {
+      return QtConcurrent::run([=, folder = root.path(), port = server.serverPort()] {
+        ContentFilesHttp http(port);
+        GameOperations operations(
+            folder, folder, {"官方"}, cancelled, [](double, const QString&) {}, 2, &http,
+            QUrl("http://127.0.0.1:9"));
+        try {
+          operations.install_content(specification, request);
+          return operations.load_version("real")["buggDependencyDecision"]
+              .toObject()
+              .toVariantMap();
+        } catch (const DependencyDecision& decision) {
+          return decision.value();
+        }
+      });
+    };
+    auto future = run({{"id", "real"}, {"plan", plan}});
+    QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 60000);
+    const auto decision = future.result();
+    QVERIFY2(decision.value("canRepair").toBool(),
+             qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(decision).toJson())));
+    future = run({{"id", "real"},
+                  {"plan", plan},
+                  {"dependencyChoice", "repair"},
+                  {"dependencyFingerprint", decision.value("fingerprint")}});
+    QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 90000);
+    const auto repaired = future.result();
+    QCOMPARE(repaired.value("choice").toString(), "repair");
+    QCOMPARE(repaired.value("check").toMap().value("state").toString(), "satisfied_declared");
+    QVERIFY(!QFileInfo::exists(root.filePath("versions/real/mods/" + original)));
+    QVERIFY(QFileInfo::exists(
+        root.filePath("versions/real/mods/sodium-neoforge-0.9.3-beta.3+mc26.3.jar")));
   }
   void launcher_update_download_verifies_native_bundle() {
     QTemporaryDir root;
@@ -756,13 +932,80 @@ class ContentTest : public QObject {
       window.close();
     }
   }
+  void first_run_agreement_respects_window_bounds() {
+    DesktopEnvironment desktop;
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    QQmlComponent lifecycle_fixture(&engine);
+    lifecycle_fixture.setData(R"(import QtQml; QtObject {
+      property string phase: "initializing"
+      function update_view(key) {} function set_presented(value) {}
+      function accept_agreement() { phase = "ready" }
+      function shutdown() { phase = "stopped" }
+    })",
+                              QUrl("file:///first-run-layout-fixture.qml"));
+    QScopedPointer<QObject> lifecycle(lifecycle_fixture.create());
+    QVERIFY2(lifecycle, qPrintable(lifecycle_fixture.errorString()));
+    engine.setInitialProperties({{"desktopEnvironment", QVariant::fromValue(&desktop)},
+                                 {"applicationLifecycle", QVariant::fromValue(lifecycle.data())}});
+    engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    QVERIFY(window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto* controller = window->findChild<QObject*>("windowController");
+    auto* dock = window->findChild<QObject*>("edgeDock");
+    auto* agreement = window->findChild<QObject*>("firstRunAgreement");
+    QVERIFY(controller && dock && agreement);
+    controller->setProperty("animationsEnabled", false);
+    dock->setProperty("autoFoldEnabled", false);
+    const auto area = desktop.available_geometry(window);
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/first-run-layout";
+    QDir().mkpath(shots);
+    for (const auto& theme : {"small", "classic", "panel", "small-short"}) {
+      const bool short_screen = QByteArray(theme) == "small-short";
+      const auto selected = short_screen ? "small" : theme;
+      lifecycle->setProperty("phase", "initializing");
+      QVERIFY(QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, selected)));
+      const QRect work_area(area.x(), area.y(), area.width(), short_screen ? 480 : area.height());
+      dock->setProperty("workArea", work_area);
+      const auto expected_height =
+          qMin(controller->property("pageHeight").toInt(), qMax(400, work_area.height() - 30));
+      QTRY_COMPARE(window->width(), QByteArray(selected) == "panel"   ? 410
+                                    : QByteArray(selected) == "small" ? 800
+                                                                      : 960);
+      lifecycle->setProperty("phase", "awaiting_consent");
+      QTRY_VERIFY(agreement->property("visible").toBool());
+      QTest::qWait(100);
+      QVERIFY(window->grabWindow().save(shots + "/" + theme + "-top.png"));
+      QTRY_COMPARE(window->height(), expected_height);
+      QVERIFY(work_area.contains(window->geometry()));
+      const QRectF dialog(agreement->property("x").toReal(), agreement->property("y").toReal(),
+                          agreement->property("width").toReal(),
+                          agreement->property("height").toReal());
+      QVERIFY(QRectF(0, 0, window->width(), window->height()).contains(dialog));
+      QVERIFY(!agreement->property("readComplete").toBool());
+      auto* scroll = agreement->findChild<QObject*>("choiceMessageScroll");
+      QVERIFY(scroll);
+      auto* bar = agreement->findChild<QQuickItem*>("choiceVerticalScrollBar");
+      QVERIFY(bar && bar->isVisible());
+      QVERIFY(bar->height() > 100 && bar->width() <= 8);
+      auto* flickable = qvariant_cast<QObject*>(scroll->property("contentItem"));
+      QVERIFY(flickable && flickable->property("height").toReal() > 0);
+      flickable->setProperty("contentY", 0);
+      flickable->setProperty("contentY", flickable->property("contentHeight").toReal() -
+                                             flickable->property("height").toReal());
+      QTRY_VERIFY(agreement->property("readComplete").toBool());
+      QVERIFY(window->grabWindow().save(shots + "/" + theme + "-bottom.png"));
+      QVERIFY(QMetaObject::invokeMethod(agreement, "chosen", Q_ARG(QString, "accept")));
+      QTRY_VERIFY(!agreement->property("visible").toBool());
+    }
+  }
   void panel_only_topmost_and_fullscreen_entry_setting() {
     QTemporaryDir root;
     HttpClient http;
     MicrosoftAccount account(&http, root.filePath("credentials.bin"));
     GameRuntime runtime(root.path(), root.filePath(".minecraft"), &account);
-    runtime.initialize();
-    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
     DesktopEnvironment desktop;
     QQmlApplicationEngine engine;
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
@@ -770,12 +1013,28 @@ class ContentTest : public QObject {
                                  {"gameRuntime", QVariant::fromValue(&runtime)}});
     engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
     QVERIFY(!engine.rootObjects().isEmpty());
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     auto* controller = window->findChild<QObject*>("windowController");
     auto* dock = window->findChild<QObject*>("edgeDock");
     auto* deck = window->findChild<QObject*>("toolContent");
     auto* tray = window->findChild<QObject*>("panelTrayIcon");
     QVERIFY(controller && dock && deck && tray);
+    QVERIFY(!controller->property("collapsed").toBool());
+    QVERIFY(!dock->property("folded").toBool());
+    QCOMPARE(dock->property("attachment").toInt(), 0);
+    dock->setProperty("autoFoldEnabled", false);
+    QQmlComponent consent_fixture(&engine);
+    consent_fixture.setData(R"(import QtQml; QtObject {
+      property string phase: "ready"
+      function update_view(key) {} function set_presented(value) {}
+      function accept_agreement() { phase = "ready" } function shutdown() { phase = "ready" }
+    })",
+                            QUrl("file:///consent-presentation-fixture.qml"));
+    QScopedPointer<QObject> consent(consent_fixture.create());
+    QVERIFY2(consent, qPrintable(consent_fixture.errorString()));
+    window->setProperty("applicationLifecycle", QVariant::fromValue(consent.data()));
     const auto shots = QCoreApplication::applicationDirPath() + "/verification/download-repair";
     QDir().mkpath(shots);
     for (const auto& theme : {"classic", "panel", "small", "large"}) {
@@ -787,21 +1046,130 @@ class ContentTest : public QObject {
       QTRY_COMPARE(window->type(), panel && available ? Qt::Tool : Qt::Window);
       QTRY_COMPARE(tray->property("visible").toBool(), panel && available);
       QTRY_VERIFY(window->isVisible());
+      QVERIFY(QMetaObject::invokeMethod(controller, "collapseToEdge",
+                                        Q_ARG(QVariant, int(Qt::TopEdge))));
+      QTRY_VERIFY(dock->property("folded").toBool());
+      QTRY_VERIFY(window->flags().testFlag(Qt::WindowStaysOnTopHint));
+      QTRY_COMPARE(window->type(), available ? Qt::Tool : Qt::Window);
+      auto* handle = visual_item(window->contentItem(), "dockHandle");
+      QVERIFY(handle);
+      QVERIFY(QMetaObject::invokeMethod(handle, "clicked"));
+      QTRY_VERIFY(!dock->property("folded").toBool());
+      QCOMPARE(controller->property("theme").toString(), QString::fromLatin1(theme));
+      QTRY_COMPARE(window->width(), panel                          ? 410
+                                    : QByteArray(theme) == "small" ? 800
+                                    : QByteArray(theme) == "large" ? 1180
+                                                                   : 960);
       if (QByteArray(theme) == "classic" || QByteArray(theme) == "panel") {
+        QTRY_COMPARE(window->width(), panel ? 410 : 960);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(runtime.set_preference("afterLaunch", "keep"));
         QVERIFY(QMetaObject::invokeMethod(deck, "openToolPage", Q_ARG(QVariant, 4),
                                           Q_ARG(QVariant, "general")));
         QTRY_COMPARE(deck->property("route").toString(), QString("general"));
         QTest::qWait(1000);
-        QVERIFY(visual_item(window->contentItem(), "fullscreenOverlayToggle"));
+        QVERIFY(!visual_item(window->contentItem(), "fullscreenOverlayToggle"));
+        QVERIFY(runtime.set_preference("afterLaunch", "collapse"));
+        QTRY_VERIFY(visual_item(window->contentItem(), "fullscreenOverlayToggle"));
+        QTest::qWait(350);
         QVERIFY(window->grabWindow().save(shots + "/general-" + theme + ".png"));
         QVERIFY(QMetaObject::invokeMethod(deck, "openToolPage", Q_ARG(QVariant, 4),
                                           Q_ARG(QVariant, "logs")));
-        QTest::qWait(350);
+        QTRY_COMPARE(deck->property("route").toString(), QString("logs"));
+        QTRY_VERIFY(deck->property("pageReveal").toReal() >= 0.999);
+        QTRY_VERIFY(window->property("contentReveal").toReal() >= 0.999);
+        if (panel) {
+          QTRY_VERIFY(dock->property("expandedHeight").toReal() >= 580);
+          QTRY_VERIFY(window->height() >= 580);
+        }
         auto* button = visual_item(window->contentItem(), "exportDiagnosticsButton");
         QVERIFY(button && button->property("enabled").toBool());
+        QTRY_VERIFY(button->isVisible());
+        QTRY_VERIFY(button->mapToScene(QPointF(0, button->height())).y() <= window->height());
+        QTest::qWait(100);
         QVERIFY(window->grabWindow().save(shots + "/logs-" + theme + ".png"));
+        auto* feedback_button = visual_item(window->contentItem(), "diagnosticFeedbackButton");
+        QVERIFY(feedback_button);
+        QVERIFY(QMetaObject::invokeMethod(feedback_button, "clicked"));
+        QObject* feedback_dialog = nullptr;
+        QTRY_VERIFY(([&] {
+          for (auto* candidate : window->findChildren<QObject*>("diagnosticFeedbackDialog")) {
+            if (candidate->property("visible").toBool()) {
+              feedback_dialog = candidate;
+              return true;
+            }
+          }
+          return false;
+        })());
+        QVERIFY(feedback_dialog);
+        QTRY_VERIFY(feedback_dialog->property("visible").toBool());
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(shots + "/feedback-" + theme + ".png"));
+        QVERIFY(QMetaObject::invokeMethod(feedback_dialog, "close"));
+        if (!panel) {
+          auto* enlarge = visual_item(window->contentItem(), "debugLogEnlarge");
+          QVERIFY(enlarge);
+          QVERIFY(QMetaObject::invokeMethod(enlarge, "clicked"));
+          auto* log_window = window->findChild<QQuickWindow*>("diagnosticLogWindow");
+          QVERIFY(log_window);
+          QTRY_VERIFY(log_window->isVisible());
+          QVERIFY(QTest::qWaitForWindowExposed(log_window));
+          QTest::qWait(100);
+          QVERIFY(log_window->grabWindow().save(shots + "/logs-enlarged.png"));
+          log_window->close();
+        }
+        consent->setProperty("phase", "awaiting_consent");
+        auto* agreement = window->findChild<QObject*>("firstRunAgreement");
+        QVERIFY(agreement);
+        QTRY_VERIFY(agreement->property("visible").toBool());
+        QTest::qWait(100);
+        QVERIFY(!agreement->property("readComplete").toBool());
+        QVERIFY(window->grabWindow().save(shots + "/agreement-" + theme + ".png"));
+        auto* scroll = agreement->findChild<QObject*>("choiceMessageScroll");
+        QVERIFY(scroll);
+        auto* flickable = qvariant_cast<QObject*>(scroll->property("contentItem"));
+        QVERIFY(flickable);
+        flickable->setProperty("contentY", flickable->property("contentHeight").toReal() -
+                                               flickable->property("height").toReal());
+        QTRY_VERIFY(agreement->property("readComplete").toBool());
+        QVERIFY(QMetaObject::invokeMethod(agreement, "chosen", Q_ARG(QString, "accept")));
+        QTRY_VERIFY(!agreement->property("visible").toBool());
       }
     }
+    QQmlComponent room_fixture(&engine);
+    room_fixture.setData(R"(import QtQml; QtObject {
+      property var status: ({state:'ready',room:{id:'confirmation-fixture',role:'host',lobby:{}}})
+      property int leaves: 0
+      property var feedback: ({})
+      signal changed(); signal room_joined(); signal preparation_required()
+      signal launch_requested(string instanceId, var contributions); signal host_required()
+      signal room_command_completed(string operation); signal room_left()
+      signal social_completed(string operation, string target); signal chat_sent()
+      function leave_room() { leaves++; status = ({state:'ready'}); changed(); room_left() }
+      function refresh(query) {}
+    })",
+                         QUrl("file:///room-confirmation-fixture.qml"));
+    QScopedPointer<QObject> room_service(room_fixture.create());
+    QVERIFY2(room_service, qPrintable(room_fixture.errorString()));
+    window->setProperty("multiplayerService", QVariant::fromValue(room_service.data()));
+    QVERIFY(QMetaObject::invokeMethod(deck, "openToolPage", Q_ARG(QVariant, 2),
+                                      Q_ARG(QVariant, "room")));
+    QTRY_COMPARE(deck->property("route").toString(), QString("room"));
+    QVERIFY(QMetaObject::invokeMethod(deck, "goBack"));
+    auto* leave_dialog = window->findChild<QObject*>("leaveRoomConfirmation");
+    QVERIFY(leave_dialog);
+    QTRY_VERIFY(leave_dialog->property("visible").toBool());
+    QCOMPARE(room_service->property("leaves").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(leave_dialog, "chosen", Q_ARG(QString, "stay")));
+    QCOMPARE(room_service->property("leaves").toInt(), 0);
+    QCOMPARE(deck->property("route").toString(), QString("room"));
+    QVERIFY(QMetaObject::invokeMethod(deck, "goBack"));
+    QTRY_VERIFY(leave_dialog->property("visible").toBool());
+    QVERIFY(window->grabWindow().save(shots + "/leave-confirmation.png"));
+    QVERIFY(QMetaObject::invokeMethod(leave_dialog, "chosen", Q_ARG(QString, "leave")));
+    QCOMPARE(room_service->property("leaves").toInt(), 1);
+    QTRY_VERIFY(deck->property("route").toString().isEmpty());
+    window->setProperty("multiplayerService", QVariant::fromValue<QObject*>(nullptr));
     QVERIFY(QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, "panel")));
     const auto route = deck->property("route");
     window->hide();
@@ -816,6 +1184,8 @@ class ContentTest : public QObject {
     QTRY_VERIFY(dock->property("attachment").toInt() != 0);
     QTest::qWait(350);
     QQuickWindow game;
+    controller->setProperty("gameRunning", false);
+    controller->setProperty("launchAction", "collapse");
     game.setScreen(window->screen());
     game.setGeometry(window->screen()->geometry());
     game.setFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
@@ -825,6 +1195,10 @@ class ContentTest : public QObject {
     QTRY_VERIFY_WITH_TIMEOUT(desktop.fullscreen_foreground(window), 3000);
     QVERIFY(QMetaObject::invokeMethod(dock, "setFolded", Q_ARG(QVariant, true)));
     QTRY_VERIFY(dock->property("folded").toBool());
+    QVERIFY(QMetaObject::invokeMethod(controller, "updateFullscreenSuppression"));
+    QVERIFY(window->isVisible());
+    controller->setProperty("gameRunning", true);
+    QVERIFY(QMetaObject::invokeMethod(controller, "updateFullscreenSuppression"));
     QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 3000);
     QVERIFY(runtime.set_preference("showOverlayInFullscreen", true));
     QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 3000);
@@ -841,6 +1215,23 @@ class ContentTest : public QObject {
     QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 3000);
     QVERIFY(!desktop.fullscreen_foreground(window));
     game.close();
+    for (const auto* action : {"keep", "hide", "collapse", "close"}) {
+      QVERIFY(QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, "classic")));
+      QVERIFY(QMetaObject::invokeMethod(controller, "applyAfterLaunch", Q_ARG(QVariant, action),
+                                        Q_ARG(QVariant, true)));
+      const bool folded = QByteArray(action) == "collapse";
+      QTRY_COMPARE(dock->property("folded").toBool(), folded);
+      if (QByteArray(action) == "keep")
+        QVERIFY(window->isVisible());
+      else
+        QVERIFY(!window->isVisible() || window->visibility() == QWindow::Minimized);
+      QVERIFY(QMetaObject::invokeMethod(controller, "restoreAfterGame"));
+      QTRY_VERIFY(window->isVisible());
+      QVERIFY(window->visibility() != QWindow::Minimized);
+      QCOMPARE(dock->property("folded").toBool(), folded);
+      QCOMPARE(controller->property("theme").toString(), QString("classic"));
+      QVERIFY(!controller->property("gameRunning").toBool());
+    }
     window->close();
     runtime.shutdown();
     QTRY_VERIFY(!runtime.busy());
@@ -934,7 +1325,12 @@ class ContentTest : public QObject {
         "<log4j:Event logger=\"mixin\" timestamp=\"1794447240000\" level=\"FATAL\" "
         "thread=\"Render thread\"><log4j:Message><![CDATA[Mixin apply for mod sodium failed]]>"
         "</log4j:Message><log4j:Throwable><![CDATA[Caused by: InvalidInjectionException\n"
-        " at fixture.Renderer.render(Renderer.java:1)]]></log4j:Throwable></log4j:Event>\n");
+        " at fixture.Renderer.render(Renderer.java:1)]]></log4j:Throwable></log4j:Event>\n"
+        "<log4j:Event logger=\"network\" timestamp=\"1794447250000\" level=\"INFO\" "
+        "thread=\"Render thread\">"
+        "<log4j:Message><![CDATA[{\"status\":\"connected\",\"route\":{\"type\":\"relay\","
+        "\"attempt\":2}}]]>"
+        "</log4j:Message></log4j:Event>\n");
     GameRuntime runtime(root.path(), game, nullptr);
     runtime.initialize();
     QTRY_VERIFY(!runtime.loading_instances());
@@ -966,22 +1362,199 @@ class ContentTest : public QObject {
       QVERIFY(QMetaObject::invokeMethod(logger, "chosen", Q_ARG(QString, "sodium")));
       QTRY_COMPARE(events->property("count").toInt(), 1);
       QTRY_VERIFY(visual_item(window->contentItem(), "debugLogRow"));
+      QTRY_VERIFY(visual_item(window->contentItem(), "debugLogRow")
+                      ->property("entry")
+                      .toMap()
+                      .value("message")
+                      .toString()
+                      .contains("Renderer.java:1"));
       auto* row = visual_item(window->contentItem(), "debugLogRow");
       QVERIFY(QMetaObject::invokeMethod(row, "clicked"));
       auto* detail = visual_item(window->contentItem(), "debugLogDetail");
-      QVERIFY(detail && detail->property("text").toString().contains("Renderer.java:1"));
+      QVERIFY(detail);
+      QTRY_VERIFY(detail->property("text").toString().contains("Renderer.java:1"));
       QTest::qWait(200);
       QVERIFY(window->grabWindow().save(shots + "/logs-fatal-" + theme + ".png"));
       search->setProperty("text", "no-such-log-record");
       QTRY_COMPARE(events->property("count").toInt(), 0);
       QVERIFY(window->grabWindow().save(shots + "/logs-empty-" + theme + ".png"));
+      search->setProperty("text", "connected");
+      QVERIFY(QMetaObject::invokeMethod(level, "chosen", Q_ARG(QString, "")));
+      QVERIFY(QMetaObject::invokeMethod(logger, "chosen", Q_ARG(QString, "")));
+      QTRY_COMPARE(events->property("count").toInt(), 1);
+      QTRY_VERIFY(visual_item(window->contentItem(), "debugLogRow") &&
+                  visual_item(window->contentItem(), "debugLogRow")
+                      ->property("entry")
+                      .toMap()
+                      .value("message")
+                      .toString()
+                      .contains("connected"));
+      row = visual_item(window->contentItem(), "debugLogRow");
+      QVERIFY(row && QMetaObject::invokeMethod(row, "clicked"));
+      auto* format = visual_item(window->contentItem(), "debugLogDetailFormat");
+      QVERIFY(format);
+      QVERIFY(QMetaObject::invokeMethod(format, "chosen", Q_ARG(QString, "structured")));
+      QTRY_VERIFY(detail->property("text").toString().contains("\n"));
+      QVERIFY(window->grabWindow().save(shots + "/logs-structured-" + theme + ".png"));
+      QVERIFY(QMetaObject::invokeMethod(format, "chosen", Q_ARG(QString, "raw")));
+      QTRY_VERIFY(!detail->property("text").toString().contains("\n"));
     }
     window->close();
     runtime.shutdown();
     QTRY_VERIFY(!runtime.busy());
   }
+  void background_soft_focus_preserves_the_middle() {
+    QTemporaryDir root;
+    QImage pattern(400, 300, QImage::Format_RGB32);
+    for (int y = 0; y < pattern.height(); ++y)
+      for (int x = 0; x < pattern.width(); ++x)
+        pattern.setPixelColor(x, y, ((x / 8 + y / 8) % 2) ? Qt::black : Qt::white);
+    const auto file = root.filePath("pattern.png");
+    QVERIFY(pattern.save(file));
+    QQmlEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick; import Bugg.DesignSystem;
+        BackdropCarousel { width: 400; height: 300; radius: 0; vignette: 0;
+                          blurAmount: 1; blurStyle: "none" })",
+                      QUrl("file:///background-render-fixture.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    object->setProperty("sources", QVariantList{QUrl::fromLocalFile(file)});
+    auto* item = qobject_cast<QQuickItem*>(object.data());
+    QQuickWindow window;
+    window.resize(400, 300);
+    item->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTRY_VERIFY(!object->property("currentSource").toUrl().isEmpty());
+    QTest::qWait(250);
+    const auto clear = window.grabWindow();
+    object->setProperty("blurStyle", "top");
+    QTest::qWait(250);
+    const auto top = window.grabWindow();
+    object->setProperty("blurStyle", "full");
+    QTest::qWait(250);
+    const auto full = window.grabWindow();
+    const auto difference = [](const QImage& left, const QImage& right, const QRect& area) {
+      qint64 result = 0;
+      for (int y = area.top(); y <= area.bottom(); ++y)
+        for (int x = area.left(); x <= area.right(); ++x)
+          result += qAbs(left.pixelColor(x, y).red() - right.pixelColor(x, y).red());
+      return result;
+    };
+    const QRect upper(40, 8, 320, 30), middle(40, 120, 320, 60);
+    const auto upper_change = difference(clear, top, upper);
+    const auto middle_change = difference(clear, top, middle);
+    qInfo() << "BACKGROUND_MASK" << upper_change << middle_change
+            << difference(clear, full, middle);
+    QVERIFY(upper_change > 100000);
+    QVERIFY(middle_change < upper_change / 10);
+    QVERIFY(difference(clear, full, middle) > 100000);
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/experience";
+    QDir().mkpath(shots);
+    QVERIFY(clear.save(shots + "/blur-clear.png"));
+    QVERIFY(top.save(shots + "/blur-top.png"));
+    QVERIFY(full.save(shots + "/blur-full.png"));
+  }
+  void compact_friends_selected_games_and_friend_code_submission() {
+    QQmlEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/experience";
+    QDir().mkpath(shots);
+    for (const int width : {410, 960}) {
+      auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+      tokens->setProperty("comfortable", width != 410);
+      tokens->setProperty("sizeClass", width == 410 ? "panel" : "classic");
+      for (const auto* name : {"FriendsPage", "InstancesPage", "AppearancePage", "AddFriendPage"}) {
+        QQmlComponent component(&engine);
+        QByteArray body = " {}";
+        if (QByteArray(name) == "AppearancePage") body = " { theme: 'classic' }";
+        if (QByteArray(name) == "AddFriendPage")
+          body = R"( {
+          id: page; identifier: "R3B7-4JSY-GPDK"
+          property int submissions: 0; property string submittedTarget: ""
+          service: QtObject {
+            property var status: ({state:"ready",friendCode:"AAAA-BBBB-CCCC"})
+            function social(op,target,fields) { page.submittedTarget=target; page.submissions++ }
+          }
+        })";
+        component.setData(QByteArray("import QtQuick; import Bugg.Pages; ") + name + body,
+                          QUrl("file:///experience-page-fixture.qml"));
+        const QVariantList games{
+            QVariantMap{
+                {"id", "old"}, {"name", "旧游戏"}, {"version", "1.20.1"}, {"loader", "Forge"}},
+            QVariantMap{{"id", "current"},
+                        {"name", "当前游戏"},
+                        {"version", "26.3"},
+                        {"loader", "NeoForge"}}};
+        QScopedPointer<QObject> object(QByteArray(name) == "InstancesPage"
+                                           ? component.createWithInitialProperties(
+                                                 {{"instances", games}, {"selectedIndex", 1}})
+                                           : component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto* item = qobject_cast<QQuickItem*>(object.data());
+        QVERIFY(item);
+        QQuickWindow window;
+        window.resize(width, 650);
+        window.setColor(Qt::white);
+        item->setParentItem(window.contentItem());
+        item->setWidth(width);
+        item->setHeight(650);
+        if (QByteArray(name) == "FriendsPage") {
+          object->setProperty(
+              "status",
+              QVariantMap{
+                  {"state", "ready"},
+                  {"friends",
+                   QVariantList{
+                       QVariantMap{{"id", "offline"}, {"name", "离线好友"}, {"online", false}},
+                       QVariantMap{{"id", "online"}, {"name", "在线好友"}, {"online", true}}}}});
+          const auto entries =
+              object->property("filteredItems").value<QJSValue>().toVariant().toList();
+          QCOMPARE(entries.size(), 5);
+          QCOMPARE(entries.first().toMap().value("id").toString(), QString("bugg-self"));
+          QCOMPARE(entries[3].toMap().value("id").toString(), QString("online"));
+          QCOMPARE(entries[4].toMap().value("id").toString(), QString("offline"));
+        }
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTest::qWait(180);
+        if (QByteArray(name) == "InstancesPage") {
+          auto* selected = visual_item(item, "manageInstance1");
+          auto* old = visual_item(item, "manageInstance0");
+          QVERIFY(selected && old);
+          QVERIFY(selected->mapToScene({}).y() < old->mapToScene({}).y());
+          QSignalSpy chosen(object.data(), SIGNAL(selected(int)));
+          QVERIFY(QMetaObject::invokeMethod(old, "clicked"));
+          QCOMPARE(chosen.count(), 1);
+          QCOMPARE(chosen.first().first().toInt(), 0);
+        }
+        if (QByteArray(name) == "AddFriendPage") {
+          auto* submit = visual_item(item, "sendFriendRequestButton");
+          QVERIFY(submit && submit->isEnabled());
+          QVERIFY(QMetaObject::invokeMethod(submit, "clicked"));
+          QCOMPARE(object->property("submittedTarget").toString(), QString("R3B7-4JSY-GPDK"));
+          auto* service = object->property("service").value<QObject*>();
+          QVERIFY(service);
+          service->setProperty("status",
+                               QVariantMap{{"state", "ready"}, {"error", "暂时无法连接，请重试"}});
+          QCOMPARE(object->property("identifier").toString(), QString("R3B7-4JSY-GPDK"));
+          QVERIFY(QMetaObject::invokeMethod(submit, "clicked"));
+          QCOMPARE(object->property("submissions").toInt(), 2);
+        }
+        QVERIFY(
+            window.grabWindow().save(shots + '/' + name + '-' + QString::number(width) + ".png"));
+      }
+    }
+  }
   void language_page_download_error_retry_and_single_background() {
     QTemporaryDir cache;
+    HttpClient http;
+    MicrosoftAccount account(&http, cache.filePath("credentials.bin"));
+    GameRuntime runtime(cache.path(), cache.filePath("game"), &account);
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
     LanguageAssetServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
     LanguageService languages(nullptr, cache.path(), server.origin());
@@ -990,6 +1563,7 @@ class ContentTest : public QObject {
     connect(&languages, &LanguageService::changed, &engine, &QQmlApplicationEngine::retranslate);
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
     engine.setInitialProperties({{"desktopEnvironment", QVariant::fromValue(&desktop)},
+                                 {"gameRuntime", QVariant::fromValue(&runtime)},
                                  {"languageService", QVariant::fromValue(&languages)}});
     engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
     QVERIFY(!engine.rootObjects().isEmpty());
@@ -1005,6 +1579,7 @@ class ContentTest : public QObject {
       QVERIFY(QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, theme)));
       QVERIFY(QMetaObject::invokeMethod(deck, "openToolPage", Q_ARG(QVariant, 4),
                                         Q_ARG(QVariant, "language")));
+      QTRY_COMPARE(deck->property("route").toString(), QString("language"));
       QTest::qWait(600);
       server.delay_ms = 500;
       server.corrupt = true;
@@ -1019,7 +1594,7 @@ class ContentTest : public QObject {
       QVERIFY(window->grabWindow().save(shots + "/error-" + theme + ".png"));
       server.corrupt = false;
       server.delay_ms = 0;
-      auto* retry = window->findChild<QObject*>("languageDownloadRetry");
+      auto* retry = visual_item(window->contentItem(), "languageDownloadRetry");
       QVERIFY(retry);
       QVERIFY(QMetaObject::invokeMethod(retry, "clicked"));
       QTRY_COMPARE(languages.code(), code);
@@ -1027,12 +1602,22 @@ class ContentTest : public QObject {
       QVERIFY(window->grabWindow().save(shots + "/ready-" + theme + ".png"));
       QVERIFY(languages.set_code("zh_cn"));
       QVERIFY(QMetaObject::invokeMethod(deck, "goHome"));
+      QTRY_COMPARE(deck->property("toolIndex").toInt(), 0);
+      QTRY_VERIFY(window->property("contentReveal").toReal() >= 0.999);
       QTest::qWait(600);
       QVERIFY(window->grabWindow().save(shots + "/home-" + theme + ".png"));
+      for (const auto* style : {"none", "top", "full"}) {
+        QVERIFY(runtime.set_preference("backgroundStyle", style));
+        QVERIFY(runtime.set_preference("backgroundBlur", 0.8));
+        QVERIFY(runtime.set_preference("surfaceOpacity", 0.3));
+        QTest::qWait(150);
+        QVERIFY(window->grabWindow().save(shots + "/home-" + style + '-' + theme + ".png"));
+      }
     }
     languages.shutdown();
     QTRY_VERIFY(!languages.busy());
     window->close();
+    runtime.shutdown();
   }
   void descriptions_keep_format_images_and_limits() {
     const auto sized = content_description(
@@ -2072,7 +2657,7 @@ class ContentTest : public QObject {
     }
   }
   void translation_models_update_without_resetting_the_view() {
-    ContentListModel model;
+    ValueListModel model;
     const QVariantList initial{QVariantMap{{"html", "Original"}},
                                QVariantMap{{"image", "picture.png"}}};
     model.reconcile("project-1", initial);
@@ -2086,13 +2671,214 @@ class ContentTest : public QObject {
     model.reconcile("project-2", initial);
     QCOMPARE(resets.size(), 1);
   }
+  void task_snapshots_update_without_replacing_or_reordering_existing_delegates() {
+    ValueListModel model;
+    model.set_rows(
+        {QVariantMap{{"id", "A"}, {"progress", 0}}, QVariantMap{{"id", "B"}, {"progress", 0}}});
+    QPersistentModelIndex retained(model.index(1));
+    QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+    for (int i = 1; i <= 30; ++i)
+      model.set_rows(
+          {QVariantMap{{"id", "A"}, {"progress", i}}, QVariantMap{{"id", "B"}, {"progress", i}}});
+    QCOMPARE(resets.size(), 0);
+    QCOMPARE(retained.data(Qt::UserRole).toMap().value("id").toString(), "B");
+    model.set_rows({QVariantMap{{"id", "C"}}, QVariantMap{{"id", "A"}}, QVariantMap{{"id", "B"}}});
+    QCOMPARE(retained.row(), 2);
+    QCOMPARE(retained.data(Qt::UserRole).toMap().value("id").toString(), "B");
+  }
+  void active_task_page_keeps_the_reading_position() {
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    QVariantList tasks;
+    for (int i = 0; i < 24; ++i)
+      tasks.append(QVariantMap{{"id", QString::number(i)},
+                               {"name", QString("下载任务 %1").arg(i + 1)},
+                               {"kind", "install"},
+                               {"state", "running"},
+                               {"progress", 0.1},
+                               {"detail", "正在下载资源 · 4 个连接"}});
+    engine.rootContext()->setContextProperty("taskRows", tasks);
+    engine.loadData(R"(
+import QtQuick
+import Bugg.Pages
+Window { width:410; height:620; visible:true; color:"white"
+  TasksPage { anchors.fill:parent; tasks:taskRows; viewportHeight:parent.height }
+})");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    auto* list = window->findChild<QQuickItem*>("taskListViewport");
+    QVERIFY(list);
+    QTRY_VERIFY(list->property("contentHeight").toReal() > 1500);
+    list->setProperty("contentY", 550);
+    for (int i = 0; i < 20; ++i) {
+      auto task = tasks[i].toMap();
+      task["progress"] = i / 20.0;
+      tasks[i] = task;
+      engine.rootContext()->setContextProperty("taskRows", tasks);
+      QTest::qWait(15);
+      QVERIFY(qAbs(list->property("contentY").toReal() - 550) < 2);
+    }
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/pack-round2";
+    QDir().mkpath(shots);
+    QVERIFY(window->grabWindow().save(shots + "/active-tasks-410.png"));
+    window->setWidth(960);
+    QTest::qWait(100);
+    QVERIFY(window->grabWindow().save(shots + "/active-tasks-960.png"));
+    window->close();
+  }
+  void backgrounds_cover_pages_with_double_blur_and_progress_touches_top() {
+    QTemporaryDir storage;
+    HttpClient http;
+    MicrosoftAccount account(&http, storage.filePath("credentials.bin"));
+    GameRuntime runtime(storage.path(), storage.filePath("game"), &account);
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
+    const auto scene =
+        qEnvironmentVariable("BUGG_TEST_BACKGROUND_IMAGE",
+                             QFINDTESTDATA("../../qml/Bugg/DesignSystem/assets/home-siege-1.webp"));
+    QVERIFY(
+        runtime.set_preference("backgrounds", QVariantList{QUrl::fromLocalFile(scene).toString()}));
+    QVERIFY(runtime.set_preference("backgroundBlur", 0.25));
+    DesktopEnvironment desktop;
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    engine.setInitialProperties(
+        {{"desktopEnvironment", QVariant::fromValue(&desktop)},
+         {"gameRuntime", QVariant::fromValue(static_cast<QObject*>(&runtime))}});
+    engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    auto* controller = window->findChild<QObject*>("windowController");
+    auto* deck = window->findChild<QObject*>("toolContent");
+    auto* backdrop = window->findChild<QObject*>("windowBackdrop");
+    auto* dock = window->findChild<QObject*>("edgeDock");
+    dock->setProperty("autoFoldEnabled", false);
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/background";
+    QDir().mkpath(shots);
+    for (const auto* theme : {"classic", "panel"}) {
+      QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, theme));
+      QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, 4));
+      QTest::qWait(450);
+      QTRY_VERIFY(!backdrop->property("active").toBool());
+      QVERIFY(runtime.set_preference("backgroundOnPages", true));
+      QVERIFY(runtime.set_preference("pageOverlayOpacity", 0.10));
+      QMetaObject::invokeMethod(deck, "openPage", Q_ARG(QVariant, "appearance"));
+      QTRY_VERIFY(backdrop->property("active").toBool());
+      QCOMPARE(backdrop->property("blurStyle").toString(), "full");
+      QCOMPARE(backdrop->property("blurAmount").toDouble(), 0.5);
+      auto* page_veil = window->findChild<QQuickItem*>("pageBackdropVeil");
+      QVERIFY(page_veil);
+      const auto veil_color = page_veil->property("color").value<QColor>();
+      QVERIFY(qAbs(veil_color.alphaF() - 0.10) < 0.005);
+      QTest::qWait(500);
+      QVERIFY(window->grabWindow().save(shots + "/appearance-" + theme + ".png"));
+      auto* top = window->findChild<QQuickItem*>("topActivity");
+      QVERIFY(top);
+      auto* shell = window->findChild<QObject*>("floatingShell");
+      QVERIFY(shell);
+      shell->setProperty("activity", QVariantMap{{"active", true}, {"progress", 0.45}});
+      QTRY_VERIFY(top->isVisible());
+      QVERIFY(top->property("edgeToEdge").toBool());
+      QCOMPARE(top->mapToScene(QPointF()), top->parentItem()->mapToScene(QPointF()));
+      QCOMPARE(top->x(), 0.0);
+      QCOMPARE(top->width(), top->parentItem()->width());
+      QMetaObject::invokeMethod(deck, "openPage", Q_ARG(QVariant, "tasks"));
+      deck->setProperty(
+          "tasks", QVariantList{QVariantMap{
+                       {"id", "fixture"},
+                       {"name", "安装光影及依赖"},
+                       {"state", "running"},
+                       {"progress", 0.45},
+                       {"detail", "下载文件 1 / 3 · 来源：BUGG / CurseForge"},
+                       {"contentItems", QVariantList{QVariantMap{{"title", "Iris Shaders"},
+                                                                 {"state", "downloading"},
+                                                                 {"progress", 0.45},
+                                                                 {"source", "BUGG"}},
+                                                     QVariantMap{{"title", "Sodium"},
+                                                                 {"state", "downloading"},
+                                                                 {"progress", 0.1},
+                                                                 {"source", "CurseForge"}}}}}});
+      QTest::qWait(650);
+      QVERIFY(window->grabWindow().save(shots + "/downloads-" + theme + ".png"));
+      QMetaObject::invokeMethod(deck, "goHome");
+      QVERIFY(runtime.set_preference("backgroundOnPages", false));
+    }
+    window->close();
+    runtime.shutdown();
+    QTRY_VERIFY(!runtime.busy());
+  }
+  void portrait_background_rotates_and_native_video_pauses() {
+    QTemporaryDir storage;
+    QImage portrait(80, 160, QImage::Format_RGB32);
+    portrait.fill(QColor("#78A5BB"));
+    QVERIFY(portrait.save(storage.filePath("portrait.png")));
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    engine.loadData(R"(
+      import QtQuick
+      import QtQuick.Window
+      import Bugg.DesignSystem
+      Window { width: 960; height: 600; visible: true
+        BackdropMedia { objectName: "media"; anchors.fill: parent }
+      })");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    auto* media = window->findChild<QObject*>("media");
+    media->setProperty("source", QUrl::fromLocalFile(storage.filePath("portrait.png")));
+    QTRY_COMPARE(media->property("status").toInt(), 1);
+    QVERIFY(media->property("rotated").toBool());
+    const auto video = qEnvironmentVariable("BUGG_TEST_BACKGROUND_VIDEO");
+    if (!video.isEmpty()) {
+      QVERIFY(QFileInfo::exists(video));
+      media->setProperty("source", QUrl::fromLocalFile(video));
+      QTRY_COMPARE_WITH_TIMEOUT(media->property("status").toInt(), 1, 15000);
+      QTRY_COMPARE_WITH_TIMEOUT(media->property("playbackState").toInt(), 1, 5000);
+      QVERIFY(media->property("muted").toBool());
+      QTest::qWait(600);
+      const auto shot =
+          QCoreApplication::applicationDirPath() + "/verification/background/video.png";
+      QVERIFY(window->grabWindow().save(shot));
+      media->setProperty("active", false);
+      QTRY_COMPARE_WITH_TIMEOUT(media->property("playbackState").toInt(), 2, 5000);
+      media->setProperty("active", true);
+      QTRY_COMPARE_WITH_TIMEOUT(media->property("playbackState").toInt(), 1, 5000);
+      media->setProperty("source", QUrl{});
+      QTRY_COMPARE(media->property("playbackState").toInt(), 0);
+    }
+    window->close();
+  }
+  void inline_shader_loader_plan_keeps_the_real_target_and_rejects_stale_responses() {
+    ContentProbe probe;
+    ContentCatalogSession session;
+    session.set_service(&probe);
+    const QVariantMap target{{"id", "original"}, {"version", "1.21.1"}, {"loader", "vanilla"}};
+    session.set_auto_dependencies(false);
+    session.browse("shader", {}, target);
+    session.search();
+    probe.answer(probe.queries.lastKey(), {{"items", QVariantList{QVariantMap{{"id", "shader"}}}}});
+    session.open_project("shader", target);
+    probe.answer(probe.queries.lastKey(),
+                 {{"versions", QVariantList{QVariantMap{
+                                   {"id", "v1"}, {"gameVersions", QStringList{"1.21.1"}}}}}});
+    QVERIFY(probe.queries.last().value("deferShaderRuntime").toBool());
+    session.select_setup_loader("fabric", "0.16.14");
+    const auto old = probe.queries.lastKey();
+    QCOMPARE(probe.queries.last().value("loader").toString(), "fabric");
+    QVERIFY(probe.queries.last().value("autoDependencies").toBool());
+    QVERIFY(!probe.queries.last().value("deferShaderRuntime").toBool());
+    session.select_setup_loader("quilt", "0.29.3");
+    probe.answer(old, {{"files", QVariantList{QVariantMap{{"id", "stale"}}}}});
+    QVERIFY(session.status().value("plan").toMap().isEmpty());
+    QCOMPARE(probe.queries.last().value("loader").toString(), "quilt");
+    QCOMPARE(session.status().value("target").toMap(), target);
+  }
   void translated_document_keeps_scroll_and_small_image_dimensions() {
     QTemporaryDir root;
     QImage badge(48, 12, QImage::Format_ARGB32);
     badge.fill(QColor("#7863ca"));
     const auto path = root.filePath("badge.png");
     QVERIFY(badge.save(path));
-    ContentListModel model;
+    ValueListModel model;
     QVariantList rows{QVariantMap{{"image", QUrl::fromLocalFile(path).toString()}}};
     for (int i = 0; i < 80; ++i)
       rows.append(
@@ -2171,6 +2957,17 @@ class ContentTest : public QObject {
       QVERIFY(files.last().toMap().value("prerequisite").toBool());
       QVERIFY(files.last().toMap().value("loaders").toStringList().contains(loader));
     }
+    auto vanilla_query = query;
+    vanilla_query["loader"] = "vanilla";
+    vanilla_query["deferShaderRuntime"] = true;
+    server.no_shader_core = true;
+    service.query(++serial, vanilla_query);
+    QTRY_COMPARE(finished.size(), int(serial));
+    const auto deferred = finished.last()[1].toMap();
+    QVERIFY2(!deferred.contains("error"), qPrintable(deferred.value("error").toString()));
+    QVERIFY(deferred.value("shaderSupport").toMap().value("deferred").toBool());
+    QCOMPARE(deferred.value("files").toList().size(), 1);
+    server.no_shader_core = false;
     QTemporaryDir root;
     const auto directory = root.path() + "/versions/fixture";
     write_json(
@@ -2201,6 +2998,14 @@ class ContentTest : public QObject {
              "older-core");
     QCOMPARE(result.value("shaderSupport").toMap().value("path").toString(),
              "mods/my-renamed-core.jar");
+    auto deferred_work = QtConcurrent::run(
+        [&] { return operation.prepare_content_install("fixture", deferred, request); });
+    QTRY_VERIFY_WITH_TIMEOUT(deferred_work.isFinished(), 15000);
+    const auto upgraded = deferred_work.result();
+    QVERIFY(!upgraded.value("shaderSupport").toMap().value("deferred").toBool());
+    QVERIFY(upgraded.value("shaderSupport").toMap().value("installed").toBool());
+    QCOMPARE(upgraded.value("query").toMap().value("loader").toString(), QString("fabric"));
+    QVERIFY(!upgraded.value("query").toMap().contains("deferShaderRuntime"));
     HttpClient http;
     MicrosoftAccount account(&http, root.path() + "/credentials.bin");
     GameRuntime runtime(root.path(), root.path(), &account);
@@ -2270,6 +3075,316 @@ class ContentTest : public QObject {
     service.shutdown();
     QTRY_VERIFY(!service.busy());
   }
+  void shared_current_instance_updates_catalog_and_detail() {
+    QTemporaryDir root;
+    for (const auto& id : {"A", "B"})
+      write_json(root.filePath("versions/" + QString(id) + '/' + id + ".json"),
+                 {{"id", id},
+                  {"bugg", QJsonObject{{"version", QString(id) == "A" ? "1.21.1" : "26.3"},
+                                       {"loader", "neoforge"},
+                                       {"loaderVersion",
+                                        QString(id) == "A" ? "21.1.200" : "26.3.0.101"}}}});
+    HttpClient http;
+    MicrosoftAccount account(&http, root.filePath("credentials.bin"));
+    GameRuntime runtime(root.path(), root.path(), &account);
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
+    ContentProbe probe;
+    DesktopEnvironment desktop;
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    engine.setInitialProperties({{"desktopEnvironment", QVariant::fromValue(&desktop)},
+                                 {"gameRuntime", QVariant::fromValue(&runtime)},
+                                 {"contentService", QVariant::fromValue(&probe)}});
+    engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    auto* session = window->findChild<ContentCatalogSession*>();
+    QVERIFY(session);
+    QTRY_COMPARE(session->status().value("target").toMap().value("id").toString(), "A");
+    session->browse("shader", {}, runtime.instances().first().toMap());
+    probe.answer(probe.queries.lastKey(), {{"items", QVariantList{QVariantMap{{"id", "pack"}}}}});
+    session->open_project("pack");
+    const auto old_detail = probe.queries.lastKey();
+    // Installation completion stores the preference and the rescan republishes instances.
+    QVERIFY(runtime.set_preference("selectedInstance", "B"));
+    runtime.refresh_instances();
+    QTRY_COMPARE(session->status().value("target").toMap().value("id").toString(), "B");
+    QCOMPARE(window->property("selectedInstance").toInt(), 1);
+    QCOMPARE(session->status().value("project").toMap().value("id").toString(), "pack");
+    QCOMPARE(probe.queries.last().value("gameVersion").toString(), "26.3");
+    probe.answer(old_detail, {{"versions", QVariantList{QVariantMap{{"id", "stale"}}}}});
+    QVERIFY(session->status().value("versions").toList().isEmpty());
+    window->setProperty("selectedInstance", 0);
+    QTRY_COMPARE(session->status().value("target").toMap().value("id").toString(), "A");
+    window->close();
+    runtime.shutdown();
+    QTRY_VERIFY(!runtime.busy());
+  }
+  void shader_feedback_dialog_layout() {
+    QQmlEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    QQmlComponent component(&engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls
+import Bugg.DesignSystem
+ApplicationWindow {
+  width: 410; height: 620; visible: true
+  color: DesignTokens.canvas
+  ChoiceDialog {
+    objectName: "feedbackFixture"; visible: true
+    title: "刚安装的光影能正常使用吗？"
+    message: "Iris · 1.8.14 · 1.21.1 / NeoForge 21.1.200\n光影默认未启用。请在游戏内启用后再判断；游戏进程退出不代表光影正常。您的选择会帮助其他用户判断这个组合。反馈仅包含匿名安装标识和版本文件组合。"
+    options: [{id:"working",name:"已启用，光影正常",variant:"primary"},
+              {id:"startup_failed",name:"游戏启动失败"},
+              {id:"shader_failed",name:"能启动，光影异常 / 贴图错误"},
+              {id:"",name:"尚未测试 / 稍后反馈"}]
+  }
+
+})",
+                      QUrl("file:///feedback-fixture.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* window = qobject_cast<QQuickWindow*>(object.data());
+    QVERIFY(window);
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/shader-feedback";
+    QDir().mkpath(shots);
+    for (const auto width : {410, 960}) {
+      auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+      QVERIFY(tokens);
+      tokens->setProperty("comfortable", width != 410);
+      tokens->setProperty("sizeClass", width == 410 ? "panel" : "classic");
+      window->setWidth(width);
+      QTest::qWait(200);
+      QVERIFY(window->grabWindow().save(shots + "/feedback-" + QString::number(width) + ".png"));
+    }
+    window->close();
+    QQmlComponent task_component(&engine);
+    task_component.setData(R"(
+import QtQuick
+import Bugg.DesignSystem
+TaskCard {
+  width: 386
+  task: ({id:"shader-conflict",kind:"content",name:"Complementary Shaders",state:"needs_dependency_decision",
+          dependencyDecision:{summary:"现有 Sodium 与目标加载器不兼容",canRepair:true}})
+})",
+                           QUrl("file:///shader-decision-fixture.qml"));
+    QScopedPointer<QObject> task(task_component.create());
+    QVERIFY2(task, qPrintable(task_component.errorString()));
+    auto* task_item = qobject_cast<QQuickItem*>(task.data());
+    QQuickWindow task_window;
+    task_item->setParentItem(task_window.contentItem());
+    task_item->setX(12);
+    task_item->setY(12);
+    for (const auto width : {410, 960}) {
+      task_window.resize(width, 500);
+      task_item->setWidth(width - 24);
+      task_item->setHeight(task_item->implicitHeight());
+      task_window.show();
+      QTest::qWait(150);
+      QVERIFY(
+          task_window.grabWindow().save(shots + "/decision-" + QString::number(width) + ".png"));
+    }
+  }
+  void scenic_navigation_and_modal_backdrop_use_the_actual_window() {
+    QTemporaryDir root;
+    QImage image(960, 640, QImage::Format_RGB32);
+    for (int y = 0; y < image.height(); ++y)
+      for (int x = 0; x < image.width(); ++x)
+        image.setPixelColor(x, y, ((x / 110 + y / 80) % 2) ? QColor("#33638e") : QColor("#6b9dc2"));
+    const auto background = root.filePath("background.png");
+    QVERIFY(image.save(background));
+    DesktopEnvironment desktop;
+    ContentProbe probe;
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    engine.setInitialProperties(
+        {{"desktopEnvironment", QVariant::fromValue(&desktop)},
+         {"contentService", QVariant::fromValue(&probe)},
+         {"instances", QVariantList{QVariantMap{{"id", "fixture"},
+                                                {"name", "Minecraft 1.21.1"},
+                                                {"version", "1.21.1"},
+                                                {"loader", "fabric"}}}}});
+    engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    auto* store = window->property("pageStateStore").value<QObject*>();
+    auto* controller = window->findChild<QObject*>("windowController");
+    auto* dialog = window->findChild<QObject*>("shaderFeedbackDialog");
+    QVERIFY(store && controller && dialog);
+    QVERIFY(QMetaObject::invokeMethod(
+        store, "set_value", Q_ARG(QString, "appearance.backgrounds"),
+        Q_ARG(QVariant, QStringList{QUrl::fromLocalFile(background).toString()})));
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/pack-round2";
+    QDir().mkpath(shots);
+    for (const auto& theme : {QString("panel"), QString("classic")}) {
+      QVERIFY(QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, theme)));
+      QTest::qWait(1400);
+      QVERIFY(window->grabWindow().save(shots + "/scenic-nav-" + theme + ".png"));
+      const auto host_size = window->size();
+      dialog->setProperty("visible", true);
+      QTest::qWait(200);
+      QVERIFY(window->height() <= desktop.available_geometry(window).height());
+      auto* option = visual_item(window->contentItem(), "choiceOption_shader_failed");
+      QVERIFY(option);
+      auto* popup_window = option->window();
+      QVERIFY(popup_window);
+      const auto bottom = option->mapToScene(QPointF(0, option->height())).y();
+      QVERIFY2(bottom <= popup_window->height(),
+               "Feedback buttons must fit inside the displayed popup");
+      QVERIFY(popup_window->grabWindow().save(shots + "/scenic-popup-" + theme + ".png"));
+      QVERIFY(window->grabWindow().save(shots + "/scenic-modal-" + theme + ".png"));
+      QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+      QTRY_COMPARE(window->size(), host_size);
+    }
+    window->close();
+  }
+  void network_reference_pages_use_readonly_status_snapshots() {
+    QQmlEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    const QVariantMap own{{"type", "mapping-stable-observed"},
+                          {"observed_at", QDateTime::currentSecsSinceEpoch()},
+                          {"direct_successes", 12},
+                          {"relay_successes", 3}};
+    const QVariantMap peer{{"type", "mapping-dependent-observed"},
+                           {"observed_at", QDateTime::currentSecsSinceEpoch()},
+                           {"direct_successes", 2},
+                           {"relay_successes", 9}};
+    const QVariantMap status{{"state", "ready"},
+                             {"networkProfile", own},
+                             {"friends", QVariantList{QVariantMap{{"id", "sample-friend"},
+                                                                  {"name", "测试好友 · 界面验收"},
+                                                                  {"online", true},
+                                                                  {"network_profile", peer}}}}};
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/network-reference";
+    QDir().mkpath(shots);
+    for (const int width : {410, 960}) {
+      auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+      tokens->setProperty("comfortable", width != 410);
+      tokens->setProperty("sizeClass", width == 410 ? "panel" : "classic");
+      for (const auto* name : {"RoomsPage", "FriendsPage", "RoomLobbyPage", "GeneralPage",
+                               "SettingsPage", "HomePage"}) {
+        QQuickWindow window;
+        window.resize(width, 650);
+        window.setColor(Qt::white);
+        QQmlComponent component(&engine);
+        const auto body =
+            QByteArray(name) == "HomePage"
+                ? QByteArray(
+                      " { instances: []; selectedIndex: -1; launchStatus: "
+                      "({state:'failed',title:'游戏启动失败',detail:'请检查日志或切换版本'}) }")
+            : QByteArray(name) == "SettingsPage" ? QByteArray(" { theme: 'classic' }")
+                                                 : QByteArray(" {}");
+        component.setData(QByteArray("import QtQuick; import Bugg.Pages; ") + name + body,
+                          QUrl("file:///network-reference-fixture.qml"));
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        object->setProperty("status", status);
+        object->setProperty("selectedId", "sample-friend");
+        object->setProperty("detailMode", true);
+        object->setProperty("viewportHeight", 650);
+        if (QByteArray(name) == "RoomLobbyPage") {
+          object->setProperty(
+              "status",
+              QVariantMap{
+                  {"state", "ready"},
+                  {"room",
+                   QVariantMap{
+                       {"id", "visual-fixture"},
+                       {"role", "host"},
+                       {"availability", "ready"},
+                       {"nodeName", "界面验收节点"},
+                       {"nodeLatencyMs", 32},
+                       {"lobby", QVariantMap{{"manager_id", "host"}, {"provider_id", "host"}}},
+                       {"members", QVariantList{QVariantMap{{"id", "host"},
+                                                            {"name", "房主 · 界面验收"},
+                                                            {"state", "playing"},
+                                                            {"path", "local"}},
+                                                QVariantMap{{"id", "peer"},
+                                                            {"name", "正在准备的成员"},
+                                                            {"state", "downloading"},
+                                                            {"path", "relay"},
+                                                            {"done", 44},
+                                                            {"total", 100}},
+                                                QVariantMap{{"id", "ready-peer"},
+                                                            {"name", "已进入游戏的成员"},
+                                                            {"state", "playing"},
+                                                            {"path", "p2p"}}}}}}});
+          object->setProperty("activeView", "members");
+        }
+        auto* page = qobject_cast<QQuickItem*>(object.data());
+        page->setParentItem(window.contentItem());
+        page->setWidth(width);
+        page->setHeight(650);
+        window.show();
+        QTest::qWait(200);
+        QVERIFY(
+            window.grabWindow().save(shots + '/' + name + '-' + QString::number(width) + ".png"));
+        if (QByteArray(name) == "HomePage") {
+          QSignalSpy opened(object.data(), SIGNAL(openRequested(QString)));
+          auto* choose = visual_item(window.contentItem(), "failedLaunchSelectGame");
+          QVERIFY(choose && choose->isEnabled());
+          QVERIFY(QMetaObject::invokeMethod(choose, "clicked"));
+          QCOMPARE(opened.size(), 1);
+          QCOMPARE(opened.first().first().toString(), QString("selectInstance"));
+        }
+        if (QByteArray(name) == "FriendsPage") {
+          object->setProperty("selectedId", "bugg-self");
+          QTest::qWait(100);
+          QVERIFY(
+              window.grabWindow().save(shots + "/Friends-self-" + QString::number(width) + ".png"));
+          object->setProperty("detailMode", false);
+          QTest::qWait(100);
+          QVERIFY(
+              window.grabWindow().save(shots + "/Friends-list-" + QString::number(width) + ".png"));
+        }
+      }
+    }
+  }
+  void shader_feedback_receipt_rechecks_bytes_and_loader() {
+    QTemporaryDir root;
+    const auto directory = root.path() + "/versions/feedback";
+    const QByteArray core("verified-core"), dependency("verified-dependency");
+    put(directory + "/mods/core.jar", core);
+    put(directory + "/mods/dependency.jar", dependency);
+    const auto core_hash =
+        QString::fromLatin1(QCryptographicHash::hash(core, QCryptographicHash::Sha256).toHex());
+    const auto dependency_hash = QString::fromLatin1(
+        QCryptographicHash::hash(dependency, QCryptographicHash::Sha256).toHex());
+    QJsonObject metadata{
+        {"id", "feedback"},
+        {"bugg",
+         QJsonObject{{"version", "1.21.1"}, {"loader", "neoforge"}, {"loaderVersion", "21.1.200"}}},
+        {"buggShaderFeedback",
+         QJsonObject{
+             {"target", QJsonObject{{"game_version", "1.21.1"},
+                                    {"loader", "neoforge"},
+                                    {"loader_version", "21.1.200"},
+                                    {"core_sha256", core_hash},
+                                    {"dependencies", QJsonArray{dependency_hash}}}},
+             {"files", QJsonArray{QJsonObject{{"path", "mods/core.jar"}, {"sha256", core_hash}},
+                                  QJsonObject{{"path", "mods/dependency.jar"},
+                                              {"sha256", dependency_hash}}}}}}};
+    write_json(directory + "/feedback.json", metadata);
+    GameOperations operation(root.path(), root.path(), {"官方"},
+                             std::make_shared<std::atomic_bool>(false),
+                             [](double, const QString&) {});
+    QVERIFY(!operation.shader_feedback_context("feedback").isEmpty());
+    const auto sha1_target =
+        operation.shader_feedback_context("feedback").value("sha1_target").toMap();
+    QCOMPARE(sha1_target.value("core_sha1").toString(),
+             QString::fromLatin1(QCryptographicHash::hash(core, QCryptographicHash::Sha1).toHex()));
+    QCOMPARE(sha1_target.value("dependencies").toStringList().size(), 1);
+    put(directory + "/mods/core.jar", "changed");
+    QVERIFY(operation.shader_feedback_context("feedback").isEmpty());
+    put(directory + "/mods/core.jar", core);
+    auto own = metadata["bugg"].toObject();
+    own["loaderVersion"] = "21.1.201";
+    metadata["bugg"] = own;
+    write_json(directory + "/feedback.json", metadata);
+    QVERIFY(operation.shader_feedback_context("feedback").isEmpty());
+  }
   void shader_core_choices_keep_exact_publisher_and_release() {
     ContentServer server;
     server.kind = "shader";
@@ -2280,6 +3395,11 @@ class ContentTest : public QObject {
     auto second = server.version(true, "two", "iris");
     first["name"] = "one";
     second["name"] = "two";
+    auto second_files = second["files"].toArray();
+    auto second_file = second_files.first().toObject();
+    second_file["hashes"] = QJsonObject{{"sha1", QString(40, 'b')}};
+    second_files[0] = second_file;
+    second["files"] = second_files;
     server.responses["/mr/project/iris/version"] = QJsonArray{first, second};
     auto cf = server.version(false);
     cf["gameVersions"] = QJsonArray{server.game_version, "Fabric"};
@@ -2297,7 +3417,9 @@ class ContentTest : public QObject {
     QVERIFY2(!result.contains("error"), qPrintable(result.value("error").toString()));
     const auto support = result.value("shaderSupport").toMap();
     const auto choices = support.value("choices").toList();
-    QCOMPARE(choices.size(), 3);
+    QCOMPARE(choices.size(), 2);
+    QCOMPARE(choices[0].toMap().value("sources").toStringList(),
+             (QStringList{"Modrinth", "CurseForge"}));
     QCOMPARE(choices[0].toMap().value("status").toString(), "dependency_unknown");
     query["shaderRuntimeChoice"] = "Modrinth/iris/two";
     service.query(2, query);
@@ -2306,8 +3428,107 @@ class ContentTest : public QObject {
     QVERIFY2(!result.contains("error"), qPrintable(result.value("error").toString()));
     QCOMPARE(result.value("shaderSupport").toMap().value("choice").toString(), "Modrinth/iris/two");
     QCOMPARE(result.value("files").toList().last().toMap().value("versionId").toString(), "two");
+    const auto before_refresh = server.requests.size();
+    service.query(3, query);
+    QTRY_COMPARE(finished.size(), 3);
+    QCOMPARE(server.requests.size(), before_refresh);
+    emit service.feedback_changed();
+    service.query(4, query);
+    QTRY_COMPARE(finished.size(), 4);
+    QVERIFY(server.requests.size() > before_refresh);
     service.shutdown();
     QTRY_VERIFY(!service.busy());
+  }
+  void shader_feedback_and_merged_sources_layout() {
+    ContentProbe probe;
+    ContentCatalogSession session;
+    session.set_service(&probe);
+    const QVariantMap target{{"id", "fixture"},
+                             {"name", "Minecraft 1.21.1"},
+                             {"version", "1.21.1"},
+                             {"loader", "neoforge"},
+                             {"loaderVersion", "21.1.200"}};
+    session.browse("shader", {}, target);
+    probe.answer(probe.queries.lastKey(),
+                 {{"items", QVariantList{QVariantMap{{"id", "pack"}, {"title", "光影资源"}}}}});
+    session.open_project("pack");
+    probe.answer(probe.queries.lastKey(),
+                 {{"project", QVariantMap{{"id", "pack"},
+                                          {"title", "光影资源"},
+                                          {"description", "请选择适合当前游戏的光影与核心。"}}},
+                  {"versions", QVariantList{QVariantMap{{"id", "v1"},
+                                                        {"name", "光影包 1.0"},
+                                                        {"gameVersions", QStringList{"1.21.1"}},
+                                                        {"loaders", QStringList{"iris"}}}}}});
+    const QVariantMap support{
+        {"name", "Iris"},
+        {"version", "1.8.14"},
+        {"choice", "same-file"},
+        {"choices", QVariantList{QVariantMap{
+                        {"id", "same-file"},
+                        {"name", "Iris · 1.8.14"},
+                        {"publisher", "Modrinth / CurseForge"},
+                        {"feedback", QVariantMap{{"counts", QVariantMap{{"working", 126},
+                                                                        {"startup_failed", 2},
+                                                                        {"shader_failed", 1}}}}},
+                        {"status", "declared"}}}},
+        {"environmentFeedback",
+         QVariantMap{{"counts",
+                      QVariantMap{{"working", 130}, {"startup_failed", 3}, {"shader_failed", 2}}}}},
+        {"feedback", QVariantMap{{"counts", QVariantMap{{"working", 126},
+                                                        {"startup_failed", 2},
+                                                        {"shader_failed", 1}}}}}};
+    const QVariantMap plan{
+        {"kind", "shader"},
+        {"shaderSupport", support},
+        {"files", QVariantList{QVariantMap{{"kind", "shader"}, {"title", "光影包"}}}}};
+    probe.answer(probe.queries.lastKey(), plan);
+    const auto before_feedback = probe.queries.lastKey();
+    emit probe.feedback_changed();
+    QVERIFY(probe.queries.lastKey() > before_feedback);
+    QCOMPARE(probe.queries.last().value("shaderRuntimeChoice").toString(), "same-file");
+    QCOMPARE(probe.queries.last().value("loaderVersion").toString(), "21.1.200");
+    probe.answer(probe.queries.lastKey(), plan);
+    QQmlEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    engine.rootContext()->setContextProperty("feedbackSession", &session);
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/shader-feedback";
+    QDir().mkpath(shots);
+    for (const bool panel : {true, false}) {
+      auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+      tokens->setProperty("comfortable", !panel);
+      tokens->setProperty("sizeClass", panel ? "panel" : "classic");
+      QQuickWindow window;
+      window.resize(panel ? 410 : 960, 700);
+      window.setColor(Qt::white);
+      QQmlComponent component(&engine);
+      component.setData(
+          "import QtQuick; import Bugg.Pages; ContentDetailsPage { session: feedbackSession; "
+          "targetId: 'fixture'; selectedTab: 1; viewportHeight: height; inspection: "
+          "({instance:'fixture', requestedPlan:feedbackSession.status.plan, conflicts:[]}) }",
+          QUrl("file:///feedback-details-fixture.qml"));
+      QScopedPointer<QObject> page(component.create());
+      QVERIFY2(page, qPrintable(component.errorString()));
+      page->setProperty("instances", QVariantList{target});
+      auto* item = qobject_cast<QQuickItem*>(page.data());
+      item->setParentItem(window.contentItem());
+      item->setWidth(window.width());
+      item->setHeight(window.height());
+      window.show();
+      QTest::qWait(200);
+      QVERIFY(visual_item(window.contentItem(), "shaderCommunityFeedback"));
+      QVERIFY(visual_item(window.contentItem(), "shaderEnvironmentFeedback"));
+      QVERIFY(window.grabWindow().save(shots + (panel ? "/core-panel.png" : "/core-classic.png")));
+      auto* selector = visual_item(window.contentItem(), "shaderCoreSelector");
+      QVERIFY(selector);
+      const auto position =
+          selector->mapToScene(QPointF(selector->width() / 2, selector->height() - 16));
+      QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, position.toPoint());
+      QTest::qWait(120);
+      QVERIFY(window.grabWindow().save(shots +
+                                       (panel ? "/sources-panel.png" : "/sources-classic.png")));
+      QTest::keyClick(&window, Qt::Key_Escape);
+    }
   }
   void shader_manual_review_requires_exact_target_and_file_lock() {
     ContentServer server;
@@ -2482,8 +3703,9 @@ class ContentTest : public QObject {
     query["loaderVersion"] = "26.3.0.101";
     service.query(2, query);
     QTRY_COMPARE(finished.size(), 2);
-    QVERIFY(finished.last()[1].toMap().value("error").toString().contains("Pinned Sodium"));
-    QVERIFY(!finished.last()[1].toMap().contains("files"));
+    QVERIFY2(!finished.last()[1].toMap().contains("error"),
+             qPrintable(finished.last()[1].toMap().value("error").toString()));
+    QVERIFY(finished.last()[1].toMap().contains("files"));
     query["gameVersion"] = "1.21.11";
     service.query(3, query);
     QTRY_COMPARE(finished.size(), 3);
@@ -2546,7 +3768,8 @@ class ContentTest : public QObject {
     query["loaderVersion"] = "26.3.0.76";
     service.query(2, query);
     QTRY_COMPARE(finished.size(), 2);
-    QVERIFY(finished.last()[1].toMap().value("error").toString().contains("pinned Sodium"));
+    QVERIFY2(!finished.last()[1].toMap().contains("error"),
+             qPrintable(finished.last()[1].toMap().value("error").toString()));
     query["loaderVersion"] = "26.3.0.64";
     query["nonce"] = 1;
     auto wrong = core;
@@ -2607,6 +3830,222 @@ class ContentTest : public QObject {
     QVERIFY(finished.last()[1].toMap().value("error").toString().contains("Iris"));
     service.shutdown();
     QTRY_VERIFY(!service.busy());
+  }
+  void optifine_choices_use_source_then_upstream_and_exact_forge_build() {
+    ContentServer server;
+    server.kind = "shader";
+    server.no_shader_core = true;
+    auto shader = server.version(true);
+    shader["loaders"] = QJsonArray{"optifine"};
+    server.responses["/mr/version/v1"] = shader;
+    const QJsonObject first{{"mcversion", "1.21.1"},
+                            {"type", "HD_U"},
+                            {"patch", "J1"},
+                            {"forge", "Forge 52.0.16"},
+                            {"downloadPath", "/mods/optifine/1.21.1/HD_U/J1"},
+                            {"cachePolicy", "cache"}};
+    auto second = first;
+    second["patch"] = "J2";
+    second["downloadPath"] = "/mods/optifine/1.21.1/HD_U/J2";
+    auto unsupported = first;
+    unsupported["patch"] = "J3";
+    unsupported["forge"] = "N/A";
+    auto blocked = first;
+    blocked["patch"] = "J4";
+    blocked["blocked"] = true;
+    const QJsonArray rows{first, second, unsupported, blocked};
+    server.responses["/cf/versions"] = QJsonObject{{"schema", "bugg-optifine-catalog-v1"},
+                                                   {"data", rows},
+                                                   {"total", rows.size()},
+                                                   {"has_more", false}};
+    server.responses["/optifine/1.21.1"] = rows;
+    auto endpoints = server.endpoints();
+    endpoints.bmclapi = endpoints.bugg_base;
+    ContentCatalogService service(nullptr, endpoints);
+    service.select_sources({"BUGG", "官方"}, endpoints.bugg_base);
+    QSignalSpy finished(&service, &ContentCatalogPort::finished);
+    QVariantMap query{{"operation", "plan"}, {"publisher", "Modrinth"},
+                      {"kind", "shader"},    {"projectId", "root"},
+                      {"versionId", "v1"},   {"gameVersion", "1.21.1"},
+                      {"loader", "forge"},   {"loaderVersion", "1.21.1-52.0.16"}};
+    service.query(1, query);
+    QTRY_COMPARE(finished.size(), 1);
+    auto result = finished.last()[1].toMap();
+    QVERIFY2(!result.contains("error"), qPrintable(result.value("error").toString()));
+    QCOMPARE(result.value("shaderSupport").toMap().value("choices").toList().size(), 2);
+    QCOMPARE(result.value("files").toList().size(), 1);  // Metadata queries do not download a core.
+    QCOMPARE(result.value("shaderSupport")
+                 .toMap()
+                 .value("optifine")
+                 .toMap()
+                 .value("cachePolicy")
+                 .toString(),
+             "cache");
+    QVERIFY(result.value("shaderSupport")
+                .toMap()
+                .value("optifine")
+                .toMap()
+                .value("url")
+                .toString()
+                .contains("/mods/optifine/"));
+    bool source = false, upstream = false;
+    for (const auto& url : server.requests) {
+      source |= url.path() == "/v1/catalog/optifine/versions";
+      upstream |= url.path() == "/optifine/1.21.1";
+    }
+    QVERIFY(source);
+    QVERIFY(!upstream);
+    server.responses["/cf/versions"] =
+        QJsonObject{{"data", rows}, {"total", rows.size()}, {"has_more", false}};
+    query["shaderRuntimeChoice"] = "BMCLAPI/optifine/1.21.1_HD_U_J2";
+    service.query(2, query);
+    QTRY_COMPARE(finished.size(), 2);
+    QCOMPARE(
+        finished.last()[1].toMap().value("shaderSupport").toMap().value("versionId").toString(),
+        "1.21.1_HD_U_J2");
+    server.responses["/cf/versions"] = QJsonObject{{"schema", "bugg-optifine-catalog-v1"},
+                                                   {"data", QJsonArray{}},
+                                                   {"total", 0},
+                                                   {"has_more", false}};
+    query["nonce"] = 3;
+    service.query(3, query);
+    QTRY_COMPARE(finished.size(), 3);
+    QVERIFY(!finished.last()[1].toMap().contains("error"));
+    QVERIFY(std::any_of(server.requests.begin(), server.requests.end(),
+                        [](const QUrl& url) { return url.path() == "/optifine/1.21.1"; }));
+    query["loaderVersion"] = "52.0.99";
+    service.query(4, query);
+    QTRY_COMPARE(finished.size(), 4);
+    QVERIFY(finished.last()[1].toMap().contains("error"));
+    if (qEnvironmentVariableIsSet("BUGG_TEST_OPTIFINE_CAPTURE")) {
+      ContentCatalogSession session;
+      session.set_service(&service);
+      session.edit("publisher", "Modrinth");
+      const QVariantMap target{{"id", "fixture"},
+                               {"name", "Minecraft 1.21.1 · Forge"},
+                               {"version", "1.21.1"},
+                               {"loader", "forge"},
+                               {"loaderVersion", "52.0.16"}};
+      session.browse("shader", "", target);
+      QTRY_VERIFY(!session.status().value("loading").toBool());
+      session.open_project("root");
+      QTRY_VERIFY(!session.status().value("detailLoading").toBool() &&
+                  !session.status().value("planning").toBool());
+      QCOMPARE(session.status()
+                   .value("plan")
+                   .toMap()
+                   .value("shaderSupport")
+                   .toMap()
+                   .value("id")
+                   .toString(),
+               "optifine");
+      QQmlEngine engine;
+      engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+      engine.rootContext()->setContextProperty("contentSession", &session);
+      engine.rootContext()->setContextProperty("fixtureInstances", QVariantList{target});
+      const auto shots = QCoreApplication::applicationDirPath() + "/verification/optifine";
+      QDir().mkpath(shots);
+      for (const bool panel : {false, true}) {
+        auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+        QVERIFY(tokens);
+        tokens->setProperty("comfortable", !panel);
+        tokens->setProperty("sizeClass", panel ? "panel" : "classic");
+        QQuickWindow window;
+        window.setColor(Qt::white);
+        window.resize(panel ? 410 : 960, panel ? 720 : 720);
+        QQmlComponent component(&engine);
+        component.setData(
+            "import QtQuick; import Bugg.Pages; ContentDetailsPage { session: contentSession; "
+            "instances: fixtureInstances; targetId: 'fixture'; viewportHeight: height; "
+            "selectedTab: 1; inspection: "
+            "({instance:'fixture',requestedPlan:contentSession.status.plan,conflicts:[]}) }",
+            QUrl("file:///OptiFineCapture.qml"));
+        QScopedPointer<QObject> page(component.create());
+        QVERIFY2(page, qPrintable(component.errorString()));
+        auto* item = qobject_cast<QQuickItem*>(page.data());
+        item->setParentItem(window.contentItem());
+        item->setWidth(window.width());
+        item->setHeight(window.height());
+        window.show();
+        QTest::qWait(200);
+        QVERIFY(visual_item(window.contentItem(), "optifineDownloadNotice"));
+        QVERIFY(window.grabWindow().save(shots + (panel ? "/panel-410.png" : "/classic-960.png")));
+      }
+    }
+    service.shutdown();
+    QTRY_VERIFY(!service.busy());
+  }
+  void optifine_install_uses_one_direct_download_and_reuses_verified_core() {
+    QTemporaryDir root;
+    ContentFilesServer server;
+    server.initial_delay_ms = server.chunk_delay_ms = 1;
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    const auto archive = root.filePath("core.jar");
+    const auto actual = qEnvironmentVariable("BUGG_TEST_OPTIFINE_JAR");
+    if (actual.isEmpty())
+      archive_write(archive, {},
+                    {{"optifine/OptiFineClassTransformer.class", "fixture"},
+                     {"META-INF/mods.toml",
+                      "modLoader=\"javafml\"\nloaderVersion=\"[52,)\"\nlicense=\"test\"\n[[mods]]"
+                      "\nmodId=\"optifine\"\nversion=\"1.0.0\"\n"}},
+                    cancelled, {});
+    QFile core(actual.isEmpty() ? archive : actual);
+    QVERIFY(core.open(QIODevice::ReadOnly));
+    server.files["J1"] = core.readAll();
+    const auto directory = root.filePath("versions/fixture");
+    write_json(
+        directory + "/fixture.json",
+        {{"id", "fixture"},
+         {"bugg",
+          QJsonObject{{"version", "1.21.1"}, {"loader", "Forge"}, {"loaderVersion", "52.0.16"}}}});
+    auto plan = content_plan("shader", server.payload);
+    plan["query"] =
+        QVariantMap{{"gameVersion", "1.21.1"}, {"loader", "forge"}, {"loaderVersion", "52.0.16"}};
+    const QVariantMap evidence{{"releaseId", "1.21.1_HD_U_J1"},
+                               {"mcversion", "1.21.1"},
+                               {"type", "HD_U"},
+                               {"patch", "J1"},
+                               {"forge", "52.0.16"},
+                               {"url", "https://bmclapi2.bangbang93.com/optifine/1.21.1/HD_U/J1"}};
+    plan["shaderSupport"] = QVariantMap{
+        {"id", "optifine"},
+        {"loader", "forge"},
+        {"name", "OptiFine"},
+        {"optifine", evidence},
+        {"runtimes", QVariantList{QVariantMap{
+                         {"markers", QStringList{"optifine/OptiFineClassTransformer.class"}}}}}};
+    auto work = QtConcurrent::run([=, port = server.serverPort(), path = root.path()] {
+      try {
+        ContentFilesHttp http(port);
+        GameOperations operation(
+            path, path, {QString::fromUtf8("官方")}, cancelled, [](double, const QString&) {}, 2,
+            &http);
+        operation.install_content({{"id", "fixture"}, {"plan", plan}});
+        const ContentRequest request = [&](const QVariantMap& query, const Cancellation&) {
+          if (query.value("shaderRuntimeOptiFine").toMap() != evidence)
+            throw std::runtime_error("installed_optifine_receipt_missing");
+          auto reused = plan;
+          auto support = plan.value("shaderSupport").toMap();
+          support["installed"] = true;
+          reused["shaderSupport"] = support;
+          return reused;
+        };
+        operation.install_content({{"id", "fixture"}, {"plan", plan}}, request);
+        return QString{};
+      } catch (const std::exception& error) {
+        return QString::fromUtf8(error.what());
+      }
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(work.isFinished(), 30000);
+    QVERIFY2(work.result().isEmpty(), qPrintable(work.result()));
+    const auto records = read_json(directory + "/fixture.json")["buggcraftModpack"]
+                             .toObject()["resources"]
+                             .toArray();
+    QCOMPARE(records.size(), 2);
+    QCOMPARE(server.paths.filter("/optifine/").size(), 1);
+    QCOMPARE(server.paths.filter("sample.jar").size(), 1);
+    QVERIFY(QFileInfo::exists(directory + "/mods/OptiFine_1.21.1_HD_U_J1.jar"));
+    QVERIFY(!QFileInfo::exists(directory + "/optionsshaders.txt"));
   }
   void mod_preflight_rebinds_legacy_plan_to_actual_loader_build() {
     QTemporaryDir root;
@@ -2688,6 +4127,12 @@ class ContentTest : public QObject {
       ContentFilesServer server;
       if (QString(mode) == "failure") server.failing = "dependency-2.jar";
       QTemporaryDir root;
+      const auto fixture = root.filePath("download-fixture.jar");
+      archive_write(fixture, {}, {{"payload.bin", server.payload}},
+                    std::make_shared<std::atomic_bool>(false), {});
+      QFile payload_file(fixture);
+      QVERIFY(payload_file.open(QIODevice::ReadOnly));
+      server.payload = payload_file.readAll();
       const auto directory = root.path() + "/versions/fixture";
       write_json(
           directory + "/fixture.json",
@@ -2726,16 +4171,21 @@ class ContentTest : public QObject {
       const auto records = read_json(directory + "/fixture.json")["buggcraftModpack"]
                                .toObject()["resources"]
                                .toArray();
-      if (QString(mode) == "cancel") {
+      if (QString(mode) == "cancel" || QString(mode) == "failure") {
         QVERIFY(result.contains("error"));
-        QCOMPARE(records.size(), 1);
+        // Required downloads are one transaction: preserve the existing instance
+        // and do not commit a partly installed dependency set.
+        QCOMPARE(records.size(), 0);
+        QVERIFY(QFileInfo::exists(directory + "/mods/sample.jar"));
+        QVERIFY(!QFileInfo::exists(directory + "/mods/dependency-2.jar"));
       } else {
         QVERIFY2(!result.contains("error"), qPrintable(result.value("error").toString()));
         QVERIFY(result.value("speedSeen").toBool());
-        QCOMPARE(result.value("missingDependencies").toList().size(),
-                 QString(mode) == "failure" ? 1 : 0);
-        QCOMPARE(records.size(), QString(mode) == "failure" ? 6 : 7);
-        QCOMPARE(server.requests, 6);
+        QCOMPARE(result.value("missingDependencies").toList().size(), 0);
+        QCOMPARE(records.size(), 7);
+        QCOMPARE(std::count_if(server.paths.begin(), server.paths.end(),
+                               [](const QString& path) { return path.endsWith(".jar"); }),
+                 6);
       }
     }
   }
@@ -3151,12 +4601,19 @@ class ContentTest : public QObject {
     query["projectId"] = result.value("items").toList().first().toMap().value("id");
     for (const auto& pair : QList<QPair<QString, QString>>{{"1.20.1", "fabric"},
                                                            {"1.21.1", "neoforge"},
-                                                           {"26.3", "neoforge"},
                                                            {"1.20.1", "forge"},
                                                            {"1.20.1", "quilt"}}) {
+      const auto targets = qEnvironmentVariable("BUGG_TEST_SHADER_TARGETS").split(',');
+      if (!targets.first().isEmpty() && !targets.contains(pair.first + '/' + pair.second)) continue;
+      const auto loader_version = pair.second == "fabric"  ? QString("0.16.14")
+                                  : pair.second == "forge" ? QString("47.4.0")
+                                  : pair.second == "quilt" ? QString("0.30.2")
+                                  : pair.first == "1.21.1" ? QString("21.1.234")
+                                                           : QString("26.3.0.101");
       query["operation"] = "detail";
       query["gameVersion"] = pair.first;
       query["loader"] = pair.second;
+      query["loaderVersion"] = loader_version;
       service.query(++serial, query);
       QTRY_COMPARE_WITH_TIMEOUT(finished.size(), int(serial), 90000);
       result = finished.last()[1].toMap();
@@ -3173,32 +4630,44 @@ class ContentTest : public QObject {
       QVERIFY(plan.value("files").toList().size() >= 3);
       const auto instance = pair.first + '-' + pair.second;
       const auto directory = root.path() + "/versions/" + instance;
-      write_json(
-          directory + '/' + instance + ".json",
-          {{"id", instance},
-           {"bugg", QJsonObject{{"version", pair.first},
-                                {"loader", pair.second == "fabric" ? "vanilla" : pair.second}}}});
+      write_json(directory + '/' + instance + ".json",
+                 {{"id", instance},
+                  {"javaVersion", QJsonObject{{"majorVersion", pair.first == "1.20.1" ? 17 : 21}}},
+                  {"bugg", QJsonObject{{"version", pair.first},
+                                       {"loaderVersion", loader_version},
+                                       {"loader", pair.second == "fabric" || pair.second == "quilt"
+                                                      ? "vanilla"
+                                                      : pair.second}}}});
       put(directory + "/saves/Existing world/level.dat", "unchanged world");
       put(directory + "/options.txt", "unchanged preferences");
       put(directory + '/' + instance + ".jar", "existing client is not replaced");
       const auto request = service.requester();
-      auto future = QtConcurrent::run([=, path = root.path()] {
-        GameOperations operation(path, path, supported_download_sources(), cancelled,
-                                 [](double, const QString&) {});
-        if (pair.second == "fabric")
-          operation.install_with_content({{"id", instance},
-                                          {"name", instance},
-                                          {"game", pair.first},
-                                          {"loader", "fabric"},
-                                          {"loaderVersion", "0.16.14"},
-                                          {"plan", plan}},
-                                         request);
-        else
-          operation.install_content({{"id", instance}, {"plan", plan}}, request);
-        return operation.check_content_install(instance, plan);
+      auto future = QtConcurrent::run([=, path = root.path()]() -> QVariantMap {
+        try {
+          GameOperations operation(path, path, supported_download_sources(), cancelled,
+                                   [](double, const QString&) {});
+          if (pair.second == "fabric" || pair.second == "quilt")
+            operation.install_with_content({{"id", instance},
+                                            {"name", instance},
+                                            {"game", pair.first},
+                                            {"loader", pair.second},
+                                            {"loaderVersion", loader_version},
+                                            {"plan", plan}},
+                                           request);
+          else
+            operation.install_content({{"id", instance}, {"plan", plan}}, request);
+          return operation.check_content_install(instance, plan);
+        } catch (const DependencyDecision& decision) {
+          return {{"testError", decision.value().value("summary").toString()},
+                  {"dependencyDecision", decision.value()}};
+        } catch (const std::exception& error) {
+          return {{"testError", QString::fromUtf8(error.what())}};
+        }
       });
       QTRY_VERIFY_WITH_TIMEOUT(future.isFinished(), 240000);
       const auto inspected = future.result();
+      QVERIFY2(!inspected.contains("testError"),
+               qPrintable(inspected.value("testError").toString()));
       QVERIFY(!inspected.value("installed").toList().isEmpty());
       for (const auto& entry : QList<QPair<QString, QByteArray>>{
                {"saves/Existing world/level.dat", "unchanged world"},
@@ -3233,19 +4702,28 @@ class ContentTest : public QObject {
       QVERIFY(!core_path.isEmpty());
       const auto renamed = directory + "/mods/renamed-shader-core.jar";
       QVERIFY(QFile::rename(core_path, renamed));
-      auto reuse = QtConcurrent::run([=, path = root.path()] {
-        GameOperations operation(path, path, supported_download_sources(), cancelled,
-                                 [](double, const QString&) {});
-        const auto effective = operation.prepare_content_install(instance, plan, request);
-        operation.install_content({{"id", instance}, {"plan", effective}}, request);
-        return effective.value("shaderSupport").toMap();
+      auto reuse = QtConcurrent::run([=, path = root.path()]() -> QVariantMap {
+        try {
+          GameOperations operation(path, path, supported_download_sources(), cancelled,
+                                   [](double, const QString&) {});
+          const auto effective = operation.prepare_content_install(instance, plan, request);
+          operation.install_content({{"id", instance}, {"plan", effective}}, request);
+          return effective.value("shaderSupport").toMap();
+        } catch (const DependencyDecision& decision) {
+          return {{"testError", decision.value().value("summary").toString()}};
+        } catch (const std::exception& error) {
+          return {{"testError", QString::fromUtf8(error.what())}};
+        }
       });
       QTRY_VERIFY_WITH_TIMEOUT(reuse.isFinished(), 180000);
+      QVERIFY2(!reuse.result().contains("testError"),
+               qPrintable(reuse.result().value("testError").toString()));
       QVERIFY(reuse.result().value("installed").toBool());
       QVERIFY(QFileInfo::exists(renamed));
       QVERIFY(!QFileInfo::exists(core_path));
       evidence.append(QJsonObject{{"game", pair.first},
                                   {"loader", pair.second},
+                                  {"loaderVersion", loader_version},
                                   {"support", QJsonObject::fromVariantMap(support)},
                                   {"installedFiles", installed},
                                   {"renamedCoreReused", true}});
@@ -3257,6 +4735,9 @@ class ContentTest : public QObject {
       }
       put(QCoreApplication::applicationDirPath() + "/verification/shader-support/native-live.json",
           QJsonDocument(evidence).toJson());
+      put(QCoreApplication::applicationDirPath() + "/verification/shader-support/native-live-" +
+              instance + ".json",
+          QJsonDocument(evidence.last().toObject()).toJson());
     }
     query["gameVersion"] = "1.21.1";
     query["loader"] = "forge";
@@ -3465,6 +4946,13 @@ class ContentTest : public QObject {
     const auto kind = qEnvironmentVariable("BUGG_TEST_CONTENT_KIND", "mod");
     const bool shader_review = qEnvironmentVariableIsSet("BUGG_TEST_SHADER_CHOICES_CAPTURE");
     server.kind = kind;
+    if (shader_review) {
+      auto first = server.version(true, "one", "iris");
+      auto second = server.version(true, "two", "iris");
+      first["name"] = "1.8.8+1.21.1-fabric";
+      second["name"] = "1.8.7+1.21.1-fabric";
+      server.responses["/mr/project/iris/version"] = QJsonArray{first, second};
+    }
     const QMap<QString, QString> searches{{"mod", "Sodium"},
                                           {"resourcepack", "Round Trees"},
                                           {"shader", "MakeUp"},
@@ -3686,6 +5174,12 @@ class ContentTest : public QObject {
       if (kind == "shader") {
         auto* install = visual_item(window->contentItem(), "installContentButton");
         QVERIFY(install && install->isVisible());
+        auto* install_view = visual_item(window->contentItem(), "contentInstallViewport");
+        QVERIFY(install_view);
+        install_view->setProperty(
+            "contentY",
+            qMax(0.0, install_view->property("contentHeight").toDouble() - install_view->height()));
+        QTest::qWait(100);
         QVERIFY2(install->mapToScene(QPointF(0, install->height())).y() <= window->height() - 8,
                  qPrintable(QString("%1 button bottom=%2 window=%3")
                                 .arg(theme)
@@ -3693,9 +5187,16 @@ class ContentTest : public QObject {
                                 .arg(window->height())));
         auto support = session->status().value("plan").toMap().value("shaderSupport").toMap();
         QVERIFY(!support.value("name").toString().isEmpty());
+        if (shader_review)
+          detail->setProperty("inspection",
+                              QVariantMap{{"instance", "fixture"},
+                                          {"shaderSupport", support},
+                                          {"requestedPlan", session->status().value("plan")}});
         QVERIFY(capture(shots + "/shader-core-required-" + theme + ".png"));
         if (shader_review) {
-          auto* choices = window->findChild<QObject*>("shaderCoreSelectorPopup");
+          auto* control = visual_item(window->contentItem(), "shaderCoreSelectorControl");
+          QVERIFY(control);
+          auto* choices = control->property("popup").value<QObject*>();
           QVERIFY(choices);
           QVERIFY(QMetaObject::invokeMethod(choices, "open"));
           QVERIFY(capture(shots + "/shader-core-choices-" + theme + ".png"));
@@ -3729,22 +5230,42 @@ class ContentTest : public QObject {
                     !session->status().value("planning").toBool());
         QCOMPARE(session->status().value("compatibility").toString(), "missingLoader");
         QCOMPARE(session->status().value("suggestedLoader").toString(), "fabric");
+        detail->setProperty("selectedTab", 1);
+        QTest::qWait(100);
         QVERIFY(capture(shots + "/shader-core-needs-loader-" + theme + ".png"));
         auto* setup = visual_item(window->contentItem(), "setupContentLoaderButton");
-        QVERIFY(setup && setup->isVisible() && setup->property("enabled").toBool());
-        QVERIFY(QMetaObject::invokeMethod(setup, "clicked"));
-        QTRY_COMPARE(deck->property("route").toString(), "install");
-        QTRY_COMPARE(deck->property("pageTitle").toString(), "补装光影支持");
-        QCOMPARE(deck->property("pageState")
-                     .toMap()
-                     .value("content.setupTarget")
-                     .toMap()
-                     .value("id")
-                     .toString(),
-                 "vanilla");
+        // 补装入口不再要求先点击展开；加载器选择器和版本选择器直接在详情页出现。
+        QVERIFY(!setup);
+        const auto detail_route = deck->property("route").toString();
+        auto* installer = window->findChild<InstallCatalogSession*>("installCatalogSession");
+        QVERIFY(installer);
+        QTRY_VERIFY(installer->status().value("ready").toBool());
+        QCOMPARE(deck->property("route").toString(), detail_route);
+        auto* loader_selector = visual_item(window->contentItem(), "inlineShaderLoaderSelector");
+        QVERIFY(loader_selector && loader_selector->isVisible());
+        QCOMPARE(loader_selector->property("options").toList().size(), 4);
+        QTRY_VERIFY(!session->status().value("planning").toBool());
+        QCOMPARE(session->status().value("target").toMap().value("id").toString(), "vanilla");
+        QTRY_COMPARE_WITH_TIMEOUT(session->status()
+                                      .value("plan")
+                                      .toMap()
+                                      .value("query")
+                                      .toMap()
+                                      .value("loader")
+                                      .toString(),
+                                  "fabric", 15000);
+        auto* inline_install =
+            visual_item(window->contentItem(), "installInlineShaderSupportButton");
+        QVERIFY(inline_install && inline_install->isVisible());
+        QTRY_VERIFY(inline_install->property("enabled").toBool());
+        install_view->setProperty(
+            "contentY",
+            qMax(0.0, install_view->property("contentHeight").toDouble() - install_view->height()));
+        QTest::qWait(100);
         QVERIFY(capture(shots + "/shader-core-inplace-" + theme + ".png"));
         QMetaObject::invokeMethod(deck, "goBack");
         QMetaObject::invokeMethod(deck, "goBack");
+        detail->setProperty("selectedTab", 0);
         continue;
       }
       if (kind != "mod") continue;

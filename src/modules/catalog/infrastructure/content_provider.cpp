@@ -13,7 +13,6 @@
 #include <QTimer>
 #include <QUrlQuery>
 #include <QUuid>
-#include <QVersionNumber>
 #include <algorithm>
 #include <stdexcept>
 
@@ -66,6 +65,37 @@ class ContentProvider {
     if (!classes.contains(kind) || !QStringList{"CurseForge", "Modrinth"}.contains(publisher))
       fail(QCoreApplication::translate("Bugg", "不支持的内容类型或平台"));
     const auto operation = query.value("operation", "search").toString();
+    if (operation == "shaderFeedback" || operation == "shaderFeedbackQuery") {
+      HttpRequest request;
+      request.url = source_url("BUGG",
+                               operation == "shaderFeedback" ? "/api/v1/shader-feedback"
+                                                             : "/api/v1/shader-feedback/query",
+                               endpoints_.bugg_base);
+      request.method = "POST";
+      request.headers["Content-Type"] = "application/json";
+      auto payload =
+          QJsonObject{{"target", QJsonObject::fromVariantMap(query.value("target").toMap())}};
+      if (query.contains("targets")) {
+        payload.remove("target");
+        payload["targets"] = QJsonArray::fromVariantList(query.value("targets").toList());
+        payload["scope"] = "core";
+      }
+      if (operation == "shaderFeedbackQuery" && query.contains("scope"))
+        payload["scope"] = query.value("scope").toString();
+      if (operation == "shaderFeedback") {
+        payload["installation_id"] = query.value("installation_id").toString();
+        payload["outcome"] = query.value("outcome").toString();
+        if (!query.value("sha1_target").toMap().isEmpty())
+          payload["sha1_target"] = QJsonObject::fromVariantMap(query.value("sha1_target").toMap());
+      }
+      request.body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+      request.total_ms = 10000;
+      const auto result = QJsonDocument::fromJson(exchange(request)).object();
+      if (result["schema"] !=
+          (query.contains("targets") ? "bugg-shader-feedback-batch-v1" : "bugg-shader-feedback-v1"))
+        fail("Invalid shader feedback response");
+      return result.toVariantMap();
+    }
     if (operation == "bindings") {
       const auto targets = query.value("targets").toStringList();
       if (!order_.contains("BUGG") || targets.isEmpty() || targets.size() > 32)
@@ -136,7 +166,14 @@ class ContentProvider {
           target["gameVersion"] = version.value("gameVersions").toStringList().value(0);
         if (!loaders.contains(target.value("loader").toString())) target["loader"] = "fabric";
         target["shaderLoaders"] = version.value("loaders");
-        support = shader_support(target, resolving, chosen, plan, missing);
+        if (query.value("deferShaderRuntime").toBool())
+          support = {{"deferred", true},
+                     {"loader", "fabric"},
+                     {"runtimes", shader_manifest()["runtimes"].toArray().toVariantList()}};
+        else if (query.value("autoDependencies", true).toBool())
+          support = shader_support(target, resolving, chosen, plan, missing);
+        else
+          support = {{"automaticDisabled", true}};
       }
       resolve(target, publisher, kind, project_id, version, resolving, chosen, plan, missing);
       const bool verified_core = std::any_of(plan.begin(), plan.end(), [](const QVariant& value) {
@@ -144,6 +181,22 @@ class ContentProvider {
       });
       if ((kind == "shader" || verified_core) && !missing.isEmpty())
         fail(QCoreApplication::translate("Bugg", "光影的必要依赖未能匹配，请重试或更换目标游戏"));
+      if (kind == "mod" && verified_core) {
+        for (const auto& item : shader_manifest()["runtimes"].toArray()) {
+          const auto runtime = item.toObject();
+          if (runtime[publisher == "Modrinth" ? "projectId" : "curseforgeProjectId"].toString() !=
+              project_id)
+            continue;
+          support = {{"name", runtime["name"].toString()},
+                     {"version", version.value("name")},
+                     {"publisher", publisher},
+                     {"projectId", project_id},
+                     {"versionId", version_id}};
+          break;
+        }
+      }
+      if (!support.isEmpty() && !support.value("deferred").toBool())
+        load_shader_feedback(target, plan, support);
       std::stable_partition(plan.begin(), plan.end(), [](const QVariant& item) {
         return !item.toMap().value("dependency").toBool();
       });
@@ -568,9 +621,18 @@ class ContentProvider {
     };
     if (!game.isEmpty())
       params.addQueryItem(mr ? "game_versions" : "gameVersion", mr ? array(game) : game);
-    if ((kind == "mod" || kind == "modpack") && loaders.contains(loader))
-      params.addQueryItem(mr ? "loaders" : "modLoaderType",
-                          mr ? array(loader) : QString::number(loaders.value(loader)));
+    if ((kind == "mod" || kind == "modpack") && loaders.contains(loader)) {
+      const auto formats =
+          kind == "mod" ? content_loader_formats(loader, game) : QStringList{loader};
+      if (formats.size() > 1) {
+        if (mr)
+          params.addQueryItem("loaders",
+                              QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(formats))
+                                                    .toJson(QJsonDocument::Compact)));
+      } else
+        params.addQueryItem(mr ? "loaders" : "modLoaderType",
+                            mr ? array(loader) : QString::number(loaders.value(loader)));
+    }
   }
   QVariantMap normalize_version(const QJsonObject& item, const QString& publisher,
                                 const QString& kind, const QString& project_id) {
@@ -581,8 +643,11 @@ class ContentProvider {
     if (mr) {
       if (item["project_id"].toString() != project_id)
         fail(QCoreApplication::translate("Bugg", "版本不属于所选项目"));
-      for (const auto& value : item["files"].toArray())
+      for (const auto& value : item["files"].toArray()) {
         files.append(value.toObject().toVariantMap());
+        const auto digest = value.toObject()["hashes"].toObject()["sha1"].toString();
+        if (kind == "mod" && !digest.isEmpty()) modrinth_files_[project_id + '/' + digest] = item;
+      }
     } else {
       if (QString::number(item["modId"].toInteger()) != project_id)
         fail(QCoreApplication::translate("Bugg", "文件不属于所选项目"));
@@ -638,26 +703,30 @@ class ContentProvider {
   bool compatible(const QVariantMap& version, const QVariantMap& query, const QString& kind) {
     const auto game = query.value("gameVersion").toString();
     const auto loader = query.value("loader").toString();
+    const auto formats = kind == "mod" ? content_loader_formats(loader, game) : QStringList{loader};
+    const auto declared = version.value("loaders").toStringList();
     return compatibility_error(version, query).isEmpty() &&
            (game.isEmpty() || version.value("gameVersions").toStringList().contains(game)) &&
            (!(kind == "mod" || kind == "modpack") || loader.isEmpty() ||
-            version.value("loaders").toStringList().contains(loader));
+            std::any_of(formats.begin(), formats.end(),
+                        [&](const QString& format) { return declared.contains(format); }));
   }
   // Exceptions have an exact publisher release identity and an upstream source.
   // Never infer compatibility from a filename, a numeric MC range, or "latest".
   QString compatibility_error(const QVariantMap& version, const QVariantMap& query) {
     for (const auto& entry : shader_manifest_["compatibilityRules"].toArray()) {
       const auto rule = entry.toObject();
+      // Compatibility verdicts require explicit tested builds. Ignore legacy
+      // open-ended minimum-build bans from stale catalogue snapshots.
+      if (!rule["loaderVersions"].toArray().contains(query.value("loaderVersion").toString()))
+        continue;
       if (rule["publisher"].toString() != version.value("publisher").toString() ||
           rule["projectId"].toString() != version.value("projectId").toString() ||
           rule["versionId"].toString() != version.value("id").toString() ||
           rule["gameVersion"].toString() != query.value("gameVersion").toString() ||
           rule["loader"].toString() != query.value("loader").toString())
         continue;
-      const auto minimum = QVersionNumber::fromString(rule["minLoaderVersion"].toString());
-      const auto actual = QVersionNumber::fromString(query.value("loaderVersion").toString());
-      if (!minimum.isNull() && !actual.isNull() && QVersionNumber::compare(actual, minimum) >= 0)
-        return rule["reason"].toString();
+      return rule["reason"].toString();
     }
     return {};
   }
@@ -782,6 +851,11 @@ class ContentProvider {
           items.append(version);
       }
       source_dependencies(items, publisher);
+      for (const auto& value : items) {
+        const auto item = value.toMap();
+        release_cache_[publisher + "/" + kind + "/" + project_id + "/" +
+                       item.value("id").toString()] = item;
+      }
       return {{"versions", items},
               {"offset", offset},
               {"total", stored["total"].toInt()},
@@ -803,6 +877,11 @@ class ContentProvider {
         rejected_reason = compatibility_error(version, query);
     }
     if (kind == "mod") source_dependencies(items, publisher);
+    for (const auto& value : items) {
+      const auto item = value.toMap();
+      release_cache_[publisher + "/" + kind + "/" + project_id + "/" +
+                     item.value("id").toString()] = item;
+    }
     const int total =
         mr ? int(values.size()) : data.toObject()["pagination"].toObject()["totalCount"].toInt();
     return {{"versions", items},
@@ -813,6 +892,8 @@ class ContentProvider {
   }
   QVariantMap one_version(const QString& publisher, const QString& kind, const QString& project_id,
                           const QString& id) {
+    const auto key = publisher + "/" + kind + "/" + project_id + "/" + id;
+    if (release_cache_.contains(key)) return release_cache_.value(key);
     if (kind == "mod" && source_releases_available_ && order_.contains("BUGG")) {
       try {
         HttpRequest request;
@@ -875,6 +956,7 @@ class ContentProvider {
     if (!shader_manifest_.isEmpty()) return shader_manifest_;
     HttpRequest request;
     request.url = source_url("BUGG", "/v1/catalog/shader-runtimes", endpoints_.bugg_base);
+    request.total_ms = 2500;
     QJsonObject manifest;
     try {
       manifest = QJsonDocument::fromJson(exchange(request)).object();
@@ -894,12 +976,54 @@ class ContentProvider {
     shader_manifest_ = manifest;
     return manifest;
   }
+  QJsonArray optifine_versions(const QString& game) {
+    QJsonArray rows;
+    if (order_.contains("BUGG")) {
+      try {
+        for (int offset = 0; offset < 10000; offset += 50) {
+          HttpRequest request;
+          request.url = source_url("BUGG", "/v1/catalog/optifine/versions", endpoints_.bugg_base);
+          QUrlQuery parameters;
+          parameters.addQueryItem("game", game);
+          parameters.addQueryItem("loader", "forge");
+          parameters.addQueryItem("offset", QString::number(offset));
+          request.url.setQuery(parameters);
+          request.total_ms = 5000;
+          const auto page = QJsonDocument::fromJson(exchange(request)).object();
+          // Older source deployments already expose the same raw BMCL fields.
+          if ((!page["schema"].isUndefined() && page["schema"] != "bugg-optifine-catalog-v1") ||
+              !page["data"].isArray() || !page["total"].isDouble())
+            break;
+          const auto items = page["data"].toArray();
+          for (const auto& item : items) rows.append(item);
+          if (!page["has_more"].toBool() || items.isEmpty()) {
+            if (!rows.isEmpty()) return rows;
+            break;
+          }
+        }
+      } catch (const std::exception&) {
+        check();
+      }
+    }
+    HttpRequest request;
+    request.url = endpoints_.bmclapi;
+    request.url.setPath(request.url.path() + "/optifine/" + game);
+    request.total_ms = 10000;
+    const auto document = QJsonDocument::fromJson(exchange(request));
+    if (!document.isArray()) fail("Invalid OptiFine catalogue");
+    auto upstream = document.array();
+    // Retain any source quarantine evidence when completing a partial page.
+    for (const auto& row : rows)
+      if (row.toObject()["blocked"].toBool()) upstream.prepend(row);
+    return upstream;
+  }
   QVariantMap shader_support(const QVariantMap& query, QSet<QString>& resolving,
                              QHash<QString, QString>& chosen, QVariantList& plan,
                              QVariantList& missing) {
     const auto runtimes = shader_manifest()["runtimes"].toArray();
     const auto shader_loaders = query.value("shaderLoaders").toStringList();
-    if (!shader_loaders.isEmpty() && !shader_loaders.contains("iris"))
+    if (!shader_loaders.isEmpty() && !shader_loaders.contains("iris") &&
+        !(shader_loaders.contains("optifine") && query.value("loader") == "forge"))
       fail(QCoreApplication::translate(
           "Bugg", "此光影文件未声明支持 Iris，不能自动搭配 Iris/Oculus；请选择支持的光影版本"));
     auto target = query;
@@ -911,7 +1035,8 @@ class ContentProvider {
       fail(QCoreApplication::translate("Bugg", "请先选择目标游戏，再匹配光影核心"));
     const auto installed_hash = query.value("shaderRuntimeHash").toString();
     QVariantMap installed;
-    if (!installed_hash.isEmpty()) {
+    const auto installed_optifine = query.value("shaderRuntimeOptiFine").toMap();
+    if (!installed_hash.isEmpty() && installed_optifine.isEmpty()) {
       static const QRegularExpression hash("\\A[a-f0-9]{40}\\z");
       if (!hash.match(installed_hash).hasMatch()) fail("Invalid shader runtime hash");
       const auto installed_cf_project = query.value("shaderRuntimeCurseForgeProject").toString();
@@ -934,6 +1059,7 @@ class ContentProvider {
     }
     QString rejected_reason;
     QVariantList choices;
+    QHash<QString, int> file_choices;
     QVariantMap selected_support;
     QVariantList selected_plan, selected_missing;
     QHash<QString, QString> selected_chosen;
@@ -943,6 +1069,9 @@ class ContentProvider {
     for (const auto& value : runtimes) {
       const auto candidate = value.toObject().toVariantMap();
       if (!candidate.value("loaders").toStringList().contains(loader)) continue;
+      if (candidate.value("id") == "optifine" || !installed_optifine.isEmpty() ||
+          (!shader_loaders.isEmpty() && !shader_loaders.contains("iris")))
+        continue;
       auto provider = candidate.value("publisher").toString();
       if (provider != "Modrinth") fail("Unsupported shader runtime publisher");
       auto project_id = identifier(candidate.value("projectId"));
@@ -1054,13 +1183,51 @@ class ContentProvider {
             continue;
           }
           const bool dependency_unknown = version.value("dependencies").toList().isEmpty();
-          choices.append(QVariantMap{{"id", choice_id},
-                                     {"name", candidate.value("name").toString() + " · " +
-                                                  version.value("name").toString()},
-                                     {"publisher", provider},
-                                     {"status", review_state == "available" ? "reviewed_available"
-                                                : dependency_unknown        ? "dependency_unknown"
-                                                                            : "declared"}});
+          // Platform release names are not identities. Both publishers expose SHA-1;
+          // require the entire resolved file set, sizes and core identity to match.
+          QStringList fingerprints;
+          QString core_digest;
+          bool complete_hashes = true;
+          for (const auto& item : plan.mid(old_plan.size())) {
+            const auto file = item.toMap();
+            const auto digest = file.value("hashes").toMap().value("sha1").toString().toLower();
+            complete_hashes &= digest.size() == 40 && file.value("size").toLongLong() > 0;
+            fingerprints.append(digest + ":" + file.value("size").toString());
+            if (file.value("publisher") == provider && file.value("projectId") == project_id &&
+                file.value("versionId") == version.value("id"))
+              core_digest = digest;
+          }
+          fingerprints.sort();
+          const auto files_key = complete_hashes && !core_digest.isEmpty()
+                                     ? core_digest + "|" + fingerprints.join('|')
+                                     : choice_id;
+          if (file_choices.contains(files_key)) {
+            const auto index = file_choices.value(files_key);
+            auto choice = choices[index].toMap();
+            auto sources = choice.value("sources").toStringList();
+            if (!sources.contains(provider)) sources.append(provider);
+            choice["sources"] = sources;
+            choice["publisher"] = sources.join(" / ");
+            choices[index] = choice;
+            resolving = old_resolving;
+            chosen = old_chosen;
+            plan = old_plan;
+            missing = old_missing;
+            dependency_count_ = old_dependency_count;
+            continue;
+          }
+          file_choices.insert(files_key, choices.size());
+          choices.append(QVariantMap{
+              {"id", choice_id},
+              {"feedbackTarget", feedback_target(target, plan.mid(old_plan.size()), provider,
+                                                 project_id, version.value("id").toString())},
+              {"name",
+               candidate.value("name").toString() + " · " + version.value("name").toString()},
+              {"publisher", provider},
+              {"sources", QStringList{provider}},
+              {"status", review_state == "available" ? "reviewed_available"
+                         : dependency_unknown        ? "dependency_unknown"
+                                                     : "declared"}});
           if ((requested.isEmpty() && (selected_support.isEmpty() ||
                                        review_state == "available" &&
                                            selected_support.value("reviewState") != "available")) ||
@@ -1070,6 +1237,9 @@ class ContentProvider {
                                 {"version", version.value("name")},
                                 {"loader", loader},
                                 {"choice", choice_id},
+                                {"publisher", provider},
+                                {"projectId", project_id},
+                                {"versionId", version.value("id")},
                                 {"reviewState", review_state},
                                 {"runtimes", runtimes.toVariantList()},
                                 {"installed", !installed.isEmpty()}};
@@ -1087,6 +1257,87 @@ class ContentProvider {
       }
       if (!installed.isEmpty()) break;
     }
+    if (loader == "forge" && installed.isEmpty() &&
+        (shader_loaders.isEmpty() || shader_loaders.contains("optifine"))) {
+      try {
+        const auto game = query.value("gameVersion").toString();
+        auto build = query.value("loaderVersion").toString();
+        if (build.startsWith(game + '-')) build.remove(0, game.size() + 1);
+        static const QRegularExpression token("\\A[A-Za-z0-9_.-]{1,64}\\z");
+        static const QRegularExpression forge_version(
+            "(?:^|[^0-9.])(\\d+(?:\\.\\d+){1,3})(?:$|[^0-9.])");
+        const auto rows = optifine_versions(game);
+        QSet<QString> seen, blocked;
+        for (const auto& row : rows) {
+          const auto item = row.toObject();
+          if (item["blocked"].toBool())
+            blocked.insert(item["type"].toString() + '/' + item["patch"].toString());
+        }
+        for (const auto& row : rows) {
+          const auto item = row.toObject();
+          const auto type = item["type"].toString(), patch = item["patch"].toString();
+          const auto release = game + '_' + type + '_' + patch;
+          const auto declared = forge_version.match(item["forge"].toString()).captured(1);
+          if (item["mcversion"] != game || !token.match(type).hasMatch() ||
+              !token.match(patch).hasMatch() || declared.isEmpty() || build.isEmpty() ||
+              declared != build || blocked.contains(type + '/' + patch) || seen.contains(release))
+            continue;
+          seen.insert(release);
+          const auto choice = "BMCLAPI/optifine/" + release;
+          if (!installed_optifine.isEmpty() && installed_optifine.value("releaseId") != release)
+            continue;
+          auto url = endpoints_.bmclapi;
+          url.setPath(url.path() + "/optifine/" + game + '/' + type + '/' + patch);
+          const auto path = "/mods/optifine/" + game + '/' + type + '/' + patch;
+          if (order_.contains("BUGG") && item["downloadPath"] == path)
+            url = source_url("BUGG", path, endpoints_.bugg_base);
+          const QVariantMap evidence{{"releaseId", release},
+                                     {"mcversion", game},
+                                     {"type", type},
+                                     {"patch", patch},
+                                     {"forge", declared},
+                                     {"url", url.toString()},
+                                     {"cachePolicy", item["cachePolicy"].toString("redirect")}};
+          choices.append(QVariantMap{{"id", choice},
+                                     {"name", "OptiFine · " + release},
+                                     {"publisher", "BMCLAPI"},
+                                     {"sources", QStringList{"BMCLAPI"}},
+                                     {"status", "declared"}});
+          if (item["sha1"].toString().size() == 40) {
+            auto option = choices.last().toMap();
+            option["feedbackTarget"] =
+                QVariantMap{{"game_version", game},
+                            {"loader", loader},
+                            {"loader_version", target.value("loaderVersion")},
+                            {"core_sha1", item["sha1"].toString()},
+                            {"dependencies", QStringList{}}};
+            choices.last() = option;
+          }
+          if ((requested.isEmpty() && selected_support.isEmpty()) || requested == choice ||
+              !installed_optifine.isEmpty()) {
+            selected_support = {
+                {"id", "optifine"},         {"name", "OptiFine"},
+                {"version", release},       {"loader", loader},
+                {"choice", choice},         {"publisher", "BMCLAPI"},
+                {"projectId", "optifine"},  {"versionId", release},
+                {"reviewState", "unknown"}, {"runtimes", runtimes.toVariantList()},
+                {"optifine", evidence},     {"installed", !installed_optifine.isEmpty()}};
+            selected_plan = plan;
+            selected_missing = missing;
+            selected_chosen = chosen;
+            selected_resolving = resolving;
+          }
+        }
+        if (choices.isEmpty() && rejected_reason.isEmpty())
+          rejected_reason = QCoreApplication::translate(
+              "Bugg",
+              "没有与当前 Forge 构建匹配的光影核心；OptiFine 需要匹配清单声明的 Forge 构建");
+      } catch (const std::exception& error) {
+        check();
+        incomplete = true;
+        if (rejected_reason.isEmpty()) rejected_reason = QString::fromUtf8(error.what());
+      }
+    }
     if (!selected_support.isEmpty()) {
       selected_support["choices"] = choices;
       selected_support["choicesIncomplete"] = incomplete;
@@ -1101,6 +1352,82 @@ class ContentProvider {
     if (!rejected_reason.isEmpty()) fail(rejected_reason);
     fail(QCoreApplication::translate("Bugg",
                                      "当前游戏版本与加载器暂无可用的光影核心，请更换目标游戏"));
+  }
+  QVariantMap feedback_target(const QVariantMap& target, const QVariantList& plan,
+                              const QString& publisher, const QString& project,
+                              const QString& release) {
+    QVariantMap lock{{"game_version", target.value("gameVersion")},
+                     {"loader", target.value("loader")},
+                     {"loader_version", target.value("loaderVersion")}};
+    QStringList dependencies;
+    bool known = !target.value("loaderVersion").toString().isEmpty();
+    for (const auto& item : plan) {
+      const auto file = item.toMap();
+      if (file.value("kind") != "mod") continue;
+      const auto digest = file.value("hashes").toMap().value("sha1").toString().toLower();
+      known &= digest.size() == 40;
+      if (file.value("publisher") == publisher && file.value("projectId") == project &&
+          file.value("versionId") == release)
+        lock["core_sha1"] = digest;
+      else
+        dependencies.append(digest);
+    }
+    lock["dependencies"] = dependencies;
+    return known && !lock.value("core_sha1").toString().isEmpty() ? lock : QVariantMap{};
+  }
+  void load_shader_feedback(const QVariantMap& target, const QVariantList& plan,
+                            QVariantMap& support) {
+    auto choices = support.value("choices").toList();
+    QVariantList targets;
+    QList<int> indices;
+    for (int i = 0; i < choices.size() && targets.size() < 63; ++i) {
+      const auto lock = choices[i].toMap().value("feedbackTarget").toMap();
+      if (!lock.isEmpty()) {
+        targets.append(lock);
+        indices.append(i);
+      }
+    }
+    const auto selected_lock = feedback_target(target, plan, support.value("publisher").toString(),
+                                               support.value("projectId").toString(),
+                                               support.value("versionId").toString());
+    if (!selected_lock.isEmpty()) targets.append(selected_lock);
+    if (targets.isEmpty()) return;
+    try {
+      const auto result =
+          run({{"operation", "shaderFeedbackQuery"}, {"kind", "shader"}, {"targets", targets}})
+              .value("items")
+              .toList();
+      if (result.size() != targets.size()) fail("Invalid shader feedback count");
+      for (int i = 0; i < result.size(); ++i) {
+        if (i < indices.size()) {
+          auto choice = choices[indices[i]].toMap();
+          choice["feedback"] = result[i];
+          choices[indices[i]] = choice;
+          if (choice.value("id") == support.value("choice")) support["feedback"] = result[i];
+        } else
+          support["feedback"] = result[i];
+      }
+    } catch (const std::exception&) {
+      check();
+      support["feedbackUnavailable"] = true;
+      for (const auto index : indices) {
+        auto choice = choices[index].toMap();
+        choice["feedbackUnavailable"] = true;
+        choices[index] = choice;
+      }
+    }
+    if (!selected_lock.isEmpty()) {
+      try {
+        support["environmentFeedback"] = run({{"operation", "shaderFeedbackQuery"},
+                                              {"kind", "shader"},
+                                              {"target", selected_lock},
+                                              {"scope", "environment"}});
+      } catch (const std::exception&) {
+        check();
+        support["environmentFeedbackUnavailable"] = true;
+      }
+    }
+    support["choices"] = choices;
   }
   QVariantMap shader_review(const QVariantMap& query, const QVariantList& plan,
                             const QString& publisher, const QString& project,
@@ -1183,9 +1510,9 @@ class ContentProvider {
         digest = file.value("hashes").toMap().value("sha1").toString();
     }
     if (digest.isEmpty()) return version;
-    QJsonObject raw;
+    QJsonObject raw = modrinth_files_.value(counterpart + '/' + digest);
     try {
-      raw = get("Modrinth", "/version_file/" + digest).toObject();
+      if (raw.isEmpty()) raw = get("Modrinth", "/version_file/" + digest).toObject();
     } catch (const std::exception&) {
       check();
       return version;
@@ -1261,6 +1588,10 @@ class ContentProvider {
     plan.append(entry);
     chosen[project_id] = version_id;
     resolving.insert(project_id);
+    if (!query.value("autoDependencies", true).toBool()) {
+      resolving.remove(project_id);
+      return;
+    }
     for (const auto& item :
          kind == "modpack" ? QVariantList{} : version.value("dependencies").toList()) {
       const auto dep = item.toMap();
@@ -1357,8 +1688,10 @@ class ContentProvider {
   QJsonArray shader_reviews_;
   bool shader_reviews_loaded_ = false;
   bool source_releases_available_ = true;
+  QHash<QString, QJsonObject> modrinth_files_;
   bool optional_search_ = false;
   QHash<QString, QJsonValue> metadata_cache_;
+  QHash<QString, QVariantMap> release_cache_;
 };
 }  // namespace
 QVariantMap request_content(const QVariantMap& query, const QStringList& order,
