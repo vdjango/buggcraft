@@ -99,4 +99,14 @@ jobs:
           $identity = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{Authorization="Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
           $payload = @{tag=$env:GITHUB_REF_NAME;github_token=$env:GH_TOKEN} | ConvertTo-Json -Compress
           $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $payload
-          Write-Output ('Download website sync: ' + $result.status)
+          $statusPayload = @{tag=$env:GITHUB_REF_NAME;action='status'} | ConvertTo-Json -Compress
+          $deadline = (Get-Date).AddMinutes(5)
+          do {
+            Start-Sleep -Seconds 5
+            $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $statusPayload
+            if ($result.sync.status -eq 'failed') { throw $result.sync.message }
+            $imported = @($result.sync.items | Where-Object { $_.tag -eq $env:GITHUB_REF_NAME -and $_.result -in @('imported','existing') }).Count -gt 0
+            if ($result.sync.status -eq 'success' -and $imported) { break }
+          } while ((Get-Date) -lt $deadline)
+          if (!$imported -or $result.sync.status -ne 'success') { throw 'Download website import did not finish' }
+          Write-Output ('Download website sync: ' + $result.sync.status)
