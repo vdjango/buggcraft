@@ -80,7 +80,7 @@ jobs:
           $openssl = if ($env:BUGG_CI_OPENSSL_ROOT) { $env:BUGG_CI_OPENSSL_ROOT } else { "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static" }
           $options = @("-DQT_ROOT=$env:BUGG_CI_QT_ROOT", "-DQT_SOURCE_ROOT=$env:BUGG_CI_QT_SOURCE", "-DOPENSSL_ROOT=$openssl")
           if ($env:BUGG_CI_LINGUIST_ROOT) { $options += "-DQt6LinguistTools_DIR=$env:BUGG_CI_LINGUIST_ROOT" }
-          cmake @options -DWORK_ROOT=D:/bugg-build -DOUTPUT_ROOT=D:/bugg-package -DPARALLEL=4 -DBUGG_BUILD_VERSION=${{ steps.version.outputs.value }} -DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }} -P bugg/tools/build_single_file.cmake
+          cmake @options -DWORK_ROOT=D:/bugg-build -DOUTPUT_ROOT=D:/bugg-package -DPARALLEL=4 "-DBUGG_BUILD_VERSION=${{ steps.version.outputs.value }}" "-DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }}" -P bugg/tools/build_single_file.cmake
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
       - name: Verify version and bridge entry
         shell: powershell
@@ -89,7 +89,7 @@ jobs:
           & D:/bugg-package/bugg.exe --native-bridge --version
           if ($LASTEXITCODE -ne 0) { throw 'Bridge entry failed' }
       - name: Package update and language assets
-        run: python bugg/tools/package_release.py --version ${{ steps.version.outputs.value }} --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release --migration-entry Bugg-v1.1.0.exe
+        run: python bugg/tools/package_release.py --version '${{ steps.version.outputs.value }}' --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release --migration-entry Bugg-v1.1.0.exe
       - uses: actions/upload-artifact@v4
         with:
           name: Bugg-v${{ steps.version.outputs.value }}-windows-x64
