@@ -390,7 +390,7 @@ Item {
                 component: skinPage
             },
             logs: {
-                title: qsTr("运行日志"),
+                title: qsTr("问题反馈与调试"),
                 component: logsPage
             },
             buggLogin: {

@@ -527,7 +527,7 @@ ApplicationWindow {
     Window {
         id: logsWindow
         objectName: "diagnosticLogWindow"
-        title: qsTr("Bugg · 日志与诊断")
+        title: qsTr("Bugg · 问题反馈与调试")
         width: 960
         height: 720
         minimumWidth: 410

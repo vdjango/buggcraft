@@ -57,7 +57,7 @@ PageLayout {
                 route: "storage"
             },
             {
-                label: qsTr("日志与调试"),
+                label: qsTr("问题反馈与调试"),
                 value: qsTr("级别、模组与搜索"),
                 route: "logs"
             },
