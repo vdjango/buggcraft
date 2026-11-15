@@ -11,8 +11,16 @@ concurrency:
   cancel-in-progress: false
 jobs:
   windows:
-    runs-on: windows-2022
+    runs-on: ${{ vars.BUGG_RELEASE_RUNNER || 'windows-2022' }}
     timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell
+    env:
+      BUGG_CI_QT_ROOT: ${{ vars.BUGG_RELEASE_QT_ROOT || 'D:/bugg-qt/static' }}
+      BUGG_CI_QT_SOURCE: ${{ vars.BUGG_RELEASE_QT_SOURCE || 'D:/bugg-qt/src' }}
+      BUGG_CI_OPENSSL_ROOT: ${{ vars.BUGG_RELEASE_OPENSSL_ROOT }}
+      BUGG_CI_LINGUIST_ROOT: ${{ vars.BUGG_RELEASE_LINGUIST_ROOT }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,9 +28,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 6dbcc223ebc46df326cbac10dd3c83380ded1b67
+          ref: ac8117cb645a172a07aab2fd54e9e6cf9e3b56d5
           path: minecraft-tunnel-native
       - uses: actions/setup-python@v5
+        if: vars.BUGG_RELEASE_QT_ROOT == ''
         with:
           python-version: '3.12'
       - uses: ilammy/msvc-dev-cmd@v1
@@ -30,7 +39,7 @@ jobs:
           arch: x64
       - name: Read application version
         id: version
-        shell: pwsh
+        shell: powershell
         run: |
           $match = [regex]::Match((Get-Content bugg/CMakeLists.txt -Raw), 'set\(BUGG_BUILD_VERSION "([^"]+)"')
           if (!$match.Success) { throw 'Missing application version' }
@@ -38,6 +47,7 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and application versions differ' }
           "value=$version" >> $env:GITHUB_OUTPUT
       - name: Restore static Qt kit
+        if: vars.BUGG_RELEASE_QT_ROOT == ''
         id: qt-cache
         uses: actions/cache/restore@v4
         with:
@@ -46,10 +56,10 @@ jobs:
             D:/bugg-qt/src
           key: qt-6.8.1-static-mt-windows2022-${{ hashFiles('bugg/tools/build_size_qt.cmake', 'bugg/tools/patch_qtmultimedia_windows_vulkan.cmake') }}
       - name: Build pinned static Qt and translation tools
-        if: steps.qt-cache.outputs.cache-hit != 'true'
+        if: vars.BUGG_RELEASE_QT_ROOT == '' && steps.qt-cache.outputs.cache-hit != 'true'
         run: cmake -DWORK_ROOT=D:/bugg-qt -DSTATIC_RUNTIME=ON -DPARALLEL=4 -P bugg/tools/build_size_qt.cmake
       - name: Save completed Qt kit before application build
-        if: steps.qt-cache.outputs.cache-hit != 'true'
+        if: vars.BUGG_RELEASE_QT_ROOT == '' && steps.qt-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -57,18 +67,23 @@ jobs:
             D:/bugg-qt/src
           key: ${{ steps.qt-cache.outputs.cache-primary-key }}
       - name: Install static OpenSSL
+        if: vars.BUGG_RELEASE_OPENSSL_ROOT == ''
         run: vcpkg install openssl:x64-windows-static
+      - name: Restore prepared native source archives
+        if: vars.BUGG_RELEASE_NATIVE_DEPS != ''
+        run: Copy-Item -LiteralPath '${{ vars.BUGG_RELEASE_NATIVE_DEPS }}' -Destination minecraft-tunnel-native/.deps -Recurse
       - name: Fetch pinned native dependencies
         run: python minecraft-tunnel-native/scripts/fetch_deps.py
       - name: Build native single executable
-        run: >-
-          cmake -DQT_ROOT=D:/bugg-qt/static -DQT_SOURCE_ROOT=D:/bugg-qt/src
-          -DOPENSSL_ROOT="$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static"
-          -DWORK_ROOT=D:/bugg-build -DOUTPUT_ROOT=D:/bugg-package -DPARALLEL=4
-          -DBUGG_BUILD_VERSION=${{ steps.version.outputs.value }} -DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }}
-          -P bugg/tools/build_single_file.cmake
+        shell: powershell
+        run: |
+          $openssl = if ($env:BUGG_CI_OPENSSL_ROOT) { $env:BUGG_CI_OPENSSL_ROOT } else { "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static" }
+          $options = @("-DQT_ROOT=$env:BUGG_CI_QT_ROOT", "-DQT_SOURCE_ROOT=$env:BUGG_CI_QT_SOURCE", "-DOPENSSL_ROOT=$openssl")
+          if ($env:BUGG_CI_LINGUIST_ROOT) { $options += "-DQt6LinguistTools_DIR=$env:BUGG_CI_LINGUIST_ROOT" }
+          cmake @options -DWORK_ROOT=D:/bugg-build -DOUTPUT_ROOT=D:/bugg-package -DPARALLEL=4 -DBUGG_BUILD_VERSION=${{ steps.version.outputs.value }} -DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }} -P bugg/tools/build_single_file.cmake
+          if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
       - name: Verify version and bridge entry
-        shell: pwsh
+        shell: powershell
         run: |
           if ((Get-Item D:/bugg-package/bugg.exe).VersionInfo.FileVersion -ne '${{ steps.version.outputs.value }}') { throw 'Wrong executable version' }
           & D:/bugg-package/bugg.exe --native-bridge --version
@@ -85,15 +100,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: vdjango/buggcraft
-        shell: pwsh
+        shell: powershell
         run: |
-          gh release create $env:GITHUB_REF_NAME D:/bugg-release/* --title 'Bugg v${{ steps.version.outputs.value }}' --notes-file bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md --verify-tag
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub release failed' }
+          $headers = @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'}
+          $body = @{tag_name=$env:GITHUB_REF_NAME;name='Bugg v${{ steps.version.outputs.value }}';body=(Get-Content -Encoding UTF8 bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md -Raw);draft=$true;prerelease=$false} | ConvertTo-Json
+          $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+          $upload = $release.upload_url -replace '\{.*$', ''
+          Get-ChildItem D:/bugg-release -File | ForEach-Object {
+            Invoke-RestMethod -Method Post -Uri ($upload + '?name=' + [uri]::EscapeDataString($_.Name)) -Headers $headers -ContentType 'application/octet-stream' -InFile $_.FullName | Out-Null
+          }
+          Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json' -Body '{"draft":false}' | Out-Null
       - name: Notify download website with Actions identity
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
+        shell: powershell
         run: |
           $audience = [uri]::EscapeDataString('https://download.bugg.icu/api/launcher/github-sync')
           $identity = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{Authorization="Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
