@@ -14,6 +14,9 @@ class LauncherUpdateService : public QObject {
   LauncherUpdateService(HttpClient* http, QString cache, QObject* parent = nullptr,
                         QUrl endpoint = QUrl("https://download.bugg.icu/api/launcher/update"));
   QVariantMap status() const;
+  /// GUI-only configuration, no network. beta includes stable releases; rejects
+  /// unknown channels or changes while downloading/staged. Cancels stale feed requests.
+  bool set_channel(const QString& channel);
   static QString platform_id();
   void relocate_storage(const QString& cache) { cache_ = cache; }
   Q_INVOKABLE void check();
@@ -33,7 +36,7 @@ class LauncherUpdateService : public QObject {
 
  private:
   HttpClient* http_;
-  QString cache_, plan_path_, helper_;
+  QString cache_, plan_path_, helper_, channel_ = "beta";
   QUrl endpoint_;
   QVariantMap state_{{"state", "idle"}}, release_;
   quint64 request_ = 0;

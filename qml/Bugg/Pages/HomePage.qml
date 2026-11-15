@@ -66,10 +66,11 @@ Item {
         height: root.spacious ? 112 : 48
         text: root.currentInstance ? root.currentInstance.name : root.loadingInstances ? qsTr("正在加载游戏") : qsTr("选择游戏")
         caption: root.currentInstance ? root.currentInstance.version + " · " + root.currentInstance.loader : root.loadingInstances ? "" : qsTr("尚未安装游戏")
-        titleSize: root.spacious ? 30 : 16
-        titleWeight: root.spacious ? Font.Normal : Font.DemiBold
+        titleSize: root.spacious ? 24 : 15
+        titleWeight: Font.DemiBold
         centered: false
         feedbackEnabled: false
+        attention: !root.currentInstance && !root.loadingInstances && root.viewActive
         frosted: root.spacious
         backdropTint: root.backdropTint
         iconName: root.spacious ? (root.currentInstance ? root.currentInstance.loader.toLowerCase() : "minecraft") : ""

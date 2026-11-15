@@ -2589,7 +2589,7 @@
         <source>游戏启动服务尚未接入</source>
         <translation>Game launching is not available yet</translation>
     </message>
-</context>
+<message><source>Bugg · 问题反馈与调试</source><translation>Bugg · Problem feedback and debugging</translation></message></context>
 <context>
     <name>MemoryControl</name>
     <message>
@@ -3386,7 +3386,7 @@
         <source>关于与更新</source>
         <translation>About</translation>
     </message>
-</context>
+<message><source>问题反馈与调试</source><translation>Problem feedback and debugging</translation></message></context>
 <context>
     <name>SkinPage</name>
     <message>
@@ -4013,7 +4013,7 @@
         <source>请在游戏中对局域网开放</source>
         <translation>Open your game to LAN</translation>
     </message>
-</context>
+<message><source>问题反馈与调试</source><translation>Problem feedback and debugging</translation></message></context>
 <context>
     <name>UpdatePage</name>
     <message>
@@ -4056,7 +4056,7 @@
         <source>待更新</source>
         <translation>Coming soon</translation>
     </message>
-</context>
+<message><source>更新渠道</source><translation>Update channel</translation></message><message><source>开发版</source><translation>Development</translation></message><message><source>稳定版</source><translation>Stable</translation></message><message><source>开发版接收最新改进，也接收稳定版更新；稳定版仅接收正式更新。</source><translation>Development receives the latest improvements and stable releases. Stable receives only official releases.</translation></message></context>
 <context>
     <name>WindowControls</name>
     <message>

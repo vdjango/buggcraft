@@ -11,6 +11,8 @@ AbstractButton {
     property int titleWeight: Font.DemiBold
     property bool feedbackEnabled: true
     property bool frosted: false
+    // Presentation hint for an empty selection; stops while hidden or a modal is open.
+    property bool attention: false
     property real fadeOpacity: 0.2
     property color backdropTint: "#243D44"
     Behavior on backdropTint {
@@ -24,13 +26,50 @@ AbstractButton {
     hoverEnabled: true
     background: InteractiveSurface {
         control: root
-        visible: root.feedbackEnabled || root.frosted
+        visible: root.feedbackEnabled || root.frosted || root.attention
         restingColor: "transparent"
         faded: root.frosted
         fadeOpacity: root.fadeOpacity
         backdropTint: root.backdropTint
         hoverFeedbackEnabled: root.feedbackEnabled
         radius: 14
+        clip: true
+        Rectangle {
+            id: sweep
+            width: parent.width * 0.3
+            height: parent.height * 2
+            y: -parent.height / 2
+            rotation: -18
+            visible: root.attention
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop {
+                    position: 0
+                    color: "transparent"
+                }
+                GradientStop {
+                    position: 0.5
+                    color: root.frosted ? "#CCFFFFFF" : Qt.rgba(0.46, 0.38, 0.79, 0.18)
+                }
+                GradientStop {
+                    position: 1
+                    color: "transparent"
+                }
+            }
+            SequentialAnimation on x {
+                running: root.attention && root.visible && DesignTokens.modalCount === 0 && root.Window.active
+                loops: Animation.Infinite
+                NumberAnimation {
+                    from: -sweep.width * 2
+                    to: sweep.parent.width + sweep.width
+                    duration: 1600
+                    easing.type: Easing.InOutSine
+                }
+                PauseAnimation {
+                    duration: 3200
+                }
+            }
+        }
     }
     contentItem: ColumnLayout {
         spacing: 5

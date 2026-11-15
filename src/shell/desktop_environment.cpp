@@ -41,6 +41,8 @@ bool DesktopEnvironment::left_button_pressed() const {
 #endif
 }
 
+QPoint DesktopEnvironment::pointer_position() const { return QCursor::pos(); }
+
 bool DesktopEnvironment::pointer_inside(QWindow* window) const {
   return window && window->isVisible() && window->geometry().contains(QCursor::pos());
 }

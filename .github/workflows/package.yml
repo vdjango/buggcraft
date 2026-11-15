@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: ac8117cb645a172a07aab2fd54e9e6cf9e3b56d5
+          ref: b24131e61520418c83c2f9ad3101cb47275174ed
           path: minecraft-tunnel-native
       - uses: actions/setup-python@v5
         if: vars.BUGG_RELEASE_QT_ROOT == ''
@@ -103,6 +103,18 @@ jobs:
         shell: powershell
         run: |
           $headers = @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'}
+          # Ship the matching node first. The launcher artifact remains staged
+          # while the node's independent platform jobs finish publishing.
+          $nodeDeadline = (Get-Date).AddMinutes(30)
+          $nodeReady = $false
+          do {
+            try {
+              $node = Invoke-RestMethod -Uri 'https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.12' -Headers $headers
+              $nodeReady = !$node.draft -and @($node.assets | Where-Object { $_.name -eq 'buggcraft-native-0.3.12-linux-x64.tar.gz' }).Count -eq 1
+            } catch { $nodeReady = $false }
+            if (!$nodeReady) { Start-Sleep -Seconds 20 }
+          } while (!$nodeReady -and (Get-Date) -lt $nodeDeadline)
+          if (!$nodeReady) { throw 'Matching node release v0.3.12 is not published; launcher remains staged' }
           $body = @{tag_name=$env:GITHUB_REF_NAME;name='Bugg v${{ steps.version.outputs.value }}';body=(Get-Content -Encoding UTF8 bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md -Raw);draft=$true;prerelease=$false} | ConvertTo-Json
           $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
           $upload = $release.upload_url -replace '\{.*$', ''

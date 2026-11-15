@@ -788,6 +788,7 @@ QVariantMap GameRuntime::instance_settings(const QString& id) const {
 QVariantMap GameRuntime::preferences() const {
   auto value = settings_.value("preferences").toMap();
   if (!value.contains("language")) value["language"] = "zh_cn";
+  if (!value.contains("updateChannel")) value["updateChannel"] = "beta";
   if (!value.contains("concurrency")) value["concurrency"] = 6;
   if (!value.contains("afterLaunch")) value["afterLaunch"] = "collapse";
   if (!value.contains("theme")) value["theme"] = "small";
@@ -813,6 +814,7 @@ bool GameRuntime::set_preference(const QString& key, const QVariant& input) {
                              ? input.value<QJSValue>().toVariant()
                              : input;
   if ((key == "language" && !LanguageService::known_language(value.toString())) ||
+      (key == "updateChannel" && !QStringList{"beta", "stable"}.contains(value.toString())) ||
       (key == "concurrency" && !QList<int>{1, 2, 4, 6, 8, 16, 32}.contains(value.toInt())) ||
       (key == "afterLaunch" &&
        !QStringList{"keep", "collapse", "hide", "close"}.contains(value.toString())) ||
@@ -841,7 +843,7 @@ bool GameRuntime::set_preference(const QString& key, const QVariant& input) {
                    "autoDependencies", "multiplayerOrigin", "showOverlayInFullscreen",
                    "agreementRevision", "backgroundDirectory", "backgroundStyle", "backgroundBlur",
                    "backgroundVignette", "surfaceOpacity", "backgroundOnPages", "pageOverlayOpacity",
-                   "pageTextColor", "backgroundSoundEnabled"}
+                   "pageTextColor", "backgroundSoundEnabled", "updateChannel"}
            .contains(key))
     return false;
   if (preferences().value(key) == value) return true;

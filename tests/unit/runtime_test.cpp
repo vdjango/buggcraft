@@ -197,6 +197,15 @@ class RuntimeTest : public QObject {
     updates.check();
     QCOMPARE(http.requests.size(), 1);
     QCOMPARE(http.requests.last().url.host(), "download.bugg.icu");
+    QCOMPARE(QUrlQuery(http.requests.last().url).queryItemValue("channel"), "beta");
+    const auto previous = http.sequence;
+    QVERIFY(!updates.set_channel("unknown"));
+    QVERIFY(updates.set_channel("stable"));
+    QVERIFY(http.cancelled.contains(previous));
+    http.answer({{"update_available", false}}, 200, previous);
+    QCOMPARE(updates.status().value("state").toString(), "idle");
+    updates.check();
+    QCOMPARE(QUrlQuery(http.requests.last().url).queryItemValue("channel"), "stable");
     QCOMPARE(QUrlQuery(http.requests.last().url).queryItemValue("current"), "2.0.1");
     http.answer({{"update_available", false}});
     QCOMPARE(updates.status().value("state").toString(), "latest");
@@ -208,6 +217,10 @@ class RuntimeTest : public QObject {
     http.answer({{"update_available", true}, {"version", "2.0.2"}, {"asset", asset}});
     QCOMPARE(updates.status().value("state").toString(), "available");
     QVERIFY(updates.status().value("automaticPackage").toBool());
+    updates.check();
+    http.answer({{"update_available", true}, {"version", "2.0.2-dev.3"}, {"asset", asset}});
+    QCOMPARE(updates.status().value("state").toString(), "available");
+    QCOMPARE(updates.status().value("version").toString(), "2.0.2-dev.3");
     updates.check();
     asset["url"] = "https://untrusted.example/package.zip";
     http.answer({{"update_available", true}, {"version", "2.0.2"}, {"asset", asset}});
@@ -1418,6 +1431,9 @@ class RuntimeTest : public QObject {
     QCOMPARE(runtime.preferences().value("pageOverlayOpacity").toDouble(), 0.10);
     QCOMPARE(runtime.preferences().value("pageTextColor").toString(), QString("light"));
     QCOMPARE(runtime.preferences().value("backgroundSoundEnabled").toBool(), false);
+    QCOMPARE(runtime.preferences().value("updateChannel").toString(), QString("beta"));
+    QVERIFY(!runtime.set_preference("updateChannel", "unknown"));
+    QVERIFY(runtime.set_preference("updateChannel", "stable"));
     QVERIFY(runtime.set_preference("backgroundOnPages", true));
     QVERIFY(runtime.set_preference("pageOverlayOpacity", 0.2));
     QVERIFY(runtime.set_preference("pageTextColor", "dark"));
@@ -1447,6 +1463,7 @@ class RuntimeTest : public QObject {
     QCOMPARE(restored.preferences().value("pageOverlayOpacity").toDouble(), 0.2);
     QCOMPARE(restored.preferences().value("pageTextColor").toString(), QString("dark"));
     QCOMPARE(restored.preferences().value("backgroundSoundEnabled").toBool(), true);
+    QCOMPARE(restored.preferences().value("updateChannel").toString(), QString("stable"));
     restored.shutdown();
   }
   void selected_cache_stays_inside_portable_tree_after_move() {

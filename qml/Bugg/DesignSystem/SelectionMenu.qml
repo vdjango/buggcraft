@@ -17,12 +17,12 @@ Popup {
     padding: 8
     margins: 8
     focus: true
-    // 中性半透明浮层保留背景层次；文字不继承场景白字，避免自选背景影响阅读。
+    // 与当前背景共用表面和文字设置；未启用背景时保留中性浮层。
     palette.window: DesignTokens.floatingSurface
-    palette.text: DesignTokens.neutralText
-    palette.windowText: DesignTokens.neutralText
-    palette.buttonText: DesignTokens.neutralText
-    palette.placeholderText: DesignTokens.neutralMuted
+    palette.text: DesignTokens.text
+    palette.windowText: DesignTokens.text
+    palette.buttonText: DesignTokens.text
+    palette.placeholderText: DesignTokens.muted
     palette.button: DesignTokens.floatingHover
     palette.midlight: DesignTokens.floatingSelection
     palette.light: DesignTokens.floatingSelection

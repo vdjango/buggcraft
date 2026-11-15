@@ -5,10 +5,36 @@ import Bugg.DesignSystem
 PageLayout {
     id: root
     property var service: null
+    property var runtime: null
     readonly property var status: service ? service.status : ({})
     signal noticeRequested(string message)
     spacing: 16
     maximumWidth: 700
+    SelectField {
+        objectName: "launcherUpdateChannel"
+        Layout.fillWidth: true
+        label: qsTr("更新渠道")
+        selection: root.runtime ? root.runtime.preferences.updateChannel || "beta" : root.status.channel || "beta"
+        enabled: !!root.runtime && !["downloading", "ready"].includes(root.status.state)
+        options: [
+            {
+                id: "beta",
+                name: qsTr("开发版")
+            },
+            {
+                id: "stable",
+                name: qsTr("稳定版")
+            }
+        ]
+        onChosen: value => root.runtime.set_preference("updateChannel", value)
+    }
+    UiText {
+        Layout.fillWidth: true
+        text: qsTr("开发版接收最新改进，也接收稳定版更新；稳定版仅接收正式更新。")
+        font.pixelSize: 12
+        color: DesignTokens.muted
+        wrapMode: Text.Wrap
+    }
     Surface {
         Layout.fillWidth: true
         implicitHeight: productGroup.implicitHeight + 40

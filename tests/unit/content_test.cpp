@@ -2806,7 +2806,7 @@ Window { width:410; height:620; visible:true; color:"white"
                                                                  {"state", "downloading"},
                                                                  {"progress", 0.1},
                                                                  {"source", "CurseForge"}}}}}});
-      QTest::qWait(650);
+      QTest::qWait(1200);
       QVERIFY(window->grabWindow().save(shots + "/downloads-" + theme + ".png"));
       QMetaObject::invokeMethod(deck, "goHome");
       QVERIFY(runtime.set_preference("backgroundOnPages", false));
@@ -2855,6 +2855,120 @@ Window { width:410; height:620; visible:true; color:"white"
       QTRY_COMPARE(media->property("playbackState").toInt(), 0);
     }
     window->close();
+  }
+  void video_background_survives_preference_and_task_updates() {
+    const auto video = qEnvironmentVariable("BUGG_TEST_BACKGROUND_VIDEO");
+    if (video.isEmpty()) QSKIP("Requires an explicit local video for real decoder verification");
+    QTemporaryDir storage;
+    HttpClient http;
+    MicrosoftAccount account(&http, storage.filePath("credentials.bin"));
+    GameRuntime runtime(storage.path(), storage.filePath("game"), &account);
+    runtime.initialize();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
+    const QVariantList sources{QUrl::fromLocalFile(video).toString()};
+    QVERIFY(runtime.set_preference("backgrounds", sources));
+    QVERIFY(runtime.set_preference("theme", "classic"));
+    QVERIFY(runtime.set_preference("backgroundOnPages", true));
+    DesktopEnvironment desktop;
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    engine.setInitialProperties(
+        {{"desktopEnvironment", QVariant::fromValue(&desktop)},
+         {"gameRuntime", QVariant::fromValue(static_cast<QObject*>(&runtime))}});
+    engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../../qml/Main.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    auto* backdrop = window->findChild<QObject*>("windowBackdrop");
+    auto* dock = window->findChild<QObject*>("edgeDock");
+    dock->setProperty("autoFoldEnabled", false);
+    QTRY_VERIFY_WITH_TIMEOUT(backdrop->property("videoPlaying").toBool(), 15000);
+    auto* front = backdrop->property("front").value<QObject*>();
+    QVERIFY(front);
+    QTRY_VERIFY_WITH_TIMEOUT(front->property("position").toInt() >= 1500, 10000);
+    const auto before = front->property("position").toInt();
+    auto* sound = visual_item(window->contentItem(), "backgroundSoundButton");
+    QVERIFY(sound);
+    QSignalSpy destroyed(front, &QObject::destroyed);
+    QSignalSpy source_changed(front, SIGNAL(sourceChanged()));
+    QSignalSpy sound_visible(sound, &QQuickItem::visibleChanged);
+    QVERIFY(QMetaObject::invokeMethod(sound, "clicked"));
+    QTRY_VERIFY(runtime.preferences().value("backgroundSoundEnabled").toBool());
+    QVERIFY(runtime.set_preference("pageOverlayOpacity", 0.12));
+    QVERIFY(runtime.set_preference("backgrounds", sources));
+    emit runtime.tasks_changed();
+    emit runtime.settings_changed();
+    QTest::qWait(500);
+    QCOMPARE(destroyed.count(), 0);
+    QCOMPARE(source_changed.count(), 0);
+    QCOMPARE(sound_visible.count(), 0);
+    QVERIFY(front->property("position").toInt() >= before);
+    QVERIFY(!front->property("muted").toBool());
+    if (qEnvironmentVariableIsSet("BUGG_TEST_NATIVE_DRAG")) {
+      QElapsedTimer elapsed;
+      elapsed.start();
+      qint64 last_tick = 0, maximum_gap = 0;
+      QTimer heartbeat;
+      connect(&heartbeat, &QTimer::timeout, this, [&] {
+        const auto now = elapsed.elapsed();
+        maximum_gap = qMax(maximum_gap, now - last_tick);
+        last_tick = now;
+      });
+      heartbeat.start(20);
+      QTest::qWait(4500);
+      heartbeat.stop();
+      QVERIFY(front->property("position").toInt() >= before);
+      qInfo() << "VIDEO_DRAG" << "max_gui_gap_ms" << maximum_gap << "position_ms"
+              << front->property("position").toInt() << "source_changes" << source_changed.count();
+    }
+    auto* deck = window->findChild<QObject*>("toolContent");
+    auto* controller = window->findChild<QObject*>("windowController");
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/media-release";
+    QDir().mkpath(shots);
+    auto* identity = window->findChild<QObject*>("identitySession");
+    bool selected = false;
+    QVERIFY(identity &&
+            QMetaObject::invokeMethod(identity, "use_offline", Q_RETURN_ARG(bool, selected),
+                                      Q_ARG(QString, "VideoReview")));
+    QVERIFY(selected);
+    for (const auto* theme : {"classic", "panel"}) {
+      QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, theme));
+      QMetaObject::invokeMethod(deck, "goHome");
+      QTest::qWait(600);
+      auto* empty = visual_item(window->contentItem(), "instanceButton");
+      QVERIFY(empty && empty->property("attention").toBool());
+      QVERIFY(window->grabWindow().save(shots + "/empty-" + theme + ".png"));
+      if (QString(theme) == "classic") {
+        auto* menu_button = visual_item(window->contentItem(), "profileMenuButton");
+        QVERIFY(menu_button && QMetaObject::invokeMethod(menu_button, "clicked"));
+        auto* menu = window->findChild<QObject*>("profileMenu");
+        QTRY_VERIFY(menu && menu->property("opened").toBool());
+        QTest::qWait(300);
+        QVERIFY(window->grabWindow().save(shots + "/accounts-classic.png"));
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+      }
+      QMetaObject::invokeMethod(deck, "openPage", Q_ARG(QVariant, "identity"));
+      QTRY_VERIFY(deck->property("canGoBack").toBool());
+      QTRY_COMPARE(window->findChild<QQuickItem*>("floatingToolBar")->opacity(), 0.0);
+      QTRY_COMPARE(window->findChild<QQuickItem*>("contextHeader")->opacity(), 1.0);
+      QTest::qWait(1000);
+      QVERIFY(window->grabWindow().save(shots + "/identity-" + theme + ".png"));
+      QMetaObject::invokeMethod(deck, "goHome");
+      QTest::qWait(350);
+      QMetaObject::invokeMethod(deck, "openPage", Q_ARG(QVariant, "update"));
+      auto* channel = visual_item(window->contentItem(), "launcherUpdateChannel");
+      QTRY_VERIFY((channel = visual_item(window->contentItem(), "launcherUpdateChannel")));
+      QCOMPARE(channel->property("selection").toString(), QString("beta"));
+      QVERIFY(QMetaObject::invokeMethod(channel, "chosen", Q_ARG(QString, "stable")));
+      QCOMPARE(runtime.preferences().value("updateChannel").toString(), QString("stable"));
+      QTRY_VERIFY(channel->isVisible());
+      QTRY_COMPARE(deck->property("pageReveal").toReal(), 1.0);
+      QTest::qWait(650);
+      QVERIFY(window->grabWindow().save(shots + "/update-" + theme + ".png"));
+      QVERIFY(runtime.set_preference("updateChannel", "beta"));
+    }
+    window->close();
+    runtime.shutdown();
+    QTRY_VERIFY(!runtime.busy());
   }
   void inline_shader_loader_plan_keeps_the_real_target_and_rejects_stale_responses() {
     ContentProbe probe;

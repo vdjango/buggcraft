@@ -1612,7 +1612,7 @@
         <source>游戏启动服务尚未接入</source>
         <translation>遊戲啟動服務尚未接入</translation>
     </message>
-</context>
+<message><source>Bugg · 问题反馈与调试</source><translation>Bugg · 問題回饋與除錯</translation></message></context>
 <context>
     <name>MemoryControl</name>
     <message>
@@ -2033,7 +2033,7 @@
         <source>关于与更新</source>
         <translation>關於與更新</translation>
     </message>
-</context>
+<message><source>问题反馈与调试</source><translation>問題回饋與除錯</translation></message></context>
 <context>
     <name>SkinPage</name>
     <message>
@@ -2483,7 +2483,7 @@
         <source>内容安装服务尚未接入</source>
         <translation>內容安裝服務尚未接入</translation>
     </message>
-<message><source>任务</source><translation>任務</translation></message><message><source>请在游戏中对局域网开放</source><translation>請在遊戲中對區域網路開放</translation></message><message><source>通知</source><translation>通知</translation></message><message><source>打开多人游戏，选择“【BUGG联机】”房间即可加入。</source><translation>Open Multiplayer and select the “【BUGG联机】” room to join.</translation></message></context>
+<message><source>任务</source><translation>任務</translation></message><message><source>请在游戏中对局域网开放</source><translation>請在遊戲中對區域網路開放</translation></message><message><source>通知</source><translation>通知</translation></message><message><source>打开多人游戏，选择“【BUGG联机】”房间即可加入。</source><translation>Open Multiplayer and select the “【BUGG联机】” room to join.</translation></message><message><source>问题反馈与调试</source><translation>問題回饋與除錯</translation></message></context>
 <context>
     <name>UpdatePage</name>
     <message>
@@ -2518,7 +2518,7 @@
         <source>待更新</source>
         <translation>待更新</translation>
     </message>
-</context>
+<message><source>更新渠道</source><translation>更新管道</translation></message><message><source>开发版</source><translation>開發版</translation></message><message><source>稳定版</source><translation>穩定版</translation></message><message><source>开发版接收最新改进，也接收稳定版更新；稳定版仅接收正式更新。</source><translation>開發版接收最新改進，也接收穩定版更新；穩定版僅接收正式更新。</translation></message></context>
 <context>
     <name>WindowControls</name>
     <message>

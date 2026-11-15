@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSysInfo>
 #include <QThread>
 #include <QUrlQuery>
@@ -76,7 +77,12 @@ LauncherUpdateService::LauncherUpdateService(HttpClient* http, QString cache, QO
               const auto url = QUrl(asset["url"].toString());
               const auto hash = asset["sha256"].toString().toLatin1();
               const auto size = asset["size"].toInteger();
-              if (QVersionNumber::fromString(version) <= QVersionNumber::fromString(BUGG_VERSION) ||
+              // The feed owns semantic ordering (including development builds).
+              // Reject malformed/equal versions without discarding prerelease suffixes.
+              static const QRegularExpression release_version(
+                  R"(^[0-9]+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc|dev)\.[0-9]+)?$)");
+              if (!release_version.match(version).hasMatch() || version == BUGG_VERSION ||
+                  QVersionNumber::fromString(version) < QVersionNumber::fromString(BUGG_VERSION) ||
                   !trusted_asset(url, endpoint_) || size <= 0 || size > 1500000000 ||
                   hash.size() != 64 || QByteArray::fromHex(hash).toHex() != hash) {
                 state_ = {{"state", "error"}, {"error", tr("更新包信息无效，请稍后重试")}};
@@ -96,9 +102,21 @@ QVariantMap LauncherUpdateService::status() const {
   auto result = state_;
   result["currentVersion"] = BUGG_VERSION;
   result["platform"] = platform_id();
+  result["channel"] = channel_;
   result["version"] = release_.value("version");
   result["notes"] = release_.value("notes");
   return result;
+}
+bool LauncherUpdateService::set_channel(const QString& channel) {
+  if (closing_ || !QStringList{"beta", "stable"}.contains(channel)) return false;
+  if (channel == channel_) return true;
+  if (working_ || state_.value("state") == "ready") return false;
+  if (request_) http_->cancel(std::exchange(request_, 0));
+  channel_ = channel;
+  release_.clear();
+  state_ = {{"state", "idle"}};
+  emit changed();
+  return true;
 }
 void LauncherUpdateService::check() {
   if (closing_ || request_ || working_ || state_.value("state") == "ready") return;
@@ -107,7 +125,7 @@ void LauncherUpdateService::check() {
   QUrlQuery query;
   query.addQueryItem("current", BUGG_VERSION);
   query.addQueryItem("platform", platform_id());
-  query.addQueryItem("channel", "stable");
+  query.addQueryItem("channel", channel_);
   query.addQueryItem("runtime", "cpp");
   url.setQuery(query);
   HttpRequest request;

@@ -31,7 +31,7 @@ Item {
                 required property var modelData
                 Layout.preferredWidth: 76
                 text: modelData.text
-                variant: modelData.danger ? "danger" : "ghost"
+                variant: "ghost"
                 compact: true
                 onClicked: {
                     root.offset = 0;

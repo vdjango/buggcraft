@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Effects
 import Bugg.DesignSystem
 import Bugg.Pages
 import Bugg.Shell
@@ -336,15 +335,6 @@ ApplicationWindow {
     }
     FloatingShell {
         id: floatingShell
-        layer.enabled: DesignTokens.modalCount > 0 && GraphicsInfo.api !== GraphicsInfo.Software
-        layer.effect: MultiEffect {
-            blurEnabled: true
-            blur: 0.7
-            blurMax: 24
-            autoPaddingEnabled: false
-            maskEnabled: true
-            maskSource: modalBackdropMask
-        }
         anchors.fill: parent
         dock: edgeDock
         pageMode: presentation.layoutProgress
@@ -407,12 +397,6 @@ ApplicationWindow {
             if (window.gameRuntime)
                 window.gameRuntime.set_preference("backgroundSoundEnabled", enabled);
         }
-    }
-    RoundedMask {
-        id: modalBackdropMask
-        width: floatingShell.width
-        height: floatingShell.height
-        radius: 19 - floatingShell.pageMode * 7
     }
     ToolDeck {
         id: deck

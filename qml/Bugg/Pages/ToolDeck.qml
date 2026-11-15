@@ -1089,6 +1089,7 @@ Item {
         id: updatePage
         UpdatePage {
             service: root.updateService
+            runtime: root.runtime
             onNoticeRequested: message => root.noticeRequested(message)
         }
     }

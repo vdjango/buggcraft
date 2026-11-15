@@ -24,6 +24,7 @@ Item {
     readonly property var back: firstOnTop ? second : first
     property bool firstOnTop: true
     property bool initialized: false
+    property string loadedPlaylist: ""
     property int currentIndex: -1
     property int pendingIndex: -1
     property int attemptsLeft: 0
@@ -58,6 +59,10 @@ Item {
     function reload() {
         if (!initialized)
             return;
+        const nextPlaylist = JSON.stringify(playlist);
+        if (loadedPlaylist === nextPlaylist)
+            return;
+        loadedPlaylist = nextPlaylist;
         fade.stop();
         blend = 0;
         pendingIndex = -1;
@@ -120,9 +125,10 @@ Item {
         id: blurSource
         anchors.fill: parent
         sourceItem: mediaStack
+        textureSize: Qt.size(Math.max(1, Math.round(root.width / 2)), Math.max(1, Math.round(root.height / 2)))
         hideSource: false
         visible: false
-        live: root.active
+        live: root.active && root.blurStyle !== "none" && root.blurAmount > 0
     }
     Rectangle {
         id: blurMask

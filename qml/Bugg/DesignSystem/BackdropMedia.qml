@@ -13,6 +13,7 @@ Item {
     readonly property VideoLayer movieItem: movie.item as VideoLayer
     readonly property int status: !source.toString() ? Image.Null : video ? (movieItem ? movieItem.status : Image.Loading) : picture.status
     readonly property int playbackState: movieItem ? movieItem.playbackState : MediaPlayer.StoppedState
+    readonly property int position: movieItem ? movieItem.position : 0
     readonly property bool playing: movieItem ? movieItem.playing : false
     readonly property bool rotated: picture.portrait
     clip: true
@@ -52,6 +53,7 @@ Item {
         property bool frameReady: false
         readonly property int status: player.error !== MediaPlayer.NoError ? Image.Error : frameReady ? Image.Ready : Image.Loading
         readonly property int playbackState: player.playbackState
+        readonly property int position: player.position
         readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
         AudioOutput {
             id: audio

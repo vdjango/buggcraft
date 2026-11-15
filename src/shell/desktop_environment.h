@@ -20,6 +20,8 @@ class DesktopEnvironment : public QObject {
   Q_INVOKABLE QRect available_geometry(QWindow* window) const;
   /// 原生拖动期间轮询实时左键，不阻塞等待松开。
   Q_INVOKABLE bool left_button_pressed() const;
+  /// GUI 线程实时屏幕逻辑坐标；EdgeDock 复用松键轮询移动窗口，无新增定时器或 I/O。
+  Q_INVOKABLE QPoint pointer_position() const;
   /// 系统指针是否在可见窗口内；补偿原生拖动/窗口缩放遗漏的悬停事件。
   Q_INVOKABLE bool pointer_inside(QWindow* window) const;
   /// GUI, bounded native probe; only same-monitor foreground fullscreen counts.

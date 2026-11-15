@@ -14,18 +14,20 @@ QtObject {
     property bool pageBackdrop: false
     property real pageSurfaceOpacity: 0.10
     property string pageTextColor: "light"
+    readonly property bool mediaSurface: scenic || pageBackdrop
+    readonly property real mediaSurfaceOpacity: pageBackdrop ? pageSurfaceOpacity : sceneSurfaceOpacity
     // Presentation-only modal depth; all shared modals participate in one backdrop.
     property int modalCount: 0
     property real sceneSurfaceOpacity: 0.18
     readonly property url homeBackdrop: Qt.resolvedUrl("assets/home-siege-1.webp")
     readonly property var homeBackdrops: [homeBackdrop]
     readonly property color sceneBase: "#102338"
-    readonly property color canvas: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : "#F7F8FA"
+    readonly property color canvas: mediaSurface ? Qt.rgba(1, 1, 1, mediaSurfaceOpacity) : "#F7F8FA"
     readonly property color background: "#FDFCF9"
     readonly property color surface: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : scenic ? Qt.rgba(1, 1, 1, sceneSurfaceOpacity) : comfortable ? "#F0F2F5" : "#F3F1EC"
     readonly property color surfaceHover: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : scenic ? "#33FFFFFF" : comfortable ? "#E8EBF0" : "#EBE8E2"
-    readonly property color elevated: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : "#FFFFFF"
-    readonly property color floatingSurface: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : "#CCFFFFFF"
+    readonly property color elevated: mediaSurface ? Qt.rgba(1, 1, 1, mediaSurfaceOpacity) : "#FFFFFF"
+    readonly property color floatingSurface: mediaSurface ? Qt.rgba(1, 1, 1, mediaSurfaceOpacity) : "#CCFFFFFF"
     readonly property color floatingHover: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : "#33FFFFFF"
     readonly property color floatingSelection: pageBackdrop ? Qt.rgba(1, 1, 1, pageSurfaceOpacity) : "#5CFFFFFF"
     readonly property color line: "#E8E5DE"

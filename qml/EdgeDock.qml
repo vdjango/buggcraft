@@ -31,6 +31,7 @@ Item {
     property bool adjusting: false
     property real destinationX: 0
     property real destinationY: 0
+    property point moveOffset: Qt.point(0, 0)
 
     // 当前屏幕工作区内计算最近可吸附边；底部保留给任务栏。
     function nearestEdge() {
@@ -111,8 +112,11 @@ Item {
         reposition(false);
         instantReveal = false;
         attachment = 0;
+        const pointer = desktopEnvironment.pointer_position();
+        moveOffset = Qt.point(pointer.x - targetWindow.x, pointer.y - targetWindow.y);
         releasePoll.start();
-        targetWindow.startSystemMove();
+        if (Qt.platform.os !== "windows")
+            targetWindow.startSystemMove();
     }
 
     function finishMove() {
@@ -212,6 +216,11 @@ Item {
         onTriggered: {
             if (!root.desktopEnvironment.left_button_pressed())
                 root.finishMove();
+            else if (Qt.platform.os === "windows") {
+                const pointer = root.desktopEnvironment.pointer_position();
+                root.targetWindow.x = Math.round(pointer.x - root.moveOffset.x);
+                root.targetWindow.y = Math.round(pointer.y - root.moveOffset.y);
+            }
         }
     }
 

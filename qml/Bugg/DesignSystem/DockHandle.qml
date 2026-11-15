@@ -44,7 +44,7 @@ AbstractButton {
             x: root.vertical ? (parent.width - width) / 2 : parent.width / 2 + 5
             y: root.vertical ? parent.height / 2 + 5 : (parent.height - height) / 2
             name: "chevron"
-            color: DesignTokens.muted
+            color: DesignTokens.neutralMuted
             rotation: root.edge === Qt.TopEdge ? 90 : root.edge === Qt.RightEdge ? 180 : 0
         }
     }

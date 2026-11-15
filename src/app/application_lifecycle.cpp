@@ -37,6 +37,12 @@ void ApplicationLifecycle::attach_content_catalog(ContentCatalogService* service
 }
 void ApplicationLifecycle::attach_updates(LauncherUpdateService* service) {
   updates_ = service;
+  connect(runtime_, &GameRuntime::settings_changed, this, [this] {
+    if (phase_ != "ready") return;
+    const auto channel = runtime_->preferences().value("updateChannel").toString();
+    if (updates_->status().value("channel") != channel && updates_->set_channel(channel))
+      updates_->check();
+  });
   connect(service, &LauncherUpdateService::drained, this, &ApplicationLifecycle::drain);
   connect(service, &LauncherUpdateService::restart_requested, this,
           &ApplicationLifecycle::shutdown);
@@ -81,7 +87,10 @@ void ApplicationLifecycle::initialize_services() {
   notify("initializing_services");
   account_->restore();
   if (multiplayer_) multiplayer_->restore();
-  if (updates_) updates_->check();
+  if (updates_) {
+    updates_->set_channel(runtime_->preferences().value("updateChannel").toString());
+    updates_->check();
+  }
 }
 void ApplicationLifecycle::complete(const QString& owner, const QString& error) {
   if (phase_ != "initializing") return;
