@@ -39,7 +39,7 @@ jobs:
           "value=$version" >> $env:GITHUB_OUTPUT
       - name: Restore static Qt kit
         id: qt-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             D:/bugg-qt/static
