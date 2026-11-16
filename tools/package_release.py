@@ -17,7 +17,6 @@ def main():
         'windows-x64', 'linux-x86_64', 'linux-arm64', 'macos-arm64', 'macos-x86_64'])
     parser.add_argument('--languages', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--migration-entry', action='append', default=[])
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {'format': 1, 'version': args.version, 'platform': args.platform}
@@ -43,11 +42,6 @@ def main():
                 raise ValueError('Use --directory for a deployed macOS/Linux application')
             executable = args.executable
             archive.write(executable, 'bugg.exe')
-            archive.write(executable, 'Buggcraft.exe')
-            for entry in args.migration_entry:
-                if Path(entry).name != entry or not entry.endswith('.exe'):
-                    raise ValueError('Invalid historical executable entry')
-                archive.write(executable, entry)
         archive.writestr('bugg-update.json', json.dumps(manifest) + '\n')
     (args.output / 'BUGGCRAFT_VERSION.txt').write_text(args.version + '\n', encoding='ascii', newline='\n')
     languages = list(args.languages.glob('Bugg-language-*.qm'))

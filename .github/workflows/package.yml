@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: f4480e00b6168cbdd8eef49040201e8cc734f25f
+          ref: 0d04e5a75e92643dddf10b9444ea8477bf559b7a
           path: minecraft-tunnel-native
       - uses: actions/setup-python@v5
         if: vars.BUGG_RELEASE_QT_ROOT == ''
@@ -90,7 +90,7 @@ jobs:
           $bridge = Start-Process -FilePath 'D:/bugg-package/bugg.exe' -ArgumentList @('--native-bridge', '--version') -WindowStyle Hidden -Wait -PassThru
           if ($bridge.ExitCode -ne 0) { throw 'Bridge entry failed' }
       - name: Package update and language assets
-        run: python bugg/tools/package_release.py --version '${{ steps.version.outputs.value }}' --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release --migration-entry Bugg-v1.1.0.exe
+        run: python bugg/tools/package_release.py --version '${{ steps.version.outputs.value }}' --executable D:/bugg-package/bugg.exe --languages D:/bugg-build/launcher/language-assets --output D:/bugg-release
       - uses: actions/upload-artifact@v4
         with:
           name: Bugg-v${{ steps.version.outputs.value }}-windows-x64

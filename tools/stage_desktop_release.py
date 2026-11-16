@@ -17,9 +17,9 @@ def main():
     args = parser.parse_args()
     node_platform = args.platform.replace('x86_64', 'x64')
     headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'User-Agent': 'Bugg-desktop-package'}
-    with urlopen(Request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.12', headers=headers), timeout=45) as response:
+    with urlopen(Request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.13', headers=headers), timeout=45) as response:
         release = json.load(response)
-    name = f'buggcraft-native-0.3.12-{node_platform}.tar.gz'
+    name = f'buggcraft-native-0.3.13-{node_platform}.tar.gz'
     asset = next(item for item in release['assets'] if item['name'] == name)
     archive = Path(name)
     with urlopen(asset['browser_download_url'], timeout=120) as response:

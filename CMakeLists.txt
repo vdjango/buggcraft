@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-set(BUGG_BUILD_VERSION "2.0.3" CACHE STRING "Application version for this build")
+set(BUGG_BUILD_VERSION "2.0.4" CACHE STRING "Application version for this build")
 project(Bugg VERSION ${BUGG_BUILD_VERSION} LANGUAGES C CXX)
 include(cmake/MsvcDependencies.cmake)
 

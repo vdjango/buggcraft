@@ -35,7 +35,9 @@ def main():
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         assert json.loads(archive.read('bugg-update.json')) == {'format': 1, 'version': version, 'platform': 'windows-x64'}
         executable = archive.read('bugg.exe')
-        assert executable.startswith(b'MZ') and archive.read('Buggcraft.exe') == executable
+        assert executable.startswith(b'MZ')
+        if 'Buggcraft.exe' in archive.namelist():
+            assert archive.read('Buggcraft.exe') == executable
         if version == '2.0.1':
             assert archive.read('Bugg-v1.1.0.exe') == executable
     executable_hash = hashlib.sha256(executable).hexdigest()
@@ -53,7 +55,9 @@ def main():
         assert len(data) == desktop['size'] and desktop['digest'] == 'sha256:' + digest
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             assert json.loads(archive.read('bugg-update.json')) == {'format': 1, 'version': version, 'platform': platform}
-            entry = 'Contents/MacOS/bugg' if platform.startswith('macos-') else 'bugg'
+            entry = 'Bugg.app/Contents/MacOS/bugg' if platform.startswith('macos-') else 'bugg'
+            if entry not in archive.namelist() and platform.startswith('macos-'):
+                entry = 'Contents/MacOS/bugg'
             assert archive.getinfo(entry).external_attr >> 16 & 0o111
             bridge = str(PurePosixPath(entry).parent / 'native/bin/buggcraft-bridge')
             assert archive.getinfo(bridge).external_attr >> 16 & 0o111
