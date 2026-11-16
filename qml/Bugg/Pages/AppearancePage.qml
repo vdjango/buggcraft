@@ -141,7 +141,7 @@ PageLayout {
     }
     UiText {
         Layout.fillWidth: true
-        text: qsTr("默认仅首页显示背景；其他页面使用 2 倍全屏模糊。视频默认静音，窗口隐藏或游戏运行时暂停。")
+        text: qsTr("背景仅用于页面外观，悬浮面板不播放。默认仅首页显示；其他页面使用 2 倍全屏模糊。视频默认静音，窗口隐藏或游戏运行时暂停。")
         color: DesignTokens.muted
         wrapMode: Text.Wrap
     }

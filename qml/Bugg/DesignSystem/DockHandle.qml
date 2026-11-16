@@ -17,6 +17,8 @@ AbstractButton {
     background: InteractiveSurface {
         control: root
         radius: 12
+        restingColor: DesignTokens.background
+        hoverColor: DesignTokens.neutralHover
     }
     contentItem: Item {
         scale: root.down ? 0.96 : root.hovered ? 1.02 : 1

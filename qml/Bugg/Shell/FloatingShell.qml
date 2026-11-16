@@ -22,6 +22,7 @@ Item {
     property bool fixedViewport: false
     readonly property bool showingSubpage: canGoBack && activeTool >= 0
     property bool immersiveHome: false
+    property bool mediaAllowed: true
     property bool backdropAllowed: true
     property var backgrounds: []
     property bool backgroundActive: true
@@ -39,6 +40,7 @@ Item {
     readonly property real requestedHeight: (76 + (activeTool >= 0 ? contentHeight + noticeExtent : 0)) * (1 - pageMode) + pageExtent * pageMode
     readonly property alias contentHost: page.contentHost
     readonly property alias backdropColor: frame.backdropColor
+    readonly property alias pageBackdrop: frame.backdropPageMode
     readonly property real viewportHeight: page.viewportHeight
     readonly property real bodyReveal: Math.max(0, Math.min(1, (dock.foldReveal - 0.38) / 0.62))
     signal navigateRequested(int index)
@@ -61,17 +63,17 @@ Item {
         anchors.fill: parent
         radius: 19 - root.pageMode * 7
         color: root.immersiveHome ? DesignTokens.sceneBase : root.pageMode > 0.5 ? DesignTokens.elevated : DesignTokens.background
-        backdropSource: DesignTokens.homeBackdrop
-        backdropSources: root.backgrounds.length ? root.backgrounds : DesignTokens.homeBackdrops
+        backdropSource: root.mediaAllowed ? DesignTokens.homeBackdrop : ""
+        backdropSources: root.mediaAllowed ? (root.backgrounds.length ? root.backgrounds : DesignTokens.homeBackdrops) : []
         backdropShade: root.backgrounds.length > 0
         backdropActive: root.backgroundActive
         backdropEffects: root.backgroundEffects
-        backdropPageMode: root.backgroundOnPages && !root.immersiveHome
+        backdropPageMode: root.mediaAllowed && root.backgroundOnPages && !root.immersiveHome && root.backdropAllowed && !root.dock.compact && root.activeTool >= 0
         backdropSoundEnabled: root.backgroundSoundEnabled
         backdropPageOverlayOpacity: root.backgroundPageOverlayOpacity
-        backdropOpacity: root.immersiveHome || root.backgroundOnPages ? 1 : 0
+        backdropOpacity: root.immersiveHome || frame.backdropPageMode ? 1 : 0
         // 收起/贴边时立即去掉图片，不能把整张背景压缩成小条。
-        backdropVisible: root.backdropAllowed && !root.dock.compact && root.activeTool >= 0
+        backdropVisible: root.mediaAllowed && root.backdropAllowed && !root.dock.compact && root.activeTool >= 0
         ProgressSurface {
             objectName: "topActivity"
             anchors.top: parent.top

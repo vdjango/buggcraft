@@ -55,10 +55,16 @@ Item {
         readonly property int playbackState: player.playbackState
         readonly property int position: player.position
         readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
+        MediaDevices {
+            id: devices
+        }
         AudioOutput {
             id: audio
+            objectName: "backgroundAudioOutput"
+            device: devices.defaultAudioOutput
             muted: videoLayer.muted
-            volume: 1
+            // Keep the backend volume in sync as well as the mute flag.
+            volume: videoLayer.muted ? 0 : 1
         }
         MediaPlayer {
             id: player

@@ -2768,16 +2768,25 @@ Window { width:410; height:620; visible:true; color:"white"
       QVERIFY(runtime.set_preference("backgroundOnPages", true));
       QVERIFY(runtime.set_preference("pageOverlayOpacity", 0.10));
       QMetaObject::invokeMethod(deck, "openPage", Q_ARG(QVariant, "appearance"));
-      QTRY_VERIFY(backdrop->property("active").toBool());
-      QCOMPARE(backdrop->property("blurStyle").toString(), "full");
-      QCOMPARE(backdrop->property("blurAmount").toDouble(), 0.5);
+      const bool page_layout = QString(theme) != "panel";
+      QTRY_COMPARE(backdrop->property("active").toBool(), page_layout);
       auto* page_veil = window->findChild<QQuickItem*>("pageBackdropVeil");
       QVERIFY(page_veil);
-      const auto veil_color = page_veil->property("color").value<QColor>();
-      QVERIFY(qAbs(veil_color.alphaF() - 0.10) < 0.005);
       auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
       QVERIFY(tokens);
-      QVERIFY(qAbs(tokens->property("canvas").value<QColor>().alphaF() - 0.10) < 0.005);
+      if (page_layout) {
+        QCOMPARE(backdrop->property("blurStyle").toString(), "full");
+        QCOMPARE(backdrop->property("blurAmount").toDouble(), 0.5);
+        QVERIFY(page_veil->isVisible());
+        const auto veil_color = page_veil->property("color").value<QColor>();
+        QVERIFY(qAbs(veil_color.alphaF() - 0.10) < 0.005);
+        QVERIFY(qAbs(tokens->property("canvas").value<QColor>().alphaF() - 0.10) < 0.005);
+      } else {
+        QVERIFY(!backdrop->property("visible").toBool());
+        QVERIFY(backdrop->property("currentSource").toUrl().isEmpty());
+        QVERIFY(!page_veil->isVisible());
+        QCOMPARE(tokens->property("canvas").value<QColor>().alphaF(), 1.0);
+      }
       QTest::qWait(500);
       QVERIFY(window->grabWindow().save(shots + "/appearance-" + theme + ".png"));
       auto* top = window->findChild<QQuickItem*>("topActivity");
@@ -2866,7 +2875,6 @@ Window { width:410; height:620; visible:true; color:"white"
     runtime.initialize();
     QTRY_VERIFY_WITH_TIMEOUT(!runtime.loading_instances(), 15000);
     const QVariantList sources{QUrl::fromLocalFile(video).toString()};
-    QVERIFY(runtime.set_preference("backgrounds", sources));
     QVERIFY(runtime.set_preference("theme", "classic"));
     QVERIFY(runtime.set_preference("backgroundOnPages", true));
     DesktopEnvironment desktop;
@@ -2881,6 +2889,8 @@ Window { width:410; height:620; visible:true; color:"white"
     auto* backdrop = window->findChild<QObject*>("windowBackdrop");
     auto* dock = window->findChild<QObject*>("edgeDock");
     dock->setProperty("autoFoldEnabled", false);
+    // Match selecting the first video after the launcher is already open.
+    QVERIFY(runtime.set_preference("backgrounds", sources));
     QTRY_VERIFY_WITH_TIMEOUT(backdrop->property("videoPlaying").toBool(), 15000);
     auto* front = backdrop->property("front").value<QObject*>();
     QVERIFY(front);
@@ -2891,8 +2901,14 @@ Window { width:410; height:620; visible:true; color:"white"
     QSignalSpy destroyed(front, &QObject::destroyed);
     QSignalSpy source_changed(front, SIGNAL(sourceChanged()));
     QSignalSpy sound_visible(sound, &QQuickItem::visibleChanged);
+    auto* audio = front->findChild<QObject*>("backgroundAudioOutput");
+    QVERIFY(audio);
+    QVERIFY(audio->property("muted").toBool());
+    QCOMPARE(audio->property("volume").toFloat(), 0.0f);
     QVERIFY(QMetaObject::invokeMethod(sound, "clicked"));
     QTRY_VERIFY(runtime.preferences().value("backgroundSoundEnabled").toBool());
+    QTRY_VERIFY(!audio->property("muted").toBool());
+    QTRY_COMPARE(audio->property("volume").toFloat(), 1.0f);
     QVERIFY(runtime.set_preference("pageOverlayOpacity", 0.12));
     QVERIFY(runtime.set_preference("backgrounds", sources));
     emit runtime.tasks_changed();
@@ -2934,6 +2950,14 @@ Window { width:410; height:620; visible:true; color:"white"
       QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, theme));
       QMetaObject::invokeMethod(deck, "goHome");
       QTest::qWait(600);
+      if (QString(theme) == "panel") {
+        QTRY_VERIFY(!backdrop->property("videoPlaying").toBool());
+        QVERIFY(backdrop->property("currentSource").toUrl().isEmpty());
+        QTRY_VERIFY(window->findChildren<QObject*>("backgroundAudioOutput").isEmpty());
+        auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+        QVERIFY(tokens && !tokens->property("pageBackdrop").toBool());
+        QCOMPARE(tokens->property("surface").value<QColor>().alphaF(), 1.0);
+      }
       auto* empty = visual_item(window->contentItem(), "instanceButton");
       QVERIFY(empty && empty->property("attention").toBool());
       QVERIFY(window->grabWindow().save(shots + "/empty-" + theme + ".png"));
@@ -2966,6 +2990,20 @@ Window { width:410; height:620; visible:true; color:"white"
       QVERIFY(window->grabWindow().save(shots + "/update-" + theme + ".png"));
       QVERIFY(runtime.set_preference("updateChannel", "beta"));
     }
+    QMetaObject::invokeMethod(deck, "goHome");
+    QMetaObject::invokeMethod(controller, "collapseToEdge", Q_ARG(QVariant, int(Qt::TopEdge)));
+    QTRY_VERIFY(dock->property("folded").toBool());
+    QTest::qWait(500);
+    auto* handle = visual_item(window->contentItem(), "dockHandle");
+    QVERIFY(handle && handle->isVisible());
+    auto* handle_background = handle->property("background").value<QObject*>();
+    QVERIFY(handle_background);
+    QCOMPARE(handle_background->property("color").value<QColor>().alphaF(), 1.0);
+    QVERIFY(window->grabWindow().save(shots + "/folded-panel.png"));
+    QMetaObject::invokeMethod(controller, "selectTheme", Q_ARG(QVariant, "classic"));
+    QTRY_VERIFY_WITH_TIMEOUT(backdrop->property("videoPlaying").toBool(), 15000);
+    QTRY_VERIFY(window->findChild<QObject*>("backgroundAudioOutput"));
+    QVERIFY(runtime.preferences().value("backgroundSoundEnabled").toBool());
     window->close();
     runtime.shutdown();
     QTRY_VERIFY(!runtime.busy());

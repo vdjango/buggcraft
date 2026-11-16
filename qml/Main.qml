@@ -293,7 +293,7 @@ ApplicationWindow {
     Binding {
         target: DesignTokens
         property: "pageBackdrop"
-        value: !!floatingShell && floatingShell.backgroundOnPages && !floatingShell.immersiveHome && !presentation.collapsed
+        value: floatingShell.pageBackdrop
     }
     Binding {
         target: DesignTokens
@@ -355,6 +355,7 @@ ApplicationWindow {
         onHeaderActionRequested: deck.openPage("roomSettings")
         showPageHeader: deck.showPageHeader
         backdropAllowed: !presentation.collapsed
+        mediaAllowed: !window.floating
         backgrounds: window.gameRuntime ? window.gameRuntime.preferences.backgrounds || [] : uiState.values["appearance.backgrounds"] || []
         backgroundActive: window.visible && window.visibility !== Window.Minimized && launch.status.state !== "running"
         backgroundEffects: window.gameRuntime ? window.gameRuntime.preferences : ({})
