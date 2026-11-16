@@ -204,13 +204,20 @@ void LauncherUpdateService::download() {
             update_failure(QObject::tr("此安装包不适用于当前原生启动器"));
           auto entries = archive_entries(archive, cancelled);
           entries.removeAll("bugg-update.json");
+          QString prefix;
+#ifdef Q_OS_MACOS
+          if (entries.contains("Bugg.app/Contents/MacOS/bugg")) prefix = "Bugg.app/";
+#endif
           QStringList files;
           for (const auto& name : entries) {
             if (name.endsWith('/')) continue;
-            const auto top = name.section('/', 0, 0).toLower();
+            if (!name.startsWith(prefix))
+              update_failure(QObject::tr("更新包包含应用目录以外的文件"));
+            const auto relative = name.mid(prefix.size());
+            const auto top = relative.section('/', 0, 0).toLower();
             if (top.startsWith('.') || top.endsWith(".cmd") || top == "versions" || top == "saves")
               update_failure(QObject::tr("更新包包含用户数据或启动入口"));
-            files.append(name);
+            files.append(relative);
           }
           bool renamed = false;
 #ifdef Q_OS_WIN
@@ -223,7 +230,7 @@ void LauncherUpdateService::download() {
           if ((!files.contains(executable) && !renamed) || files.size() > 20000)
             update_failure(QObject::tr("更新包缺少启动程序"));
           const auto stage = folder + "/payload";
-          archive_extract(archive, stage, "", {}, cancelled, true);
+          archive_extract(archive, stage, prefix, {}, cancelled, true);
           if (renamed) {
             copy_file(safe_path(stage, "bugg.exe"), safe_path(stage, executable), cancelled);
             files.append(executable);

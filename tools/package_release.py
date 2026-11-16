@@ -36,7 +36,8 @@ def main():
                     path = Path(folder) / name
                     if not path.resolve().is_relative_to(root):
                         raise ValueError('Deployment contains an external symbolic link')
-                    archive.write(path, path.relative_to(root).as_posix())
+                    relative = path.relative_to(root).as_posix()
+                    archive.write(path, ('Bugg.app/' if args.platform.startswith('macos-') else '') + relative)
         else:
             if not args.executable or args.platform != 'windows-x64':
                 raise ValueError('Use --directory for a deployed macOS/Linux application')
