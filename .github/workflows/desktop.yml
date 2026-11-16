@@ -1,4 +1,4 @@
-name: Build native macOS and Linux packages
+name: Build local update test for Apple Silicon
 on:
   workflow_call:
   workflow_dispatch:
@@ -10,24 +10,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            qt_host: linux
-            qt_arch: linux_gcc_64
-          - os: ubuntu-24.04-arm
-            platform: linux-arm64
-            qt_host: linux_arm64
-            qt_arch: linux_gcc_arm64
           - os: macos-15
             platform: macos-arm64
             qt_host: mac
             qt_arch: clang_64
             cpu: arm64
-          - os: macos-15-intel
-            platform: macos-x86_64
-            qt_host: mac
-            qt_arch: clang_64
-            cpu: x86_64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -64,7 +51,7 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             options+=("-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cpu }}" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DOPENSSL_USE_STATIC_LIBS=ON "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
           fi
-          cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUGG_DESKTOP_PACKAGE=ON '-DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }}' "${options[@]}"
+          cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUGG_DESKTOP_PACKAGE=ON -DBUGG_LANGUAGE_ASSET_VERSION=2.0.2 "${options[@]}"
       - name: Build and deploy Qt application
         shell: bash
         run: |
