@@ -48,7 +48,7 @@ def main():
                     raise ValueError('Invalid historical executable entry')
                 archive.write(executable, entry)
         archive.writestr('bugg-update.json', json.dumps(manifest) + '\n')
-    (args.output / 'BUGGCRAFT_VERSION.txt').write_text(args.version + '\n', encoding='ascii')
+    (args.output / 'BUGGCRAFT_VERSION.txt').write_text(args.version + '\n', encoding='ascii', newline='\n')
     languages = list(args.languages.glob('Bugg-language-*.qm'))
     if not languages:
         raise ValueError('No language sidecars were built')
