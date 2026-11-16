@@ -233,6 +233,31 @@ class RuntimeTest : public QObject {
     QCOMPARE(updates.status().value("state").toString(), "idle");
     updates.shutdown();
   }
+  void launcher_update_cleanup_preserves_unknown_files_and_active_entry() {
+    QTemporaryDir directory;
+    const auto root = directory.filePath("target"), cache = directory.filePath("cache");
+    const auto previous = cache + "/updates/" + QString(64, 'a');
+    const auto put = [](const QString& path, const QByteArray& bytes) {
+      QDir().mkpath(QFileInfo(path).absolutePath());
+      QFile file(path);
+      return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    };
+    QVERIFY(put(root + "/bugg.exe", "new program"));
+    QVERIFY(put(root + "/Bugg-v1.1.0.exe", "previous program"));
+    QVERIFY(put(root + "/Buggcraft.exe", "unrelated user program"));
+    QVERIFY(put(root + "/Bugg-v9.9.9.exe", "previous program"));
+    QVERIFY(put(previous + "/previous/bugg.exe", "previous program"));
+    write_json(previous + "/install.json", {{"target", root}, {"executable", "bugg.exe"}});
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    LauncherUpdateService::cleanup_legacy_entries(root, cache, "bugg.exe", cancelled);
+    QVERIFY(!QFileInfo::exists(root + "/Bugg-v1.1.0.exe"));
+    QVERIFY(QFileInfo::exists(root + "/Buggcraft.exe"));
+    QVERIFY(QFileInfo::exists(root + "/Bugg-v9.9.9.exe"));
+    QVERIFY(QFileInfo::exists(root + "/bugg.exe"));
+    QVERIFY(put(root + "/Bugg-v1.1.0.exe", "new program"));
+    LauncherUpdateService::cleanup_legacy_entries(root, cache, "Bugg-v1.1.0.exe", cancelled);
+    QVERIFY(QFileInfo::exists(root + "/Bugg-v1.1.0.exe"));
+  }
   void launcher_update_rolls_back_files_on_failed_replacement() {
     QTemporaryDir root;
     const auto target = root.filePath("target"), stage = root.filePath("stage");

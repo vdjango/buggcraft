@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: vdjango/minecraft-tunnel-native
-          ref: 0d04e5a75e92643dddf10b9444ea8477bf559b7a
+          ref: 222f9de7c105267a1f6b102e95bd763d6a110420
           path: minecraft-tunnel-native
       - uses: actions/setup-python@v5
         if: vars.BUGG_RELEASE_QT_ROOT == ''

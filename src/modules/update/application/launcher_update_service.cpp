@@ -120,6 +120,26 @@ bool LauncherUpdateService::set_channel(const QString& channel) {
 }
 void LauncherUpdateService::check() {
   if (closing_ || request_ || working_ || state_.value("state") == "ready") return;
+#ifdef Q_OS_WIN
+  const auto root = installation_root();
+  if (!std::exchange(cleanup_checked_, true) &&
+      (QFileInfo::exists(QDir(root).filePath("Buggcraft.exe")) ||
+       QFileInfo::exists(QDir(root).filePath("Bugg-v1.1.0.exe")))) {
+    working_ = true;
+    cancelled_ = std::make_shared<std::atomic_bool>(false);
+    auto* watcher = new QFutureWatcher<void>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
+      watcher->deleteLater();
+      working_ = false;
+      if (!closing_) check();
+      emit drained();
+    });
+    watcher->setFuture(QtConcurrent::run(
+        &LauncherUpdateService::cleanup_legacy_entries, root, cache_,
+        QDir(root).relativeFilePath(QCoreApplication::applicationFilePath()), cancelled_));
+    return;
+  }
+#endif
   release_.clear();
   auto url = endpoint_;
   QUrlQuery query;
@@ -278,6 +298,51 @@ void LauncherUpdateService::cancel() {
 void LauncherUpdateService::shutdown() {
   closing_ = true;
   cancel();
+}
+void LauncherUpdateService::cleanup_legacy_entries(const QString& root, const QString& cache,
+                                                   const QString& executable,
+                                                   const Cancellation& cancelled) {
+  try {
+    QStringList aliases;
+    for (const auto& name : {QStringLiteral("Buggcraft.exe"), QStringLiteral("Bugg-v1.1.0.exe")}) {
+      const QFileInfo file(QDir(root).filePath(name));
+      if (name.compare(executable, Qt::CaseInsensitive) && file.isFile() && !file.isSymLink())
+        aliases.append(name);
+    }
+    if (aliases.isEmpty()) return;
+    QStringList originals{safe_path(root, executable)};
+    const QDir updates(QDir(cache).filePath("updates"));
+    static const QRegularExpression digest_directory("^[0-9a-f]{64}$");
+    const auto folders = updates.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+    for (const auto& folder : folders.mid(0, 32)) {
+      if (cancelled->load()) return;
+      if (folder.isSymLink() || !digest_directory.match(folder.fileName()).hasMatch()) continue;
+      const QDir directory(folder.absoluteFilePath());
+      if (!QFileInfo::exists(directory.filePath("install.json"))) continue;
+      const auto plan = read_json(directory.filePath("install.json"));
+      if (QDir(plan["target"].toString()).canonicalPath() != QDir(root).canonicalPath()) continue;
+      const auto name = plan["executable"].toString();
+      if (QFileInfo(name).fileName() != name || name.isEmpty()) continue;
+      const auto previous = directory.filePath("previous/" + name);
+      if (QFileInfo(previous).isFile() && !QFileInfo(previous).isSymLink())
+        originals.append(previous);
+    }
+    for (const auto& name : aliases) {
+      const auto alias = safe_path(root, name);
+      const auto size = QFileInfo(alias).size();
+      if (size <= 0 || size > 128 * 1024 * 1024) continue;
+      const auto digest = file_digest(alias, "sha256", cancelled);
+      for (const auto& original : originals) {
+        if (QFileInfo(original).size() == size &&
+            digest == file_digest(original, "sha256", cancelled)) {
+          QFile::remove(alias);
+          break;
+        }
+      }
+    }
+  } catch (...) {
+    // Migration never prevents launch or update. Unverifiable files stay put.
+  }
 }
 int LauncherUpdateService::apply_staged(const QString& path) {
   const auto plan = read_json(path);

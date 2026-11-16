@@ -7,6 +7,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import tarfile
+import time
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
@@ -17,8 +19,17 @@ def main():
     args = parser.parse_args()
     node_platform = args.platform.replace('x86_64', 'x64')
     headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'User-Agent': 'Bugg-desktop-package'}
-    with urlopen(Request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.13', headers=headers), timeout=45) as response:
-        release = json.load(response)
+    deadline = time.monotonic() + 1800
+    while True:
+        try:
+            with urlopen(Request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.13', headers=headers), timeout=45) as response:
+                release = json.load(response)
+            break
+        except HTTPError as error:
+            if error.code != 404 or time.monotonic() >= deadline:
+                raise
+            # Independent platform builds may finish before the node publishes.
+            time.sleep(15)
     name = f'buggcraft-native-0.3.13-{node_platform}.tar.gz'
     asset = next(item for item in release['assets'] if item['name'] == name)
     archive = Path(name)

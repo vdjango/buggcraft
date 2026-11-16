@@ -28,6 +28,10 @@ class LauncherUpdateService : public QObject {
   bool busy() const { return working_; }
   /// Dedicated native helper entry, before constructing the GUI application.
   static int apply_staged(const QString& plan_path);
+  /// Worker-only best-effort migration: remove known duplicate EXE aliases only
+  /// when bytes match this installation's current or rollback executable.
+  static void cleanup_legacy_entries(const QString& root, const QString& cache,
+                                     const QString& executable, const Cancellation& cancelled);
  signals:
   void changed();
   void drained();
@@ -41,7 +45,7 @@ class LauncherUpdateService : public QObject {
   QVariantMap state_{{"state", "idle"}}, release_;
   quint64 request_ = 0;
   Cancellation cancelled_;
-  bool working_ = false, closing_ = false;
+  bool working_ = false, closing_ = false, cleanup_checked_ = false;
 };
 }  // namespace bugg
 #endif
