@@ -785,6 +785,16 @@ QVariantMap GameRuntime::instance_settings(const QString& id) const {
   value["overridden"] = !id.isEmpty() && !overrides.isEmpty();
   return value;
 }
+QString GameRuntime::usage_identity() {
+  if (closing_ || initializing_) return {};
+  auto id = settings_.value("usageInstallationId").toString();
+  if (id.isEmpty()) {
+    id = QUuid::createUuid().toString(QUuid::Id128);
+    settings_["usageInstallationId"] = id;
+    save_settings();
+  }
+  return id;
+}
 QVariantMap GameRuntime::preferences() const {
   auto value = settings_.value("preferences").toMap();
   if (!value.contains("language")) value["language"] = "zh_cn";
@@ -797,6 +807,7 @@ QVariantMap GameRuntime::preferences() const {
   if (!value.contains("swipeHintSeen")) value["swipeHintSeen"] = false;
   if (!value.contains("contentTranslation")) value["contentTranslation"] = true;
   if (!value.contains("autoDependencies")) value["autoDependencies"] = true;
+  if (!value.contains("anonymousUsage")) value["anonymousUsage"] = true;
   if (!value.contains("backgroundStyle")) value["backgroundStyle"] = "edges";
   if (!value.contains("backgroundBlur")) value["backgroundBlur"] = 0.35;
   if (!value.contains("backgroundVignette")) value["backgroundVignette"] = 0.35;
@@ -821,7 +832,8 @@ bool GameRuntime::set_preference(const QString& key, const QVariant& input) {
       (key == "theme" &&
        !QStringList{"panel", "small", "classic", "large"}.contains(value.toString())) ||
       ((key == "showOverlayInFullscreen" || key == "swipeHintSeen" || key == "contentTranslation" ||
-        key == "autoDependencies" || key == "backgroundOnPages" || key == "backgroundSoundEnabled") &&
+        key == "autoDependencies" || key == "anonymousUsage" || key == "backgroundOnPages" ||
+        key == "backgroundSoundEnabled") &&
        value.metaType().id() != QMetaType::Bool) ||
       (key == "multiplayerOrigin" &&
        (value.metaType().id() != QMetaType::QString || value.toString().size() > 2048)) ||
@@ -835,15 +847,32 @@ bool GameRuntime::set_preference(const QString& key, const QVariant& input) {
         key == "pageOverlayOpacity") &&
        (!value.canConvert<double>() || !std::isfinite(value.toDouble()) || value.toDouble() < 0 ||
         value.toDouble() > 1)) ||
-      (key == "pageTextColor" &&
-       !QStringList{"light", "dark"}.contains(value.toString())) ||
+      (key == "pageTextColor" && !QStringList{"light", "dark"}.contains(value.toString())) ||
       (key == "identity" && value.metaType().id() != QMetaType::QVariantMap) ||
-      !QStringList{"language", "concurrency", "afterLaunch", "theme", "backgrounds",
-                   "selectedInstance", "identity", "swipeHintSeen", "contentTranslation",
-                   "autoDependencies", "multiplayerOrigin", "showOverlayInFullscreen",
-                   "agreementRevision", "backgroundDirectory", "backgroundStyle", "backgroundBlur",
-                   "backgroundVignette", "surfaceOpacity", "backgroundOnPages", "pageOverlayOpacity",
-                   "pageTextColor", "backgroundSoundEnabled", "updateChannel"}
+      !QStringList{"language",
+                   "concurrency",
+                   "afterLaunch",
+                   "theme",
+                   "backgrounds",
+                   "selectedInstance",
+                   "identity",
+                   "swipeHintSeen",
+                   "contentTranslation",
+                   "autoDependencies",
+                   "anonymousUsage",
+                   "multiplayerOrigin",
+                   "showOverlayInFullscreen",
+                   "agreementRevision",
+                   "backgroundDirectory",
+                   "backgroundStyle",
+                   "backgroundBlur",
+                   "backgroundVignette",
+                   "surfaceOpacity",
+                   "backgroundOnPages",
+                   "pageOverlayOpacity",
+                   "pageTextColor",
+                   "backgroundSoundEnabled",
+                   "updateChannel"}
            .contains(key))
     return false;
   if (preferences().value(key) == value) return true;

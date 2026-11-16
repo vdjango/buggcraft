@@ -1,5 +1,8 @@
 #include "app/application_lifecycle.h"
 
+#include <QJsonDocument>
+#include <QUuid>
+
 #include "modules/account/application/microsoft_account.h"
 #include "modules/catalog/application/content_catalog_service.h"
 #include "modules/game_install/application/game_runtime.h"
@@ -8,6 +11,7 @@
 #include "modules/settings/ui/source_settings.h"
 #include "modules/update/application/launcher_update_service.h"
 #include "platform/diagnostics/diagnostic_log.h"
+#include "platform/http/http_client.h"
 namespace bugg {
 namespace {
 constexpr auto agreement_revision = "2026-11-14";
@@ -50,6 +54,36 @@ void ApplicationLifecycle::attach_updates(LauncherUpdateService* service) {
 void ApplicationLifecycle::attach_languages(LanguageService* service) {
   languages_ = service;
   connect(service, &LanguageService::drained, this, &ApplicationLifecycle::drain);
+}
+void ApplicationLifecycle::attach_usage(HttpClient* http, const QUrl& endpoint) {
+  if (!http || usage_http_ || phase_ != "setup") return;
+  usage_http_ = http;
+  usage_endpoint_ = endpoint;
+  connect(http, &HttpClient::completed, this,
+          [this](quint64 id, const QByteArray&, const QString&) {
+            if (id == usage_request_) usage_request_ = 0;
+          });
+  connect(runtime_, &GameRuntime::settings_changed, this, [this] {
+    if (!runtime_->preferences().value("anonymousUsage").toBool() && usage_request_) {
+      usage_http_->cancel(usage_request_);
+      usage_request_ = 0;
+    }
+  });
+}
+void ApplicationLifecycle::report_usage() {
+  if (!usage_http_ || usage_reported_ || !runtime_->preferences().value("anonymousUsage").toBool())
+    return;
+  usage_reported_ = true;
+  HttpRequest request;
+  request.url = usage_endpoint_;
+  request.method = "POST";
+  request.headers["Content-Type"] = "application/json";
+  request.total_ms = 5000;
+  request.maximum_bytes = 1024;
+  request.body = QJsonDocument(QJsonObject{{"visitor", runtime_->usage_identity()},
+                                           {"event", QUuid::createUuid().toString(QUuid::Id128)}})
+                     .toJson(QJsonDocument::Compact);
+  usage_request_ = usage_http_->request(request);
 }
 QVariantMap ApplicationLifecycle::status() const {
   return {{"phase", phase_}, {"pending", pending_}, {"errors", errors_}, {"view", view_}};
@@ -108,6 +142,7 @@ void ApplicationLifecycle::complete(const QString& owner, const QString& error) 
   if (pending_.isEmpty()) {
     phase_ = "ready";
     notify("ready");
+    report_usage();
   } else
     emit changed();
 }
@@ -134,6 +169,10 @@ void ApplicationLifecycle::shutdown() {
   if (phase_ == "draining" || phase_ == "stopped") return;
   phase_ = "draining";
   notify("before_unmount");
+  if (usage_http_ && usage_request_) {
+    usage_http_->cancel(usage_request_);
+    usage_request_ = 0;
+  }
   account_->cancel();
   runtime_->shutdown();
   if (multiplayer_) multiplayer_->shutdown();

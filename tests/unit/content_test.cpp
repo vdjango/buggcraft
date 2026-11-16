@@ -3401,6 +3401,36 @@ TaskCard {
     }
     window->close();
   }
+  void anonymous_usage_setting_is_visible_and_optional() {
+    QQmlEngine engine;
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
+    const auto shots = QCoreApplication::applicationDirPath() + "/verification/usage";
+    QDir().mkpath(shots);
+    for (const int width : {410, 960}) {
+      auto* tokens = engine.singletonInstance<QObject*>("Bugg.DesignSystem", "DesignTokens");
+      tokens->setProperty("comfortable", width != 410);
+      tokens->setProperty("sizeClass", width == 410 ? "panel" : "classic");
+      QQuickWindow window;
+      window.resize(width, 650);
+      window.setColor(Qt::white);
+      QQmlComponent component(&engine);
+      component.setData("import QtQuick; import Bugg.Pages; GeneralPage { afterLaunch: 'keep' }",
+                        QUrl("file:///usage-general-fixture.qml"));
+      QScopedPointer<QObject> object(component.create());
+      QVERIFY2(object, qPrintable(component.errorString()));
+      auto* page = qobject_cast<QQuickItem*>(object.data());
+      page->setParentItem(window.contentItem());
+      page->setSize(QSizeF(width, 650));
+      window.show();
+      QTest::qWait(200);
+      auto* option = visual_item(window.contentItem(), "anonymousUsageToggle");
+      QVERIFY(option && option->isVisible());
+      QVERIFY(option->property("checked").toBool());
+      object->setProperty("anonymousUsage", false);
+      QVERIFY(!option->property("checked").toBool());
+      QVERIFY(window.grabWindow().save(shots + "/general-" + QString::number(width) + ".png"));
+    }
+  }
   void network_reference_pages_use_readonly_status_snapshots() {
     QQmlEngine engine;
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");

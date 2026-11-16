@@ -2,6 +2,7 @@
 #define BUGG_APP_APPLICATION_LIFECYCLE_H_
 #include <QObject>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantMap>
 namespace bugg {
 class GameRuntime;
@@ -11,6 +12,7 @@ class SourceSettings;
 class ContentCatalogService;
 class LauncherUpdateService;
 class LanguageService;
+class HttpClient;
 /// 应用寿命的唯一协调器。钩子类似组合式 UI 生命周期；首帧后初始化，退出异步汇聚。
 class ApplicationLifecycle : public QObject {
   Q_OBJECT
@@ -26,6 +28,9 @@ class ApplicationLifecycle : public QObject {
   void attach_updates(LauncherUpdateService* service);
   /// Optional language downloads share application cancellation/drain.
   void attach_languages(LanguageService* service);
+  /// Optional anonymous startup event after consent/ready; cancelled on shutdown, no timer.
+  void attach_usage(HttpClient* http,
+                    const QUrl& endpoint = QUrl("https://node.bugg.icu/v1/usage/launcher"));
   QString phase() const { return phase_; }
   QVariantMap status() const;
   /// GUI 装配完成、创建 QML 前调用；只发布 setup/before_mount，不执行重工作。
@@ -52,11 +57,16 @@ class ApplicationLifecycle : public QObject {
   void complete(const QString& owner, const QString& error);
   void initialize_services();
   void drain();
+  void report_usage();
   GameRuntime* runtime_;
   MultiplayerService* multiplayer_ = nullptr;
   ContentCatalogService* content_catalog_ = nullptr;
   LauncherUpdateService* updates_ = nullptr;
   LanguageService* languages_ = nullptr;
+  HttpClient* usage_http_ = nullptr;
+  QUrl usage_endpoint_;
+  quint64 usage_request_ = 0;
+  bool usage_reported_ = false;
   MicrosoftAccount* account_;
   SourceSettings* sources_;
   QString phase_ = "setup";

@@ -66,6 +66,8 @@ class GameRuntime : public GameRuntimePort {
   bool busy() const { return workers_ > 0; }
   /// GUI 调度环境/配置/实例工作；initialized(error) 在真实扫描完成后发出。
   void initialize();
+  /// GUI-only random per-install identifier; original async settings writer persists it.
+  QString usage_identity();
   /// GUI 幂等拒绝新任务并取消 worker；drained 异步确认，自有游戏保持运行。
   void shutdown();
   void select_sources(const QStringList& order, const QUrl& bugg_base = {}) {

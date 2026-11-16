@@ -7,9 +7,11 @@ PageLayout {
     property string afterLaunch: "keep"
     property bool showOverlayInFullscreen: false
     property bool autoDependencies: true
+    property bool anonymousUsage: true
     signal afterLaunchEdited(string value)
     signal showOverlayInFullscreenEdited(bool value)
     signal autoDependenciesEdited(bool value)
+    signal anonymousUsageEdited(bool value)
     SelectField {
         objectName: "afterLaunchSelector"
         Layout.fillWidth: true
@@ -76,6 +78,18 @@ PageLayout {
     UiText {
         Layout.fillWidth: true
         text: qsTr("关闭后仅安装所选文件；发现缺失依赖时由你决定是否处理。整合包仍遵循作者清单。")
+        color: DesignTokens.muted
+        wrapMode: Text.Wrap
+    }
+    CheckOption {
+        objectName: "anonymousUsageToggle"
+        text: qsTr("发送匿名使用统计")
+        checked: root.anonymousUsage
+        onToggled: root.anonymousUsageEdited(checked)
+    }
+    UiText {
+        Layout.fillWidth: true
+        text: qsTr("仅统计随机安装标识和启动次数，不发送用户名、角色名或游戏内容。")
         color: DesignTokens.muted
         wrapMode: Text.Wrap
     }

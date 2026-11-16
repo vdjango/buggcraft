@@ -685,6 +685,11 @@ Item {
             afterLaunch: root.preferences.afterLaunch
             showOverlayInFullscreen: root.preferences.showOverlayInFullscreen || false
             autoDependencies: root.preferences.autoDependencies !== false
+            anonymousUsage: root.preferences.anonymousUsage !== false
+            onAnonymousUsageEdited: value => {
+                if (root.runtime)
+                    root.runtime.set_preference("anonymousUsage", value);
+            }
             onAutoDependenciesEdited: value => {
                 if (root.runtime)
                     root.runtime.set_preference("autoDependencies", value);

@@ -146,6 +146,7 @@ int main(int argc, char* argv[]) {
   QObject::connect(&runtime, &bugg::GameRuntime::cache_root_changed, &languages,
                    [&] { languages.relocate_storage(runtime.cache_root()); });
   bugg::ApplicationLifecycle lifecycle(&runtime, &account, &sources);
+  lifecycle.attach_usage(&http);
   lifecycle.attach_updates(&updates);
   lifecycle.attach_languages(&languages);
   lifecycle.attach_multiplayer(&multiplayer);

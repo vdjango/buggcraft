@@ -2841,6 +2841,7 @@ class RuntimeTest : public QObject {
     SourceSettings sources(nullptr, root.path() + "/sources.json");
     GameRuntime runtime(root.path(), root.path() + "/.minecraft", &account);
     ApplicationLifecycle lifecycle(&runtime, &account, &sources);
+    lifecycle.attach_usage(&http, QUrl("https://statistics.invalid/v1/usage/launcher"));
     QSignalSpy hooks(&lifecycle, &ApplicationLifecycle::hook);
     QSignalSpy quit(&lifecycle, &ApplicationLifecycle::quit_ready);
     lifecycle.before_mount();
@@ -2850,6 +2851,18 @@ class RuntimeTest : public QObject {
     QVERIFY(http.requests.isEmpty());
     lifecycle.accept_agreement();
     QTRY_COMPARE_WITH_TIMEOUT(lifecycle.phase(), "ready", 15000);
+    QCOMPARE(http.requests.size(), 1);
+    const auto usage = QJsonDocument::fromJson(http.requests.first().body).object();
+    QCOMPARE(usage.size(), 2);
+    QCOMPARE(usage["visitor"].toString().size(), 32);
+    QCOMPARE(usage["event"].toString().size(), 32);
+    const auto usage_id = usage["visitor"].toString();
+    const auto request_id = http.sequence;
+    runtime.set_preference("anonymousUsage", false);
+    QVERIFY(http.cancelled.contains(request_id));
+    runtime.set_preference("anonymousUsage", true);
+    lifecycle.mounted();
+    QCOMPARE(http.requests.size(), 1);
     QTRY_COMPARE_WITH_TIMEOUT(runtime.instances().size(), 1, 15000);
     QCOMPARE(runtime.instances()[0].toMap().value("id").toString(), "real");
     QVERIFY(runtime.instance_settings("real").value("automatic").toBool());
@@ -2872,7 +2885,26 @@ class RuntimeTest : public QObject {
     QVERIFY(!reopened.instance_settings("real").value("automatic").toBool());
     QCOMPARE(reopened.instance_settings("real").value("memoryMB").toInt(), 3072);
     QVERIFY(reopened.environment().value("automaticMemoryMB").toInt() >= 512);
+    QCOMPARE(reopened.usage_identity(), usage_id);
     reopened.shutdown();
+  }
+  void lifecycle_usage_can_be_disabled_before_ready() {
+    QTemporaryDir root;
+    write_json(root.path() + "/.buggcraft/instance-settings.json",
+               {{"preferences",
+                 QJsonObject{{"anonymousUsage", false}, {"agreementRevision", "2026-11-14"}}}});
+    AuthHttp http;
+    MicrosoftAccount account(&http, root.path() + "/credentials.bin");
+    SourceSettings sources(nullptr, root.path() + "/sources.json");
+    GameRuntime runtime(root.path(), root.path() + "/.minecraft", &account);
+    ApplicationLifecycle lifecycle(&runtime, &account, &sources);
+    lifecycle.attach_usage(&http);
+    lifecycle.before_mount();
+    lifecycle.mounted();
+    QTRY_COMPARE_WITH_TIMEOUT(lifecycle.phase(), "ready", 15000);
+    QVERIFY(http.requests.isEmpty());
+    lifecycle.shutdown();
+    QTRY_COMPARE_WITH_TIMEOUT(lifecycle.phase(), "stopped", 15000);
   }
   void node_login_retry_and_cancellation_keep_one_authorization() {
     QTemporaryDir root;
