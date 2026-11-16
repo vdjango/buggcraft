@@ -123,6 +123,7 @@ jobs:
           GH_REPO: vdjango/buggcraft
         shell: powershell
         run: |
+          $ProgressPreference = 'SilentlyContinue'
           $headers = @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'}
           # Ship the matching node first. The launcher artifact remains staged
           # while the node's independent platform jobs finish publishing.
@@ -159,14 +160,15 @@ jobs:
           } else {
             $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
           }
-          $upload = $release.upload_url -replace '\{.*$', ''
           Get-ChildItem D:/bugg-release -File | ForEach-Object {
             $file = $_
             $existing = @($release.assets | Where-Object { $_.name -eq $file.Name })
             $digest = 'sha256:' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             if (!$existing.Count -or $existing[0].digest -ne $digest) {
               if ($existing.Count) { Invoke-RestMethod -Method Delete -Uri $existing[0].url -Headers $headers | Out-Null }
-              Invoke-RestMethod -Method Post -Uri ($upload + '?name=' + [uri]::EscapeDataString($file.Name)) -Headers $headers -ContentType 'application/octet-stream' -InFile $file.FullName | Out-Null
+              # Stream large desktop bundles with the native GitHub client.
+              gh release upload $env:GITHUB_REF_NAME $file.FullName --repo $env:GH_REPO
+              if ($LASTEXITCODE -ne 0) { throw ('Asset upload failed: ' + $file.Name) }
             }
           }
           Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json' -Body '{"draft":false}' | Out-Null
