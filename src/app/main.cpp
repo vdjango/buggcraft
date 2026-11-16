@@ -4,6 +4,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QTimer>
 #include <QVariant>
 #include <cstdio>
@@ -68,7 +69,6 @@ int main(int argc, char* argv[]) {
     QCoreApplication helper(argc, argv);
     return bugg::LauncherUpdateService::apply_staged(QString::fromLocal8Bit(argv[2]));
   }
-  previous_messages = qInstallMessageHandler(diagnostic_message);
   QGuiApplication app(argc, argv);
   QCoreApplication::setApplicationName("Bugg");
   QCoreApplication::setApplicationVersion(BUGG_VERSION);
@@ -80,6 +80,8 @@ int main(int argc, char* argv[]) {
   parser.addOption({"page", "Open a preview subpage.", "route"});
   parser.addOption({"capture", "Save a preview PNG, then exit.", "path"});
   parser.process(app);
+  previous_messages = qInstallMessageHandler(diagnostic_message);
+  const auto restore_messages = qScopeGuard([] { qInstallMessageHandler(previous_messages); });
 
   bugg::DesktopEnvironment desktop;
   bugg::HttpClient http;
