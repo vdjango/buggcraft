@@ -78,6 +78,16 @@ jobs:
         shell: bash
         run: |
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH LD_LIBRARY_PATH DYLD_LIBRARY_PATH
+          # Validate the actual distributable, rather than the pre-ZIP directory.
+          mv deployed-desktop deployed-before-archive
+          mkdir deployed-desktop
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            ditto -x -k 'desktop-release/Bugg-native-${{ matrix.platform }}.zip' deployed-desktop
+            test -f deployed-desktop/Bugg.app/Contents/Info.plist
+            codesign --verify --deep --strict deployed-desktop/Bugg.app
+          else
+            unzip -q 'desktop-release/Bugg-native-${{ matrix.platform }}.zip' -d deployed-desktop
+          fi
           mv "$QT_ROOT_DIR" "$QT_ROOT_DIR.build-only"
           trap 'mv "$QT_ROOT_DIR.build-only" "$QT_ROOT_DIR"' EXIT
           if [[ "$RUNNER_OS" == macOS ]]; then

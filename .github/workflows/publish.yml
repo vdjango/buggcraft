@@ -82,7 +82,7 @@ jobs:
           } while (!$nodeReady -and (Get-Date) -lt $nodeDeadline)
           if (!$nodeReady) { throw 'Matching node release v0.3.12 is not published; launcher remains staged' }
           $notes = [System.IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md'), [System.Text.Encoding]::UTF8)
-          $body = @{tag_name=$env:RELEASE_TAG;name='Bugg v${{ steps.version.outputs.value }}';body=$notes;draft=$true;prerelease=$false} | ConvertTo-Json
+          $body = @{tag_name=$env:RELEASE_TAG;name='Bugg v${{ steps.version.outputs.value }} (Test)';body=$notes;draft=$true;prerelease=$true;make_latest='false'} | ConvertTo-Json
           $release = $null
           try {
             $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases/tags/$env:RELEASE_TAG" -Headers $headers
@@ -102,6 +102,7 @@ jobs:
           }
           if ($release -and $release.url -isnot [string]) { throw 'Release lookup must return one record' }
           $published = $release -and !$release.draft
+          if ($published -and !$release.prerelease) { throw 'Only test releases are permitted' }
           if ($release) {
             if ($release.draft) {
               $release = Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
