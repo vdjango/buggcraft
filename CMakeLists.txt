@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-set(BUGG_BUILD_VERSION "2.0.1" CACHE STRING "Application version for this build")
+set(BUGG_BUILD_VERSION "2.0.2" CACHE STRING "Application version for this build")
 project(Bugg VERSION ${BUGG_BUILD_VERSION} LANGUAGES C CXX)
 include(cmake/MsvcDependencies.cmake)
 
@@ -183,6 +183,10 @@ if(WIN32)
 endif()
 if(BUGG_SINGLE_FILE)
     include(cmake/SingleFile.cmake)
+endif()
+option(BUGG_DESKTOP_PACKAGE "Deploy the native macOS/Linux application and Qt runtime" OFF)
+if(BUGG_DESKTOP_PACKAGE)
+    include(cmake/DesktopPackage.cmake)
 endif()
 
 # 原生引擎作为独立可替换的运行依赖；打包不引入旧 Python。

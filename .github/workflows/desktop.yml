@@ -1,0 +1,96 @@
+name: Build native macOS and Linux packages
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+            qt_host: linux
+            qt_arch: linux_gcc_64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            qt_host: linux_arm64
+            qt_arch: linux_gcc_arm64
+          - os: macos-15
+            platform: macos-arm64
+            qt_host: mac
+            qt_arch: clang_64
+            cpu: arm64
+          - os: macos-15-intel
+            platform: macos-x86_64
+            qt_host: mac
+            qt_arch: clang_64
+            cpu: x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libssl-dev libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 xvfb patchelf
+      - name: macOS crypto
+        if: runner.os == 'macOS'
+        run: brew install openssl@3 ninja
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          host: ${{ matrix.qt_host }}
+          arch: ${{ matrix.qt_arch }}
+          modules: qtmultimedia qtimageformats qtshadertools
+          cache: true
+      - name: Configure native application
+        shell: bash
+        run: |
+          options=()
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            options+=("-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cpu }}" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
+          fi
+          cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUGG_DESKTOP_PACKAGE=ON -DBUGG_LANGUAGE_ASSET_VERSION=2.0.2 "${options[@]}"
+      - name: Build and deploy Qt application
+        shell: bash
+        run: |
+          cmake --build build-desktop --target bugg --parallel 3
+          cmake --install build-desktop --prefix "$PWD/deployed"
+      - name: Stage published native bridge and package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/stage_desktop_release.py --platform '${{ matrix.platform }}' --version 2.0.2
+      - name: Verify deployed application without Qt SDK paths
+        shell: bash
+        run: |
+          unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH LD_LIBRARY_PATH DYLD_LIBRARY_PATH
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            deployed-desktop/Bugg.app/Contents/MacOS/native/bin/buggcraft-bridge --native-bridge --version
+            deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme classic --capture "$PWD/desktop-classic.png"
+            deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme panel --capture "$PWD/desktop-panel.png"
+          else
+            deployed-desktop/native/bin/buggcraft-bridge --native-bridge --version
+            xvfb-run -a deployed-desktop/bugg --theme classic --capture "$PWD/desktop-classic.png"
+            xvfb-run -a deployed-desktop/bugg --theme panel --capture "$PWD/desktop-panel.png"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bugg-v2.0.2-${{ matrix.platform }}
+          path: desktop-release/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-verification-${{ matrix.platform }}
+          path: |
+            desktop-classic.png
+            desktop-panel.png
+            desktop-deployment.json
+          if-no-files-found: warn

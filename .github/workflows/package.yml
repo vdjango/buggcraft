@@ -95,6 +95,27 @@ jobs:
           name: Bugg-v${{ steps.version.outputs.value }}-windows-x64
           path: D:/bugg-release/*
           if-no-files-found: error
+  desktop:
+    uses: ./.github/workflows/desktop.yml
+  publish:
+    needs: [windows, desktop]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bugg
+      - name: Read application version
+        id: version
+        shell: powershell
+        run: |
+          $match = [regex]::Match((Get-Content bugg/CMakeLists.txt -Raw), 'set\(BUGG_BUILD_VERSION "([^"]+)"')
+          "value=$($match.Groups[1].Value)" >> $env:GITHUB_OUTPUT
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Bugg-v${{ steps.version.outputs.value }}-*
+          merge-multiple: true
+          path: D:/bugg-release
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:

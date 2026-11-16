@@ -1,5 +1,6 @@
 #include <QCommandLineParser>
 #include <QGuiApplication>
+#include <QFileInfo>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -82,7 +83,12 @@ int main(int argc, char* argv[]) {
 
   bugg::DesktopEnvironment desktop;
   bugg::HttpClient http;
-  const auto portable = QCoreApplication::applicationDirPath();
+  auto portable = QCoreApplication::applicationDirPath();
+#ifdef Q_OS_MACOS
+  // User data stays beside the application, outside the signed app bundle.
+  if (portable.endsWith(".app/Contents/MacOS"))
+    portable = QFileInfo(portable.chopped(15)).absolutePath();
+#endif
   const auto cache = bugg::portable_cache_root(portable);
   bugg::GameCatalogService catalog(&http, bugg::supported_download_sources(), nullptr,
                                    cache + "/catalog-cache.json");
@@ -101,7 +107,7 @@ int main(int argc, char* argv[]) {
 #elif defined(Q_OS_WIN)
   const auto bridge = portable + "/native/bin/buggcraft-bridge.exe";
 #else
-  const auto bridge = portable + "/native/bin/buggcraft-bridge";
+  const auto bridge = QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge";
 #endif
   bugg::MultiplayerService multiplayer(&http, cache, bridge);
   QObject::connect(&runtime, &bugg::GameRuntime::feedback_prepared, &multiplayer,
