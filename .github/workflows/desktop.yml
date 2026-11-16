@@ -32,6 +32,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Read application version
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^set(BUGG_BUILD_VERSION "\([^"]*\)".*/\1/p' CMakeLists.txt)
+          test -n "$version"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -57,16 +64,16 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             options+=("-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cpu }}" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
           fi
-          cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUGG_DESKTOP_PACKAGE=ON -DBUGG_LANGUAGE_ASSET_VERSION=2.0.2 "${options[@]}"
+          cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUGG_DESKTOP_PACKAGE=ON '-DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }}' "${options[@]}"
       - name: Build and deploy Qt application
         shell: bash
         run: |
-          cmake --build build-desktop --target bugg --parallel 3
+          cmake --build build-desktop --target bugg bugg_presentationplugin --parallel 3
           cmake --install build-desktop --prefix "$PWD/deployed"
       - name: Stage published native bridge and package
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/stage_desktop_release.py --platform '${{ matrix.platform }}' --version 2.0.2
+        run: python tools/stage_desktop_release.py --platform '${{ matrix.platform }}' --version '${{ steps.version.outputs.value }}'
       - name: Verify deployed application without Qt SDK paths
         shell: bash
         run: |
@@ -82,7 +89,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Bugg-v2.0.2-${{ matrix.platform }}
+          name: Bugg-v${{ steps.version.outputs.value }}-${{ matrix.platform }}
           path: desktop-release/*
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
