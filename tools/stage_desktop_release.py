@@ -37,6 +37,10 @@ def main():
         shutil.copytree('deployed', root, symlinks=False)
         payload = root
         native = root / 'native'
+    notices = payload / ('Contents/Resources/licenses' if args.platform.startswith('macos-') else 'licenses')
+    notices.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile('LICENSE', notices / 'Bugg-AGPL-3.0.txt')
+    shutil.copyfile('third_party/notices/qt-6.8.1.txt', notices / 'Qt-6.8.1-and-third-party.txt')
     with tarfile.open(archive) as source:
         for entry in source.getmembers():
             # Reuse only the existing bridge runtime and its licenses. Do not

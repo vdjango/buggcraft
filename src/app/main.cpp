@@ -1,6 +1,6 @@
 #include <QCommandLineParser>
-#include <QGuiApplication>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
