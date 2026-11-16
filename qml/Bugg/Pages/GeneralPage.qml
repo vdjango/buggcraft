@@ -83,13 +83,13 @@ PageLayout {
     }
     CheckOption {
         objectName: "anonymousUsageToggle"
-        text: qsTr("发送匿名使用统计")
+        text: qsTr("发送使用统计")
         checked: root.anonymousUsage
         onToggled: root.anonymousUsageEdited(checked)
     }
     UiText {
         Layout.fillWidth: true
-        text: qsTr("仅统计随机安装标识和启动次数，不发送用户名、角色名或游戏内容。")
+        text: qsTr("记录启动次数与时间，登录官方联机服务时关联联机用户名；不发送角色名或游戏内容。")
         color: DesignTokens.muted
         wrapMode: Text.Wrap
     }

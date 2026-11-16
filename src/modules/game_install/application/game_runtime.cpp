@@ -837,7 +837,9 @@ bool GameRuntime::set_preference(const QString& key, const QVariant& input) {
        value.metaType().id() != QMetaType::Bool) ||
       (key == "multiplayerOrigin" &&
        (value.metaType().id() != QMetaType::QString || value.toString().size() > 2048)) ||
-      (key == "agreementRevision" && value.toString() != "2026-11-14") ||
+      (key == "agreementRevision" &&
+       (value.metaType().id() != QMetaType::QString || value.toString().size() != 10 ||
+        !QDate::fromString(value.toString(), Qt::ISODate).isValid())) ||
       (key == "backgrounds" && value.toList().size() > 100) ||
       (key == "backgroundDirectory" &&
        (value.metaType().id() != QMetaType::QString || value.toString().size() > 4096)) ||

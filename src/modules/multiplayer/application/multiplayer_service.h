@@ -19,6 +19,9 @@ class MultiplayerService : public QObject {
   QVariantMap feedback() const { return feedback_; }
   /// 官方入口唯一默认值；空登录参数使用此地址，QML 不保存或展示默认域名。
   static QString default_origin() { return QStringLiteral("https://node.bugg.icu"); }
+  /// GUI lifecycle supplies one process event after consent; empty clears future
+  /// reports. Only official managed node.add carries it, never a username/token.
+  void set_usage_event(const QJsonObject& event);
   /// GUI, called by GameRuntime after explicit consent and archive collection.
   /// Requires a managed official identity; bridge renews/verifies authentication,
   /// validates the receipt. Completion releases the runtime-owned temporary ZIP.
@@ -144,6 +147,7 @@ class MultiplayerService : public QObject {
   quint64 preparation_sequence_ = 0;
   QByteArray key_;
   QJsonObject profile_;
+  QJsonObject usage_event_;
   QDateTime deadline_;
   QDateTime renewal_retry_;
   QSet<QString> message_ids_;

@@ -28,7 +28,8 @@ class ApplicationLifecycle : public QObject {
   void attach_updates(LauncherUpdateService* service);
   /// Optional language downloads share application cancellation/drain.
   void attach_languages(LanguageService* service);
-  /// Optional anonymous startup event after consent/ready; cancelled on shutdown, no timer.
+  /// Optional startup event after consent/ready; the same ID is authenticated by
+  /// multiplayer login. Cancelled on shutdown, no timer or UI-held identity.
   void attach_usage(HttpClient* http,
                     const QUrl& endpoint = QUrl("https://node.bugg.icu/v1/usage/launcher"));
   QString phase() const { return phase_; }
@@ -67,6 +68,7 @@ class ApplicationLifecycle : public QObject {
   QUrl usage_endpoint_;
   quint64 usage_request_ = 0;
   bool usage_reported_ = false;
+  QString usage_event_;
   MicrosoftAccount* account_;
   SourceSettings* sources_;
   QString phase_ = "setup";

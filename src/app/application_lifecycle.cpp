@@ -14,7 +14,7 @@
 #include "platform/http/http_client.h"
 namespace bugg {
 namespace {
-constexpr auto agreement_revision = "2026-11-14";
+constexpr auto agreement_revision = "2026-11-16";
 }
 ApplicationLifecycle::ApplicationLifecycle(GameRuntime* runtime, MicrosoftAccount* account,
                                            SourceSettings* sources, QObject* parent)
@@ -64,6 +64,8 @@ void ApplicationLifecycle::attach_usage(HttpClient* http, const QUrl& endpoint) 
             if (id == usage_request_) usage_request_ = 0;
           });
   connect(runtime_, &GameRuntime::settings_changed, this, [this] {
+    if (!runtime_->preferences().value("anonymousUsage").toBool() && multiplayer_)
+      multiplayer_->set_usage_event({});
     if (!runtime_->preferences().value("anonymousUsage").toBool() && usage_request_) {
       usage_http_->cancel(usage_request_);
       usage_request_ = 0;
@@ -80,9 +82,9 @@ void ApplicationLifecycle::report_usage() {
   request.headers["Content-Type"] = "application/json";
   request.total_ms = 5000;
   request.maximum_bytes = 1024;
-  request.body = QJsonDocument(QJsonObject{{"visitor", runtime_->usage_identity()},
-                                           {"event", QUuid::createUuid().toString(QUuid::Id128)}})
-                     .toJson(QJsonDocument::Compact);
+  request.body =
+      QJsonDocument(QJsonObject{{"visitor", runtime_->usage_identity()}, {"event", usage_event_}})
+          .toJson(QJsonDocument::Compact);
   usage_request_ = usage_http_->request(request);
 }
 QVariantMap ApplicationLifecycle::status() const {
@@ -115,6 +117,10 @@ void ApplicationLifecycle::accept_agreement() {
   initialize_services();
 }
 void ApplicationLifecycle::initialize_services() {
+  usage_event_ = QUuid::createUuid().toString(QUuid::Id128);
+  if (multiplayer_ && runtime_->preferences().value("anonymousUsage").toBool())
+    multiplayer_->set_usage_event(
+        {{"visitor", runtime_->usage_identity()}, {"event", usage_event_}});
   phase_ = "initializing";
   pending_ = {"identity"};
   if (multiplayer_) pending_.append("multiplayer");

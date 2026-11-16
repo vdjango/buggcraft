@@ -134,6 +134,9 @@ MultiplayerService::MultiplayerService(HttpClient* http, QString cache, QString 
                                    : detail);
           });
 }
+void MultiplayerService::set_usage_event(const QJsonObject& event) {
+  if (!closing_) usage_event_ = event;
+}
 void MultiplayerService::submit_feedback(const QString& message, const QString& expected,
                                          const QString& contact, const QString& archive) {
   const auto reject = [this, &archive](const QString& error) {
@@ -348,6 +351,10 @@ void MultiplayerService::connect_profile() {
   if (!connected) status_["state"] = "connecting";
   emit changed();
   QJsonObject connection{{"selection", "latency"}};
+  if (origin_ == default_origin() && !usage_event_.isEmpty()) {
+    connection["usage"] = usage_event_;
+    connection["usage_origin"] = origin_;
+  }
   if (profile_.contains("control"))
     connection["profile"] = profile_;
   else

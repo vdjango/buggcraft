@@ -2842,6 +2842,8 @@ class RuntimeTest : public QObject {
     GameRuntime runtime(root.path(), root.path() + "/.minecraft", &account);
     ApplicationLifecycle lifecycle(&runtime, &account, &sources);
     lifecycle.attach_usage(&http, QUrl("https://statistics.invalid/v1/usage/launcher"));
+    MultiplayerService multiplayer(&http, root.path(), root.path() + "/missing-bridge");
+    lifecycle.attach_multiplayer(&multiplayer);
     QSignalSpy hooks(&lifecycle, &ApplicationLifecycle::hook);
     QSignalSpy quit(&lifecycle, &ApplicationLifecycle::quit_ready);
     lifecycle.before_mount();
@@ -2856,9 +2858,11 @@ class RuntimeTest : public QObject {
     QCOMPARE(usage.size(), 2);
     QCOMPARE(usage["visitor"].toString().size(), 32);
     QCOMPARE(usage["event"].toString().size(), 32);
+    QCOMPARE(multiplayer.usage_event_, usage);
     const auto usage_id = usage["visitor"].toString();
     const auto request_id = http.sequence;
     runtime.set_preference("anonymousUsage", false);
+    QVERIFY(multiplayer.usage_event_.isEmpty());
     QVERIFY(http.cancelled.contains(request_id));
     runtime.set_preference("anonymousUsage", true);
     lifecycle.mounted();
@@ -2892,7 +2896,7 @@ class RuntimeTest : public QObject {
     QTemporaryDir root;
     write_json(root.path() + "/.buggcraft/instance-settings.json",
                {{"preferences",
-                 QJsonObject{{"anonymousUsage", false}, {"agreementRevision", "2026-11-14"}}}});
+                 QJsonObject{{"anonymousUsage", false}, {"agreementRevision", "2026-11-16"}}}});
     AuthHttp http;
     MicrosoftAccount account(&http, root.path() + "/credentials.bin");
     SourceSettings sources(nullptr, root.path() + "/sources.json");
