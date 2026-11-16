@@ -212,11 +212,11 @@ int main(int argc, char* argv[]) {
   }
   int capture_exit_code = 0;
   if (parser.isSet("capture")) {
-    QTimer::singleShot(1300, window, [window, &lifecycle, &capture_exit_code,
-                                    path = parser.value("capture")] {
-      capture_exit_code = window->grabWindow().save(path) ? 0 : 1;
-      lifecycle.shutdown();
-    });
+    QTimer::singleShot(1300, window,
+                       [window, &lifecycle, &capture_exit_code, path = parser.value("capture")] {
+                         capture_exit_code = window->grabWindow().save(path) ? 0 : 1;
+                         lifecycle.shutdown();
+                       });
   }
   const auto exit_code = app.exec();
   return exit_code ? exit_code : capture_exit_code;
