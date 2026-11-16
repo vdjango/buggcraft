@@ -213,12 +213,23 @@ int main(int argc, char* argv[]) {
     });
   }
   int capture_exit_code = 0;
+  QTimer capture_timer;
   if (parser.isSet("capture")) {
-    QTimer::singleShot(1300, window,
-                       [window, &lifecycle, &capture_exit_code, path = parser.value("capture")] {
-                         capture_exit_code = window->grabWindow().save(path) ? 0 : 1;
-                         lifecycle.shutdown();
-                       });
+    capture_timer.setSingleShot(true);
+    QObject::connect(&lifecycle, &bugg::ApplicationLifecycle::changed, &capture_timer, [&] {
+      if ((lifecycle.phase() == "awaiting_consent" || lifecycle.phase() == "ready") &&
+          !capture_timer.isActive())
+        capture_timer.start(600);
+    });
+    QObject::connect(&capture_timer, &QTimer::timeout, window,
+                     [window, &lifecycle, &capture_exit_code, path = parser.value("capture")] {
+                       capture_exit_code = window->grabWindow().save(path) ? 0 : 1;
+                       lifecycle.shutdown();
+                     });
+    QTimer::singleShot(30000, window, [&] {
+      capture_exit_code = 1;
+      lifecycle.shutdown();
+    });
   }
   const auto exit_code = app.exec();
   return exit_code ? exit_code : capture_exit_code;
