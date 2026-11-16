@@ -87,7 +87,8 @@ def main():
             assert feed['update_available'] == (current != version)
             if current != version:
                 assert feed['version'] == version and feed['asset']['sha256'] == digest
-                assert feed['notes'] == release['body']
+                # The release owner trims surrounding whitespace on import.
+                assert feed['notes'] == release['body'].strip()
                 # Check the actual download route as well as feed metadata.
                 with urlopen(Request(feed['asset']['url'], headers={'Range': 'bytes=0-3'}), timeout=60) as response:
                     assert response.status in (200, 206) and response.read(4) == b'PK\x03\x04'
