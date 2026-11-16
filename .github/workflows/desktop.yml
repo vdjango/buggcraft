@@ -84,7 +84,7 @@ jobs:
             deployed-desktop/Bugg.app/Contents/MacOS/native/bin/buggcraft-bridge --native-bridge --version
             export QT_DEBUG_PLUGINS=1
             if ! deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme classic --capture "$PWD/desktop-classic.png"; then
-              lldb --batch -o run -o 'thread backtrace all' -- deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme classic --capture "$PWD/desktop-classic.png" || true
+              lldb --batch -o run -k 'thread backtrace all' -- deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme classic --capture "$PWD/desktop-classic.png" || true
               exit 1
             fi
             deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme panel --capture "$PWD/desktop-panel.png"
