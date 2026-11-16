@@ -210,10 +210,14 @@ int main(int argc, char* argv[]) {
                                 Q_ARG(QVariant, 0), Q_ARG(QVariant, route));
     });
   }
+  int capture_exit_code = 0;
   if (parser.isSet("capture")) {
-    QTimer::singleShot(1300, window, [window, path = parser.value("capture")] {
-      QCoreApplication::exit(window->grabWindow().save(path) ? 0 : 1);
+    QTimer::singleShot(1300, window, [window, &lifecycle, &capture_exit_code,
+                                    path = parser.value("capture")] {
+      capture_exit_code = window->grabWindow().save(path) ? 0 : 1;
+      lifecycle.shutdown();
     });
   }
-  return app.exec();
+  const auto exit_code = app.exec();
+  return exit_code ? exit_code : capture_exit_code;
 }
