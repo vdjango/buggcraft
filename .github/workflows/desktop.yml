@@ -82,6 +82,7 @@ jobs:
           trap 'mv "$QT_ROOT_DIR.build-only" "$QT_ROOT_DIR"' EXIT
           if [[ "$RUNNER_OS" == macOS ]]; then
             deployed-desktop/Bugg.app/Contents/MacOS/native/bin/buggcraft-bridge --native-bridge --version
+            export QT_DEBUG_PLUGINS=1
             deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme classic --capture "$PWD/desktop-classic.png"
             deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme panel --capture "$PWD/desktop-panel.png"
           else

@@ -75,6 +75,11 @@ def main():
                     shutil.copyfileobj(data, output)
                 destination.chmod(0o755)
     if args.platform.startswith('macos-'):
+        # Qt's QML deployment uses Resources/qml inside an app bundle.
+        # Pin relative paths so lookup never depends on the build SDK.
+        (payload / 'Contents/Resources/qt.conf').write_text(
+            '[Paths]\nPrefix=.\nPlugins=PlugIns\nQmlImports=Resources/qml\nLibraries=Frameworks\n',
+            encoding='utf-8')
         # MacOS is a code location. Keep native notices in Resources so that
         # codesign does not interpret text files as unsigned helper programs.
         resources = payload / 'Contents/Resources/NativeRuntime'

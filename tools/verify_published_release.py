@@ -4,7 +4,7 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import time
 from urllib.request import Request, urlopen
@@ -55,7 +55,7 @@ def main():
             assert json.loads(archive.read('bugg-update.json')) == {'format': 1, 'version': version, 'platform': platform}
             entry = 'Contents/MacOS/bugg' if platform.startswith('macos-') else 'bugg'
             assert archive.getinfo(entry).external_attr >> 16 & 0o111
-            bridge = str(Path(entry).parent / 'native/bin/buggcraft-bridge')
+            bridge = str(PurePosixPath(entry).parent / 'native/bin/buggcraft-bridge')
             assert archive.getinfo(bridge).external_attr >> 16 & 0o111
         platforms[platform] = digest
     deadline = time.monotonic() + 20 * 60
