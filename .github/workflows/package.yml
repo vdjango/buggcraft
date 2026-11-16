@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: read
   id-token: write
 concurrency:
   group: launcher-release-${{ github.ref }}
@@ -100,96 +101,7 @@ jobs:
   publish:
     needs: [windows, desktop]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: bugg
-      - name: Read application version
-        id: version
-        shell: powershell
-        run: |
-          $match = [regex]::Match((Get-Content bugg/CMakeLists.txt -Raw), 'set\(BUGG_BUILD_VERSION "([^"]+)"')
-          "value=$($match.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Bugg-v${{ steps.version.outputs.value }}-*
-          merge-multiple: true
-          path: D:/bugg-release
-      - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: vdjango/buggcraft
-        shell: powershell
-        run: |
-          $ProgressPreference = 'SilentlyContinue'
-          $headers = @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'}
-          # Ship the matching node first. The launcher artifact remains staged
-          # while the node's independent platform jobs finish publishing.
-          $nodeDeadline = (Get-Date).AddMinutes(30)
-          $nodeReady = $false
-          do {
-            try {
-              $node = Invoke-RestMethod -Uri 'https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.12' -Headers $headers
-              $nodeReady = !$node.draft -and @($node.assets | Where-Object { $_.name -eq 'buggcraft-native-0.3.12-linux-x64.tar.gz' }).Count -eq 1
-            } catch { $nodeReady = $false }
-            if (!$nodeReady) { Start-Sleep -Seconds 20 }
-          } while (!$nodeReady -and (Get-Date) -lt $nodeDeadline)
-          if (!$nodeReady) { throw 'Matching node release v0.3.12 is not published; launcher remains staged' }
-          $notes = [System.IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md'), [System.Text.Encoding]::UTF8)
-          $body = @{tag_name=$env:GITHUB_REF_NAME;name='Bugg v${{ steps.version.outputs.value }}';body=$notes;draft=$true;prerelease=$false} | ConvertTo-Json
-          $release = $null
-          try {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
-          } catch {
-            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
-          }
-          # The tag endpoint can hide drafts; list drafts before creating one.
-          if (!$release) {
-            $page = 1
-            do {
-              $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases?per_page=100&page=$page" -Headers $headers)
-              $release = $releases | Where-Object { $_.tag_name -eq $env:GITHUB_REF_NAME } | Select-Object -First 1
-              $page++
-            } while (!$release -and $releases.Count -eq 100)
-          }
-          if ($release) {
-            if (!$release.draft) { throw 'This tag already has a published release' }
-            $release = Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
-          } else {
-            $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
-          }
-          Get-ChildItem D:/bugg-release -File | ForEach-Object {
-            $file = $_
-            $existing = @($release.assets | Where-Object { $_.name -eq $file.Name })
-            $digest = 'sha256:' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            if (!$existing.Count -or $existing[0].digest -ne $digest) {
-              if ($existing.Count) { Invoke-RestMethod -Method Delete -Uri $existing[0].url -Headers $headers | Out-Null }
-              # Stream large desktop bundles with the native GitHub client.
-              gh release upload $env:GITHUB_REF_NAME $file.FullName --repo $env:GH_REPO
-              if ($LASTEXITCODE -ne 0) { throw ('Asset upload failed: ' + $file.Name) }
-            }
-          }
-          Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json' -Body '{"draft":false}' | Out-Null
-      - name: Notify download website with Actions identity
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: powershell
-        run: |
-          $audience = [uri]::EscapeDataString('https://download.bugg.icu/api/launcher/github-sync')
-          $identity = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{Authorization="Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
-          $payload = @{tag=$env:GITHUB_REF_NAME;github_token=$env:GH_TOKEN} | ConvertTo-Json -Compress
-          $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $payload
-          $statusPayload = @{tag=$env:GITHUB_REF_NAME;action='status'} | ConvertTo-Json -Compress
-          $deadline = (Get-Date).AddMinutes(20)
-          do {
-            Start-Sleep -Seconds 5
-            $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $statusPayload
-            if ($result.sync.status -eq 'failed') { throw $result.sync.message }
-            $imported = @($result.sync.items | Where-Object { $_.tag -eq $env:GITHUB_REF_NAME -and $_.result -in @('imported','existing') }).Count -gt 0
-            if ($result.sync.status -eq 'success' -and $imported) { break }
-          } while ((Get-Date) -lt $deadline)
-          if (!$imported -or $result.sync.status -ne 'success') { throw 'Download website import did not finish' }
-          Write-Output ('Download website sync: ' + $result.sync.status)
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ github.ref_name }}
+      artifact_run_id: ${{ github.run_id }}

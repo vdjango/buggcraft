@@ -1,0 +1,143 @@
+name: Publish verified native launcher
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      artifact_run_id:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing built release tag
+        type: string
+        required: true
+      artifact_run_id:
+        description: Successful platform build run ID
+        type: string
+        required: true
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+concurrency:
+  group: launcher-publish-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: vdjango/buggcraft
+      RELEASE_TAG: ${{ inputs.tag }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bugg
+          ref: ${{ inputs.tag }}
+      - name: Read application version
+        id: version
+        shell: powershell
+        run: |
+          $match = [regex]::Match((Get-Content bugg/CMakeLists.txt -Raw), 'set\(BUGG_BUILD_VERSION "([^"]+)"')
+          "value=$($match.Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$' -or $env:ARTIFACT_RUN_ID -notmatch '^[1-9][0-9]+$') { throw 'Invalid release input' }
+          if ($env:RELEASE_TAG -ne "v$($match.Groups[1].Value)") { throw 'Tag and source version differ' }
+          $build = gh api "repos/$env:GH_REPO/actions/runs/$env:ARTIFACT_RUN_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify source build' }
+          $revision = (git -C bugg rev-parse HEAD).Trim()
+          if ($build.head_sha -ne $revision -or $build.path -ne '.github/workflows/package.yml') { throw 'Artifact source does not match the release tag' }
+          $jobs = (gh api "repos/$env:GH_REPO/actions/runs/$env:ARTIFACT_RUN_ID/jobs?per_page=100" | ConvertFrom-Json).jobs
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify platform jobs' }
+          $platforms = @($jobs | Where-Object { $_.name -eq 'windows' -or $_.name -like 'desktop*' })
+          if ($platforms.Count -ne 5 -or @($platforms | Where-Object { $_.conclusion -ne 'success' }).Count) { throw 'All five platform jobs must pass' }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Bugg-v${{ steps.version.outputs.value }}-*
+          merge-multiple: true
+          path: D:/bugg-release
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: vdjango/buggcraft
+        shell: powershell
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $headers = @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'}
+          # Ship the matching node first. The launcher artifact remains staged
+          # while the node's independent platform jobs finish publishing.
+          $nodeDeadline = (Get-Date).AddMinutes(30)
+          $nodeReady = $false
+          do {
+            try {
+              $node = Invoke-RestMethod -Uri 'https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.12' -Headers $headers
+              $nodeReady = !$node.draft -and @($node.assets | Where-Object { $_.name -eq 'buggcraft-native-0.3.12-linux-x64.tar.gz' }).Count -eq 1
+            } catch { $nodeReady = $false }
+            if (!$nodeReady) { Start-Sleep -Seconds 20 }
+          } while (!$nodeReady -and (Get-Date) -lt $nodeDeadline)
+          if (!$nodeReady) { throw 'Matching node release v0.3.12 is not published; launcher remains staged' }
+          $notes = [System.IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md'), [System.Text.Encoding]::UTF8)
+          $body = @{tag_name=$env:RELEASE_TAG;name='Bugg v${{ steps.version.outputs.value }}';body=$notes;draft=$true;prerelease=$false} | ConvertTo-Json
+          $release = $null
+          try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases/tags/$env:RELEASE_TAG" -Headers $headers
+          } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          # The tag endpoint can hide drafts; list drafts before creating one.
+          if (!$release) {
+            $page = 1
+            do {
+              $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases?per_page=100&page=$page" -Headers $headers)
+              $release = $releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1
+              $page++
+            } while (!$release -and $releases.Count -eq 100)
+          }
+          $published = $release -and !$release.draft
+          if ($release) {
+            if ($release.draft) {
+              $release = Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+            }
+          } else {
+            $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GH_REPO/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+          }
+          Get-ChildItem D:/bugg-release -File | ForEach-Object {
+            $file = $_
+            $existing = @($release.assets | Where-Object { $_.name -eq $file.Name })
+            $digest = 'sha256:' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if (!$existing.Count -or $existing[0].digest -ne $digest) {
+              if ($published) { throw 'Published assets are immutable' }
+              if ($existing.Count) { Invoke-RestMethod -Method Delete -Uri $existing[0].url -Headers $headers | Out-Null }
+              # Stream large desktop bundles with the native GitHub client.
+              gh release upload $env:RELEASE_TAG $file.FullName --repo $env:GH_REPO
+              if ($LASTEXITCODE -ne 0) { throw ('Asset upload failed: ' + $file.Name) }
+            }
+          }
+          if (!$published) { Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -ContentType 'application/json' -Body '{"draft":false}' | Out-Null }
+      - name: Notify download website with Actions identity
+        if: github.ref == format('refs/tags/{0}', inputs.tag)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $audience = [uri]::EscapeDataString('https://download.bugg.icu/api/launcher/github-sync')
+          $identity = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{Authorization="Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
+          $payload = @{tag=$env:RELEASE_TAG;github_token=$env:GH_TOKEN} | ConvertTo-Json -Compress
+          $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $payload
+          $statusPayload = @{tag=$env:RELEASE_TAG;action='status'} | ConvertTo-Json -Compress
+          $deadline = (Get-Date).AddMinutes(20)
+          do {
+            Start-Sleep -Seconds 5
+            $identity = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{Authorization="Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
+            $result = Invoke-RestMethod -Method Post -Uri 'https://download.bugg.icu/api/launcher/github-sync' -Headers @{Authorization="Bearer $($identity.value)"} -ContentType 'application/json' -Body $statusPayload
+            if ($result.sync.status -eq 'failed') { throw $result.sync.message }
+            $imported = @($result.sync.items | Where-Object { $_.tag -eq $env:RELEASE_TAG -and $_.result -in @('imported','existing') }).Count -gt 0
+            if ($result.sync.status -eq 'success' -and $imported) { break }
+          } while ((Get-Date) -lt $deadline)
+          if (!$imported -or $result.sync.status -ne 'success') { throw 'Download website import did not finish' }
+          Write-Output ('Download website sync: ' + $result.sync.status)
