@@ -71,6 +71,13 @@ def main():
                     shutil.copyfileobj(data, output)
                 destination.chmod(0o755)
     if args.platform.startswith('macos-'):
+        # MacOS is a code location. Keep native notices in Resources so that
+        # codesign does not interpret text files as unsigned helper programs.
+        resources = payload / 'Contents/Resources/NativeRuntime'
+        resources.mkdir(parents=True, exist_ok=True)
+        for notice in list(native.iterdir()):
+            if notice.name not in ('bin', 'lib'):
+                shutil.move(str(notice), resources / notice.name)
         # The updater accepts ordinary files only. Turn Qt's versioned
         # frameworks into flat frameworks and rewrite their Mach-O references;
         # duplicating both Resources and Versions makes codesign reject them.
@@ -96,9 +103,14 @@ def main():
                     subprocess.run(['install_name_tool', '-change', dependency, flattened, str(path)], check=True)
                 if dependency.startswith('/') and not dependency.startswith(('/System/Library/', '/usr/lib/')):
                     raise ValueError('Application retains an external runtime dependency: ' + dependency)
-        for path in machos:
-            subprocess.run(['codesign', '--force', '--sign', '-', str(path)], check=True)
+        # Signing the main executable signs its enclosing app. Sign nested
+        # code first and seal the app only after every helper is ready.
+        main_executable = payload / 'Contents/MacOS/bugg'
+        for path in sorted(machos, key=lambda item: len(item.parts), reverse=True):
+            if path != main_executable:
+                subprocess.run(['codesign', '--force', '--sign', '-', str(path)], check=True)
         subprocess.run(['codesign', '--force', '--deep', '--sign', '-', str(payload)], check=True)
+        subprocess.run(['codesign', '--verify', '--deep', '--strict', str(payload)], check=True)
     subprocess.run(['python', 'tools/package_release.py', '--version', args.version,
                     '--platform', args.platform, '--directory', str(payload),
                     '--languages', 'build-desktop/language-assets', '--output', 'desktop-release'], check=True)

@@ -39,6 +39,25 @@ def main():
         if version == '2.0.1':
             assert archive.read('Bugg-v1.1.0.exe') == executable
     executable_hash = hashlib.sha256(executable).hexdigest()
+    platforms = {'windows-x64': bundle_hash}
+    # Older releases can contain Windows alone; verify every native platform
+    # actually published by the shared packager, including its executable mode.
+    for desktop in release['assets']:
+        match = re.fullmatch(r'Bugg-native-((?:macos|linux)-(?:arm64|x86_64))\.zip', desktop['name'])
+        if not match:
+            continue
+        platform = match[1]
+        with urlopen(desktop['browser_download_url'], timeout=180) as response:
+            data = response.read(desktop['size'] + 1)
+        digest = hashlib.sha256(data).hexdigest()
+        assert len(data) == desktop['size'] and desktop['digest'] == 'sha256:' + digest
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            assert json.loads(archive.read('bugg-update.json')) == {'format': 1, 'version': version, 'platform': platform}
+            entry = 'Contents/MacOS/bugg' if platform.startswith('macos-') else 'bugg'
+            assert archive.getinfo(entry).external_attr >> 16 & 0o111
+            bridge = str(Path(entry).parent / 'native/bin/buggcraft-bridge')
+            assert archive.getinfo(bridge).external_attr >> 16 & 0o111
+        platforms[platform] = digest
     deadline = time.monotonic() + 20 * 60
     while True:
         with urlopen('https://download.bugg.icu/api/launcher/update?platform=windows-x64&runtime=cpp&current=1.1.0&channel=stable', timeout=45) as response:
@@ -60,9 +79,22 @@ def main():
             assert feed['version'] == version
             assert feed['asset']['sha256'] == (executable_hash if runtime == 'legacy' else bundle_hash)
         feeds[f'{runtime}_{current}_{channel}'] = feed
+    for platform, digest in platforms.items():
+        for current, channel in [('1.1.0', 'stable'), ('1.1.0', 'beta'), (version, 'beta')]:
+            url = f'https://download.bugg.icu/api/launcher/update?platform={platform}&runtime=cpp&current={current}&channel={channel}'
+            with urlopen(url, timeout=45) as response:
+                feed = json.load(response)
+            assert feed['update_available'] == (current != version)
+            if current != version:
+                assert feed['version'] == version and feed['asset']['sha256'] == digest
+                assert feed['notes'] == release['body']
+                # Check the actual download route as well as feed metadata.
+                with urlopen(Request(feed['asset']['url'], headers={'Range': 'bytes=0-3'}), timeout=60) as response:
+                    assert response.status in (200, 206) and response.read(4) == b'PK\x03\x04'
+            feeds[f'{platform}_{current}_{channel}'] = feed
     args.output.write_text(json.dumps({'version': version, 'release': release['html_url'],
                                        'bundle_sha256': bundle_hash, 'executable_sha256': executable_hash,
-                                       'feeds': feeds}, indent=2) + '\n', encoding='utf-8')
+                                       'platforms': platforms, 'feeds': feeds}, indent=2) + '\n', encoding='utf-8')
     print('Verified published launcher, legacy migration and native update channels:', version)
 
 
