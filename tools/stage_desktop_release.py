@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tarfile
 import time
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -26,10 +26,15 @@ def main():
                 release = json.load(response)
             break
         except HTTPError as error:
-            if error.code != 404 or time.monotonic() >= deadline:
+            if error.code != 404:
                 raise
-            # Independent platform builds may finish before the node publishes.
-            time.sleep(15)
+        except (URLError, TimeoutError, ConnectionError):
+            if time.monotonic() >= deadline:
+                raise
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Native bridge release lookup timed out')
+        # The node publishes independently; GitHub can also time out briefly.
+        time.sleep(15)
     name = f'buggcraft-native-0.3.13-{node_platform}.tar.gz'
     asset = next(item for item in release['assets'] if item['name'] == name)
     archive = Path(name)
