@@ -62,7 +62,7 @@ jobs:
         run: |
           options=()
           if [[ "$RUNNER_OS" == macOS ]]; then
-            options+=("-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cpu }}" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
+            options+=("-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cpu }}" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DOPENSSL_USE_STATIC_LIBS=ON "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
           fi
           cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUGG_DESKTOP_PACKAGE=ON '-DBUGG_LANGUAGE_ASSET_VERSION=${{ steps.version.outputs.value }}' "${options[@]}"
       - name: Build and deploy Qt application
@@ -78,6 +78,8 @@ jobs:
         shell: bash
         run: |
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH LD_LIBRARY_PATH DYLD_LIBRARY_PATH
+          mv "$QT_ROOT_DIR" "$QT_ROOT_DIR.build-only"
+          trap 'mv "$QT_ROOT_DIR.build-only" "$QT_ROOT_DIR"' EXIT
           if [[ "$RUNNER_OS" == macOS ]]; then
             deployed-desktop/Bugg.app/Contents/MacOS/native/bin/buggcraft-bridge --native-bridge --version
             deployed-desktop/Bugg.app/Contents/MacOS/bugg --theme classic --capture "$PWD/desktop-classic.png"

@@ -71,6 +71,33 @@ def main():
                     shutil.copyfileobj(data, output)
                 destination.chmod(0o755)
     if args.platform.startswith('macos-'):
+        # The updater accepts ordinary files only. Turn Qt's versioned
+        # frameworks into flat frameworks and rewrite their Mach-O references;
+        # duplicating both Resources and Versions makes codesign reject them.
+        for framework in payload.rglob('*.framework'):
+            versions = framework / 'Versions'
+            if versions.is_dir():
+                assert versions.resolve().is_relative_to(payload.resolve())
+                shutil.rmtree(versions)
+        machos = []
+        for path in payload.rglob('*'):
+            if not path.is_file():
+                continue
+            with path.open('rb') as stream:
+                magic = stream.read(4)
+            if magic not in (b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe'):
+                continue
+            machos.append(path)
+            links = subprocess.check_output(['otool', '-L', str(path)], text=True).splitlines()[1:]
+            for line in links:
+                dependency = line.strip().split(' (', 1)[0]
+                flattened = dependency.replace('.framework/Versions/A/', '.framework/').replace('.framework/Versions/Current/', '.framework/')
+                if flattened != dependency:
+                    subprocess.run(['install_name_tool', '-change', dependency, flattened, str(path)], check=True)
+                if dependency.startswith('/') and not dependency.startswith(('/System/Library/', '/usr/lib/')):
+                    raise ValueError('Application retains an external runtime dependency: ' + dependency)
+        for path in machos:
+            subprocess.run(['codesign', '--force', '--sign', '-', str(path)], check=True)
         subprocess.run(['codesign', '--force', '--deep', '--sign', '-', str(payload)], check=True)
     subprocess.run(['python', 'tools/package_release.py', '--version', args.version,
                     '--platform', args.platform, '--directory', str(payload),
