@@ -50,7 +50,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot verify source build' }
           $revision = (git -C bugg rev-parse HEAD).Trim()
           if ($build.head_sha -ne $revision -or $build.path -ne '.github/workflows/package.yml') { throw 'Artifact source does not match the release tag' }
-          $jobs = (gh api "repos/$env:GH_REPO/actions/runs/$env:ARTIFACT_RUN_ID/jobs?per_page=100" | ConvertFrom-Json).jobs
+          $jobs = (gh api "repos/$env:GH_REPO/actions/runs/$env:ARTIFACT_RUN_ID/jobs?per_page=100&filter=all" | ConvertFrom-Json).jobs
           if ($LASTEXITCODE -ne 0) { throw 'Cannot verify platform jobs' }
           $platforms = @($jobs | Where-Object { $_.name -eq 'windows' -or $_.name -like 'desktop*' })
           if ($platforms.Count -ne 5 -or @($platforms | Where-Object { $_.conclusion -ne 'success' }).Count) { throw 'All five platform jobs must pass' }
@@ -93,11 +93,14 @@ jobs:
           if (!$release) {
             $page = 1
             do {
-              $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases?per_page=100&page=$page" -Headers $headers)
-              $release = $releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1
+              $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GH_REPO/releases?per_page=100&page=$page" -Headers $headers
+              foreach ($candidate in $releases) {
+                if ($candidate.tag_name -eq $env:RELEASE_TAG) { $release = $candidate; break }
+              }
               $page++
             } while (!$release -and $releases.Count -eq 100)
           }
+          if ($release -and $release.url -isnot [string]) { throw 'Release lookup must return one record' }
           $published = $release -and !$release.draft
           if ($release) {
             if ($release.draft) {
