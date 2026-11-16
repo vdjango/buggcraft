@@ -108,9 +108,19 @@ def main():
             for line in links:
                 dependency = line.strip().split(' (', 1)[0]
                 flattened = dependency.replace('.framework/Versions/A/', '.framework/').replace('.framework/Versions/Current/', '.framework/')
+                # QML symlinks now contain ordinary copies at greater depth.
+                # Their original @loader_path/../Frameworks paths must resolve
+                # from the app executable, not from the copied QML directory.
+                if '.framework/' in flattened and not flattened.startswith('/System/Library/'):
+                    parts = flattened.split('/')
+                    index = next(i for i, part in enumerate(parts) if part.endswith('.framework'))
+                    relative = '/'.join(parts[index:])
+                    if not (payload / 'Contents/Frameworks' / relative).is_file():
+                        raise ValueError('Missing deployed framework: ' + relative)
+                    flattened = '@executable_path/../Frameworks/' + relative
                 if flattened != dependency:
                     subprocess.run(['install_name_tool', '-change', dependency, flattened, str(path)], check=True)
-                if dependency.startswith('/') and not dependency.startswith(('/System/Library/', '/usr/lib/')):
+                if flattened.startswith('/') and not flattened.startswith(('/System/Library/', '/usr/lib/')):
                     raise ValueError('Application retains an external runtime dependency: ' + dependency)
         # Signing the main executable signs its enclosing app. Sign nested
         # code first and seal the app only after every helper is ready.
