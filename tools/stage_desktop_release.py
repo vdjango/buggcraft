@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--platform', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
-    native_version = '0.3.13-alpha.1'
+    native_version = '0.3.13-alpha.2'
     node_platform = args.platform.replace('x86_64', 'x64')
     headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'User-Agent': 'Bugg-desktop-package'}
     deadline = time.monotonic() + 1800

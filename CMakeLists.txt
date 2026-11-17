@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-set(BUGG_BUILD_VERSION "2.0.4-alpha.1" CACHE STRING "Application version for this build")
+set(BUGG_BUILD_VERSION "2.0.4-alpha.2" CACHE STRING "Application version for this build")
 if(NOT BUGG_BUILD_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc|dev)\\.[0-9]+)?$")
     message(FATAL_ERROR "BUGG_BUILD_VERSION must be a numeric version or supported prerelease")
 endif()
