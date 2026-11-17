@@ -90,6 +90,10 @@ class NodeUiProbe(QObject):
     def status(self):
         return self.snapshot
 
+    @Property('QVariantMap', notify=changed)
+    def feedback(self):
+        return {}
+
     @Slot(str)
     @Slot()
     def refresh(self, query=""):
@@ -1274,6 +1278,7 @@ class EdgeDockTest(unittest.TestCase):
         node = NodeUiProbe()
         self.window.setProperty("multiplayerService", node)
         controller = self.window.findChild(QObject, "windowController")
+        controller.setProperty("animationsEnabled", False)
         for theme, ids in [("classic", [0, 1, 2, 3]), ("panel", [0, 2, 3])]:
             controller.selectTheme(theme)
             self.window.navigate(0)
@@ -1281,15 +1286,23 @@ class EdgeDockTest(unittest.TestCase):
             shell = self.window.findChild(QObject, "floatingShell")
             navigation = self.window.findChild(QObject, "mainNavigation")
             self.assertEqual(navigation.property("toolIds").toVariant(), ids)
-            surface = self.window.findChild(QObject, "topActivity")
+            surface = self.window.findChild(QObject, "toolbarActivity")
+            self.assertIsNotNone(surface)
+            self.assertIsNone(self.window.findChild(QObject, "topActivity"))
             shell.setProperty("activity", {"active": True, "progress": 0.4})
             QTest.qWait(100)
             self.assertTrue(surface.property("active"))
             self.assertAlmostEqual(surface.property("fraction"), 0.4)
+            self.assertEqual(surface.mapToScene(QPoint(0, 0)).y(), 5)
+            if theme == "classic":
+                launch = self.visual_item("launchButton")
+                bottom_gap = self.window.height() - launch.mapToScene(QPoint(0, int(launch.height()))).y()
+                self.assertGreaterEqual(bottom_gap, 48)
+                self.assertLessEqual(bottom_gap, 56)
             phase = surface.property("phase")
             QTest.qWait(100)
-            self.assertEqual(phase, surface.property("phase"))
-            self.assertTrue(surface.property("edgeToEdge"))
+            self.assertNotEqual(phase, surface.property("phase"))
+            self.assertTrue(surface.property("fluid"))
             shell.setProperty("activity", {"active": True, "progress": -1})
             QTest.qWait(100)
             self.assertNotEqual(phase, surface.property("phase"))

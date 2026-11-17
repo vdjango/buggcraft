@@ -74,18 +74,6 @@ Item {
         backdropOpacity: root.immersiveHome || frame.backdropPageMode ? 1 : 0
         // 收起/贴边时立即去掉图片，不能把整张背景压缩成小条。
         backdropVisible: root.mediaAllowed && root.backdropAllowed && !root.dock.compact && root.activeTool >= 0
-        ProgressSurface {
-            objectName: "topActivity"
-            anchors.top: parent.top
-            width: parent.width
-            height: 4
-            z: 20
-            active: root.activity.active === true
-            progress: root.activity.progress === undefined ? -1 : root.activity.progress
-            fluid: false
-            edgeToEdge: true
-            visible: active && !root.dock.compact && root.activeTool >= 0
-        }
     }
     Item {
         id: body
@@ -141,10 +129,12 @@ Item {
             y: 5 + root.pageMode * 8
             width: 394 + root.pageMode * (parent.width - 506)
             height: 60
+            progressTopInset: root.pageMode * 8
             dock: root.dock
             activeTool: root.activeTool
             pageMode: root.pageMode
             showWindowControls: root.pageMode < 0.5
+            activity: root.activity
             videoPlaying: root.immersiveHome && frame.backdropVideoPlaying
             videoSoundEnabled: root.backgroundSoundEnabled
             friendsVisible: root.friendsVisible

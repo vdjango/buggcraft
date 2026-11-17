@@ -33,6 +33,27 @@ QRect DesktopEnvironment::available_geometry(QWindow* window) const {
   return screen ? screen->availableGeometry() : QRect();
 }
 
+void DesktopEnvironment::present_window(QWindow* window, QWindow* reference) const {
+  if (!window) return;
+  if (reference && reference->screen()) window->setScreen(reference->screen());
+  const auto area = available_geometry(reference ? reference : window);
+  window->show();
+  if (area.isValid() && window->windowState() == Qt::WindowNoState) {
+    const auto margins = window->frameMargins();
+    const auto width = qMax(1, area.width() - margins.left() - margins.right());
+    const auto height = qMax(1, area.height() - margins.top() - margins.bottom());
+    window->setMinimumSize(window->minimumSize().boundedTo(QSize(width, height)));
+    window->resize(window->size().boundedTo(QSize(width, height)));
+    const auto center = reference ? reference->geometry().center() : area.center();
+    window->setPosition(qBound(area.left() + margins.left(), center.x() - window->width() / 2,
+                               area.right() - margins.right() - window->width() + 1),
+                        qBound(area.top() + margins.top(), center.y() - window->height() / 2,
+                               area.bottom() - margins.bottom() - window->height() + 1));
+  }
+  window->raise();
+  window->requestActivate();
+}
+
 bool DesktopEnvironment::left_button_pressed() const {
 #ifdef Q_OS_WIN
   return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;

@@ -33,6 +33,7 @@ const QVector<SourceDefinition>& download_sources() {
     auto capabilities = game;
     capabilities.append(SourceCapability::CurseForgeContent);
     capabilities.append(SourceCapability::ModrinthContent);
+    capabilities.append(SourceCapability::CurseForgeMetadata);
     return capabilities;
   }();
   static const QVector<SourceDefinition> sources = {
@@ -53,8 +54,12 @@ SourceRoute resolve_source(const QString& selected, SourceCapability capability)
   if (preferred == sources.end())
     return {selected, {}, {}, QCoreApplication::translate("Bugg", "未知下载源")};
   if (preferred->capabilities.contains(capability)) return {selected, selected, {}, {}};
+  const auto supplement_id =
+      capability == SourceCapability::CurseForgeMetadata && selected == "BMCLAPI"
+          ? QString("BUGG")
+          : preferred->supplement;
   const auto supplement = std::find_if(sources.begin(), sources.end(), [&](const auto& item) {
-    return item.id == preferred->supplement && item.capabilities.contains(capability);
+    return item.id == supplement_id && item.capabilities.contains(capability);
   });
   if (supplement == sources.end())
     return {selected,

@@ -45,7 +45,7 @@ Surface {
                         needs_dependency_decision: qsTr("等待依赖处理选择")
                     })[root.task.state] || ""
                 progress: root.task.progress === undefined ? -1 : root.task.progress
-                caption: [root.task.detail || "", root.task.state === "running" && root.task.downloadSpeed && root.task.activeTransfers > 0 ? qsTr("%1 · %2 个连接").arg(root.task.downloadSpeed).arg(root.task.activeTransfers) : ""].filter(Boolean).join("\n")
+                caption: [root.task.detail || "", root.task.state === "running" && root.task.downloadSpeed && root.task.activeTransfers > 0 ? qsTr("%1 · %2 个文件传输").arg(root.task.downloadSpeed).arg(root.task.activeTransfers) : ""].filter(Boolean).join("\n")
                 showBar: ["running", "cancelling"].includes(root.task.state)
                 titleSize: 14
             }

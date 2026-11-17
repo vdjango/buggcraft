@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QThread>
+#include <algorithm>
 
 #include "modules/game_install/application/game_operations.h"
 #include "modules/game_install/application/modpack_plan.h"
@@ -480,7 +481,22 @@ QString GameOperations::sync_room(const QVariantMap& specification,
       write_json(safe_path(staging, staging_id + ".json"), metadata);
     }
   }
+  struct RoomFile {
+    QJsonObject record;
+    QJsonObject item;
+    QString target;
+  };
+  QList<RoomFile> pending;
+  QJsonArray source_items;
   int completed = 0;
+  double download_progress = 0;
+  const auto overall_progress = [&](double fraction, const QString& detail) {
+    download_progress = qMax(download_progress, qMin(0.99, fraction));
+    report(download_progress, detail, true);
+  };
+  const auto publish = [&](const QString& detail) {
+    overall_progress(double(completed) / qMax(1, records.size()), detail);
+  };
   for (const auto& value : records) {
     check_cancelled(cancelled_);
     const auto record = value.toObject();
@@ -496,7 +512,6 @@ QString GameOperations::sync_room(const QVariantMap& specification,
     }
     if (!valid) {
       QFile::remove(target);
-      // 优先复用本机同名、同大小、同 SHA-256 文件，避免重复传输已有模组。
       const auto versions = QDir(safe_path(root_, "versions"))
                                 .entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks);
       for (const auto& version : versions) {
@@ -512,71 +527,148 @@ QString GameOperations::sync_room(const QVariantMap& specification,
         if (valid) break;
       }
     }
-    if (!valid) {
-      auto urls = content.sources(item);
-      if (!urls.isEmpty()) {
+    if (valid) {
+      ++completed;
+      publish(QCoreApplication::translate("Bugg", "复用本地文件 %1 / %2")
+                  .arg(completed)
+                  .arg(records.size()));
+      continue;
+    }
+    source_items.append(item);
+    pending.append({record, item, target});
+  }
+
+  const auto source_map = content.sources_many(source_items);
+  QList<QUrl> metadata_queries;
+  QHash<QString, QUrl> metadata_by_sha1;
+  for (const auto& file : pending) {
+    const auto item = file.item;
+    const auto sha1 = item["sha1"].toString();
+    if (!source_map.value(item["sha256"].toString()).isEmpty() ||
+        !item["downloads"].toArray().isEmpty() ||
+        !QRegularExpression("^[0-9a-f]{40}$").match(sha1).hasMatch())
+      continue;
+    const QUrl url("https://api.modrinth.com/v2/version_file/" + sha1);
+    if (!metadata_by_sha1.contains(sha1)) {
+      metadata_by_sha1.insert(sha1, url);
+      metadata_queries.append(url);
+    }
+  }
+  QHash<QUrl, QJsonObject> modrinth_metadata;
+  if (!metadata_queries.isEmpty()) {
+    try {
+      modrinth_metadata = resources_.json_many(
+          metadata_queries, {}, 2500, 0,
+          [&](double, const QString& detail) {
+            overall_progress(double(completed) / qMax(1, records.size()), detail);
+          },
+          true);
+    } catch (...) {
+      check_cancelled(cancelled_);
+    }
+  }
+  QList<GameResource> public_downloads;
+  QHash<QString, QJsonObject> public_records;
+  QJsonArray peer_downloads;
+  for (const auto& file : pending) {
+    const auto item = file.item;
+    auto urls = source_map.value(item["sha256"].toString());
+    if (urls.isEmpty()) {
+      for (const auto& value : item["downloads"].toArray()) {
+        const QUrl url(value.toString());
+        if (url.scheme() == "https" && url.userInfo().isEmpty() && !url.hasFragment() &&
+            !urls.contains(url))
+          urls.append(url);
+      }
+    }
+    if (urls.isEmpty()) {
+      const auto metadata_url = metadata_by_sha1.value(item["sha1"].toString());
+      const auto release = modrinth_metadata.value(metadata_url);
+      for (const auto& value : release["files"].toArray()) {
+        const auto file_info = value.toObject();
+        if (file_info["hashes"].toObject()["sha1"] == item["sha1"] &&
+            file_info["size"] == item["size"]) {
+          const QUrl url(file_info["url"].toString());
+          if (url.scheme() == "https" && url.userInfo().isEmpty() && !url.hasFragment())
+            urls.append(url);
+        }
+      }
+    }
+    const bool has_sha1 =
+        QRegularExpression("^[0-9a-f]{40}$").match(item["sha1"].toString()).hasMatch();
+    if (urls.isEmpty() || (!has_sha1 && source_map.value(item["sha256"].toString()).isEmpty())) {
+      peer_downloads.append(
+          QJsonObject{{"kind", file.record["kind"]}, {"item", item}, {"target", file.target}});
+      continue;
+    }
+    auto public_record = file.record;
+    public_record["embedded"] = !has_sha1;
+    QJsonArray downloads;
+    for (const auto& url : urls) downloads.append(url.toString());
+    public_record["downloads"] = downloads;
+    public_record["hashes"] = QJsonObject{{"sha256", item["sha256"]}};
+    if (has_sha1)
+      public_record["hashes"] = QJsonObject{{"sha1", item["sha1"]}, {"sha256", item["sha256"]}};
+    QSet<QString> public_names;
+    validate_content_record(public_record, public_names);
+    public_records.insert(file.target, file.record);
+    public_downloads.append({urls.takeFirst(), file.target, item["sha1"].toString().toLatin1(),
+                             item["size"].toVariant().toLongLong(), urls, "content"});
+  }
+  if (!public_downloads.isEmpty()) {
+    const auto public_count = public_downloads.size();
+    const auto failures = resources_.fetch(
+        public_downloads, true, {}, [&, public_count](double fraction, const QString& detail) {
+          overall_progress(double(completed + fraction * public_count) / qMax(1, records.size()),
+                           detail);
+        });
+    for (const auto& download : public_downloads) {
+      const auto record = public_records.value(download.path);
+      bool valid = !failures.contains(download.path);
+      if (valid) {
         try {
-          resources_.fetch({{urls.takeFirst(), target, item["sha1"].toString().toLatin1(),
-                             item["size"].toVariant().toLongLong(), urls}});
-          verify_content_file(target, record, cancelled_);
-          valid = true;
+          verify_content_file(download.path, record, cancelled_);
         } catch (...) {
           check_cancelled(cancelled_);
+          valid = false;
         }
       }
-    }
-    if (!valid && QRegularExpression("^[0-9a-f]{40}$").match(item["sha1"].toString()).hasMatch()) {
-      try {
-        auto downloads = item["downloads"].toArray();
-        if (downloads.isEmpty()) {
-          const auto release = resources_.json(
-              QUrl("https://api.modrinth.com/v2/version_file/" + item["sha1"].toString()));
-          for (const auto& file : release["files"].toArray()) {
-            if (file.toObject()["hashes"].toObject()["sha1"] == item["sha1"] &&
-                file.toObject()["size"] == item["size"])
-              downloads.append(file.toObject()["url"]);
-          }
-        }
-        if (!downloads.isEmpty()) {
-          auto public_record = record;
-          public_record["embedded"] = false;
-          public_record["downloads"] = downloads;
-          public_record["hashes"] = QJsonObject{{"sha1", item["sha1"]}, {"sha256", item["sha256"]}};
-          QSet<QString> public_names;
-          validate_content_record(public_record, public_names);
-          QList<QUrl> urls;
-          for (const auto& url : downloads) urls.append(QUrl(url.toString()));
-          resources_.fetch({{urls.takeFirst(), target, item["sha1"].toString().toLatin1(),
-                             item["size"].toVariant().toLongLong(), urls}});
-          verify_content_file(target, record, cancelled_);
-          valid = true;
-        }
-      } catch (...) {
-        check_cancelled(cancelled_);
+      if (valid) {
+        ++completed;
+        publish(QCoreApplication::translate("Bugg", "下载并校验 %1 / %2")
+                    .arg(completed)
+                    .arg(records.size()));
+      } else {
+        QFile::remove(download.path);
+        const auto found =
+            std::find_if(pending.cbegin(), pending.cend(),
+                         [&](const RoomFile& file) { return file.target == download.path; });
+        if (found != pending.cend())
+          peer_downloads.append(QJsonObject{
+              {"kind", found->record["kind"]}, {"item", found->item}, {"target", found->target}});
       }
     }
-    if (!valid) {
-      QFile::remove(target);
-      QElapsedTimer retry;
-      retry.start();
-      while (true) {
-        try {
-          content.transfer("mods.fetch",
-                           {{"kind", record["kind"]}, {"item", item}, {"target", target}});
-          break;
-        } catch (const std::exception& error) {
-          check_cancelled(cancelled_);
-          if (retry.elapsed() >= 45000 ||
-              !QString::fromUtf8(error.what()).contains("P2P file channel is not connected"))
-            throw;
-          QThread::msleep(350);
-        }
-      }
-      verify_content_file(target, record, cancelled_);
+  }
+  if (!peer_downloads.isEmpty()) {
+    const auto peer_count = peer_downloads.size();
+    content.transfer_many("mods.fetch", peer_downloads, concurrency_,
+                          [&, peer_count](double fraction, const QString& detail) {
+                            overall_progress(
+                                double(completed + fraction * peer_count) / qMax(1, records.size()),
+                                detail);
+                          });
+    for (const auto& value : peer_downloads) {
+      const auto transfer = value.toObject();
+      const auto found = std::find_if(pending.cbegin(), pending.cend(), [&](const RoomFile& file) {
+        return file.target == transfer["target"].toString();
+      });
+      if (found == pending.cend()) throw std::runtime_error("Room content record disappeared");
+      verify_content_file(found->target, found->record, cancelled_);
+      ++completed;
+      publish(QCoreApplication::translate("Bugg", "房间传输并校验 %1 / %2")
+                  .arg(completed)
+                  .arg(records.size()));
     }
-    report(
-        double(++completed) / qMax(1, records.size()),
-        QCoreApplication::translate("Bugg", "同步文件 %1 / %2").arg(completed).arg(records.size()));
   }
   return commit_content(staging_id, name, load_version(staging_id), records, "BUGG Room");
 }

@@ -87,7 +87,12 @@ qt_add_library(bugg_runtime STATIC
     src/modules/account/infrastructure/credential_store.h src/modules/account/infrastructure/credential_store.cpp
     src/modules/account/application/microsoft_account.h src/modules/account/application/microsoft_account.cpp
     src/modules/launch/domain/minecraft_metadata.h src/modules/launch/domain/minecraft_metadata.cpp
+    src/modules/launch/domain/server_list.h src/modules/launch/domain/server_list.cpp
     src/modules/game_install/infrastructure/resource_client.h src/modules/game_install/infrastructure/resource_client.cpp
+    src/modules/game_install/infrastructure/resource_source_provider.h src/modules/game_install/infrastructure/resource_source_provider.cpp
+    src/modules/game_install/infrastructure/bugg_resource_source.h src/modules/game_install/infrastructure/bugg_resource_source.cpp
+    src/modules/game_install/infrastructure/bmclapi_resource_source.h src/modules/game_install/infrastructure/bmclapi_resource_source.cpp
+    src/modules/game_install/infrastructure/official_resource_source.h src/modules/game_install/infrastructure/official_resource_source.cpp
     src/modules/game_install/application/game_operations.h src/modules/game_install/application/game_operations.cpp
     src/modules/game_install/application/game_runtime.h src/modules/game_install/application/game_runtime.cpp)
 target_sources(bugg_runtime PRIVATE src/modules/settings/application/language_service.h src/modules/settings/application/language_service.cpp)
@@ -233,6 +238,22 @@ if(BUILD_TESTING)
     add_dependencies(runtime_test bugg)
     if(BUGG_SINGLE_FILE)
         target_compile_definitions(runtime_test PRIVATE BUGG_TEST_SINGLE_FILE_EXE="$<TARGET_FILE:bugg>")
+        add_test(NAME packaged_multiplayer COMMAND runtime_test
+            complete_single_file_worker_uses_existing_rpc_and_shutdown
+            packaged_world_probe_keeps_large_status_out_of_control_requests
+            packaged_bridge_rejects_oversize_and_full_queue_without_breaking_rpc
+            open_world_probe_accepts_loader_display_names
+            create_with_closed_world_restores_form_state
+            native_bridge_prioritizes_only_unsent_background_requests
+            node_login_retry_and_cancellation_keep_one_authorization
+            node_browser_approval_leaves_waiting_and_connects
+            node_restore_renews_or_returns_to_authorization
+            node_poll_invalid_response_stops_waiting
+            social_notification_categories_read_independently
+            room_events_still_publish_messages_and_transport
+            room_launch_uses_quick_play_or_legacy_server_and_keeps_normal_launch_clean
+            offline_room_uses_lan_discovery_instead_of_online_quick_play)
+        set_tests_properties(packaged_multiplayer PROPERTIES TIMEOUT 120)
     endif()
     add_test(NAME runtime COMMAND runtime_test)
     qt_add_executable(file_digest_test tests/performance/file_digest_test.cpp)
@@ -244,6 +265,9 @@ if(BUILD_TESTING)
     qt_add_executable(workload_test tests/performance/workload_test.cpp)
     target_link_libraries(workload_test PRIVATE Qt6::Test bugg_runtime)
     add_test(NAME workloads COMMAND workload_test)
+    # Explicit real-network measurements only; never part of unattended CTest.
+    qt_add_executable(download_benchmark tests/performance/download_benchmark.cpp)
+    target_link_libraries(download_benchmark PRIVATE bugg_runtime Qt6::Concurrent)
     add_test(NAME qml_component_boundaries COMMAND ${CMAKE_COMMAND}
         -DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_qml_boundaries.cmake)

@@ -175,6 +175,7 @@ QJsonObject RoomContentCache::query(const QString& path, const QJsonObject& body
   HttpRequest request;
   request.url = QUrl(grant(authorized)["url"].toString()).resolved(QUrl(path));
   request.method = "POST";
+  if (path == "/room-cache/resolve") request.total_ms = 3000;
   request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
   request.maximum_bytes = 2 * 1024 * 1024;
   request.headers["Content-Type"] = "application/json";
@@ -185,30 +186,205 @@ QJsonObject RoomContentCache::query(const QString& path, const QJsonObject& body
     throw std::runtime_error("Invalid room cache plan");
   return result;
 }
-QList<QUrl> RoomContentCache::sources(const QJsonObject& item) {
-  QList<QUrl> urls;
-  if (unavailable_) return urls;
-  try {
+QHash<QString, QList<QUrl>> RoomContentCache::sources_many(const QJsonArray& items) {
+  QHash<QString, QList<QUrl>> result;
+  if (unavailable_) return result;
+  QHash<QString, qint64> sizes;
+  QHash<QString, QString> identities;
+  QJsonArray wanted;
+  for (const auto& value : items) {
+    const auto item = value.toObject();
     const auto digest = item["sha256"].toString();
-    if (!QRegularExpression("^[0-9a-f]{64}$").match(digest).hasMatch()) return urls;
-    const auto plan = query("/room-cache/resolve", {{"wanted", QJsonArray{digest}}}, false);
-    for (const auto& value : plan["files"].toArray()) {
-      const auto file = value.toObject();
-      if (file["sha256"] != digest || file["size"] != item["size"]) continue;
-      if (file["action"] == "cached")
-        urls.append(QUrl(grant_["url"].toString()).resolved(QUrl("/room-cache/files/" + digest)));
-      else if (file["action"] == "redirect")
-        for (const auto& candidate : file["downloads"].toArray()) {
-          const QUrl url(candidate.toString());
-          if (url.scheme() == "https" && url.userInfo().isEmpty() && !url.hasFragment())
-            urls.append(url);
+    if (!QRegularExpression("^[0-9a-f]{64}$").match(digest).hasMatch() || !item["size"].isDouble())
+      continue;
+    sizes.insert(digest, item["size"].toVariant().toLongLong());
+    identities.insert(digest, digest);
+    if (!wanted.contains(digest)) wanted.append(digest);
+    const auto sha1 = item["sha1"].toString();
+    if (QRegularExpression("^[0-9a-f]{40}$").match(sha1).hasMatch()) {
+      identities.insert(sha1, digest);
+      if (!wanted.contains(sha1)) wanted.append(sha1);
+    }
+  }
+  for (qsizetype offset = 0; offset < wanted.size(); offset += 300) {
+    QJsonArray batch;
+    for (qsizetype index = offset; index < qMin(offset + 300, wanted.size()); ++index)
+      batch.append(wanted[index]);
+    try {
+      const auto plan = query("/room-cache/resolve", {{"wanted", batch}}, false);
+      for (const auto& value : plan["files"].toArray()) {
+        const auto file = value.toObject();
+        auto digest = identities.value(file["sha256"].toString());
+        if (digest.isEmpty()) digest = identities.value(file["sha1"].toString());
+        if (!sizes.contains(digest) || file["size"].toVariant().toLongLong() != sizes[digest])
+          continue;
+        if (file["action"] == "cached") {
+          result[digest].append(
+              QUrl(grant_["url"].toString()).resolved(QUrl("/room-cache/files/" + digest)));
+        } else if (file["action"] == "redirect") {
+          for (const auto& candidate : file["downloads"].toArray()) {
+            const QUrl url(candidate.toString());
+            if (url.scheme() == "https" && url.userInfo().isEmpty() && !url.hasFragment() &&
+                !result[digest].contains(url))
+              result[digest].append(url);
+          }
         }
+      }
+    } catch (...) {
+      check_cancelled(cancelled_);
+      if (grant_.isEmpty()) unavailable_ = true;
+      break;
+    }
+  }
+  return result;
+}
+void RoomContentCache::transfer_many(const QString& method, const QJsonArray& items,
+                                     int concurrency, BatchProgress progress) {
+  if (items.isEmpty()) return;
+  struct TransferState {
+    QJsonObject parameters;
+    QString id;
+    qint64 started = -1;
+    qint64 retry_at = 0;
+    qint64 advanced_at = 0;
+    qint64 received = 0;
+    qint64 size = 0;
+    bool active = false;
+    bool complete = false;
+  };
+  QList<TransferState> states;
+  qint64 total_bytes = 0;
+  for (const auto& value : items) {
+    TransferState state;
+    state.parameters = value.toObject();
+    state.size = state.parameters["item"].toObject()["size"].toVariant().toLongLong();
+    total_bytes += qMax<qint64>(0, state.size);
+    states.append(state);
+  }
+  const int limit = qBound(1, concurrency, 16);
+  QElapsedTimer clock;
+  clock.start();
+  int completed = 0;
+  QSet<QString> active_ids;
+  const auto cancel_all = [&] {
+    for (const auto& state : states) {
+      if (state.id.isEmpty()) continue;
+      try {
+        request_("mods.cancel", {{"session", session_}, {"transfer", state.id}},
+                 std::make_shared<std::atomic_bool>(false));
+      } catch (...) {
+      }
+    }
+  };
+  const auto is_connectivity_error = [](const QString& error) {
+    return error.contains("P2P file channel is not connected", Qt::CaseInsensitive);
+  };
+  const auto open = [&](TransferState& state) {
+    if (state.started < 0) state.started = clock.elapsed();
+    try {
+      auto parameters = state.parameters;
+      parameters["session"] = session_;
+      const auto result = request_(method, parameters, cancelled_);
+      if (result["state"] == "error")
+        throw std::runtime_error(result["error"].toString().toStdString());
+      state.id = result["transfer"].toString();
+      if (result["state"] == "complete") {
+        state.complete = true;
+        state.received = state.size;
+        ++completed;
+        if (!state.id.isEmpty())
+          request_("mods.cancel", {{"session", session_}, {"transfer", state.id}}, cancelled_);
+      } else {
+        if (state.id.isEmpty()) throw std::runtime_error("Room content transfer did not start");
+        state.active = true;
+        state.advanced_at = clock.elapsed();
+        active_ids.insert(state.id);
+      }
+    } catch (const std::exception& exception) {
+      const auto reason = QString::fromUtf8(exception.what());
+      if (!is_connectivity_error(reason) || clock.elapsed() - state.started >= 45000) throw;
+      state.id.clear();
+      state.active = false;
+      state.retry_at = clock.elapsed() + 350;
+    }
+  };
+  const auto publish = [&] {
+    if (!progress) return;
+    double numerator = 0;
+    if (total_bytes > 0) {
+      for (const auto& state : states)
+        numerator += state.complete ? state.size
+                     : state.active ? qBound<qint64>(0, state.received, state.size)
+                                    : 0;
+      progress(qBound(0.0, numerator / total_bytes, 1.0),
+               QCoreApplication::translate("Bugg", "同步文件 %1 / %2 · %3 个并发传输 · 来源：房间")
+                   .arg(completed)
+                   .arg(states.size())
+                   .arg(active_ids.size()));
+    } else {
+      double fraction = completed;
+      for (const auto& state : states)
+        if (state.active) fraction += state.size > 0 ? double(state.received) / state.size : 0;
+      progress(qBound(0.0, fraction / states.size(), 1.0),
+               QCoreApplication::translate("Bugg", "同步文件 %1 / %2 · %3 个并发传输 · 来源：房间")
+                   .arg(completed)
+                   .arg(states.size())
+                   .arg(active_ids.size()));
+    }
+  };
+  try {
+    while (completed < states.size()) {
+      check_cancelled(cancelled_);
+      for (auto& state : states) {
+        if (active_ids.size() >= limit) break;
+        if (state.active || state.complete || state.retry_at > clock.elapsed()) continue;
+        open(state);
+      }
+      for (auto& state : states) {
+        if (!state.active) continue;
+        if (clock.elapsed() - state.started > 30 * 60 * 1000 ||
+            clock.elapsed() - state.advanced_at > 60000)
+          throw std::runtime_error("Room content transfer timed out");
+        QJsonObject status;
+        try {
+          status =
+              request_("mods.status", {{"session", session_}, {"transfer", state.id}}, cancelled_);
+        } catch (...) {
+          check_cancelled(cancelled_);
+          throw;
+        }
+        if (status["state"] == "error") {
+          const auto reason = status["error"].toString("Room content transfer failed");
+          request_("mods.cancel", {{"session", session_}, {"transfer", state.id}},
+                   std::make_shared<std::atomic_bool>(false));
+          active_ids.remove(state.id);
+          state.id.clear();
+          state.active = false;
+          if (!is_connectivity_error(reason) || clock.elapsed() - state.started >= 45000)
+            throw std::runtime_error(reason.toStdString());
+          state.retry_at = clock.elapsed() + 350;
+          continue;
+        }
+        const auto received = status["received"].toVariant().toLongLong();
+        if (received > state.received) state.advanced_at = clock.elapsed();
+        state.received = received;
+        if (status["state"] == "complete") {
+          state.active = false;
+          state.complete = true;
+          state.received = state.size;
+          active_ids.remove(state.id);
+          request_("mods.cancel", {{"session", session_}, {"transfer", state.id}}, cancelled_);
+          ++completed;
+        }
+      }
+      publish();
+      if (completed < states.size()) QThread::msleep(100);
     }
   } catch (...) {
-    check_cancelled(cancelled_);
-    if (grant_.isEmpty()) unavailable_ = true;
+    cancel_all();
+    throw;
   }
-  return urls;
+  publish();
 }
 void RoomContentCache::publish(const QString& state, const QString& detail, qint64 done,
                                qint64 total) {
@@ -317,7 +493,8 @@ void RoomContentCache::host(const QString& directory, const QJsonObject& game) {
         }
         // 收据确认只代表这些文件成功；立即重查计划，不能拿上传前的汇总宣称全部就绪。
         if (!uploads.isEmpty()) continue;
-        if (plan["state"] == "waiting" || summary["pending"].toInt() > 0) {
+        const auto waiting_demand = summary["reasons"].toObject()["waiting_demand"].toInt();
+        if (plan["state"] == "waiting" || summary["pending"].toInt() > waiting_demand) {
           QString reason;
           for (const auto& value : plan["files"].toArray()) {
             const auto file = value.toObject();

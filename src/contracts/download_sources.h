@@ -29,6 +29,7 @@ enum class SourceCapability {
   CurseForgeContent,
   ModrinthContent,
   GameResources,
+  CurseForgeMetadata,
 };
 
 struct SourceDefinition {

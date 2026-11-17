@@ -130,6 +130,8 @@ ToolBar.tasksRequested 由 FloatingShell 转发，Main 仅展开已有窗口并 
 
 `ToolBar.activity` 接收 C++ 快照 `{active, progress, label}`；整个菜单作为进度表面，任务图标仍复用 IconButton。`NavigationBar.toolIds` 与 items 对齐，selected(index) 返回稳定工具 ID。面板 items 仅启动/联机/好友，对应 [0,2,3]；常规主题保留广场，对应 [0,1,2,3]。页面不能按可见列表的位置重写菜单 ID。
 
+2026-11-16 修复：恢复本项目原 `toolbarActivity` 的菜单整体表面和 `fluid: true`，沿用 ProgressSurface 的透明双层波纹及水花；删除 FloatingShell 后加的独立 4px `topActivity`。ToolBar.progressTopInset 只将水面向上延展到窗口可见内容上沿（外侧透明阴影边缘不算留白），常规窗口为 8px、面板为 0，不移动菜单按钮。首页版本摘要和启动状态跟随唯一 launchButton 底部位置；常规窗口底部内边距从 40px 减为 16px，下移 24px，通知预留和面板布局保持原契约。状态仍由 GameRuntime.activity 经 FloatingShell → ToolBar 传入，没有新增下载逻辑、绘制组件或计时器。菜单因二级页面或吸附而不可见时，沿 ProgressSurface 原 visible 约束停止动画。针对性原生用例为 `backgrounds_cover_pages_with_double_blur_and_menu_fluid_progress`，记录 `build/menu-fluid-native.log`；本地截图、构建摘要和检查结果记录 `build/verification/menu-fluid/verification.json`，只证明本地修复，不代表公开版本已发布。
+
 `DirectoryPicker` 继承 Qt Quick Dialogs.FolderDialog，调用 open()，确认发 directoryChosen(path:string)，取消不发编辑事件。StoragePage 只发目录选择意图，GameRuntime 决定是否保存和扫描；选择目录不冒充移动文件。
 
 实例管理页只管理当前实例，不放启动按钮；全局与实例游戏设置共用 InstanceSettingsPage/MemoryControl/ValueSlider；自动为默认，显示本次建议值，实际启动前由 C++ 重算；逐项即时保存，不放保存按钮。下载列表只消费真实 tasks，空列表显示空状态。
@@ -179,3 +181,5 @@ RoomChat 的每条消息正文以 StaticText 无障碍节点公开 text，descri
 SettingRow.compact 默认 false，紧凑目录页可使用 DesignTokens.controlHeight；文字/值/图标及反馈仍归原 SettingRow。SettingsPage 开启 compact 并减小上下 padding，使新增联机设置后常规窗口末项仍完整可见，不压缩所有设置子页。
 
 2026-11-12：`LogRow` 是日志虚拟列表的呈现组件，继承 AbstractButton，组合 InteractiveSurface/UiText，按时间、级别、Tag、首行消息布局；完整事件保留在 LogsPage 选中详情，不逐行创建卡片或展开堆栈。`TextAreaField.flat` 只控制已有输入表面的透明/无圆角呈现，选择复制、焦点和滚动仍复用原 TextArea，不在日志页重写输入组件。页面不解析日志或持有文件句柄。
+
+2026-11-17 ModalSurface：保留 modal=true、focus 与 NoAutoClose，dim=false，不绘制全原生窗口遮罩或模糊。ChoiceDialog/首次须知共用这个修复。Windows 实际 410×600/960×600 截图已查看：滚动提示、拒绝/阅读按钮完整，四个原生透明角 alpha=0，无 QML 警告。见 build/verification/modal-fringe/result.json 与 agreement-panel/classic.png；macOS 真实硬件未测。

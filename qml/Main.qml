@@ -402,9 +402,7 @@ ApplicationWindow {
     ToolDeck {
         id: deck
         onEnlargeLogsRequested: {
-            logsWindow.show();
-            logsWindow.raise();
-            logsWindow.requestActivate();
+            window.desktopEnvironment.present_window(logsWindow, window);
         }
         objectName: "toolContent"
         parent: floatingShell.contentHost

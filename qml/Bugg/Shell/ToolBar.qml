@@ -10,6 +10,11 @@ Item {
     property bool showWindowControls: true
     property real pageMode: 0
     property bool friendsVisible: false
+    property real progressTopInset: 0
+    property var activity: ({
+            active: false,
+            progress: -1
+        })
     property bool videoPlaying: false
     property bool videoSoundEnabled: false
     signal navigateRequested(int index)
@@ -17,6 +22,15 @@ Item {
     signal closeRequested
     signal backgroundSoundToggled(bool enabled)
     implicitHeight: 60
+    ProgressSurface {
+        objectName: "toolbarActivity"
+        anchors.fill: parent
+        anchors.topMargin: -root.progressTopInset
+        active: root.activity.active === true
+        progress: root.activity.progress === undefined ? -1 : root.activity.progress
+        fluid: true
+        cornerRadius: 18
+    }
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 14 + root.pageMode * 6

@@ -382,7 +382,7 @@ class ContentProvider {
     check();
     const auto cache_key = publisher + "|" + path + "?" + parameters.toString(QUrl::FullyEncoded);
     if (metadata_cache_.contains(cache_key)) return metadata_cache_.value(cache_key);
-    const auto capability = publisher == "CurseForge" ? SourceCapability::CurseForgeContent
+    const auto capability = publisher == "CurseForge" ? SourceCapability::CurseForgeMetadata
                                                       : SourceCapability::ModrinthContent;
     const auto plan = resolve_sources(order_, capability);
     if (!plan.error.isEmpty()) fail(plan.error);

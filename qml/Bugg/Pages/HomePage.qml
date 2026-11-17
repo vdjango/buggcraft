@@ -61,7 +61,7 @@ Item {
             }
         }
         x: root.spacious ? 40 : 24
-        y: root.spacious ? parent.height - height - 48 : 12
+        y: root.spacious ? launchButton.y + launchButton.height - height - 8 : 12
         width: root.spacious ? parent.width - 312 : launchButton.x - x - 14
         height: root.spacious ? 112 : 48
         text: root.currentInstance ? root.currentInstance.name : root.loadingInstances ? qsTr("正在加载游戏") : qsTr("选择游戏")
@@ -123,7 +123,7 @@ Item {
         id: statusColumn
         objectName: "homeLaunchStatus"
         x: root.spacious ? 40 : 24
-        y: root.spacious ? parent.height - height - 48 : 14
+        y: root.spacious ? launchButton.y + launchButton.height - height - 8 : 14
         width: root.spacious ? parent.width - 312 : launchButton.x - x - 14
         spacing: root.spacious ? 14 : 8
         opacity: root.showingStatus ? 1 : 0
@@ -181,7 +181,7 @@ Item {
         id: launchButton
         objectName: "launchButton"
         x: parent.width - width - (root.spacious ? 40 : 24)
-        y: root.spacious ? parent.height - height - 40 : root.launchState === "failed" ? 14 : (parent.height - height) / 2
+        y: root.spacious ? parent.height - height - 16 : root.launchState === "failed" ? 14 : (parent.height - height) / 2
         width: root.spacious ? 192 : 136
         height: root.spacious ? 50 : 40
         compact: !root.spacious

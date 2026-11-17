@@ -679,6 +679,7 @@ void MultiplayerService::launch_room() {
     contributions["hostPlayerCount"] = room.value("memberCount", 1);
   else if (room.value("availability") == "ready") {
     contributions["server"] = room.value("address");
+    contributions["roomTitle"] = room.value("title");
     contributions["lanServer"] = true;
   }
   emit launch_requested(room.value("instanceId").toString(), contributions);

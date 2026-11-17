@@ -15,6 +15,7 @@ class NativeBridge : public QObject {
   /// 统一以 --native-bridge 运行原生子进程，可传独立桥或单文件启动器路径。
   explicit NativeBridge(QString executable, QObject* parent = nullptr,
                         const QString& diagnostic_root = {});
+  ~NativeBridge() override;
   /// GUI 入队，最长 60 秒；回调在 GUI，退出/进程故障令所有未完成请求失败。
   /// 仅尚未发送的后台请求让位；同级 FIFO，已经发送的请求不抢占。
   void call(const QString& method, const QJsonObject& parameters, Reply complete,

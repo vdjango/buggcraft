@@ -9,7 +9,7 @@ class QWindow;
 
 namespace bugg {
 
-/// GUI 线程只读系统工作区/鼠标状态；无磁盘或网络 I/O，位置策略归 EdgeDock.qml。
+/// GUI 线程系统工作区/鼠标与辅助窗口定位；无 I/O，主窗口位置策略归 EdgeDock.qml。
 class DesktopEnvironment : public QObject {
   Q_OBJECT
 
@@ -18,6 +18,9 @@ class DesktopEnvironment : public QObject {
 
   /// window 无屏幕时回退主屏，无屏幕返回空矩形；排除任务栏占用区。
   Q_INVOKABLE QRect available_geometry(QWindow* window) const;
+  /// GUI 线程显示辅助窗口；跟随 reference 所在屏幕，含系统边框夹紧到工作区。
+  /// 不改变主窗口/吸附状态；无可用屏幕时仅显示，重复打开保留窗口尺寸。
+  Q_INVOKABLE void present_window(QWindow* window, QWindow* reference) const;
   /// 原生拖动期间轮询实时左键，不阻塞等待松开。
   Q_INVOKABLE bool left_button_pressed() const;
   /// GUI 线程实时屏幕逻辑坐标；EdgeDock 复用松键轮询移动窗口，无新增定时器或 I/O。

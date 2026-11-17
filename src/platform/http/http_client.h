@@ -40,8 +40,12 @@ struct HttpRequest {
   int first_byte_ms = 0;
   /// Optional file throughput floor; callers enable only when another route exists.
   qint64 minimum_bytes_per_second = 0;
-  /// Known large files may use three same-origin byte ranges; callers may disable.
+  /// Known large files may use bounded same-origin byte ranges; callers may disable.
   bool parallel_ranges = true;
+  /// Per-file ranges, clamped to 1..64 and at least 512 KiB per part.
+  int range_connections = 3;
+  /// Default negotiates HTTP/2; explicit false is available for transport diagnosis.
+  bool http2_allowed = true;
   /// Worker file GET with an explicit SHA-1/size may retain verified-identity partial bytes.
   bool resume = false;
   /// Internal range response contract; empty for normal requests.
@@ -53,7 +57,9 @@ struct HttpRequest {
 class HttpClient : public QObject {
   Q_OBJECT
  public:
-  explicit HttpClient(QObject* parent = nullptr, HttpTimeouts timeouts = {});
+  explicit HttpClient(QObject* parent = nullptr, HttpTimeouts timeouts = {},
+                      int connections_per_host = 6);
+  ~HttpClient() override;
   /// 接受 HTTP(S)，默认 15 秒无进展/45 秒总超时；8 MiB 上限；TLS 错误不会忽略。
   /// 返回客户端生成的 ID；所有成功/失败均在事件循环返回，不同步发信号。
   virtual quint64 get(const QUrl& url, const QStringList& blocked_redirect_hosts = {});
@@ -65,7 +71,7 @@ class HttpClient : public QObject {
   void completed(quint64 request_id, const QByteArray& body, const QString& error);
   void response(quint64 request_id, const QByteArray& body, const QString& error, int status);
   void progress(quint64 request_id, qint64 received, qint64 total);
-  /// 连接/DNS/TLS/传输超时；供资源所有者短暂回避故障 origin。取消/HTTP/磁盘错误不发。
+  /// 连接/DNS/TLS/超时或同源 502/503/504；供资源所有者短暂回避故障 origin。
   void unreachable(const QUrl& url);
   /// Network interruption, including after HTTP 200; never integrity/disk failures.
   void transient_failure(quint64 request_id);
@@ -77,12 +83,19 @@ class HttpClient : public QObject {
   void route_changed(quint64 request_id, const QUrl& url);
 
  private:
+  /// Fair client-wide transport budget; Range parents never consume a wire slot.
+  void pump_requests();
+  void start_granted_request(quint64 id, quint64 ticket);
+  void release_request_slot(quint64 id);
   void start_request(quint64 id, const HttpRequest& request);
   /// Worker file request, same cancellation/response ID; falls back if Range is refused.
   void ranged_request(quint64 id, const HttpRequest& request);
   QNetworkAccessManager manager_;
   HttpTimeouts timeouts_;
+  int connections_per_host_;
   QHash<quint64, QPointer<QNetworkReply>> pending_;
+  QMap<quint64, HttpRequest> queued_;
+  QHash<quint64, quint64> request_slots_;
   QHash<quint64, QList<quint64>> range_children_;
   QHash<quint64, QObject*> range_scopes_;
   QHash<QUrl, qint64> range_disabled_until_;

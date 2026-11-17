@@ -11,6 +11,7 @@
 
 #include "bugg/dependency_check.h"
 #include "modules/game_install/infrastructure/dependency_facts.h"
+#include "modules/launch/domain/server_list.h"
 #include "modules/settings/application/language_service.h"
 #include "platform/diagnostics/diagnostic_log.h"
 #include "platform/runtime/runtime_environment.h"
@@ -41,10 +42,11 @@ GameOperations::GameOperations(QString game_root, QString portable_root, QString
       portable_(std::move(portable_root)),
       cancelled_(std::move(cancelled)),
       progress_(std::move(progress)),
+      concurrency_(qBound(1, concurrency, 32)),
       resources_(
           std::move(source_order), cancelled_,
           [this](double fraction, const QString& detail) { report(fraction, detail, true); },
-          transport, concurrency, bugg_base),
+          transport, concurrency_, bugg_base),
       facts_base_(std::move(bugg_base)) {
   resources_.set_transfer_progress([this](const QVariantMap& transfer) {
     const auto path = transfer.value("path").toString();
@@ -649,6 +651,15 @@ LaunchCommand GameOperations::prepare(const QString& instance_id, int memory_mb,
   }
   const auto java = ensure_java(metadata, contributions.value("javaPath").toString());
   apply_game_options(root_, instance_id, metadata, contributions);
+  if (contributions.contains("roomTitle") && contributions.contains("server")) {
+    try {
+      save_room_server(safe_path(root_, "versions/" + instance_id),
+                       contributions.value("roomTitle").toString(),
+                       contributions.value("server").toString());
+    } catch (const std::exception& error) {
+      record_diagnostic("room.server_list_failed", {{"error", QString::fromUtf8(error.what())}});
+    }
+  }
   return build_launch_command(metadata, root_, instance_id, java, memory_mb, identity,
                               contributions, cancelled_);
 }

@@ -14,7 +14,10 @@ Popup {
     popupType: Popup.Item
     focus: true
     closePolicy: Popup.NoAutoClose
-    dim: true
+    // The native window includes transparent margins around its rounded frame.
+    // A full-window dimmer paints those margins black on macOS and Windows.
+    // Keep the modal input barrier, without extending an effect outside the UI.
+    dim: false
     onAboutToShow: {
         if (!registered) {
             registered = true;
@@ -30,9 +33,6 @@ Popup {
     Component.onDestruction: {
         if (registered)
             DesignTokens.modalCount = Math.max(0, DesignTokens.modalCount - 1);
-    }
-    Overlay.modal: Rectangle {
-        color: "#590E1724"
     }
     background: Surface {
         color: "#F5FFFFFF"

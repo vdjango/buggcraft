@@ -30,6 +30,8 @@
 #include "modules/game_install/application/game_runtime.h"
 #include "modules/game_install/application/modpack_plan.h"
 #include "modules/game_install/infrastructure/dependency_facts.h"
+#include "modules/game_install/infrastructure/resource_client.h"
+#include "modules/launch/domain/server_list.h"
 #include "modules/multiplayer/application/multiplayer_service.h"
 #include "modules/room_sync/application/room_content_cache.h"
 #include "modules/settings/application/language_service.h"
@@ -40,6 +42,16 @@
 #include "platform/security/device_key.h"
 
 namespace bugg {
+// Exercise the distributed worker, not an unrelated standalone build.
+static QString native_test_engine() {
+#ifdef BUGG_TEST_SINGLE_FILE_EXE
+  return QString::fromUtf8(BUGG_TEST_SINGLE_FILE_EXE);
+#elif defined(Q_OS_WIN)
+  return QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge.exe";
+#else
+  return QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge";
+#endif
+}
 // 截获系统浏览器入口，不启动真实浏览器；生产授权流程仍由 MultiplayerService 驱动。
 class BrowserProbe : public QObject {
   Q_OBJECT
@@ -71,11 +83,10 @@ class AuthHttp : public HttpClient {
 // 状态探测/真实节点建房共用协议夹具，仅测试使用；不启动游戏。
 class GameStatusServer : public QTcpServer {
  public:
-  explicit GameStatusServer(const QString& version) {
-    const auto json =
-        QJsonDocument(QJsonObject{{"version", QJsonObject{{"name", version}, {"protocol", 767}}},
-                                  {"players", QJsonObject{{"online", 1}, {"max", 8}}}})
-            .toJson(QJsonDocument::Compact);
+  explicit GameStatusServer(const QString& version, QJsonObject status = {}) {
+    status["version"] = QJsonObject{{"name", version}, {"protocol", 767}};
+    if (!status.contains("players")) status["players"] = QJsonObject{{"online", 1}, {"max", 8}};
+    const auto json = QJsonDocument(status).toJson(QJsonDocument::Compact);
     const auto packet = QByteArray(1, '\0') + integer(json.size()) + json;
     connect(this, &QTcpServer::newConnection, this, [this, packet] {
       while (hasPendingConnections()) {
@@ -109,6 +120,52 @@ class GameStatusServer : public QTcpServer {
 class RuntimeTest : public QObject {
   Q_OBJECT
  private slots:
+  void room_server_entry_preserves_user_data_and_replaces_ours() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath("servers.dat");
+    // Uncompressed NBT: one existing user server and an unrelated root string.
+    const auto original = QByteArray::fromHex(
+        "0a0000090007736572766572730a000000010800046e616d6500044d696e65"
+        "0800026970000b6578616d706c652e6f726700080006637573746f6d00046b65657000");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(original);
+    file.close();
+    save_room_server(directory.path(), "First", "127.0.0.1:12345");
+    save_room_server(directory.path(), "Second", "127.0.0.1:23456");
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    auto saved = file.readAll();
+    file.close();
+    QVERIFY(saved.contains("example.org"));
+    QVERIFY(saved.contains("keep"));
+    QVERIFY(saved.contains("Second"));
+    QVERIFY(!saved.contains("First"));
+    QCOMPARE(saved.count("buggRoom"), 1);
+    // Java rewrites servers.dat without extension fields; keep one owned entry.
+    saved.replace(QByteArray::fromHex("01000862756767526f6f6d01"), QByteArray());
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(saved);
+    file.close();
+    save_room_server(directory.path(), QString::fromUtf8("Room \xF0\x9F\x8C\x8D"),
+                     "127.0.0.1:34567");
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    saved = file.readAll();
+    file.close();
+    QCOMPARE(saved.count("buggRoom"), 1);
+    QVERIFY(!saved.contains("Second"));
+    QVERIFY(saved.contains(QByteArray::fromHex("eda0bcedbc8d")));  // Java surrogate encoding
+    QVERIFY(!saved.contains(QByteArray::fromHex("f09f8c8d")));
+
+    QVERIFY_EXCEPTION_THROWN(save_room_server(directory.path(), "Invalid", "192.168.1.1:25565"),
+                             std::runtime_error);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("broken");
+    file.close();
+    QVERIFY_EXCEPTION_THROWN(save_room_server(directory.path(), "Room", "127.0.0.1:12345"),
+                             std::runtime_error);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), QByteArray("broken"));
+  }
   void open_world_probe_accepts_loader_display_names_data() {
     QTest::addColumn<QString>("detected");
     QTest::addColumn<QString>("expected");
@@ -130,9 +187,7 @@ class RuntimeTest : public QObject {
     QVERIFY(server.listen(QHostAddress::LocalHost));
     QTemporaryDir root;
     AuthHttp http;
-    MultiplayerService service(
-        &http, root.path(),
-        QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge.exe");
+    MultiplayerService service(&http, root.path(), native_test_engine());
     bool done = false;
     QString failure;
     QJsonObject result;
@@ -165,9 +220,7 @@ class RuntimeTest : public QObject {
     closed.close();
     QTemporaryDir root;
     AuthHttp http;
-    MultiplayerService service(
-        &http, root.path(),
-        QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge.exe");
+    MultiplayerService service(&http, root.path(), native_test_engine());
     service.node_ = "test-only";
     service.status_["state"] = "ready";
     QSignalSpy joined(&service, &MultiplayerService::room_joined);
@@ -290,10 +343,7 @@ class RuntimeTest : public QObject {
     QVERIFY(QFile::copy(qEnvironmentVariable("BUGG_TEST_NODE_RESTORE_CREDENTIALS"),
                         root.filePath("node-credentials.bin")));
     HttpClient http;
-    auto bridge = QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge";
-#ifdef Q_OS_WIN
-    bridge += ".exe";
-#endif
+    const auto bridge = native_test_engine();
     MultiplayerService nodes(&http, root.path(), bridge);
     nodes.restore();
     QTRY_VERIFY_WITH_TIMEOUT(nodes.status().value("state").toString() == "ready" ||
@@ -464,6 +514,103 @@ class RuntimeTest : public QObject {
     QCOMPARE(room.value("members").toList().first().toMap().value("node_rtt_ms").toDouble(), -1.0);
   }
 #ifdef BUGG_TEST_SINGLE_FILE_EXE
+  void packaged_world_probe_keeps_large_status_out_of_control_requests() {
+    QJsonArray mods, samples;
+    for (int i = 0; i < 500; ++i) {
+      mods.append(QJsonObject{{"modId", QString("mod_%1").arg(i)}, {"version", "1.0.0"}});
+      samples.append(QJsonObject{{"name", QString("Player %1").arg(i)},
+                                 { "id",
+                                   QString(36, 'a') }});
+    }
+    GameStatusServer server("NeoForge 26.3",
+                            {{"favicon", "data:image/png;base64," + QString(20000, 'A')},
+                             {"description",
+                              QJsonObject {
+                                { "text",
+                                  QString(12000, 'x') }
+                              }},
+                             {"modinfo",
+                              QJsonObject {
+                                { "modList",
+                                  mods }
+                              }},
+                             {"forgeData",
+                              QJsonObject {
+                                { "mods",
+                                  mods }
+                              }},
+                             { "players",
+                               QJsonObject {
+                                 {"online", 2},
+                                 {"max", 8},
+                                 { "sample",
+                                   samples }
+                               } }});
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    QTemporaryDir root;
+    AuthHttp http;
+    MultiplayerService service(&http, root.path(), native_test_engine());
+    QJsonObject result;
+    QString failure;
+    bool completed = false;
+    service.probe_world(server.serverPort(), {{"version", "26.3"}},
+                        [&](const QJsonObject& world, const QString& error) {
+                          result = world;
+                          failure = error;
+                          completed = true;
+                        });
+    QTRY_VERIFY_WITH_TIMEOUT(completed, 10000);
+    QVERIFY2(failure.isEmpty(), qPrintable(failure));
+    QCOMPARE(result["version"].toString(), "NeoForge 26.3");
+    QCOMPARE(result["protocol"].toInt(), 767);
+    QCOMPARE(result["players"].toObject(), (QJsonObject{{"online", 2}, {"max", 8}}));
+    QCOMPARE(result.size(), 5);
+    QVERIFY(QJsonDocument(result).toJson(QJsonDocument::Compact).size() < 1024);
+    service.shutdown();
+    QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 10000);
+  }
+  void packaged_bridge_rejects_oversize_and_full_queue_without_breaking_rpc() {
+    NativeBridge bridge(native_test_engine());
+    QString failure;
+    bool rejected = false;
+    bridge.call("bridge.initialize",
+                {{ "oversize",
+                   QString(8192, 'x') }},
+                [&](const QJsonObject&, const QString& error) {
+                  failure = error;
+                  rejected = true;
+                });
+    QTRY_VERIFY(rejected);
+    QVERIFY(failure.contains(QStringLiteral("超过限制")));
+    int succeeded = 0, overflow = 0;
+    for (int i = 0; i < 33; ++i)
+      bridge.call("bridge.initialize", {}, [&](const QJsonObject& result, const QString& error) {
+        if (error.contains(QStringLiteral("请求较多")))
+          ++overflow;
+        else if (error.isEmpty() && result["protocol"].toInt() == 1)
+          ++succeeded;
+      });
+    QTRY_COMPARE_WITH_TIMEOUT(succeeded, 32, 15000);
+    QCOMPARE(overflow, 1);
+    QSignalSpy drained(&bridge, &NativeBridge::drained);
+    bridge.shutdown();
+    QTRY_VERIFY_WITH_TIMEOUT(!drained.isEmpty(), 10000);
+    rejected = false;
+    bridge.call("bridge.initialize", {}, [&](const QJsonObject&, const QString& error) {
+      failure = error;
+      rejected = true;
+    });
+    QTRY_VERIFY(rejected);
+    QVERIFY(failure.contains(QStringLiteral("正在关闭")));
+    NativeBridge missing("/missing-bugg-engine");
+    rejected = false;
+    missing.call("bridge.initialize", {}, [&](const QJsonObject&, const QString& error) {
+      failure = error;
+      rejected = true;
+    });
+    QTRY_VERIFY(rejected);
+    QVERIFY(failure.contains(QStringLiteral("文件缺失")));
+  }
   void complete_single_file_worker_uses_existing_rpc_and_shutdown() {
     NativeBridge bridge(QString::fromUtf8(BUGG_TEST_SINGLE_FILE_EXE));
     QJsonObject reply;
@@ -485,7 +632,7 @@ class RuntimeTest : public QObject {
   }
 #endif
   void native_bridge_prioritizes_only_unsent_background_requests() {
-    const auto engine = QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge.exe";
+    const auto engine = native_test_engine();
     QVERIFY(QFileInfo::exists(engine));
     NativeBridge bridge(engine);
     QStringList order;
@@ -787,10 +934,7 @@ class RuntimeTest : public QObject {
     QVERIFY(QFile::copy(qEnvironmentVariable("BUGG_TEST_ROOM_CACHE_CREDENTIALS"),
                         root.filePath("node-credentials.bin")));
     HttpClient http;
-    auto bridge = QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge";
-#ifdef Q_OS_WIN
-    bridge += ".exe";
-#endif
+    const auto bridge = native_test_engine();
     MultiplayerService nodes(&http, root.path(), bridge);
     QVariantMap cache;
     QString last;
@@ -990,12 +1134,95 @@ class RuntimeTest : public QObject {
       if (scenario == "cancel") QCOMPARE(cleanups, 1);
     }
   }
+  void room_content_transfers_use_bounded_parallelism_and_aggregate_progress() {
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    int active = 0;
+    int maximum_active = 0;
+    int started = 0;
+    QHash<QString, bool> transfers;
+    const RoomContentRequest request = [&](const QString& method, const QJsonObject& parameters,
+                                           const Cancellation&) {
+      if (method == "mods.fetch") {
+        const auto id = QString("transfer-%1").arg(++started);
+        transfers.insert(id, true);
+        maximum_active = qMax(maximum_active, ++active);
+        return QJsonObject{{"state", "opening"}, {"transfer", id}};
+      }
+      if (method == "mods.status") {
+        const auto id = parameters["transfer"].toString();
+        if (transfers.value(id)) {
+          transfers[id] = false;
+          --active;
+        }
+        return QJsonObject{
+            {"state", "complete"}, {"transfer", id}, {"received", 100}, {"size", 100}};
+      }
+      if (method == "mods.cancel") return QJsonObject{};
+      throw std::runtime_error("Unexpected transfer operation");
+    };
+    RoomContentCache cache(request, "parallel-room", cancelled);
+    QJsonArray items;
+    for (int index = 0; index < 5; ++index)
+      items.append(QJsonObject{{"kind", "mods"},
+                               {"item", QJsonObject{{"size", 100}}},
+                               {"target", QString("mods/%1.jar").arg(index)}});
+    double final_progress = 0;
+    cache.transfer_many("mods.fetch", items, 2,
+                        [&](double progress, const QString&) { final_progress = progress; });
+    QCOMPARE(started, 5);
+    QCOMPARE(maximum_active, 2);
+    QCOMPARE(active, 0);
+    QCOMPARE(final_progress, 1.0);
+  }
+  void room_sources_batch_both_hashes_and_preserve_matching_file_identity() {
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    AuthHttp http;
+    int queries = 0;
+    http.on_request = [&](quint64 id, const HttpRequest& request) {
+      ++queries;
+      QCOMPARE(request.url.path(), QString("/room-cache/resolve"));
+      QCOMPARE(request.total_ms, 3000);
+      const auto wanted = QJsonDocument::fromJson(request.body).object()["wanted"].toArray();
+      QCOMPARE(wanted.size(), 4);
+      http.answer(
+          {{"protocol", "room-content-cache-v1"},
+           {"files", QJsonArray{QJsonObject{
+                         {"sha1", QString(40, 'a')},
+                         {"sha256", ""},
+                         {"size", 10},
+                         {"action", "redirect"},
+                         {"downloads", QJsonArray{"https://cdn.modrinth.com/data/file.jar"}}}}}},
+          200, id);
+    };
+    const RoomContentRequest request = [](const QString&, const QJsonObject&, const Cancellation&) {
+      return QJsonObject{{"protocol", "room-content-cache-v1"},
+                         {"url", "https://mirror.bugg.icu"},
+                         {"expires_at", double(QDateTime::currentSecsSinceEpoch() + 300)}};
+    };
+    RoomContentCache cache(request, "hash-room", cancelled, {}, &http);
+    const auto result = cache.sources_many(QJsonArray{
+        QJsonObject{{"sha256", QString(64, '1')}, {"sha1", QString(40, 'a')}, {"size", 10}},
+        QJsonObject{{"sha256", QString(64, '2')}, {"sha1", QString(40, 'b')}, {"size", 20}}});
+    QCOMPARE(queries, 1);
+    QCOMPARE(result.value(QString(64, '1')).size(), 1);
+    QVERIFY(result.value(QString(64, '2')).isEmpty());
+  }
   void room_matching_reuses_base_without_changing_original_and_rechecks_before_launch() {
     QTemporaryDir root;
     const auto game_root = root.filePath(".minecraft");
     const auto original = game_root + "/versions/original";
     const auto cancelled = std::make_shared<std::atomic_bool>(false);
-    const QByteArray body("required room mod");
+    const QByteArray metadata_json(R"({"schemaVersion":1,"id":"required","version":"1"})");
+    mz_zip_archive jar{};
+    QVERIFY(mz_zip_writer_init_heap(&jar, 0, 0));
+    QVERIFY(mz_zip_writer_add_mem(&jar, "fabric.mod.json", metadata_json.constData(),
+                                  metadata_json.size(), 0));
+    void* buffer = nullptr;
+    size_t size = 0;
+    QVERIFY(mz_zip_writer_finalize_heap_archive(&jar, &buffer, &size));
+    const QByteArray body(static_cast<const char*>(buffer), size);
+    mz_free(buffer);
+    mz_zip_writer_end(&jar);
     const auto hash =
         QString::fromLatin1(QCryptographicHash::hash(body, QCryptographicHash::Sha256).toHex());
     const auto empty =
@@ -1755,6 +1982,20 @@ class RuntimeTest : public QObject {
     QCOMPARE(urls.size(), 3);
     QCOMPARE(urls[0].host(), "mirror.bugg.icu");
     QCOMPARE(urls[1].host(), "bmclapi2.bangbang93.com");
+    const auto content =
+        resource_urls(QUrl("https://cdn.modrinth.com/data/project/version/mod.jar"), {"BMCLAPI"});
+    QCOMPARE(content.size(), 1);
+    QCOMPARE(content.front().host(), "cdn.modrinth.com");
+    const auto curseforge =
+        resource_urls(QUrl("https://edge.forgecdn.net/files/123/456/example.jar"), {"BMCLAPI"});
+    QCOMPARE(curseforge.size(), 2);
+    QCOMPARE(curseforge.front().host(), "mediafilez.forgecdn.net");
+    for (const auto& candidate : curseforge) QVERIFY(!candidate.host().contains("bmclapi"));
+    const auto metadata =
+        resource_urls(QUrl("https://api.curseforge.com/v1/mods/files"), {"BMCLAPI"});
+    QCOMPARE(metadata.size(), 1);
+    QCOMPARE(metadata.front().host(), "mirror.bugg.icu");
+    QCOMPARE(metadata.front().path(), "/v1/catalog/curseforge/mods/files");
     const auto dynamic =
         resource_urls(QUrl("https://example.com/a?token=x"), {"BUGG", "BMCLAPI", "官方"});
     QCOMPARE(dynamic.size(), 1);
@@ -2054,7 +2295,7 @@ class RuntimeTest : public QObject {
     }
     qputenv("BUGGCRAFT_CURSEFORGE_API_KEY", previous);
     QVERIFY(failure.contains("频繁"));
-    QCOMPARE(http.requests.size(), 7);  // Initial attempt plus the shared six-retry budget.
+    QCOMPARE(http.requests.size(), 1);  // Do not hammer a rate-limited origin without a new route.
   }
   void discovered_assets_start_before_the_core_and_libraries_finish() {
     QTemporaryDir root;
@@ -2093,8 +2334,11 @@ class RuntimeTest : public QObject {
   void large_download_ranges_validate_fallback_and_atomic_cancel() {
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
-    const QByteArray payload(10 * 1024 * 1024, 'x');
+    QByteArray payload(10 * 1024 * 1024, 'x');
     bool supports = true;
+    bool fail_one_piece = false;
+    bool failed_piece = false;
+    bool delay_last_piece = false, delayed_last_piece = false;
     int ranged = 0, full = 0;
     connect(&server, &QTcpServer::newConnection, this, [&] {
       while (server.hasPendingConnections()) {
@@ -2121,6 +2365,15 @@ class RuntimeTest : public QObject {
             first = range.captured(1).toLongLong();
             last = range.captured(2).toLongLong();
           }
+          if (partial && first > 0 && fail_one_piece && !failed_piece) {
+            failed_piece = true;
+            socket->write("HTTP/1.1 206 Partial Content\r\nContent-Length: " +
+                          QByteArray::number(last - first + 1) + "\r\nContent-Range: bytes " +
+                          QByteArray::number(first) + '-' + QByteArray::number(last) + '/' +
+                          QByteArray::number(payload.size()) + "\r\nConnection: close\r\n\r\nx");
+            socket->disconnectFromHost();
+            return;
+          }
           const auto bytes = last - first + 1;
           auto response =
               QByteArray(partial ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n") +
@@ -2130,15 +2383,18 @@ class RuntimeTest : public QObject {
                         QByteArray::number(last) + '/' + QByteArray::number(payload.size()) +
                         "\r\n";
           socket->write(response + "\r\n");
+          const bool slow =
+              delay_last_piece && !delayed_last_piece && first >= payload.size() - 512 * 1024;
+          if (slow) delayed_last_piece = true;
           auto* timer = new QTimer(socket);
-          timer->setInterval(5);
+          timer->setInterval(slow ? 100 : 5);
           auto position = std::make_shared<qint64>(first);
-          connect(timer, &QTimer::timeout, socket, [socket, timer, position, last, &payload] {
+          connect(timer, &QTimer::timeout, socket, [socket, timer, position, last, slow, &payload] {
             if (socket->state() != QAbstractSocket::ConnectedState) {
               timer->stop();
               return;
             }
-            const auto size = qMin<qint64>(256 * 1024, last - *position + 1);
+            const auto size = qMin<qint64>(slow ? 1024 : 256 * 1024, last - *position + 1);
             socket->write(payload.constData() + *position, size);
             *position += size;
             if (*position > last) {
@@ -2159,6 +2415,49 @@ class RuntimeTest : public QObject {
     request.expected_size = payload.size();
     request.maximum_bytes = payload.size() + 1;
     QList<qint64> times;
+    for (const int connections : {1, 3, 6, 6, 3, 1}) {
+      ranged = full = 0;
+      request.range_connections = connections;
+      request.output_path = root.filePath("bench-" + QString::number(times.size()));
+      QSignalSpy completed(&http, &HttpClient::response);
+      QElapsedTimer clock;
+      clock.start();
+      const auto id = http.request(request);
+      const auto parent_response = [&]() {
+        return std::find_if(completed.cbegin(), completed.cend(),
+                            [id](const auto& result) { return result[0].toULongLong() == id; });
+      };
+      QTRY_VERIFY_WITH_TIMEOUT(parent_response() != completed.cend(), 10000);
+      const auto failure = (*parent_response())[2].toString();
+      QVERIFY2(failure.isEmpty(), qPrintable(failure));
+      QCOMPARE(ranged, connections == 1 ? 0 : connections);
+      QCOMPARE(full, connections == 1 ? 1 : 0);
+      times.append(clock.elapsed());
+      QCOMPARE(file_digest(request.output_path, "sha1", std::make_shared<std::atomic_bool>(false)),
+               request.sha1);
+      qInfo() << "CONTROLLED_RANGE_BENCH" << connections << "connections" << times.last() << "ms";
+    }
+    times.clear();
+    request.range_connections = 3;
+    fail_one_piece = true;
+    request.output_path = root.filePath("one-piece-retried");
+    ranged = full = 0;
+    {
+      QSignalSpy response(&http, &HttpClient::response);
+      const auto id = http.request(request);
+      const auto found = [&] {
+        return std::find_if(response.cbegin(), response.cend(),
+                            [id](const auto& row) { return row[0].toULongLong() == id; });
+      };
+      QTRY_VERIFY_WITH_TIMEOUT(found() != response.cend(), 10000);
+      QVERIFY2((*found())[2].toString().isEmpty(), qPrintable((*found())[2].toString()));
+      QCOMPARE(ranged, 4);  // Three pieces plus only the interrupted piece.
+      QCOMPARE(full, 0);
+      QVERIFY(failed_piece);
+      QCOMPARE(file_digest(request.output_path, "sha1", std::make_shared<std::atomic_bool>(false)),
+               request.sha1);
+    }
+    fail_one_piece = false;
     for (int scenario = 0; scenario < 4; ++scenario) {
       supports = scenario != 2;
       ranged = 0;
@@ -2224,6 +2523,32 @@ class RuntimeTest : public QObject {
     QTimer::singleShot(10, &http, [&] { http.cancel(id); });
     QTest::qWait(160);
     QVERIFY(!QFileInfo::exists(request.output_path));
+    // Exercise the production small-piece queue, not just the three-piece path.
+    payload = QByteArray(65 * 1024 * 1024, 'q');
+    delay_last_piece = true;
+    supports = true;
+    ranged = full = 0;
+    request.url.setPath("/piece-queue");
+    request.output_path = root.filePath("piece-queue");
+    request.expected_size = payload.size();
+    request.maximum_bytes = payload.size() + 1;
+    request.sha1 = QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex();
+    request.range_connections = 6;
+    QSignalSpy queued_response(&http, &HttpClient::response);
+    const auto queued_id = http.request(request);
+    const auto queued_result = [&] {
+      return std::find_if(
+          queued_response.cbegin(), queued_response.cend(),
+          [queued_id](const auto& row) { return row[0].toULongLong() == queued_id; });
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(queued_result() != queued_response.cend(), 15000);
+    QVERIFY2((*queued_result())[2].toString().isEmpty(),
+             qPrintable((*queued_result())[2].toString()));
+    QCOMPARE(ranged, 131);  // One slow tail piece is replaced inside the same budget.
+    QCOMPARE(full, 0);
+    QVERIFY(delayed_last_piece);
+    QCOMPARE(file_digest(request.output_path, "sha1", std::make_shared<std::atomic_bool>(false)),
+             request.sha1);
   }
   void unrelated_download_does_not_block_launch_or_share_cancellation() {
     class AccountProbe : public AccountPort {
@@ -2667,7 +2992,7 @@ class RuntimeTest : public QObject {
         QVERIFY(client.json(QUrl(QString("https://libraries.minecraft.net/%1.json").arg(name)))
                     .value("ok")
                     .toBool());
-      QCOMPARE(primary, unreachable_origin ? 1 : 2);
+      QCOMPARE(primary, 2);  // A new batch retries the source without a timed global block.
     }
     QTemporaryDir root;
     AuthHttp http;
@@ -2697,6 +3022,155 @@ class RuntimeTest : public QObject {
     client.fetch(files);
     QCOMPARE(primary, 6);  // 只等待最初的六个在途请求，不给后续每个文件重复等待。
     for (const auto& file : files) QVERIFY(QFileInfo::exists(file.path));
+  }
+  void resource_download_skips_same_origin_after_http_503() {
+    QTcpServer primary;
+    QTcpServer fallback;
+    QVERIFY(primary.listen(QHostAddress::LocalHost));
+    QVERIFY(fallback.listen(QHostAddress::LocalHost));
+    const QByteArray payload = "verified fallback bytes";
+    int primary_requests = 0;
+    int same_origin_requests = 0;
+    int fallback_requests = 0;
+    const auto attach = [&](QTcpServer& server, const QByteArray& response,
+                            const std::function<void(const QByteArray&)>& observed) {
+      connect(&server, &QTcpServer::newConnection, &server, [&server, response, observed] {
+        while (server.hasPendingConnections()) {
+          auto* socket = server.nextPendingConnection();
+          connect(socket, &QTcpSocket::readyRead, socket, [socket, response, observed] {
+            const auto request = socket->readAll();
+            if (socket->property("answered").toBool()) return;
+            socket->setProperty("answered", true);
+            observed(request);
+            socket->write(response);
+            socket->disconnectFromHost();
+          });
+          connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        }
+      });
+    };
+    attach(primary,
+           "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+           [&](const QByteArray& request) {
+             if (request.startsWith("GET /same-origin "))
+               ++same_origin_requests;
+             else
+               ++primary_requests;
+           });
+    attach(fallback,
+           "HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(payload.size()) +
+               "\r\nConnection: close\r\n\r\n" + payload,
+           [&](const QByteArray&) { ++fallback_requests; });
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    ResourceClient client(
+        {"官方"}, std::make_shared<std::atomic_bool>(false), [](double, const QString&) {}, nullptr,
+        1);
+    const auto primary_url = QUrl(QString("http://127.0.0.1:%1/primary").arg(primary.serverPort()));
+    const auto same_origin_url =
+        QUrl(QString("http://127.0.0.1:%1/same-origin").arg(primary.serverPort()));
+    const auto fallback_url =
+        QUrl(QString("http://127.0.0.1:%1/fallback").arg(fallback.serverPort()));
+    const QString path = root.path() + "/stable.jar";
+    const auto digest = QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex();
+    QElapsedTimer timer;
+    timer.start();
+    const auto failures = client.fetch({GameResource{
+        primary_url, path, digest, payload.size(), {same_origin_url, fallback_url}, "files"}});
+
+    QVERIFY2(failures.isEmpty(), qPrintable(failures.value(path)));
+    QCOMPARE(primary_requests, 1);
+    QCOMPARE(same_origin_requests, 0);
+    QCOMPARE(fallback_requests, 1);
+    QVERIFY(timer.elapsed() < 2500);
+    QFile downloaded(path);
+    QVERIFY(downloaded.open(QIODevice::ReadOnly));
+    QCOMPARE(downloaded.readAll(), payload);
+  }
+
+  void optional_metadata_batch_keeps_matches_when_another_hash_is_missing() {
+    AuthHttp http;
+    http.on_request = [&](quint64 id, const HttpRequest& request) {
+      http.answer({{"found", true}}, request.url.path() == "/missing" ? 404 : 200, id);
+    };
+    ResourceClient resources(
+        {"官方"}, std::make_shared<std::atomic_bool>(false), [](double, const QString&) {}, &http,
+        2);
+    const QUrl missing("https://example.org/missing");
+    const QUrl found("https://example.org/found");
+    const auto result = resources.json_many({missing, found}, {}, 2500, 0, {}, true);
+    QVERIFY(!result.contains(missing));
+    QVERIFY(result.value(found).value("found").toBool());
+    QVERIFY_EXCEPTION_THROWN(resources.json_many({missing}, {}, 2500, 0), std::exception);
+
+    int started = 0;
+    http.on_request = [&](quint64 id, const HttpRequest& request) {
+      ++started;
+      if (request.url == found) http.answer({{"found", true}}, 200, id);
+    };
+    QList<QUrl> slow_queries{found};
+    for (int index = 0; index < 20; ++index)
+      slow_queries.append(QUrl(QString("https://example.org/slow/%1").arg(index)));
+    QElapsedTimer clock;
+    clock.start();
+    const auto bounded = resources.json_many(slow_queries, {}, 100, 0, {}, true);
+    QVERIFY(bounded.value(found).value("found").toBool());
+    QVERIFY(started < slow_queries.size());
+    QVERIFY(clock.elapsed() < 1500);
+  }
+
+  void http_clients_share_process_request_budget() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    int active = 0;
+    int peak = 0;
+    int completed = 0;
+    QString failure;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+      while (server.hasPendingConnections()) {
+        auto* socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+          socket->readAll();
+          if (socket->property("counted").toBool()) return;
+          socket->setProperty("counted", true);
+          peak = qMax(peak, ++active);
+          QTimer::singleShot(150, socket, [socket] {
+            socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+            socket->disconnectFromHost();
+          });
+        });
+        connect(socket, &QTcpSocket::disconnected, socket, [&, socket] {
+          if (socket->property("counted").toBool()) --active;
+          socket->deleteLater();
+        });
+      }
+    });
+
+    HttpClient first(nullptr, {}, 40);
+    HttpClient second(nullptr, {}, 40);
+    const auto observe = [&](quint64, const QByteArray&, const QString& error, int status) {
+      if (!error.isEmpty() || status != 200)
+        failure = error.isEmpty() ? QString::number(status) : error;
+      ++completed;
+    };
+    connect(&first, &HttpClient::response, this, observe);
+    connect(&second, &HttpClient::response, this, observe);
+    for (int i = 0; i < 40; ++i) {
+      HttpRequest request;
+      request.url = QUrl(QString("http://127.0.0.1:%1/first/%2").arg(server.serverPort()).arg(i));
+      first.request(request);
+    }
+    for (int i = 0; i < 40; ++i) {
+      HttpRequest request;
+      request.url = QUrl(QString("http://127.0.0.1:%1/second/%2").arg(server.serverPort()).arg(i));
+      second.request(request);
+    }
+
+    QTRY_COMPARE_WITH_TIMEOUT(completed, 80, 15000);
+    QVERIFY2(failure.isEmpty(), qPrintable(failure));
+    QVERIFY(peak > 1);
+    QVERIFY2(peak <= 64, qPrintable(QString("process request peak was %1").arg(peak)));
   }
   void device_login_is_real_protocol_and_cancellation_drops_old_results() {
     QTemporaryDir root;
@@ -3026,7 +3500,12 @@ class RuntimeTest : public QObject {
     const auto public_key = device_public_key(key);
     const QJsonObject claims{
         {"e", QDateTime::currentSecsSinceEpoch() + (scenario == "expired-network" ? -60 : 3600)},
-        {"g", QJsonObject{{"r", "device"}, {"d", public_key}, {"i", "identity"}}}};
+        { "g",
+          QJsonObject {
+            {"r", "device"},
+            {"d", public_key},
+            {"i", "identity"}
+          } }};
     const auto token =
         "acct1." +
         QJsonDocument(claims)
@@ -3035,7 +3514,8 @@ class RuntimeTest : public QObject {
         ".test";
     const QJsonObject profile{{"server_host", "127.0.0.1"},
                               {"server_public_key", "node-key"},
-                              {"token", QString::fromLatin1(token)}};
+                              { "token",
+                                QString::fromLatin1(token) }};
     save_credentials(root.path() + "/node-credentials.bin",
                      QJsonDocument(QJsonObject{{"key", QString::fromLatin1(key.toBase64())},
                                                {"profile", profile},
@@ -3059,12 +3539,14 @@ class RuntimeTest : public QObject {
       QVERIFY(nodes.status().value("authorizationExpired").toBool());
     } else {
       http.answer(
-          {{"message",
-            QJsonObject{{"p", scenario == "renew" ? "buggcraft-launcher-refresh-v1" : "wrong"},
-                        {"id", "device"},
-                        {"i", "identity"},
-                        {"o", http.requests.first().url.adjusted(QUrl::RemovePath).toString()},
-                        {"nonce", "nonce"}}}});
+          {{ "message",
+             QJsonObject {
+               {"p", scenario == "renew" ? "buggcraft-launcher-refresh-v1" : "wrong"},
+               {"id", "device"},
+               {"i", "identity"},
+               {"o", http.requests.first().url.adjusted(QUrl::RemovePath).toString()},
+               {"nonce", "nonce"}
+             } }});
       if (scenario == "renew") {
         QTRY_COMPARE_WITH_TIMEOUT(http.requests.size(), 2, 5000);
         QCOMPARE(http.requests.last().url.path(), "/api/launcher/refresh");
@@ -3072,7 +3554,7 @@ class RuntimeTest : public QObject {
                      .object()["signature"]
                      .toString()
                      .isEmpty());
-        http.answer({{"profile", profile}});
+        http.answer({{ "profile", profile }});
         QVERIFY(states.contains("connecting"));
         QTRY_COMPARE_WITH_TIMEOUT(nodes.status().value("state").toString(), "signedOut", 5000);
         QVERIFY(!nodes.status().value("authorizationExpired").toBool());
@@ -3127,10 +3609,7 @@ class RuntimeTest : public QObject {
       }
       QTemporaryDir cache;
       BrowserProbe browser;
-      auto bridge = QCoreApplication::applicationDirPath() + "/native/bin/buggcraft-bridge";
-#ifdef Q_OS_WIN
-      bridge += ".exe";
-#endif
+      const auto bridge = native_test_engine();
       MultiplayerService nodes(&http, cache.path(), bridge);
       QString last_state;
       connect(&nodes, &MultiplayerService::changed, this, [&] {

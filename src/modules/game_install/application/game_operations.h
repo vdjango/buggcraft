@@ -100,6 +100,7 @@ class GameOperations {
   ContentProgress content_progress_;
   QVariantMap content_item_;
   QHash<QString, QVariantMap> content_transfers_;
+  int concurrency_ = 6;
   QElapsedTimer progress_clock_;
   double reported_progress_ = -1;
   QString reported_detail_;

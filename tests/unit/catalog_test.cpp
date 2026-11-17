@@ -155,6 +155,11 @@ class CatalogTest : public QObject {
       QCOMPARE(reordered.routes[1].actual, "BUGG");
     }
     QVERIFY(!resolve_sources({}, SourceCapability::MinecraftCatalog).error.isEmpty());
+    const auto metadata =
+        resolve_sources({"BMCLAPI", "BUGG", "官方"}, SourceCapability::CurseForgeMetadata);
+    QCOMPARE(metadata.routes.size(), 2);
+    QCOMPARE(metadata.routes.front().actual, "BUGG");
+    QCOMPARE(metadata.routes.back().actual, "官方");
     QVERIFY(!resolve_sources({"BUGG", "BUGG"}, SourceCapability::MinecraftCatalog).error.isEmpty());
     QVERIFY(!resolve_sources({"unknown"}, SourceCapability::MinecraftCatalog).error.isEmpty());
     QVERIFY(!resolve_source("BUGG", static_cast<SourceCapability>(999)).error.isEmpty());

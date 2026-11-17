@@ -1111,16 +1111,19 @@ class ContentTest : public QObject {
         QTest::qWait(100);
         QVERIFY(window->grabWindow().save(shots + "/feedback-" + theme + ".png"));
         QVERIFY(QMetaObject::invokeMethod(feedback_dialog, "close"));
-        if (!panel) {
+        {
           auto* enlarge = visual_item(window->contentItem(), "debugLogEnlarge");
           QVERIFY(enlarge);
+          const auto work_area = desktop.available_geometry(window);
+          window->setPosition(work_area.right() - window->width() + 1, work_area.top());
           QVERIFY(QMetaObject::invokeMethod(enlarge, "clicked"));
           auto* log_window = window->findChild<QQuickWindow*>("diagnosticLogWindow");
           QVERIFY(log_window);
           QTRY_VERIFY(log_window->isVisible());
           QVERIFY(QTest::qWaitForWindowExposed(log_window));
           QTest::qWait(100);
-          QVERIFY(log_window->grabWindow().save(shots + "/logs-enlarged.png"));
+          QTRY_VERIFY(work_area.contains(log_window->frameGeometry()));
+          QVERIFY(log_window->grabWindow().save(shots + "/logs-enlarged-" + theme + ".png"));
           log_window->close();
         }
         consent->setProperty("phase", "awaiting_consent");
@@ -1250,7 +1253,7 @@ class ContentTest : public QObject {
         game + "/versions/Original/Original.json",
         {{"id", "Original"}, {"bugg", QJsonObject{{"version", "1.21.1"}, {"loader", "vanilla"}}}});
     ContentFilesServer server;
-    server.initial_delay_ms = 650;
+    server.initial_delay_ms = 1500;
     server.chunk_delay_ms = 110;
     server.payload = QByteArray(2 * 1024 * 1024, 'p');
     const QJsonObject artifact{
@@ -1285,15 +1288,24 @@ class ContentTest : public QObject {
     QVERIFY(controller && deck);
     QVERIFY(QMetaObject::invokeMethod(deck, "openToolPage", Q_ARG(QVariant, 0),
                                       Q_ARG(QVariant, "tasks")));
+    QStringList phases;
+    connect(&runtime, &GameRuntime::tasks_changed, window, [&] {
+      const auto detail = runtime.tasks().value(0).toMap().value("detail").toString();
+      if (!detail.isEmpty()) phases.append(detail);
+    });
     runtime.install({{"name", "Original"},
                      {"game", "1.21.1"},
                      {"loader", "fabric"},
                      {"loaderVersion", "1"},
                      {"updateExisting", true}});
     const auto task = [&] { return runtime.tasks().value(0).toMap(); };
-    QTRY_VERIFY(task().value("detail").toString().contains("获取资源信息"));
-    QTRY_VERIFY(task().value("detail").toString().contains("正在连接下载源"));
-    QTRY_VERIFY(task().value("detail").toString().contains("等待数据"));
+    const auto saw_phase = [&](const QString& text) {
+      return std::any_of(phases.cbegin(), phases.cend(),
+                         [&](const auto& detail) { return detail.contains(text); });
+    };
+    QTRY_VERIFY(saw_phase("获取资源信息"));
+    QTRY_VERIFY(saw_phase("正在连接下载源"));
+    QTRY_VERIFY(saw_phase("等待数据"));
     const auto shots = QCoreApplication::applicationDirPath() + "/verification/window-install";
     QDir().mkpath(shots);
     QVERIFY(window->grabWindow().save(shots + "/waiting-small.png"));
@@ -2104,11 +2116,10 @@ class ContentTest : public QObject {
     QCOMPARE(params.queryItemValue("index"), "20");
     QCOMPARE(params.queryItemValue("categoryId"), "407");
   }
-  void bmclapi_content_uses_official_endpoint_and_category_parameter() {
+  void bmclapi_content_uses_authorized_gateway_and_category_parameter() {
     ContentServer server;
     auto endpoints = server.endpoints();
-    endpoints.bugg_base =
-        QUrl("http://127.0.0.1:" + QString::number(server.serverPort()) + "/gateway");
+    endpoints.curseforge_key.clear();
     ContentCatalogService service(nullptr, endpoints);
     service.select_sources({"BMCLAPI"});
     QSignalSpy finished(&service, &ContentCatalogPort::finished);
@@ -2122,7 +2133,7 @@ class ContentTest : public QObject {
     QVERIFY2(!finished.last()[1].toMap().contains("error"),
              qPrintable(finished.last()[1].toMap().value("error").toString()));
     QCOMPARE(server.requests.size(), 1);
-    QCOMPARE(server.requests.last().path(), "/cf/mods/search");
+    QCOMPARE(server.requests.last().path(), "/v1/catalog/curseforge/mods/search");
     QCOMPARE(QUrlQuery(server.requests.last()).queryItemValue("categoryId"), "407");
     QCOMPARE(QUrlQuery(server.requests.last()).queryItemValue("modLoaderType"), "4");
   }
@@ -2731,7 +2742,7 @@ Window { width:410; height:620; visible:true; color:"white"
     QVERIFY(window->grabWindow().save(shots + "/active-tasks-960.png"));
     window->close();
   }
-  void backgrounds_cover_pages_with_double_blur_and_progress_touches_top() {
+  void backgrounds_cover_pages_with_double_blur_and_menu_fluid_progress() {
     QTemporaryDir storage;
     HttpClient http;
     MicrosoftAccount account(&http, storage.filePath("credentials.bin"));
@@ -2789,17 +2800,44 @@ Window { width:410; height:620; visible:true; color:"white"
       }
       QTest::qWait(500);
       QVERIFY(window->grabWindow().save(shots + "/appearance-" + theme + ".png"));
-      auto* top = window->findChild<QQuickItem*>("topActivity");
-      QVERIFY(top);
+      auto* toolbarActivity = window->findChild<QQuickItem*>("toolbarActivity");
+      QVERIFY(toolbarActivity);
+      QVERIFY(!window->findChild<QQuickItem*>("topActivity"));
       auto* shell = window->findChild<QObject*>("floatingShell");
       QVERIFY(shell);
       shell->setProperty("activity", QVariantMap{{"active", true}, {"progress", 0.45}});
-      QTRY_VERIFY(top->isVisible());
-      QVERIFY(top->property("edgeToEdge").toBool());
-      QCOMPARE(top->mapToScene(QPointF()), top->parentItem()->mapToScene(QPointF()));
-      QCOMPARE(top->x(), 0.0);
-      QCOMPARE(top->width(), top->parentItem()->width());
+      QTRY_VERIFY(toolbarActivity->property("active").toBool());
+      QCOMPARE(toolbarActivity->property("fluid").toBool(), true);
+      QCOMPARE(toolbarActivity->property("fraction").toDouble(), 0.45);
+      QMetaObject::invokeMethod(deck, "goHome");
+      QTRY_VERIFY(toolbarActivity->isVisible());
+      QTest::qWait(400);
+      QCOMPARE(toolbarActivity->width(), toolbarActivity->parentItem()->width());
+      QCOMPARE(toolbarActivity->height(), page_layout ? 68.0 : 60.0);
+      QCOMPARE(toolbarActivity->mapToScene(QPointF()).y(), 5.0);
+      QCOMPARE(toolbarActivity->property("trackColor").value<QColor>().alpha(), 0);
+      auto* launch_button = visual_item(window->contentItem(), "launchButton");
+      QVERIFY(launch_button);
+      if (page_layout) {
+        const auto bottom_gap =
+            window->height() - launch_button->mapToScene(QPointF(0, launch_button->height())).y();
+        QVERIFY(bottom_gap >= 48 && bottom_gap <= 56);
+      }
+      const auto phase = toolbarActivity->property("phase").toDouble();
+      QTRY_VERIFY(toolbarActivity->property("phase").toDouble() != phase);
+      QVERIFY(window->grabWindow().save(shots + "/menu-active-" + theme + ".png"));
+      shell->setProperty("activity", QVariantMap{{"active", true}, {"progress", -1}});
+      QTest::qWait(150);
+      QVERIFY(window->grabWindow().save(shots + "/menu-waiting-" + theme + ".png"));
+      shell->setProperty("activity", QVariantMap{{"active", false}, {"progress", 1}});
+      QTest::qWait(50);
+      const auto stopped_phase = toolbarActivity->property("phase").toDouble();
+      QTest::qWait(100);
+      QCOMPARE(toolbarActivity->property("phase").toDouble(), stopped_phase);
+      QVERIFY(window->grabWindow().save(shots + "/menu-idle-" + theme + ".png"));
+      shell->setProperty("activity", QVariantMap{{"active", true}, {"progress", 0.45}});
       QMetaObject::invokeMethod(deck, "openPage", Q_ARG(QVariant, "tasks"));
+      QTRY_VERIFY(!toolbarActivity->isVisible());
       deck->setProperty(
           "tasks", QVariantList{QVariantMap{
                        {"id", "fixture"},
@@ -2818,6 +2856,7 @@ Window { width:410; height:620; visible:true; color:"white"
       QTest::qWait(1200);
       QVERIFY(window->grabWindow().save(shots + "/downloads-" + theme + ".png"));
       QMetaObject::invokeMethod(deck, "goHome");
+      QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, 4));
       QVERIFY(runtime.set_preference("backgroundOnPages", false));
       QTRY_COMPARE(tokens->property("canvas").value<QColor>().alphaF(), 1.0);
     }

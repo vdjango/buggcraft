@@ -1,5 +1,6 @@
 #ifndef BUGG_MODULES_ROOM_SYNC_APPLICATION_ROOM_CONTENT_CACHE_H_
 #define BUGG_MODULES_ROOM_SYNC_APPLICATION_ROOM_CONTENT_CACHE_H_
+#include <QHash>
 #include <QJsonArray>
 
 #include "contracts/room_content.h"
@@ -10,6 +11,7 @@ namespace bugg {
 class RoomContentCache {
  public:
   using Progress = std::function<void(const QVariantMap&)>;
+  using BatchProgress = std::function<void(double, const QString&)>;
   RoomContentCache(RoomContentRequest request, QString session, Cancellation cancelled,
                    Progress progress = {}, HttpClient* transport = nullptr);
   /// 完整分页与原生传输确认；失败/取消撤销 transfer，不保留后台传输。
@@ -17,7 +19,10 @@ class RoomContentCache {
   /// 房间声明的计数/摘要与全部分页一致才返回路径归一化的文件；不接受部分清单。
   QJsonArray manifest(const QJsonObject& game);
   /// 来源 resolve 的缓存/公开候选；不可用返回空，由现有公共/P2P 路径继续。
-  QList<QUrl> sources(const QJsonObject& item);
+  QHash<QString, QList<QUrl>> sources_many(const QJsonArray& items);
+  /// Worker; bounded native transfers, aggregate byte progress, cancellation cleans all handles.
+  void transfer_many(const QString& method, const QJsonArray& items, int concurrency,
+                     BatchProgress progress = {});
   /// 房主持续按源站请求补传文件；进度只采信计划/上传回执，取消后短时释放授权。
   void host(const QString& directory, const QJsonObject& game);
 

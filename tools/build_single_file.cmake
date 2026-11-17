@@ -11,6 +11,9 @@ endforeach()
 if(NOT DEFINED PARALLEL)
     set(PARALLEL 4)
 endif()
+if(NOT DEFINED BUILD_TESTING)
+    set(BUILD_TESTING ON)
+endif()
 get_filename_component(single_source "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 get_filename_component(single_native "${single_source}/../minecraft-tunnel-native" ABSOLUTE)
 set(single_curl "${WORK_ROOT}/curl")
@@ -39,9 +42,15 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -S "${single_source}" -B "${single_ap
     ${single_common} "-DCMAKE_TOOLCHAIN_FILE=${QT_ROOT}/lib/cmake/Qt6/qt.toolchain.cmake"
     "-DCMAKE_PREFIX_PATH=${QT_ROOT}" "-DBUGG_QT_SOURCE_ROOT=${QT_SOURCE_ROOT}"
     "-DCURL_DIR=${single_curl_prefix}/lib/cmake/CURL"
-    -DBUILD_TESTING=OFF -DBUGG_SINGLE_FILE=ON -DBUGG_OPTIMIZE_SIZE=ON ${single_app_options}
+    "-DBUILD_TESTING=${BUILD_TESTING}" -DBUGG_SINGLE_FILE=ON -DBUGG_OPTIMIZE_SIZE=ON ${single_app_options}
     COMMAND_ERROR_IS_FATAL ANY)
 execute_process(COMMAND "${CMAKE_COMMAND}" --build "${single_app}" --target bugg
     --parallel "${PARALLEL}" COMMAND_ERROR_IS_FATAL ANY)
+if(BUILD_TESTING)
+    execute_process(COMMAND "${CMAKE_COMMAND}" --build "${single_app}" --target runtime_test
+        --parallel "${PARALLEL}" COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${single_app}"
+        -R "^packaged_multiplayer$" --output-on-failure COMMAND_ERROR_IS_FATAL ANY)
+endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" --install "${single_app}"
     --component launcher-single-file --prefix "${OUTPUT_ROOT}" COMMAND_ERROR_IS_FATAL ANY)

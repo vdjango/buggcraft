@@ -1,6 +1,5 @@
 #ifndef BUGG_MODULES_GAME_INSTALL_INFRASTRUCTURE_RESOURCE_CLIENT_H_
 #define BUGG_MODULES_GAME_INSTALL_INFRASTRUCTURE_RESOURCE_CLIENT_H_
-#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QUrl>
 #include <QVariantMap>
@@ -36,8 +35,11 @@ class ResourceClient {
   QJsonObject json(const QUrl& official, const QJsonObject& body, int budget_ms, int retries);
   /// Metadata batch, bounded by the same configured concurrency, URL deduped.
   QHash<QUrl, QJsonObject> json_many(const QList<QUrl>& official, const QJsonObject& body = {});
+  /// Optional batches retain successes and bound the entire lookup by budget_ms;
+  /// expiry cancels outstanding queries. Required batches remain fail-fast.
   QHash<QUrl, QJsonObject> json_many(const QList<QUrl>& official, const QJsonObject& body,
-                                     int budget_ms, int retries);
+                                     int budget_ms, int retries, Progress batch_progress = {},
+                                     bool continue_on_error = false);
   /// Worker-only file snapshots; uses the same batch/HTTP/cancellation owner.
   void set_transfer_progress(TransferProgress progress) {
     transfer_progress_ = std::move(progress);
@@ -50,10 +52,10 @@ class ResourceClient {
   /// Discovered files join this same queue; callback failures cancel the batch.
   QHash<QString, QString> fetch(
       const QList<GameResource>& resources, bool continue_on_error,
-      const std::function<QList<GameResource>(const GameResource&)>& expand);
+      const std::function<QList<GameResource>(const GameResource&)>& expand,
+      Progress batch_progress = {});
 
  private:
-  bool cooling_down(const QUrl& url) const;
   QStringList source_order_;
   QUrl bugg_base_;
   Cancellation cancelled_;
@@ -62,9 +64,6 @@ class ResourceClient {
   HttpClient http_;
   HttpClient* transport_;
   int concurrency_;
-  QElapsedTimer clock_;
-  QHash<QUrl, qint64> unavailable_until_;
-  QMetaObject::Connection health_connection_;
 };
 }  // namespace bugg
 #endif

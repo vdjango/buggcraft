@@ -40,6 +40,11 @@ NativeBridge::NativeBridge(QString executable, QObject* parent, const QString& d
   terminate_.setInterval(3000);
   connect(&terminate_, &QTimer::timeout, &process_, &QProcess::kill);
 }
+NativeBridge::~NativeBridge() {
+  // QProcess may emit finished from its destructor, after queue_ is destroyed.
+  // Normal shutdown still drains asynchronously before this owner is released.
+  process_.disconnect(this);
+}
 void NativeBridge::relocate_diagnostics(const QString& directory) {
   auto environment = QProcessEnvironment::systemEnvironment();
   environment.insert("BUGGCRAFT_BRIDGE_LOG_DIR", directory);
@@ -54,10 +59,26 @@ void NativeBridge::call(const QString& method, const QJsonObject& parameters, Re
           QJsonObject{{"jsonrpc", "2.0"}, {"id", id}, {"method", method}, {"params", parameters}})
           .toJson(QJsonDocument::Compact) +
       '\n';
-  if (closing_ || queue_.size() >= 32 || bytes.size() > 8192 || !QFileInfo::exists(executable_)) {
-    QTimer::singleShot(0, this, [complete] {
-      complete({}, QCoreApplication::translate("Bugg", "联机引擎不可用"));
-    });
+  QString reason, error;
+  if (closing_) {
+    reason = "closing";
+    error = QCoreApplication::translate("Bugg", "联机服务正在关闭");
+  } else if (queue_.size() >= 32) {
+    reason = "queue_full";
+    error = QCoreApplication::translate("Bugg", "联机请求较多，请稍后重试");
+  } else if (bytes.size() > 8192) {
+    reason = "request_too_large";
+    error = QCoreApplication::translate("Bugg", "联机请求内容超过限制，请提交日志反馈");
+  } else if (!QFileInfo::exists(executable_)) {
+    reason = "executable_missing";
+    error = QCoreApplication::translate("Bugg", "联机引擎文件缺失，请重新下载启动器");
+  }
+  if (!reason.isEmpty()) {
+    record_diagnostic("bridge.rejected", {{"method", method},
+                                          {"reason", reason},
+                                          {"bytes", bytes.size()},
+                                          {"queued", queue_.size()}});
+    QTimer::singleShot(0, this, [complete, error] { complete({}, error); });
     return;
   }
   auto position = queue_.size();
