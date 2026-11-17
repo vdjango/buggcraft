@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
-set(BUGG_BUILD_VERSION "2.0.4" CACHE STRING "Application version for this build")
-project(Bugg VERSION ${BUGG_BUILD_VERSION} LANGUAGES C CXX)
+set(BUGG_BUILD_VERSION "2.0.4-alpha.1" CACHE STRING "Application version for this build")
+if(NOT BUGG_BUILD_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc|dev)\\.[0-9]+)?$")
+    message(FATAL_ERROR "BUGG_BUILD_VERSION must be a numeric version or supported prerelease")
+endif()
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" BUGG_PROJECT_VERSION "${BUGG_BUILD_VERSION}")
+project(Bugg VERSION ${BUGG_PROJECT_VERSION} LANGUAGES C CXX)
 include(cmake/MsvcDependencies.cmake)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -37,7 +41,7 @@ target_sources(bugg_http PRIVATE src/platform/diagnostics/diagnostic_log.h
     src/platform/diagnostics/diagnostic_log.cpp)
 target_include_directories(bugg_http PUBLIC src)
 target_link_libraries(bugg_http PUBLIC Qt6::Network)
-target_compile_definitions(bugg_http PRIVATE BUGG_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(bugg_http PRIVATE BUGG_VERSION="${BUGG_BUILD_VERSION}")
 qt_add_library(bugg_catalog STATIC
     src/modules/catalog/infrastructure/content_description.h
     src/modules/catalog/infrastructure/content_description.cpp
@@ -97,7 +101,7 @@ qt_add_library(bugg_runtime STATIC
     src/modules/game_install/application/game_runtime.h src/modules/game_install/application/game_runtime.cpp)
 target_sources(bugg_runtime PRIVATE src/modules/settings/application/language_service.h src/modules/settings/application/language_service.cpp)
 target_sources(bugg_runtime PRIVATE src/modules/update/application/launcher_update_service.h src/modules/update/application/launcher_update_service.cpp)
-target_compile_definitions(bugg_runtime PUBLIC BUGG_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(bugg_runtime PUBLIC BUGG_VERSION="${BUGG_BUILD_VERSION}")
 qt_add_resources(bugg_runtime bugg_control_trust PREFIX "/bugg" BASE "${CMAKE_CURRENT_SOURCE_DIR}" FILES assets/control/beijing-test-ca.pem)
 file(GLOB BUGG_TRANSLATIONS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/i18n/ts/*.ts")
 set_source_files_properties(${BUGG_TRANSLATIONS} PROPERTIES OUTPUT_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/language-input")

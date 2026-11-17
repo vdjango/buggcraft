@@ -75,12 +75,12 @@ jobs:
           $nodeReady = $false
           do {
             try {
-              $node = Invoke-RestMethod -Uri 'https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.13' -Headers $headers
-              $nodeReady = !$node.draft -and @($node.assets | Where-Object { $_.name -eq 'buggcraft-native-0.3.13-linux-x64.tar.gz' }).Count -eq 1
+              $node = Invoke-RestMethod -Uri 'https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.13-alpha.1' -Headers $headers
+              $nodeReady = !$node.draft -and @($node.assets | Where-Object { $_.name -eq 'buggcraft-native-0.3.13-alpha.1-linux-x64.tar.gz' }).Count -eq 1
             } catch { $nodeReady = $false }
             if (!$nodeReady) { Start-Sleep -Seconds 20 }
           } while (!$nodeReady -and (Get-Date) -lt $nodeDeadline)
-          if (!$nodeReady) { throw 'Matching node release v0.3.13 is not published; launcher remains staged' }
+          if (!$nodeReady) { throw 'Matching node release v0.3.13-alpha.1 is not published; launcher remains staged' }
           $notes = [System.IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'bugg/.github/release-notes-v${{ steps.version.outputs.value }}.md'), [System.Text.Encoding]::UTF8)
           $body = @{tag_name=$env:RELEASE_TAG;name='Bugg v${{ steps.version.outputs.value }} (Test)';body=$notes;draft=$true;prerelease=$true;make_latest='false'} | ConvertTo-Json
           $release = $null

@@ -17,12 +17,13 @@ def main():
     parser.add_argument('--platform', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
+    native_version = '0.3.13-alpha.1'
     node_platform = args.platform.replace('x86_64', 'x64')
     headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'User-Agent': 'Bugg-desktop-package'}
     deadline = time.monotonic() + 1800
     while True:
         try:
-            with urlopen(Request('https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v0.3.13', headers=headers), timeout=45) as response:
+            with urlopen(Request(f'https://api.github.com/repos/vdjango/minecraft-tunnel-native/releases/tags/v{native_version}', headers=headers), timeout=45) as response:
                 release = json.load(response)
             break
         except HTTPError as error:
@@ -35,7 +36,7 @@ def main():
             raise TimeoutError('Native bridge release lookup timed out')
         # The node publishes independently; GitHub can also time out briefly.
         time.sleep(15)
-    name = f'buggcraft-native-0.3.13-{node_platform}.tar.gz'
+    name = f'buggcraft-native-{native_version}-{node_platform}.tar.gz'
     asset = next(item for item in release['assets'] if item['name'] == name)
     archive = Path(name)
     with urlopen(asset['browser_download_url'], timeout=120) as response:
